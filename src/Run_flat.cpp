@@ -6,6 +6,7 @@ void run_flat(std::string param_filename)
 {
     Param inputParam;
     import_param_file(inputParam, param_filename + ".params");
+    const bool restartRequested = !inputParam.restartInputFile.empty();
     Mesh mesh(inputParam);
     mesh.setup_flat();
 
@@ -57,7 +58,7 @@ void run_flat(std::string param_filename)
             mesh.orient_scaffolding_plane_to_membrane();
             mesh.pre_relax_gag_scaffolding();
         }
-        // move spline points upwards until the lower boundary is approximately z=0
+        // initialize the membrane shape from the aligned scaffold geometry
         mesh.move_vertices_based_on_scaffolding(false);
         // find closest vertex point and save in vector
         mesh.set_scaffolding_vertices_correspondence();
@@ -68,8 +69,11 @@ void run_flat(std::string param_filename)
     }
 
     // Output the vertices and faces matrix
-    mesh.write_faces_csv("face.csv");
-    mesh.write_vertices_csv("vertex_begin.csv");
+    if (!restartRequested)
+    {
+        mesh.write_faces_csv("face.csv");
+        mesh.write_vertices_csv("vertex_begin.csv");
+    }
     
     // Initialize all value before minimum energy search 
     mesh.calculate_element_area_volume(); // Calculate the elemental area and volume per triangles (faces)
@@ -90,24 +94,134 @@ void run_flat(std::string param_filename)
     // This object also contains a member model.oa (OptimizationAlgorithm) which defines
     // the nonlinear conjugate method (NCG) that we use for efficient lowest energy search
     Model model(mesh, record);
- 
+
+    if (restartRequested)
+    {
+        if (!load_model_restart_checkpoint(model, mesh.param.restartInputFile))
+        {
+            std::cerr << "[main()] Restart requested but checkpoint load failed. Stopped." << std::endl;
+            return;
+        }
+        if (mesh.param.isEnergyHarmonicBondIncluded)
+        {
+            mesh.set_scaffolding_vertices_correspondence();
+        }
+        mesh.Compute_Energy_And_Force();
+        mesh.update_previous_coord_for_vertex();
+        mesh.update_previous_force_for_vertex();
+        mesh.update_previous_energy_for_face();
+        mesh.param.energyPrev = mesh.param.energy;
+    }
+
+    if (mesh.param.meshpointOutput)
+    {
+        model.mesh.write_vertices_csv("vertex_initial_step_0.csv");
+        if (mesh.param.isGagScaffoldingEnergyIncluded ||
+            mesh.param.isIdealizedProteinLatticeEnergyIncluded)
+        {
+            model.mesh.write_gag_scaffolding_state_dat("gag_scaffold_initial_step_0.dat");
+        }
+    }
     const double initialMeanForce = record.meanForce.back();
     const bool isInitiallyConverged = std::isfinite(initialMeanForce) &&
                                       initialMeanForce <= model.oa.forceDiffThreshold;
-    if (isInitiallyConverged)
-    {
-        std::cout << "[main()] Step: 0  -- initial mean force is below convergence threshold. Stopped." << std::endl;
-    }
 
-    while (!isInitiallyConverged && model.should_continue_optimization())
+    if (mesh.param.thermalFluctuationPureMMC)
     {
+        if (!mesh.param.thermalFluctuationEnabled)
+        {
+            std::cerr << "[main()] thermalFluctuationPureMMC requires thermalFluctuationEnabled = true. Stopped." << std::endl;
+            return;
+        }
+        std::cout << "[main()] Running pure Metropolis Monte Carlo thermal fluctuation mode. "
+                  << "No NCG minimization steps will be performed; one MMC trial is attempted every step."
+                  << std::endl;
+
+        while (model.iteration < mesh.param.maxIterations - 1)
+        {
+            const bool thermalMoveAttempted = model.simulated_annealing_next_step(true);
+            if (!thermalMoveAttempted)
+            {
+                std::cerr << "[main()] Pure MMC thermal move was not attempted. Check thermal parameters. Stopped." << std::endl;
+                break;
+            }
+
+            mesh.update_previous_coord_for_vertex();
+            mesh.update_previous_force_for_vertex();
+            mesh.update_previous_energy_for_face();
+            mesh.param.energyPrev = mesh.param.energy;
+
+            const int recordIndex = static_cast<int>(record.energyVec.size());
+            record.add(mesh.param.area, mesh.param.energy, mesh.calculate_mean_force());
+            record.print_iteration(recordIndex);
+
+            if (mesh.param.meshpointOutput && model.iteration < 5)
+            {
+                const int snapshotIteration = model.iteration + 1;
+                model.mesh.write_vertices_csv("vertex_initial_step_" + std::to_string(snapshotIteration) + ".csv");
+                if (mesh.param.isGagScaffoldingEnergyIncluded ||
+                    mesh.param.isIdealizedProteinLatticeEnergyIncluded)
+                {
+                    model.mesh.write_gag_scaffolding_state_dat("gag_scaffold_initial_step_" + std::to_string(snapshotIteration) + ".dat");
+                }
+            }
+
+            const int nextIteration = model.iteration + 1;
+            if (nextIteration % 10000 == 0)
+            {
+                write_vertex_data_to_csv(model.mesh, nextIteration);
+                if (mesh.param.isGagScaffoldingEnergyIncluded ||
+                    mesh.param.isIdealizedProteinLatticeEnergyIncluded)
+                {
+                    mesh.write_gag_scaffolding_state_dat("gag_scaffold_" + std::to_string(nextIteration) + ".dat");
+                }
+            }
+            if (mesh.param.checkpointOutputInterval > 0 &&
+                nextIteration % mesh.param.checkpointOutputInterval == 0)
+            {
+                write_model_restart_checkpoint(model,
+                                               mesh.param.checkpointOutputFile,
+                                               nextIteration);
+            }
+            model.iteration++;
+        }
+    }
+    else
+    {
+        if (isInitiallyConverged)
+        {
+            std::cout << "[main()] Step: 0  -- initial mean force is below convergence threshold. Stopped." << std::endl;
+        }
+
+        while (!isInitiallyConverged && model.should_continue_optimization())
+        {
         // The step size a0 needs a trial value, which is determined by rule-of-thumb.
-        model.determine_trial_step_size(); 
+        model.determine_trial_step_size();
+        if (model.oa.trialStepSize < 0 && mesh.param.thermalFluctuationEnabled)
+        {
+            bool thermalMoveAttempted = model.simulated_annealing_next_step();
+            if (thermalMoveAttempted)
+            {
+                if (!model.thermalFluctuationRecords.back().accepted)
+                {
+                    std::cout << "[main()] Thermal fluctuation trial was rejected and no deterministic force direction was available. Stopped." << std::endl;
+                    break;
+                }
+                mesh.update_previous_coord_for_vertex();
+                mesh.update_previous_force_for_vertex();
+                mesh.update_previous_energy_for_face();
+                mesh.param.energyPrev = mesh.param.energy;
+                model.reset_ncg_direction();
+                model.update_ncg_direction();
+                model.oa.trialStepSize = 0.1 * mesh.param.lFace / 5.0;
+                record.add(mesh.param.area, mesh.param.energy, mesh.calculate_mean_force());
+                record.print_iteration(model.iteration);
+                model.iteration++;
+                continue;
+            }
+        }
         // Search for a step size above model.oa.stepSizeThreshold
         model.linear_search_for_stepsize_to_minimize_energy(); 
-        // Simulated annealing
-        model.simulated_annealing_next_step();
-        if (model.iteration > 1000) model.highTemperature = 0.0;
         // Command line out put for current step
         std::cout << "[main()] " << model.to_string_current_step() << std::endl;
  
@@ -119,6 +233,11 @@ void run_flat(std::string param_filename)
         }
  
         model.update_vertex_using_NCG(); // apply displacement to vertices based on forces
+        bool thermalMoveAttempted = model.simulated_annealing_next_step(); // optional Metropolis thermal trial
+        if (thermalMoveAttempted)
+        {
+            model.reset_ncg_direction();
+        }
 
         // Update spring constant if scaffolding is included
         if (mesh.param.isEnergyHarmonicBondIncluded &&
@@ -154,7 +273,17 @@ void run_flat(std::string param_filename)
  
         // Record the Energy and nodal Force
         record.add(mesh.param.area, mesh.param.energy, mesh.calculate_mean_force());
-        
+        if (mesh.param.meshpointOutput && model.iteration < 5)
+        {
+            const int snapshotIteration = model.iteration + 1;
+            model.mesh.write_vertices_csv("vertex_initial_step_" + std::to_string(snapshotIteration) + ".csv");
+            if (mesh.param.isGagScaffoldingEnergyIncluded ||
+                mesh.param.isIdealizedProteinLatticeEnergyIncluded)
+            {
+                model.mesh.write_gag_scaffolding_state_dat("gag_scaffold_initial_step_" + std::to_string(snapshotIteration) + ".dat");
+            }
+        }
+
         // Update the reference if energy or force is not changing signficantly
         if (model.iteration > 0 &&
             (abs(record.energyVec[model.iteration].energyTotal - record.energyVec[model.iteration - 1].energyTotal) < 1e-3 ||
@@ -183,10 +312,40 @@ void run_flat(std::string param_filename)
                 mesh.write_gag_scaffolding_state_dat("gag_scaffold_" + std::to_string(model.iteration) + ".dat");
             }
         }
+        const int nextIteration = model.iteration + 1;
+        if (mesh.param.checkpointOutputInterval > 0 &&
+            nextIteration % mesh.param.checkpointOutputInterval == 0)
+        {
+            write_model_restart_checkpoint(model,
+                                           mesh.param.checkpointOutputFile,
+                                           nextIteration);
+        }
         model.iteration++;
+    }
+    }
+    if (mesh.param.checkpointOutputInterval > 0)
+    {
+        write_model_restart_checkpoint(model,
+                                       mesh.param.checkpointOutputFile,
+                                       model.iteration);
     }
     // Output Energy and meanforce
     write_energy_force_data_to_csv(model);
+    if (!model.thermalFluctuationRecords.empty())
+    {
+        std::ofstream thermalOutfile("ThermalFluctuation.csv");
+        thermalOutfile << "iteration,temperature_kelvin,kBT_pN_nm,delta_energy,acceptance_probability,accepted\n";
+        for (const auto& thermalRecord : model.thermalFluctuationRecords)
+        {
+            thermalOutfile << thermalRecord.iteration << ","
+                           << thermalRecord.temperatureKelvin << ","
+                           << thermalRecord.kBT << ","
+                           << thermalRecord.deltaEnergy << ","
+                           << thermalRecord.acceptanceProbability << ","
+                           << thermalRecord.accepted << "\n";
+        }
+        thermalOutfile.close();
+    }
 
     // Output element face energy
     // write_element_face_energy_to_csv(model);

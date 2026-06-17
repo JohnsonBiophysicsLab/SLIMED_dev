@@ -118,6 +118,9 @@ struct Param
     // developer options
     bool VERBOSE_MODE = true; ///< Whether to print verbose output during simulation
     int maxIterations = 1E5; ///< Max number of iteration
+    std::string restartInputFile = ""; ///< Optional checkpoint file to restart from
+    std::string checkpointOutputFile = "slimed_restart.chk"; ///< Checkpoint file written during minimization
+    int checkpointOutputInterval = 1000; ///< Iteration interval for checkpoint writes; <=0 disables checkpointing
 
     // physical constants
     double kCurv = 83.4;  ///< Bending modulus i.e. curvature constant (kc)
@@ -215,6 +218,15 @@ struct Param
     double KBT = 4.17;       // 1KbT = 4.17 pN.nm
     unsigned int randomSeed = 42; ///< random seed used in normal distribution
     bool surfacepointOutput = true; ///< whether to output surface point file
+
+    // thermal fluctuation / annealing for equilibrium searches
+    bool thermalFluctuationEnabled = false;           ///< Enable Metropolis thermal trial moves during minimization
+    bool thermalFluctuationPureMMC = false;           ///< Run pure Metropolis Monte Carlo trial moves without NCG
+    int thermalFluctuationInterval = 50;              ///< Iteration interval between thermal trial moves
+    double thermalFluctuationTemperatureKelvin = 298.0;    ///< Effective thermodynamic temperature in Kelvin
+    double thermalFluctuationMinTemperatureKelvin = 298.0; ///< Lower bound for annealed temperature in Kelvin
+    double thermalFluctuationCoolingRate = 1.0;       ///< Multiplicative cooling rate after each thermal trial
+    double thermalFluctuationStepScale = 0.02;        ///< Gaussian displacement std. dev. as a fraction of lFace
 
     // insertion
     bool isInsertionIncluded = false;

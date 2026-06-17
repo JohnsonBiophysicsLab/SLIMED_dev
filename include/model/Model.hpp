@@ -93,6 +93,16 @@ public:
 class Model
 {
 public:
+    struct ThermalFluctuationRecord
+    {
+        int iteration = 0;
+        double temperatureKelvin = 0.0;
+        double kBT = 0.0;
+        double deltaEnergy = 0.0;
+        double acceptanceProbability = 0.0;
+        bool accepted = false;
+    };
+
     // Geometry, energy, and force
     Mesh& mesh;     /**< The mesh object. */
     Record& record; /**< The record object. */
@@ -109,6 +119,9 @@ public:
     int currentHeatingStep = 0;
     int heatingStep = 15;
     double highTemperature = 0.0;
+    std::mt19937 thermalRng; ///< Reproducible random generator for thermal fluctuation trial moves
+    int thermalFluctuationAttemptCount = 0; ///< Number of attempted thermal trial moves
+    std::vector<ThermalFluctuationRecord> thermalFluctuationRecords; ///< Diagnostics for thermal trial moves
 
     /**
      * @brief Constructs a new Model object.
@@ -176,11 +189,17 @@ public:
     double linear_search_for_stepsize_to_minimize_energy();
 
     /**
-     * @brief Use simulated annealing to sample more point beyond locally gradient descent
-     * 
-     * @param temperature 
+     * @brief Use a Metropolis thermal trial move to sample beyond local gradient descent.
+     *
+     * @return true if a thermal trial was attempted on this iteration.
      */
-    void simulated_annealing_next_step();
+    bool simulated_annealing_next_step(bool forceAttempt = false);
+
+    /**
+     * @brief Synchronize boundary/ghost coordinates after direct coordinate updates.
+     *
+     */
+    void enforce_boundary_conditions_after_coordinate_update();
 
     /**
      * @brief Update vertex coordinates using a non-linear conjugate gradient method.

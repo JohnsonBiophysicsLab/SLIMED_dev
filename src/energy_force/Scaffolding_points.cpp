@@ -729,9 +729,14 @@ bool Mesh::move_vertices_based_on_scaffolding(bool fixDir)
                     double xyQuadrance = xShift * xShift + yShift * yShift; // (x - x0)^2 + (y - y0)^2
 
                     // Use shape function to calcualte end of relaxation
-                    double zShiftRelaxEnd = c1 * rR * rR + c3 * log(std::max(rR, 1.0e-12)) + c4;
-                    const double capEdgeZ = this->centerScaffoldingSphere(2, 0) + zShiftRelaxStart;
                     const double flatPlaneZ = param.scaffoldingZeroPlaneZ;
+                    auto raise_above_scaffold_plane = [&](double originalZ, double candidateZ) {
+                        return std::max(std::max(originalZ, flatPlaneZ), candidateZ);
+                    };
+
+                    double zShiftRelaxEnd = c1 * rR * rR + c3 * log(std::max(rR, 1.0e-12)) + c4;
+                    const double capEdgeZ = std::max(flatPlaneZ,
+                                                      this->centerScaffoldingSphere(2, 0) + zShiftRelaxStart);
 
                     //examine if vertex is with in cap region
                     if (xyQuadrance <= membraneCapRadiusSquared)
@@ -739,7 +744,7 @@ bool Mesh::move_vertices_based_on_scaffolding(bool fixDir)
                         // z - z0 = sqrt((R + l)^2 - (x - x0)^2 - (y - y0)^2)
                         double zShift = safe_sqrt(membraneSphereRadius * membraneSphereRadius - xyQuadrance);
                         const double candidateZ = this->centerScaffoldingSphere(2, 0) + zShift;
-                        vertex.coord.set(2, 0, raise_above_baseline(originalZ, candidateZ));
+                        vertex.coord.set(2, 0, raise_above_scaffold_plane(originalZ, candidateZ));
                         // Change C0 of insertion
                         for (int iAdjFaces : vertex.adjacentFaces) {
                             faces[iAdjFaces].spontCurvature = param.insertCurv;
@@ -765,15 +770,15 @@ bool Mesh::move_vertices_based_on_scaffolding(bool fixDir)
                         if (vertex.isBoundary)
                         {
                             const double candidateZ = flatPlaneZ;
-                            vertex.coord.set(2, 0, raise_above_baseline(originalZ, candidateZ));
+                            vertex.coord.set(2, 0, raise_above_scaffold_plane(originalZ, candidateZ));
                         }
                         else
                         {
-                            vertex.coord.set(2, 0, raise_above_baseline(originalZ, transitionZ));
+                            vertex.coord.set(2, 0, raise_above_scaffold_plane(originalZ, transitionZ));
                         }
                     } else {
                         const double candidateZ = flatPlaneZ;
-                        vertex.coord.set(2, 0, raise_above_baseline(originalZ, candidateZ));
+                        vertex.coord.set(2, 0, raise_above_scaffold_plane(originalZ, candidateZ));
                     }
                 }
                 break;
@@ -1324,6 +1329,41 @@ bool Mesh::orient_scaffolding_plane_to_membrane()
         point.set(0, 0, point(0, 0) + xShiftToMembraneCenter);
         point.set(1, 0, point(1, 0) + yShiftToMembraneCenter);
     }
+
+    double gagSphereRadius = param.scaffoldingSphereRaidus;
+    if (!std::isfinite(gagSphereRadius) || gagSphereRadius <= 0.0)
+    {
+        gagSphereRadius = 50.0;
+    }
+    double gagCapRadiusSquared = 0.0;
+    for (const Matrix &point : param.scaffoldingPoints)
+    {
+        gagCapRadiusSquared = std::max(gagCapRadiusSquared,
+                                       point(0, 0) * point(0, 0) + point(1, 0) * point(1, 0));
+    }
+    double gagCapRadius = std::sqrt(gagCapRadiusSquared);
+    if (gagCapRadius >= gagSphereRadius)
+    {
+        gagCapRadius = gagSphereRadius * (1.0 - 1.0e-6);
+    }
+    const double membraneSphereRadius = gagSphereRadius + param.lbond;
+    double membraneCapRadiusSquared = gagCapRadius * gagCapRadius / gagSphereRadius / gagSphereRadius
+                                    * membraneSphereRadius * membraneSphereRadius;
+    membraneCapRadiusSquared = std::min(membraneCapRadiusSquared,
+                                        membraneSphereRadius * membraneSphereRadius);
+    const double zShiftRelaxStart = std::sqrt(std::max(0.0,
+        membraneSphereRadius * membraneSphereRadius - membraneCapRadiusSquared));
+    const double inferredSphereCenterZ = param.scaffoldingPoints[capCenterIndex](2, 0) - gagSphereRadius;
+    const double inferredCapEdgeZ = inferredSphereCenterZ + zShiftRelaxStart;
+    const double zShiftToZeroPlane = param.scaffoldingZeroPlaneZ - inferredCapEdgeZ;
+    for (Matrix &point : param.scaffoldingPoints)
+    {
+        point.set(2, 0, point(2, 0) + zShiftToZeroPlane);
+    }
+    std::cout << "[Mesh::orient_scaffolding_plane_to_membrane] Shifted scaffold by ("
+              << xShiftToMembraneCenter << ", " << yShiftToMembraneCenter << ", "
+              << zShiftToZeroPlane << ") so inferred cap edge starts at z="
+              << param.scaffoldingZeroPlaneZ << std::endl;
 
     gsl_eigen_symmv_free(workspace);
     gsl_vector_free(eval);

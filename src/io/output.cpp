@@ -1,6 +1,59 @@
 #include "io/io.hpp"
+#include <cstdio>
+#include <iomanip>
 
 using namespace std;
+
+namespace
+{
+void write_matrix3(std::ostream &out, const Matrix &matrix)
+{
+    out << matrix(0, 0) << ' ' << matrix(1, 0) << ' ' << matrix(2, 0);
+}
+
+bool read_matrix3(std::istream &in, Matrix &matrix)
+{
+    double x = 0.0;
+    double y = 0.0;
+    double z = 0.0;
+    if (!(in >> x >> y >> z))
+    {
+        return false;
+    }
+    matrix.set(0, 0, x);
+    matrix.set(1, 0, y);
+    matrix.set(2, 0, z);
+    return true;
+}
+
+void write_energy_terms(std::ostream &out, const Energy &energy)
+{
+    out << energy.energyCurvature << ' '
+        << energy.energyArea << ' '
+        << energy.energyVolume << ' '
+        << energy.energyThickness << ' '
+        << energy.energyTilt << ' '
+        << energy.energyRegularization << ' '
+        << energy.energyHarmonicBond << ' '
+        << energy.energyGagScaffolding << ' '
+        << energy.energyIdealizedProteinLattice << ' '
+        << energy.energyTotal;
+}
+
+bool read_energy_terms(std::istream &in, Energy &energy)
+{
+    return static_cast<bool>(in >> energy.energyCurvature
+                                >> energy.energyArea
+                                >> energy.energyVolume
+                                >> energy.energyThickness
+                                >> energy.energyTilt
+                                >> energy.energyRegularization
+                                >> energy.energyHarmonicBond
+                                >> energy.energyGagScaffolding
+                                >> energy.energyIdealizedProteinLattice
+                                >> energy.energyTotal);
+}
+}
 
 /**
  * @brief Writes the vertex data for the mesh to a CSV file.
@@ -67,6 +120,313 @@ void write_energy_force_data_to_csv(const Model &model)
                   << model.record.meanForce[j] << '\n';
     }
     outfileEF.close();
+}
+
+bool write_model_restart_checkpoint(const Model &model,
+                                    const std::string &filepath,
+                                    const int nextIteration)
+{
+    if (filepath.empty())
+    {
+        return false;
+    }
+
+    const std::string tempFilepath = filepath + ".tmp";
+    std::ofstream outfile(tempFilepath);
+    if (!outfile.is_open())
+    {
+        std::cerr << "[write_model_restart_checkpoint] Could not open "
+                  << tempFilepath << " for writing." << std::endl;
+        return false;
+    }
+
+    outfile << std::setprecision(17);
+    outfile << "SLIMED_RESTART_V1\n";
+    outfile << "nextIteration " << nextIteration << "\n";
+    outfile << "stepSize " << model.stepSize << "\n";
+    outfile << "oa "
+            << model.oa.usingNCG << ' '
+            << model.oa.isNCGstuck << ' '
+            << model.oa.usingRpi << ' '
+            << model.oa.isCriteriaSatisfied << ' '
+            << model.oa.trialStepSize << ' '
+            << model.oa.trialIterationInterval << ' '
+            << model.oa.c1 << ' '
+            << model.oa.c2 << ' '
+            << model.oa.stepThreshold << ' '
+            << model.oa.nConsecutiveNcgStuck << ' '
+            << model.oa.nConsecutiveNcgStuckThreshold << ' '
+            << model.oa.energyDiffThreshold << ' '
+            << model.oa.forceDiffThreshold << "\n";
+    outfile << "thermal "
+            << model.isHeating << ' '
+            << model.currentCoolingStep << ' '
+            << model.coolingStep << ' '
+            << model.currentHeatingStep << ' '
+            << model.heatingStep << ' '
+            << model.highTemperature << ' '
+            << model.thermalFluctuationAttemptCount << "\n";
+    outfile << "thermalRng " << model.thermalRng << "\n";
+    outfile << "springConst " << model.mesh.param.springConst << "\n";
+    outfile << "scaffoldingMovement ";
+    write_matrix3(outfile, model.mesh.scaffoldingMovementVector);
+    outfile << "\n";
+
+    outfile << "vertices " << model.mesh.vertices.size() << "\n";
+    for (const Vertex &vertex : model.mesh.vertices)
+    {
+        outfile << vertex.index << ' ';
+        write_matrix3(outfile, vertex.coord);
+        outfile << ' ';
+        write_matrix3(outfile, vertex.coordPrev);
+        outfile << ' ';
+        write_matrix3(outfile, vertex.coordRef);
+        outfile << ' ';
+        write_matrix3(outfile, vertex.force.forceTotal);
+        outfile << ' ';
+        write_matrix3(outfile, vertex.forcePrev.forceTotal);
+        outfile << ' ';
+        write_matrix3(outfile, model.ncgDirection0[vertex.index].forceTotal);
+        outfile << "\n";
+    }
+
+    outfile << "scaffoldingPoints " << model.mesh.param.scaffoldingPoints.size() << "\n";
+    for (int i = 0; i < static_cast<int>(model.mesh.param.scaffoldingPoints.size()); ++i)
+    {
+        outfile << i << ' ';
+        write_matrix3(outfile, model.mesh.param.scaffoldingPoints[i]);
+        outfile << "\n";
+    }
+
+    outfile << "gagRotations " << model.mesh.gagSubunits.size() << "\n";
+    for (int i = 0; i < static_cast<int>(model.mesh.gagSubunits.size()); ++i)
+    {
+        outfile << i;
+        for (int row = 0; row < 3; ++row)
+        {
+            for (int col = 0; col < 3; ++col)
+            {
+                outfile << ' ' << model.mesh.gagSubunits[i].rotation(row, col);
+            }
+        }
+        outfile << "\n";
+    }
+
+    outfile << "records " << model.record.energyVec.size() << "\n";
+    for (int i = 0; i < static_cast<int>(model.record.energyVec.size()); ++i)
+    {
+        outfile << i << ' ' << model.record.areaTotal[i] << ' ';
+        write_energy_terms(outfile, model.record.energyVec[i]);
+        outfile << ' ' << model.record.meanForce[i] << "\n";
+    }
+    outfile << "END\n";
+    outfile.close();
+
+    if (!outfile)
+    {
+        std::cerr << "[write_model_restart_checkpoint] Failed while writing "
+                  << tempFilepath << "." << std::endl;
+        return false;
+    }
+
+    if (std::rename(tempFilepath.c_str(), filepath.c_str()) != 0)
+    {
+        std::cerr << "[write_model_restart_checkpoint] Could not replace "
+                  << filepath << "." << std::endl;
+        return false;
+    }
+
+    std::cout << "[write_model_restart_checkpoint] Wrote checkpoint for next iteration "
+              << nextIteration << " to " << filepath << std::endl;
+    return true;
+}
+
+bool load_model_restart_checkpoint(Model &model, const std::string &filepath)
+{
+    std::ifstream infile(filepath);
+    if (!infile.is_open())
+    {
+        std::cerr << "[load_model_restart_checkpoint] Could not open "
+                  << filepath << " for reading." << std::endl;
+        return false;
+    }
+
+    std::string tag;
+    infile >> tag;
+    if (tag != "SLIMED_RESTART_V1")
+    {
+        std::cerr << "[load_model_restart_checkpoint] Unsupported checkpoint format in "
+                  << filepath << "." << std::endl;
+        return false;
+    }
+
+    infile >> tag >> model.iteration;
+    if (tag != "nextIteration")
+    {
+        return false;
+    }
+    infile >> tag >> model.stepSize;
+    if (tag != "stepSize")
+    {
+        return false;
+    }
+
+    infile >> tag;
+    if (tag != "oa")
+    {
+        return false;
+    }
+    infile >> model.oa.usingNCG
+           >> model.oa.isNCGstuck
+           >> model.oa.usingRpi
+           >> model.oa.isCriteriaSatisfied
+           >> model.oa.trialStepSize
+           >> model.oa.trialIterationInterval
+           >> model.oa.c1
+           >> model.oa.c2
+           >> model.oa.stepThreshold
+           >> model.oa.nConsecutiveNcgStuck
+           >> model.oa.nConsecutiveNcgStuckThreshold
+           >> model.oa.energyDiffThreshold
+           >> model.oa.forceDiffThreshold;
+
+    infile >> tag;
+    if (tag != "thermal")
+    {
+        return false;
+    }
+    infile >> model.isHeating
+           >> model.currentCoolingStep
+           >> model.coolingStep
+           >> model.currentHeatingStep
+           >> model.heatingStep
+           >> model.highTemperature
+           >> model.thermalFluctuationAttemptCount;
+
+    infile >> tag;
+    if (tag != "thermalRng")
+    {
+        return false;
+    }
+    infile >> model.thermalRng;
+
+    infile >> tag >> model.mesh.param.springConst;
+    if (tag != "springConst")
+    {
+        return false;
+    }
+
+    infile >> tag;
+    if (tag != "scaffoldingMovement" ||
+        !read_matrix3(infile, model.mesh.scaffoldingMovementVector))
+    {
+        return false;
+    }
+
+    int count = 0;
+    infile >> tag >> count;
+    if (tag != "vertices" || count != static_cast<int>(model.mesh.vertices.size()))
+    {
+        std::cerr << "[load_model_restart_checkpoint] Vertex count mismatch." << std::endl;
+        return false;
+    }
+    for (int row = 0; row < count; ++row)
+    {
+        int index = -1;
+        infile >> index;
+        if (index < 0 || index >= static_cast<int>(model.mesh.vertices.size()))
+        {
+            return false;
+        }
+        Vertex &vertex = model.mesh.vertices[index];
+        if (!read_matrix3(infile, vertex.coord) ||
+            !read_matrix3(infile, vertex.coordPrev) ||
+            !read_matrix3(infile, vertex.coordRef) ||
+            !read_matrix3(infile, vertex.force.forceTotal) ||
+            !read_matrix3(infile, vertex.forcePrev.forceTotal) ||
+            !read_matrix3(infile, model.ncgDirection0[index].forceTotal))
+        {
+            return false;
+        }
+    }
+
+    infile >> tag >> count;
+    if (tag != "scaffoldingPoints" ||
+        count != static_cast<int>(model.mesh.param.scaffoldingPoints.size()))
+    {
+        std::cerr << "[load_model_restart_checkpoint] Scaffolding point count mismatch." << std::endl;
+        return false;
+    }
+    for (int row = 0; row < count; ++row)
+    {
+        int index = -1;
+        infile >> index;
+        if (index < 0 || index >= static_cast<int>(model.mesh.param.scaffoldingPoints.size()) ||
+            !read_matrix3(infile, model.mesh.param.scaffoldingPoints[index]))
+        {
+            return false;
+        }
+    }
+
+    infile >> tag >> count;
+    if (tag != "gagRotations" || count != static_cast<int>(model.mesh.gagSubunits.size()))
+    {
+        std::cerr << "[load_model_restart_checkpoint] Gag rotation count mismatch." << std::endl;
+        return false;
+    }
+    for (int row = 0; row < count; ++row)
+    {
+        int index = -1;
+        infile >> index;
+        if (index < 0 || index >= static_cast<int>(model.mesh.gagSubunits.size()))
+        {
+            return false;
+        }
+        for (int i = 0; i < 3; ++i)
+        {
+            for (int j = 0; j < 3; ++j)
+            {
+                double value = 0.0;
+                infile >> value;
+                model.mesh.gagSubunits[index].rotation.set(i, j, value);
+            }
+        }
+    }
+
+    infile >> tag >> count;
+    if (tag != "records" || count < 0)
+    {
+        return false;
+    }
+    model.record.areaTotal.clear();
+    model.record.energyVec.clear();
+    model.record.meanForce.clear();
+    model.record.areaTotal.reserve(count);
+    model.record.energyVec.reserve(count);
+    model.record.meanForce.reserve(count);
+    for (int row = 0; row < count; ++row)
+    {
+        int index = -1;
+        double area = 0.0;
+        Energy energy;
+        double meanForce = 0.0;
+        infile >> index >> area;
+        if (index != row || !read_energy_terms(infile, energy) || !(infile >> meanForce))
+        {
+            return false;
+        }
+        model.record.add(area, energy, meanForce);
+    }
+
+    infile >> tag;
+    if (tag != "END")
+    {
+        return false;
+    }
+
+    std::cout << "[load_model_restart_checkpoint] Restarted from " << filepath
+              << " at iteration " << model.iteration << std::endl;
+    return true;
 }
 
 /**

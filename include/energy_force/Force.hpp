@@ -69,6 +69,11 @@ public:
     Matrix &calculate_total_force();
 
     /**
+     * @brief Reset all force components to zero without reallocating matrices.
+     */
+    void set_all_zero();
+
+    /**
      * @brief Get the magnitude (norm) of total force
      * @return double magnitude of the total force
      * @note This method assumes total force is up to date. If not, please use
@@ -127,4 +132,3 @@ Force operator+(const Force& lhs, const Force& rhs);
  * @return Force& 
  */
 Force& operator+=(Force& lhs, const Force& rhs);
-

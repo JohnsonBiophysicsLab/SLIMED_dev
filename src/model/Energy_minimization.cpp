@@ -50,6 +50,7 @@ double Model::linear_search_for_stepsize_to_minimize_energy()
         if (oa.usingNCG && !oa.isNCGstuck)
         {
             // Calculate NCG factor in parallel
+            ncgFactor = 0.0;
             #pragma omp parallel for reduction(+ : ncgFactor)
             for (int i = 0; i < nVertices; i++)
             {
@@ -111,8 +112,6 @@ void Model::update_vertex_using_NCG()
 {
     vector<Force>& ncgDirection0 = this->ncgDirection0;
     double stepSize = this->stepSize;
-    int nFaceX = mesh.param.nFaceX; ///< Number of faces in the x-axis division of the mesh.
-    int nFaceY = mesh.param.nFaceY; ///< Number of faces in the y-axis division of the mesh.
 
     // Update the position coordinates of vertices in parallel
     // by step size and direction vector (force)
@@ -122,6 +121,14 @@ void Model::update_vertex_using_NCG()
         // Update coordinate of current vertex using previous coordinate and step size in a specific direction
         mesh.vertices[i].coord = mesh.vertices[i].coordPrev + stepSize * ncgDirection0[i].forceTotal;
     }
+
+    enforce_boundary_conditions_after_coordinate_update();
+}
+
+void Model::enforce_boundary_conditions_after_coordinate_update()
+{
+    int nFaceX = mesh.param.nFaceX; ///< Number of faces in the x-axis division of the mesh.
+    int nFaceY = mesh.param.nFaceY; ///< Number of faces in the y-axis division of the mesh.
 
     // Deal with the boundary/ghost vertex based on boundary condition type defined as
     // enum class BoundaryType
@@ -283,50 +290,122 @@ void Model::update_vertex_using_NCG()
     }
 }
 
-void Model::simulated_annealing_next_step()
-{   
-    std::random_device rd;
-    std::mt19937 rng(rd());
-    std::normal_distribution<double> distribution(0.0, 1.0);
-
-    if (isHeating)
+bool Model::simulated_annealing_next_step(bool forceAttempt)
+{
+    Param& param = mesh.param;
+    if (!param.thermalFluctuationEnabled)
     {
-        for (Vertex& vertex : mesh.vertices)
+        return false;
+    }
+    if (!forceAttempt &&
+        (param.thermalFluctuationInterval <= 0 ||
+        iteration % param.thermalFluctuationInterval != 0)
+    )
+    {
+        return false;
+    }
+
+    const double kBoltzmannPNnmPerK = 0.01380649;
+    double temperatureKelvin = param.thermalFluctuationTemperatureKelvin *
+                               std::pow(param.thermalFluctuationCoolingRate,
+                                        thermalFluctuationAttemptCount);
+    if (temperatureKelvin < param.thermalFluctuationMinTemperatureKelvin)
+    {
+        temperatureKelvin = param.thermalFluctuationMinTemperatureKelvin;
+    }
+
+    const double effectiveKBT = kBoltzmannPNnmPerK * temperatureKelvin;
+    const double displacementStddev = param.thermalFluctuationStepScale * param.lFace;
+    if (!std::isfinite(temperatureKelvin) || !std::isfinite(effectiveKBT) ||
+        !std::isfinite(displacementStddev) ||
+        effectiveKBT <= 0.0 || displacementStddev <= 0.0)
+    {
+        return false;
+    }
+
+    const double currentEnergy = param.energy.energyTotal;
+    std::vector<Matrix> previousCoords(mesh.vertices.size(), Matrix(3, 1));
+    for (int i = 0; i < mesh.vertices.size(); i++)
+    {
+        previousCoords[i] = mesh.vertices[i].coord;
+    }
+
+    std::vector<int> mobileVertexIndices;
+    mobileVertexIndices.reserve(mesh.vertices.size());
+    for (int i = 0; i < mesh.vertices.size(); i++)
+    {
+        const Vertex& vertex = mesh.vertices[i];
+        if (!vertex.isGhost && vertex.type != VertexType::Ghost &&
+            vertex.type != VertexType::FixedBoundary)
         {
-            for (int j = 0; j < 3; j++)
-            {
-                //std::cout << vertex.coord(j, 0) << std::endl;
-                double random_number = distribution(rng);
-                if (random_number > 3.0)
-                {
-                    random_number = 3.0;
-                } else if (random_number < -3.0)
-                {
-                    random_number = -3.0;
-                }
-                vertex.coord.set(j, 0, vertex.coord(j, 0) + highTemperature * random_number);
-                //std::cout << "anneal to : " << vertex.coord(j, 0) << std::endl;
-            }
-        }
-        // Check if heating is done
-        currentHeatingStep++;
-        // Change to cooling if heating is done
-        if (currentHeatingStep >= heatingStep)
-        {
-            isHeating = false;
-            currentHeatingStep = 0;
-            currentCoolingStep = 0;
-        }
-    } else {
-        // Check if cooling is done
-        currentCoolingStep++;
-        // Change to heating if cooling is done
-        if (currentCoolingStep >= coolingStep)
-        {
-            isHeating = true;
-            currentHeatingStep = 0;
-            currentCoolingStep = 0;
+            mobileVertexIndices.push_back(i);
         }
     }
-}
+    if (mobileVertexIndices.empty())
+    {
+        return false;
+    }
 
+    std::uniform_int_distribution<int> vertexDistribution(0, mobileVertexIndices.size() - 1);
+    Vertex& movedVertex = mesh.vertices[mobileVertexIndices[vertexDistribution(thermalRng)]];
+    std::normal_distribution<double> normalDistribution(0.0, displacementStddev);
+    const double maxDisplacement = 3.0 * displacementStddev;
+    for (int j = 0; j < 3; j++)
+    {
+        double displacement = normalDistribution(thermalRng);
+        if (displacement > maxDisplacement)
+        {
+            displacement = maxDisplacement;
+        }
+        else if (displacement < -maxDisplacement)
+        {
+            displacement = -maxDisplacement;
+        }
+        movedVertex.coord.set(j, 0, movedVertex.coord(j, 0) + displacement);
+    }
+
+    enforce_boundary_conditions_after_coordinate_update();
+    mesh.Compute_Energy_And_Force();
+    const double deltaEnergy = param.energy.energyTotal - currentEnergy;
+    double acceptanceProbability = 1.0;
+    bool accepted = true;
+    if (!std::isfinite(deltaEnergy))
+    {
+        acceptanceProbability = 0.0;
+        accepted = false;
+    }
+    else if (deltaEnergy > 0.0)
+    {
+        acceptanceProbability = std::exp(-deltaEnergy / effectiveKBT);
+        std::uniform_real_distribution<double> uniformDistribution(0.0, 1.0);
+        accepted = uniformDistribution(thermalRng) < acceptanceProbability;
+    }
+
+    if (!accepted)
+    {
+        for (int i = 0; i < mesh.vertices.size(); i++)
+        {
+            mesh.vertices[i].coord = previousCoords[i];
+        }
+        mesh.Compute_Energy_And_Force();
+    }
+
+    ThermalFluctuationRecord record;
+    record.iteration = iteration;
+    record.temperatureKelvin = temperatureKelvin;
+    record.kBT = effectiveKBT;
+    record.deltaEnergy = deltaEnergy;
+    record.acceptanceProbability = acceptanceProbability;
+    record.accepted = accepted;
+    thermalFluctuationRecords.push_back(record);
+    thermalFluctuationAttemptCount++;
+
+    std::cout << "[Model::simulated_annealing_next_step] iteration=" << iteration
+              << ", temperatureKelvin=" << temperatureKelvin
+              << ", kBT=" << effectiveKBT
+              << ", deltaEnergy=" << deltaEnergy
+              << ", acceptanceProbability=" << acceptanceProbability
+              << ", accepted=" << accepted << std::endl;
+
+    return true;
+}

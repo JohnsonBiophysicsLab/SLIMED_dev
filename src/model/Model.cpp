@@ -10,7 +10,9 @@ Model::Model(Mesh &mesh_, Record &record_)
     : mesh(mesh_),
       record(record_),
       iteration(0),
-      ncgDirection0(std::vector<Force>(mesh.vertices.size()))
+      stepSize(0.0),
+      ncgDirection0(std::vector<Force>(mesh.vertices.size())),
+      thermalRng(mesh.param.randomSeed)
 {
     std::transform(mesh.vertices.begin(), mesh.vertices.end(),
                    ncgDirection0.begin(), [](Vertex &v)
@@ -95,10 +97,10 @@ void Model::update_ncg_direction()
     double ncgFactorCurr = 0.0; // Calculated from current force
     Matrix forceTmp(3, 1);      // Temporary force matrix to calculate dot product
 
-#pragma omp parallel for reduction(+ \
-                                   : ncgFactorPrev) private(forceTmp)
-    for (Vertex &vertex : mesh.vertices)
+#pragma omp parallel for reduction(+ : ncgFactorPrev, ncgFactorCurr) private(forceTmp)
+    for (int i = 0; i < static_cast<int>(mesh.vertices.size()); ++i)
     {
+        Vertex &vertex = mesh.vertices[i];
         // update ncgFactorPrev with previous force
         forceTmp = vertex.forcePrev.forceTotal;
         ncgFactorPrev += dot_col(forceTmp, forceTmp);
