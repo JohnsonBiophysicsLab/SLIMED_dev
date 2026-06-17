@@ -11,6 +11,14 @@ TEST(PopSpaceTest, BasicTest)
     EXPECT_EQ(pop_space("Mixed\t\tSpaces \tRemoved"), "MixedSpacesRemoved");
 }
 
+TEST(TrimTrailingSemicolonTest, BasicTest)
+{
+    EXPECT_EQ(trim_trailing_semicolon("slimed_restart.chk;"), "slimed_restart.chk");
+    EXPECT_EQ(trim_trailing_semicolon("false;"), "false");
+    EXPECT_EQ(trim_trailing_semicolon("slimed_restart.chk"), "slimed_restart.chk");
+    EXPECT_EQ(trim_trailing_semicolon(""), "");
+}
+
 /**
  * @brief Test import_kv_string function
  *
@@ -69,10 +77,34 @@ TEST(ParamImportTest, ImportParamFile)
     EXPECT_DOUBLE_EQ(testParam.uVol, 0.0);
     EXPECT_FALSE(testParam.isGlobalConstraint);
     EXPECT_DOUBLE_EQ(testParam.KBT, 4.17);
+    EXPECT_FALSE(testParam.thermalFluctuationEnabled);
+    EXPECT_EQ(testParam.thermalFluctuationInterval, 50);
+    EXPECT_DOUBLE_EQ(testParam.thermalFluctuationTemperatureKelvin, 298.0);
+    EXPECT_DOUBLE_EQ(testParam.thermalFluctuationMinTemperatureKelvin, 298.0);
+    EXPECT_DOUBLE_EQ(testParam.thermalFluctuationCoolingRate, 1.0);
+    EXPECT_DOUBLE_EQ(testParam.thermalFluctuationStepScale, 0.02);
     EXPECT_DOUBLE_EQ(testParam.timeStep, 0.001);
     EXPECT_DOUBLE_EQ(testParam.diffConst, 1.0);
 
     // Add more expectations based on your Param object - GPT
+}
+
+TEST(ImportKVStringTest, ThermalFluctuationParameters)
+{
+    Param param;
+    EXPECT_TRUE(import_kv_string("thermalFluctuationEnabled", "true", param));
+    EXPECT_TRUE(import_kv_string("thermalFluctuationInterval", "7", param));
+    EXPECT_TRUE(import_kv_string("thermalFluctuationTemperatureKelvin", "310.0", param));
+    EXPECT_TRUE(import_kv_string("thermalFluctuationMinTemperatureKelvin", "298.0", param));
+    EXPECT_TRUE(import_kv_string("thermalFluctuationCoolingRate", "0.95", param));
+    EXPECT_TRUE(import_kv_string("thermalFluctuationStepScale", "0.01", param));
+
+    EXPECT_TRUE(param.thermalFluctuationEnabled);
+    EXPECT_EQ(param.thermalFluctuationInterval, 7);
+    EXPECT_DOUBLE_EQ(param.thermalFluctuationTemperatureKelvin, 310.0);
+    EXPECT_DOUBLE_EQ(param.thermalFluctuationMinTemperatureKelvin, 298.0);
+    EXPECT_DOUBLE_EQ(param.thermalFluctuationCoolingRate, 0.95);
+    EXPECT_DOUBLE_EQ(param.thermalFluctuationStepScale, 0.01);
 }
 
 // Test import_mesh_from_vertices_faces function

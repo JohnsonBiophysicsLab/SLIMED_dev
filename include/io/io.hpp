@@ -39,6 +39,8 @@
  */
 std::string pop_space(std::string rawString);
 
+std::string trim_trailing_semicolon(std::string rawString);
+
 /**
  * @brief Import key-value pairs from a string
  *
@@ -183,6 +185,22 @@ __attribute__((deprecated("Use Mesh::write_vertex_data_to_csv instead.")));
 void write_energy_force_data_to_csv(const Model &model);
 
 /**
+ * @brief Write a restart checkpoint for a minimization model.
+ *
+ * The checkpoint stores the iteration to run next, optimization state, mesh
+ * coordinates, scaffold state, and record history needed to continue a Slurm
+ * job after a walltime stop.
+ */
+bool write_model_restart_checkpoint(const Model &model,
+                                    const std::string &filepath,
+                                    const int nextIteration);
+
+/**
+ * @brief Load a restart checkpoint into an initialized minimization model.
+ */
+bool load_model_restart_checkpoint(Model &model, const std::string &filepath);
+
+/**
  * @brief Writes the current iteration element face energy data to a CSV file.
  *
  * This function writes the energy data for each element face of
@@ -243,4 +261,3 @@ void output_trajectory_files(Mesh &mesh, const std::string &input_filename);
  * 
  */
 void dynamics_output_trajectory_files(DynamicMesh &mesh, const std::string &filename);
-

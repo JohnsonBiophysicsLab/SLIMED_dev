@@ -75,6 +75,13 @@ std::ostream& operator<<(std::ostream& os, const Param& param)
     os << "timeStep: " << param.timeStep << std::endl;
     os << "diffConst: " << param.diffConst << std::endl;
     os << "KBT: " << param.KBT << std::endl;
+    os << "thermalFluctuationEnabled: " << param.thermalFluctuationEnabled << std::endl;
+    os << "thermalFluctuationPureMMC: " << param.thermalFluctuationPureMMC << std::endl;
+    os << "thermalFluctuationInterval: " << param.thermalFluctuationInterval << std::endl;
+    os << "thermalFluctuationTemperatureKelvin: " << param.thermalFluctuationTemperatureKelvin << std::endl;
+    os << "thermalFluctuationMinTemperatureKelvin: " << param.thermalFluctuationMinTemperatureKelvin << std::endl;
+    os << "thermalFluctuationCoolingRate: " << param.thermalFluctuationCoolingRate << std::endl;
+    os << "thermalFluctuationStepScale: " << param.thermalFluctuationStepScale << std::endl;
     os << "energy: " << param.energy << std::endl;
     os << "energyPrev: " << param.energyPrev << std::endl;
     return os;

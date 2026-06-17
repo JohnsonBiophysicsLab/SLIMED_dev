@@ -34,17 +34,28 @@ void Mesh::Compute_Energy_And_Force()
     // Reset the force on vertices and energy on faces
     clear_force_on_vertices_and_energy_on_faces();
 
-    // Initialize forces to zeros
-    for (Vertex &vertex : vertices)
-    {
-        vertex.force = Force();
-    }
+    const int nVertices = static_cast<int>(vertices.size());
+#ifdef OMP
+    const int nThreads = omp_get_max_threads();
+#else
+    const int nThreads = 1;
+#endif
+    // Per-thread accumulation avoids races when neighboring faces contribute
+    // to the same vertex force.
+    std::vector<std::vector<double>> faceForceComponents(
+        nThreads, std::vector<double>(nVertices * 9, 0.0));
 
     // Step 2.
     // Iterate through faces and calculate forces
 #pragma omp parallel for
     for (Face &face : faces)
     {
+#ifdef OMP
+        const int threadIndex = omp_get_thread_num();
+#else
+        const int threadIndex = 0;
+#endif
+        std::vector<double> &localForceComponents = faceForceComponents[threadIndex];
         // std::cout << "Face index: " << i << endl;
         if (face.isBoundary)
             continue;
@@ -117,12 +128,13 @@ void Mesh::Compute_Energy_And_Force()
         for (int j = 0; j < nOneRingVertices; j++)
         {
             int iVertex = face.oneRingVertices[j];
-            Force forceTmp;
-            forceTmp.forceCurvature = fBend.get_row(j).get_transposed(); ///< store curvature force
-            forceTmp.forceArea = fArea.get_row(j).get_transposed();      ///< store area force
-            forceTmp.forceVolume = fVol.get_row(j).get_transposed();     ///< store volume force
-            forceTmp.calculate_total_force();
-            this->vertices[iVertex].force += forceTmp; ///< add the calculated forces to new_forces array
+            const int baseIndex = iVertex * 9;
+            for (int axis = 0; axis < 3; ++axis)
+            {
+                localForceComponents[baseIndex + axis] += fBend(j, axis);
+                localForceComponents[baseIndex + 3 + axis] += fArea(j, axis);
+                localForceComponents[baseIndex + 6 + axis] += fVol(j, axis);
+            }
             // std::cout << "Force at node: " << fBend[j][0] << fBend[j][1]<< fBend[j][2] << F_consA[j][0] << F_consV[j][0] << endl;
         }
 
@@ -131,6 +143,27 @@ void Mesh::Compute_Energy_And_Force()
         fArea.free();
         fVol.free();
 
+    }
+
+#pragma omp parallel for
+    for (int i = 0; i < nVertices; ++i)
+    {
+        double componentSums[9] = {0.0};
+        for (int threadIndex = 0; threadIndex < nThreads; ++threadIndex)
+        {
+            const std::vector<double> &localForceComponents = faceForceComponents[threadIndex];
+            const int baseIndex = i * 9;
+            for (int component = 0; component < 9; ++component)
+            {
+                componentSums[component] += localForceComponents[baseIndex + component];
+            }
+        }
+        for (int axis = 0; axis < 3; ++axis)
+        {
+            vertices[i].force.forceCurvature.set(axis, 0, componentSums[axis]);
+            vertices[i].force.forceArea.set(axis, 0, componentSums[3 + axis]);
+            vertices[i].force.forceVolume.set(axis, 0, componentSums[6 + axis]);
+        }
     }
 
     // Step 3.
@@ -588,13 +621,26 @@ void Mesh::energy_force_regularization()
     // area deformation measures the area difference from the target (equilibrium) element triangle area
     int areaDeformCount = 0;
 
-    vector<Matrix> fReg(vertices.size(), mat_calloc(3, 1)); ///< Regularization force
+    const int nVertices = static_cast<int>(vertices.size());
+#ifdef OMP
+    const int nThreads = omp_get_max_threads();
+#else
+    const int nThreads = 1;
+#endif
+    std::vector<std::vector<double>> fRegComponents(
+        nThreads, std::vector<double>(nVertices * 3, 0.0));
 
 //@todo Do I need reduction here?
 // #pragma omp parallel for reduction(+ : fReg.data()[:vertices.size()])
-#pragma omp parallel for
+#pragma omp parallel for reduction(+ : shapeDeformCount, areaDeformCount)
     for (Face &face : faces)
     {
+#ifdef OMP
+        const int threadIndex = omp_get_thread_num();
+#else
+        const int threadIndex = 0;
+#endif
+        std::vector<double> &localRegComponents = fRegComponents[threadIndex];
         double eReg = 0.0; ///< Regularization energy
 
         // Indices of three vertices of this face (element triangle)
@@ -663,22 +709,29 @@ void Mesh::energy_force_regularization()
          * false, true: 1
          * true, x: default
          */
-        switch (isDeformShape << isDeformArea)
+        const int deformationCase = (isDeformShape ? 2 : 0) | (isDeformArea ? 1 : 0);
+        switch (deformationCase)
         {
         case 0:
             eReg = kCurv / 2.0 * (pow(length10 - refLength10, 2.0) + pow(length21 - refLength21, 2.0) + pow(length02 - refLength02, 2.0));
-            fReg[iVertex0] += kCurv * ((refLength10 - length10) * (vector10) + (length02 - refLength02) * (vector02));
-            fReg[iVertex1] += kCurv * ((refLength21 - length21) * (vector21) + (length10 - refLength10) * (vector10));
-            fReg[iVertex2] += kCurv * ((refLength02 - length02) * (vector02) + (length21 - refLength21) * (vector21));
+            for (int axis = 0; axis < 3; ++axis)
+            {
+                localRegComponents[iVertex0 * 3 + axis] += kCurv * ((refLength10 - length10) * vector10(axis, 0) + (length02 - refLength02) * vector02(axis, 0));
+                localRegComponents[iVertex1 * 3 + axis] += kCurv * ((refLength21 - length21) * vector21(axis, 0) + (length10 - refLength10) * vector10(axis, 0));
+                localRegComponents[iVertex2 * 3 + axis] += kCurv * ((refLength02 - length02) * vector02(axis, 0) + (length21 - refLength21) * vector21(axis, 0));
+            }
             break;
         case 1:
             {
                 areaDeformCount++;
                 double meanSideLengthRef = sqrt(4.0 * refArea / sqrt(3.0));
                 eReg = kCurv / 2.0 * (pow(length10 - meanSideLengthRef, 2.0) + pow(length21 - meanSideLengthRef, 2.0) + pow(length02 - meanSideLengthRef, 2.0));
-                fReg[iVertex0] += kCurv * ((meanSideLengthRef - length10) * (vector10) + (length02 - meanSideLengthRef) * (vector02));
-                fReg[iVertex1] += kCurv * ((meanSideLengthRef - length21) * (vector21) + (length10 - meanSideLengthRef) * (vector10));
-                fReg[iVertex2] += kCurv * ((meanSideLengthRef - length02) * (vector02) + (length21 - meanSideLengthRef) * (vector21));
+                for (int axis = 0; axis < 3; ++axis)
+                {
+                    localRegComponents[iVertex0 * 3 + axis] += kCurv * ((meanSideLengthRef - length10) * vector10(axis, 0) + (length02 - meanSideLengthRef) * vector02(axis, 0));
+                    localRegComponents[iVertex1 * 3 + axis] += kCurv * ((meanSideLengthRef - length21) * vector21(axis, 0) + (length10 - meanSideLengthRef) * vector10(axis, 0));
+                    localRegComponents[iVertex2 * 3 + axis] += kCurv * ((meanSideLengthRef - length02) * vector02(axis, 0) + (length21 - meanSideLengthRef) * vector21(axis, 0));
+                }
             }
             break;
         default:
@@ -686,9 +739,12 @@ void Mesh::energy_force_regularization()
                 shapeDeformCount++;
                 double meanSideLengthOld = sqrt(4.0 * area / sqrt(3.0));
                 eReg = kCurv / 2.0 * (pow(length10 - meanSideLengthOld, 2.0) + pow(length21 - meanSideLengthOld, 2.0) + pow(length02 - meanSideLengthOld, 2.0));
-                fReg[iVertex0] += kCurv * ((meanSideLengthOld - length10) * (vector10) + (length02 - meanSideLengthOld) * (vector02));
-                fReg[iVertex1] += kCurv * ((meanSideLengthOld - length21) * (vector21) + (length10 - meanSideLengthOld) * (vector10));
-                fReg[iVertex2] += kCurv * ((meanSideLengthOld - length02) * (vector02) + (length21 - meanSideLengthOld) * (vector21));
+                for (int axis = 0; axis < 3; ++axis)
+                {
+                    localRegComponents[iVertex0 * 3 + axis] += kCurv * ((meanSideLengthOld - length10) * vector10(axis, 0) + (length02 - meanSideLengthOld) * vector02(axis, 0));
+                    localRegComponents[iVertex1 * 3 + axis] += kCurv * ((meanSideLengthOld - length21) * vector21(axis, 0) + (length10 - meanSideLengthOld) * vector10(axis, 0));
+                    localRegComponents[iVertex2 * 3 + axis] += kCurv * ((meanSideLengthOld - length02) * vector02(axis, 0) + (length21 - meanSideLengthOld) * vector21(axis, 0));
+                }
             }
             break;
         }
@@ -708,8 +764,17 @@ void Mesh::energy_force_regularization()
 #pragma omp parallel for
     for (int i = 0; i < vertices.size(); i++)
     {
-        vertices[i].force.forceRegularization.free();
-        vertices[i].force.forceRegularization = fReg[i];
+        double componentSums[3] = {0.0};
+        for (int threadIndex = 0; threadIndex < nThreads; ++threadIndex)
+        {
+            const std::vector<double> &localRegComponents = fRegComponents[threadIndex];
+            componentSums[0] += localRegComponents[i * 3];
+            componentSums[1] += localRegComponents[i * 3 + 1];
+            componentSums[2] += localRegComponents[i * 3 + 2];
+        }
+        vertices[i].force.forceRegularization.set(0, 0, componentSums[0]);
+        vertices[i].force.forceRegularization.set(1, 0, componentSums[1]);
+        vertices[i].force.forceRegularization.set(2, 0, componentSums[2]);
     }
 
     // Update deformation count
@@ -804,9 +869,10 @@ void Mesh::manage_force_for_boundary_ghost_vertex()
 double Mesh::get_max_force_magnitude()
 {
     double max_magnitude = 0;
-    for (Vertex &vh : vertices)
+#pragma omp parallel for reduction(max : max_magnitude)
+    for (int i = 0; i < static_cast<int>(vertices.size()); ++i)
     {
-        double magnitude = vh.force.get_total_force_magnitude();
+        double magnitude = vertices[i].force.get_total_force_magnitude();
         if (magnitude > max_magnitude)
         {
             max_magnitude = magnitude;
@@ -818,10 +884,10 @@ double Mesh::get_max_force_magnitude()
 double Mesh::calculate_mean_force()
 {
     double sum = 0.0;
-#pragma omp parallel for
-    for (Vertex &vertex : vertices)
+#pragma omp parallel for reduction(+ : sum)
+    for (int i = 0; i < static_cast<int>(vertices.size()); ++i)
     {
-        sum += vertex.force.get_total_force_magnitude();
+        sum += vertices[i].force.get_total_force_magnitude();
     }
     return sum / vertices.size();
 }
