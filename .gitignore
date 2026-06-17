@@ -56,3 +56,53 @@ face.csv
 .DS_Store
 .vscode/settings.json
 *.pyc
+
+# Build outputs
+/bin/
+/obj/
+/EXE_PAR/
+/EXE_CLUSTER/
+
+# Python/cache/test artifacts
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.coverage
+coverage/
+
+# Generated documentation
+/docs/
+/html/
+/latex/
+
+# Runtime logs, checkpoints, and generated job files
+*.log
+*.chk
+slurm-*.out
+submit_relax_area_*.sbatch
+
+# Common simulation outputs at the repository root
+/COM*.csv
+/EnergyForce.csv
+/face.csv
+/vertex*.csv
+/gag_scaffold_*.dat
+/445_*.dat
+/ThermalFluctuation.csv
+
+# Analysis and benchmark outputs
+/analysis/bond_audit_plots/
+/analysis/cluster_results_*/
+/analysis/crack_plots/
+/analysis/flattenability_original_probe/
+/analysis/flattenability_stitching/
+/analysis/flattenability_stitching_rational/
+/analysis/lattice_geometry_figures/
+/analysis/thermal_fluctuation/thermal_off/
+/analysis/thermal_fluctuation/thermal_on/
+/analysis/thermal_fluctuation/*.csv
+/analysis/thermal_fluctuation/*.png
+
+# Generated stitched Gag datasets and local simulation outputs
+/data/gag_stitched_selected/
