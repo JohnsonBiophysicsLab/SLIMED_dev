@@ -20,6 +20,7 @@ Integration testing focuses on testing the interactions between different compon
 ## Using Google Test in C++ as an Example
 
 Google Test is a popular C++ testing framework that supports test-driven development.
+Current GoogleTest releases require a C++17-capable compiler.
 
 ### Install Google Test
 
@@ -46,7 +47,7 @@ Include testing targets in your Makefile to make both main executable and test e
 
 ```make
 CXX = g++
-CXXFLAGS = -O3 -std=c++0x -I./tests -I/usr/include -Iinclude -Itests
+CXXFLAGS = -O3 -std=c++17 -I./tests -I/usr/include -Iinclude -Itests
 
 all: your_program your_test_executable
 
