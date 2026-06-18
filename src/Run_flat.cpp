@@ -1,5 +1,7 @@
 #include "Run_simulation.hpp"
 
+#include <cmath>
+
 void run_flat(std::string param_filename)
 {
     Param inputParam;
@@ -89,7 +91,15 @@ void run_flat(std::string param_filename)
     // the nonlinear conjugate method (NCG) that we use for efficient lowest energy search
     Model model(mesh, record);
  
-    while (model.should_continue_optimization())
+    const double initialMeanForce = record.meanForce.back();
+    const bool isInitiallyConverged = std::isfinite(initialMeanForce) &&
+                                      initialMeanForce <= model.oa.forceDiffThreshold;
+    if (isInitiallyConverged)
+    {
+        std::cout << "[main()] Step: 0  -- initial mean force is below convergence threshold. Stopped." << std::endl;
+    }
+
+    while (!isInitiallyConverged && model.should_continue_optimization())
     {
         // The step size a0 needs a trial value, which is determined by rule-of-thumb.
         model.determine_trial_step_size(); 

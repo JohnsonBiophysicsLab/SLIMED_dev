@@ -226,13 +226,20 @@ void Mesh::element_energy_force_regular(const std::vector<Matrix> &coordOneRingV
     double halfGaussQuadratureCoeff = 0.0;
     //////////////////////////////////////////////////////////////
     double kCurv = param.kCurv; //test output
-    double uSurfPerArea = param.uSurf / param.area0;
-    int nFaces = this->faces.size();
+    double uSurfPerArea = 0.0;
     double area0 = param.area0;
     double area = param.area;
-    double uVol = param.uVol / param.vol0;
+    double uVol = 0.0;
     double vol0 = param.vol0;
     double vol = param.vol;
+    if (param.uSurf != 0.0 && area0 != 0.0)
+    {
+        uSurfPerArea = param.uSurf / area0;
+    }
+    if (param.uVol != 0.0 && vol0 != 0.0)
+    {
+        uVol = param.uVol / vol0;
+    }
     /////////////////////////////////////////////////////////////
     // double definition
     double sqa = 0.0;
@@ -436,13 +443,14 @@ void Mesh::element_energy_force_regular(const std::vector<Matrix> &coordOneRingV
         // Matrix n1_cons = uSurfPerArea * (area-area0)*a1;
         // Matrix n2_cons = uSurfPerArea * (area-area0)*a2;
 
-        if (param.isGlobalConstraint){
-            tmp_const_f = uSurfPerArea * (area - area0); // Global mode
-        } else {
-            tmp_const_f = 0.5 * uSurfPerArea * nFaces * (nFaces * face.elementArea / area0 - 1); // Local mode
+        if (param.uSurf == 0.0 || area0 == 0.0)
+        {
+            tmp_const_f = 0.0;
         }
-
-        tmp_const_f = uSurfPerArea * (area - area0);
+        else
+        {
+            tmp_const_f = uSurfPerArea * (area - area0);
+        }
         const_multiplication(a1, tmp_const_f, n1_cons);
         const_multiplication(a2, tmp_const_f, n2_cons);
 

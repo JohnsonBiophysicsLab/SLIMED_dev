@@ -23,6 +23,7 @@ boundaryType = Periodic          # boundary condition type : Fixed, Free or Peri
 ############################################
 
 lFace = 5.0 				# target side length of triangular mesh (nm)
+setRelaxAreaToDefault = true     # use the starting flat mesh area as the relaxed area
 
 # Sphere model not implemented
 # isSphere = false					# sphere mode
