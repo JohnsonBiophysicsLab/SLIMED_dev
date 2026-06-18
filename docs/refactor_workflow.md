@@ -70,6 +70,56 @@ targets from the gate.
 - Prefer post-processing diagnostics for analysis-only validation.
 - Add tests only where they protect behavior that the refactor touches.
 
+## OpenMP Benchmark Harness
+
+Use the lightweight benchmark harness to collect reproducible serial-vs-OpenMP
+wall-time data before changing any OpenMP regions:
+
+```console
+python3 scripts/benchmark_openmp_scaling.py \
+  --baseline-build-command "make serial" \
+  --baseline-run-command "./bin/continuum_membrane" \
+  --build-command "make omp" \
+  --run-command "./bin/continuum_membrane" \
+  --threads 1,2,4,8 \
+  --repeats 3 \
+  --csv /tmp/slimed-openmp-scaling.csv \
+  --json /tmp/slimed-openmp-scaling.json
+```
+
+For dynamics runs, switch the build and executable commands to `make dyna`,
+`make dyna_omp`, and `./bin/membrane_dynamics`. The current Makefile writes
+both `make serial` and `make omp` to `bin/continuum_membrane`, and both
+`make dyna` and `make dyna_omp` to `bin/membrane_dynamics`; the harness runs
+the optional serial baseline build and measurements before rebuilding the
+OpenMP target.
+
+Use `--dry-run` to inspect the build/run sequence without executing commands or
+writing outputs. A harmless smoke benchmark can use a tiny Python command:
+
+```console
+python3 scripts/benchmark_openmp_scaling.py \
+  --run-command "python3 -c 'import time; time.sleep(0.01)'" \
+  --threads 1,2 \
+  --repeats 1 \
+  --csv /tmp/slimed-openmp-smoke.csv \
+  --json /tmp/slimed-openmp-smoke.json
+```
+
+The CSV records one row per measured command with the UTC date, git commit,
+branch, detected compiler, `OMP_NUM_THREADS`, wall time, exit code, and optional
+speedup/parallel efficiency. Speedup and efficiency are populated only when a
+serial baseline command is provided. The optional JSON file includes the same
+metadata plus aggregate mean/min/max/stdev timing summaries.
+
+Do not commit generated benchmark CSV, JSON, or log files. Prefer `/tmp` paths
+or another local scratch directory for all benchmark artifacts.
+
+Known limitation: real simulation benchmarking may need to wait for the active
+example energy-minimization NaN fix. Until that lands, use `--dry-run` or a
+harmless smoke command to validate the harness without depending on the
+unhealthy committed example minimization.
+
 ## Diagnostic Plan
 
 Diagnostics should remain opt-in unless a later PR explicitly changes runtime
