@@ -1,5 +1,61 @@
 #include "model/Model.hpp"
 
+#include <cmath>
+
+namespace
+{
+double force_norm_squared(const std::vector<Vertex> &vertices, bool usePreviousForce)
+{
+    double normSquared = 0.0;
+#pragma omp parallel for reduction(+ \
+                                   : normSquared)
+    for (int i = 0; i < vertices.size(); i++)
+    {
+        const Matrix &force = usePreviousForce
+            ? vertices[i].forcePrev.forceTotal
+            : vertices[i].force.forceTotal;
+        normSquared += dot_col(force, force);
+    }
+    return normSquared;
+}
+
+double force_dot_direction(const std::vector<Vertex> &vertices,
+                           const std::vector<Force> &directions,
+                           bool usePreviousForce)
+{
+    double dotProduct = 0.0;
+#pragma omp parallel for reduction(+ \
+                                   : dotProduct)
+    for (int i = 0; i < vertices.size(); i++)
+    {
+        const Matrix &force = usePreviousForce
+            ? vertices[i].forcePrev.forceTotal
+            : vertices[i].force.forceTotal;
+        dotProduct += dot_col(force, directions[i].forceTotal);
+    }
+    return dotProduct;
+}
+
+void reset_direction_to_previous_force(std::vector<Vertex> &vertices,
+                                       std::vector<Force> &directions)
+{
+#pragma omp parallel for
+    for (int i = 0; i < vertices.size(); i++)
+    {
+        directions[i].forceTotal = vertices[i].forcePrev.forceTotal;
+    }
+}
+
+void restore_current_coord_from_previous(std::vector<Vertex> &vertices)
+{
+#pragma omp parallel for
+    for (int i = 0; i < vertices.size(); i++)
+    {
+        vertices[i].update_coord_with_prev_coord();
+    }
+}
+}
+
 /**
  * 
  * @brief Performs a linear search to find the optimal step size that minimizes energy using
@@ -15,24 +71,61 @@ double Model::linear_search_for_stepsize_to_minimize_energy()
     bool ROWOUTPUT = false;
 //if (ROWOUTPUT)cout << "R15" << endl;
     // Initialize variables at the beginning of the function
-    const int nVertices = mesh.vertices.size();
     this->stepSize = oa.trialStepSize;
-    double currentEnergy = mesh.param.energy.energyTotal;
-    double ncgFactor0 = 0.0;
-//if (ROWOUTPUT)cout << "R21" << endl;
-    // Compute the dot product of the negative force and the element triangle area in parallel
-    #pragma omp parallel for reduction(+ : ncgFactor0)
-    for (int i = 0; i < nVertices; i++)
-    {
-        ncgFactor0 -= dot_col(mesh.vertices[i].forcePrev.forceTotal, ncgDirection0[i].forceTotal);
-    }
+    const double currentEnergy = mesh.param.energy.energyTotal;
+    double forceDirectionDot0 = 0.0;
 //if (ROWOUTPUT)cout << "R28" << endl;
     // Set up the constants for the nonlinear conjugate gradient method
     double newEnergy = 0.0;
-    double ncgFactor = 0.0;
 //if (ROWOUTPUT)cout << "R32" << endl;
     // Reset flags and variables for NCG optimization
     oa.reset_NCG_Rpi();
+
+    const double previousForceNormSquared = force_norm_squared(mesh.vertices, true);
+    if (!oa.is_finite_value(currentEnergy) ||
+        !oa.is_finite_value(this->stepSize) ||
+        this->stepSize < 0.0 ||
+        !oa.is_finite_value(previousForceNormSquared))
+    {
+        oa.lineSearchStatus = OptimizationAlgorithm::LineSearchStatus::FailedNonFinite;
+        this->stepSize = -1;
+        return -1;
+    }
+
+    if (this->stepSize == 0.0 || previousForceNormSquared <= oa.betaRestartThreshold)
+    {
+        oa.lineSearchStatus = OptimizationAlgorithm::LineSearchStatus::ConvergedZeroGradient;
+        this->stepSize = 0.0;
+        return 0.0;
+    }
+
+    forceDirectionDot0 = force_dot_direction(mesh.vertices, ncgDirection0, true);
+    if (!oa.is_finite_value(forceDirectionDot0))
+    {
+        oa.lineSearchStatus = OptimizationAlgorithm::LineSearchStatus::FailedNonFinite;
+        this->stepSize = -1;
+        return -1;
+    }
+
+    if (!oa.is_descent_direction(forceDirectionDot0))
+    {
+        reset_direction_to_previous_force(mesh.vertices, ncgDirection0);
+        forceDirectionDot0 = force_dot_direction(mesh.vertices, ncgDirection0, true);
+        if (!oa.is_finite_value(forceDirectionDot0))
+        {
+            oa.lineSearchStatus = OptimizationAlgorithm::LineSearchStatus::FailedNonFinite;
+            this->stepSize = -1;
+            return -1;
+        }
+        if (!oa.is_descent_direction(forceDirectionDot0))
+        {
+            oa.lineSearchStatus = OptimizationAlgorithm::LineSearchStatus::FailedUphillDirection;
+            this->stepSize = -1;
+            return -1;
+        }
+    }
+
+    double initialDirectionalDerivative = -forceDirectionDot0;
 
     // Start the line search loop until the criteria is satisfied or the step size falls below a threshold
     while (true)
@@ -41,6 +134,14 @@ double Model::linear_search_for_stepsize_to_minimize_energy()
         // Scale down step size
         this->stepSize *= 0.8;
 //if (ROWOUTPUT)cout << "R41" << endl;
+        if (!oa.is_finite_value(this->stepSize) || this->stepSize <= 0.0)
+        {
+            restore_current_coord_from_previous(mesh.vertices);
+            oa.lineSearchStatus = OptimizationAlgorithm::LineSearchStatus::FailedNonFinite;
+            this->stepSize = -1;
+            return -1;
+        }
+
         // Apply displacement and recompute energy and force
         update_vertex_using_NCG();//cout << "R43" << endl;
         mesh.Compute_Energy_And_Force();//cout << "R44" << endl;
@@ -49,17 +150,17 @@ double Model::linear_search_for_stepsize_to_minimize_energy()
         // Check if using NCG and not stuck
         if (oa.usingNCG && !oa.isNCGstuck)
         {
-            // Calculate NCG factor in parallel
-            ncgFactor = 0.0;
-            #pragma omp parallel for reduction(+ : ncgFactor)
-            for (int i = 0; i < nVertices; i++)
-            {
-                ncgFactor -= dot_col(mesh.vertices[i].forcePrev.forceTotal, ncgDirection0[i].forceTotal);
-            }
+            const double trialForceDirectionDot = force_dot_direction(mesh.vertices, ncgDirection0, false);
+            const double trialDirectionalDerivative = -trialForceDirectionDot;
 //if (ROWOUTPUT)cout << "R56" << endl;
             // Satisfy NCG Wolfe conditions
-            if (newEnergy <= currentEnergy + oa.c1 * this->stepSize * ncgFactor0 && abs(ncgFactor) <= oa.c2 * abs(ncgFactor0))
+            if (oa.accepts_ncg_wolfe_step(currentEnergy,
+                                          newEnergy,
+                                          this->stepSize,
+                                          initialDirectionalDerivative,
+                                          trialDirectionalDerivative))
             {
+                oa.lineSearchStatus = OptimizationAlgorithm::LineSearchStatus::AcceptedNcgWolfe;
                 break;
             }
 //if (ROWOUTPUT)cout << "R62" << endl;
@@ -70,28 +171,53 @@ double Model::linear_search_for_stepsize_to_minimize_energy()
 
                 // Reinitialize variables for simple line search
                 this->stepSize = oa.trialStepSize;
-                mesh.update_reference_coord_from_previous_coord();
+                restore_current_coord_from_previous(mesh.vertices);
                 oa.isNCGstuck = true;
                 oa.usingRpi = false;
 //if (ROWOUTPUT)cout << "R73" << endl;
                 // Change ncgDirection0 to nodal force in parallel
-                #pragma omp parallel for
-                for (int i = 0; i < nVertices; i++)
+                reset_direction_to_previous_force(mesh.vertices, ncgDirection0);
+                forceDirectionDot0 = force_dot_direction(mesh.vertices, ncgDirection0, true);
+                if (!oa.is_finite_value(forceDirectionDot0))
                 {
-                    ncgDirection0[i].forceTotal = mesh.vertices[i].forcePrev.forceTotal;
+                    oa.lineSearchStatus = OptimizationAlgorithm::LineSearchStatus::FailedNonFinite;
+                    this->stepSize = -1;
+                    return -1;
                 }
+                if (!oa.is_descent_direction(forceDirectionDot0))
+                {
+                    oa.lineSearchStatus = OptimizationAlgorithm::LineSearchStatus::FailedUphillDirection;
+                    this->stepSize = -1;
+                    return -1;
+                }
+                initialDirectionalDerivative = -forceDirectionDot0;
             }
         }
         else // Simple line search when NCG is not used or stuck
         {
-            if (newEnergy < currentEnergy)
+            const double trialForceNormSquared = force_norm_squared(mesh.vertices, false);
+            if (!oa.is_finite_value(trialForceNormSquared))
             {
+                restore_current_coord_from_previous(mesh.vertices);
+                oa.lineSearchStatus = OptimizationAlgorithm::LineSearchStatus::FailedNonFinite;
+                this->stepSize = -1;
+                return -1;
+            }
+
+            if (oa.accepts_simple_energy_decrease(currentEnergy, newEnergy, trialForceNormSquared))
+            {
+                oa.lineSearchStatus = OptimizationAlgorithm::LineSearchStatus::AcceptedSimpleDecrease;
                 break;
             }
 
             if (this->stepSize < oa.stepThreshold)
             {
                 cout << "Note: cannot find an efficient small stepSize to minimize the Energy even with the simple method!" << endl;
+                restore_current_coord_from_previous(mesh.vertices);
+                oa.lineSearchStatus = !oa.is_finite_value(newEnergy)
+                    ? OptimizationAlgorithm::LineSearchStatus::FailedNonFinite
+                    : OptimizationAlgorithm::LineSearchStatus::FailedStepTooSmall;
+                this->stepSize = -1;
                 return -1;
             }
         }
