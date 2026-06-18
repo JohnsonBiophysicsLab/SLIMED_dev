@@ -138,22 +138,28 @@ Optional plots should be explicit outputs in future tools, for example
 ### Fourier-Space Membrane Modulation
 
 Fourier verification should live as post-processing in `analysis/`, not in the
-core C++ simulation path. The current notebook-style script
-`analysis/fft_periodic_result_large(l50).py` is the reference behavior, but a
-future replacement should follow the newer `argparse` and `Path` style used by
-the more recent analysis scripts.
+core C++ simulation path. Python analysis diagnostics should keep their tests
+under `analysis/tests/` so the top-level `tests/` directory remains focused on
+core C++ behavior.
 
-Suggested future location:
+Implementation status:
 
-- `analysis/fourier_membrane_modulation.py`
+- PR #1, `Add Fourier membrane modulation diagnostic`, was merged and closed
+  from the GitHub web UI on 2026-06-17.
+- The merged post-processing CLI is `analysis/membrane_fourier_spectrum.py`.
+- Its stdlib `unittest` coverage lives in
+  `analysis/tests/test_membrane_fourier_spectrum.py`.
 
-Expected CLI inputs:
+Supported CLI inputs:
 
-- `--trajectory surfacepoint<input>.csv` or `meshpoint<input>.csv`
-- `--params input.params` when available
-- explicit overrides for `--side-x`, `--side-y`, `--face-length`, and
-  `--time-step`
-- `--output-prefix fourier`
+- `--trajectory`
+- `--outdir`
+- `--start-frame`
+- `--stride`
+- `--grid-shape NX NY`
+- `--spacing DX DY`
+- `--plane {mean,tilt,none}`
+- `--radial-bins`
 
 The trajectory CSV rows are flattened timesteps:
 
@@ -164,11 +170,13 @@ x0,y0,z0,x1,y1,z1,...
 Existing writers may leave a trailing comma, so future parsers should tolerate
 an empty final field.
 
-Expected outputs should be text-first and reviewable:
+Outputs are text-first and reviewable:
 
-- `fourier_modes.csv` with `qx,qy,q2,hq_real,hq_imag,hq2`
-- `fourier_radial_spectrum.csv` with `q,hq2_mean,count`
-- optional `fourier_spectrum.png`
+- `spectrum_raw.csv` with Fourier mode, q-vector magnitude, and power values
+- `spectrum_radial.csv` with radial `S(q)` averages and counts
+- `spectrum_summary.txt` with selected-frame and peak-mode summary metadata
 
-Any optional scientific Python dependencies used by future diagnostics should
-remain optional unless a later PR explicitly updates the project requirements.
+The implementation uses only the Python standard library and computes a direct
+2D DFT for small diagnostic fixtures. Keep optional scientific Python
+dependencies guarded unless a later PR explicitly updates the project
+requirements.
