@@ -11,9 +11,10 @@ Continuum membrane & dynamics is tool in NERDSS to extend the scope of the model
 
 Continuum membrane & dynamics is currently an independent model but intended to be integrated in NERDSS in the future. Please refer to `User guide`_ for NERDSS. Additional dependencies for continuum membrane model are listed below. Note that continuum membrane & dynamics model no longer needs `Armadillo`_ linear algebra package to run.
 
-#. C++ 11
+#. C++ 17
 #. `GSL`_ (GNU scientific library)
 #. OpenMP (only required in need of parallelization)
+#. GoogleTest (only required for unit tests)
 
 2. Compile Continuum Membrane
 --------------------------

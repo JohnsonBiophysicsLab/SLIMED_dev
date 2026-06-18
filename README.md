@@ -21,7 +21,7 @@
     <img alt="License" src="https://img.shields.io/github/license/JohnsonBiophysicsLab/SLIMED">
   </a>
   <!-- C++ standard -->
-  <img alt="C++" src="https://img.shields.io/badge/C%2B%2B-%E2%89%A514-blue">
+  <img alt="C++" src="https://img.shields.io/badge/C%2B%2B-%E2%89%A517-blue">
   <!-- CMake minimum -->
   <img alt="Make" src="https://img.shields.io/badge/Make-%E2%89%A53.79-informational">
   <!-- Package managers (optional) -->
@@ -45,12 +45,14 @@ To install the model, follow these steps:
 git clone https://github.com/mjohn218/continuum_membrane.git
 ```
 
-2. Install dependencies (GSL and OpenMP)
+2. Install dependencies (C++17 compiler, GSL, and OpenMP)
 
 This project depends on:
 
+* **C++17-capable compiler**
 * **GSL** (GNU Scientific Library)
 * **OpenMP** (only for the `omp`/parallel build)
+* **GoogleTest** (only for `make test`; current GoogleTest 1.17.x requires C++17)
 
 ### Ubuntu (apt)
 
@@ -63,6 +65,9 @@ sudo apt-get install -y libgsl-dev
 
 # Compilers
 sudo apt-get install -y build-essential clang
+
+# Unit tests
+sudo apt-get install -y libgtest-dev
 
 # OpenMP
 # - If you build with GCC: OpenMP is included (use -fopenmp, links against libgomp).
@@ -77,6 +82,9 @@ sudo apt-get install -y libomp-dev
 
 # GSL
 brew install gsl
+
+# Unit tests
+brew install googletest
 
 # Option A (recommended): use Homebrew LLVM (Clang) for OpenMP
 brew install llvm libomp
@@ -206,6 +214,18 @@ Three types of boundary conditions are provided currently in both models. Note t
 ## For Developers
 
 A detailed doxygen style documentation is available in [SLIMED developer's documentation](https://johnsonbiophysicslab.github.io/SLIMED/index.html).
+
+Before opening a refactor PR, run the local verification gate:
+
+```console
+./scripts/verify_pr_ready.sh
+```
+
+The refactor workflow and diagnostic plans are documented in [docs/refactor_workflow.md](docs/refactor_workflow.md).
+
+SLIMED now requires a C++17-capable compiler for all build and test targets.
+This baseline supports modernization against current GoogleTest releases; this
+PR does not vendor or upgrade GoogleTest.
 
 ## Cite Continuum Membrane
 

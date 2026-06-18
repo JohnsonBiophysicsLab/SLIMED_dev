@@ -58,9 +58,14 @@ OMP_FLAGS = -fopenmp
 
 # MacOS compatibility
 ifeq ($(UNAME_S), Darwin)
-    # Use Homebrew GCC (which supports -fopenmp natively)
-    CC      = g++-15
-    CXX     = g++-15
+    # Use Homebrew GCC for OpenMP builds, but use the platform C++ ABI for
+    # tests so Homebrew's GoogleTest libraries link correctly.
+    ifeq (test,$(MAKECMDGOALS))
+        CC      = clang++
+    else
+        CC      = g++-15
+    endif
+    CXX     = $(CC)
     OMP_FLAGS = -fopenmp
 
     # Standard OMP paths
@@ -77,12 +82,15 @@ endif
 
 # Add test to path if enabled
 ifeq (test,$(MAKECMDGOALS))
+	ODIR = obj/test
 	VPATH += tests
 	SDIR += tests
 endif
 
-# Set version to C++14
-CXXFLAGS = -std=c++14
+# Set minimum version to C++17. GoogleTest 1.17+ requires C++17, so all
+# build and test targets use the same standard.
+CXX_STD ?= c++17
+CXXFLAGS = -std=$(CXX_STD)
 
 # Enable coverage for "coverage" and "test" targets
 # --- Coverage toggle (OFF by default)
@@ -117,13 +125,26 @@ ifeq ($(hasGSL),1)
 $(error " GSL must be installed, and gsl-config must be in path.")
 else
 $(shell mkdir -p bin)
-$(shell mkdir -p obj)
+$(shell mkdir -p $(ODIR))
 endif
 
 #               EXECUTABLE SETUP for serial, MPI, OpenMP (omp), cluster
 #
 INCS    = $(shell gsl-config --cflags) -Iinclude -Iinclude/*
 LIBS     = $(shell gsl-config --libs)
+
+# Optional GoogleTest prefix. This lets `make test` find Homebrew's keg on
+# macOS while preserving the default system paths used by Linux packages.
+GTEST_PREFIX ?= $(shell command -v brew >/dev/null 2>&1 && brew --prefix googletest 2>/dev/null)
+ifneq ($(GTEST_PREFIX),)
+	GTEST_INCS = -I$(GTEST_PREFIX)/include
+	GTEST_LIBS = -L$(GTEST_PREFIX)/lib
+endif
+
+LIBOMP_PREFIX ?= $(shell command -v brew >/dev/null 2>&1 && brew --prefix libomp 2>/dev/null)
+ifneq ($(LIBOMP_PREFIX),)
+	LIBOMP_INCS = -I$(LIBOMP_PREFIX)/include
+endif
 
 ifeq (serial,$(MAKECMDGOALS))
 	_EXEC = continuum_membrane
@@ -190,9 +211,9 @@ endif
 
 # Add gtest to library if running unittest
 ifeq (test,$(MAKECMDGOALS))
-	LIBS += -lgtest -lgtest_main -pthread
+	LIBS += $(GTEST_LIBS) -lgtest -lgtest_main -pthread
 	CXXFLAGS += -I./tests
-	INCS += -Itests
+	INCS += -Itests $(GTEST_INCS) $(LIBOMP_INCS)
 endif
 
 #---------------COMPILER SETUP
@@ -248,7 +269,7 @@ $(EXEC): $(OBJS) $(TEST_OBJ)
 	$(CXX) $(CFLAGS) $(CXXFLAGS) $(INCS) $(PROF) $(LDFLAGS) -o $@ $(EDIR)/$(@F).cpp $(OBJS) $(PLANG) $(LIBS)
 
 
-obj/%.o: %.cpp
+$(ODIR)/%.o: %.cpp
 	@echo "Compiling $< at $(<F) $(<D)"
 	$(CXX) $(CFLAGS) $(CXXFLAGS) $(INCS) $(PROF) -c $< -o $@ $(PLANG) $(DEFS)
 
