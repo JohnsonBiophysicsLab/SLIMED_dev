@@ -187,6 +187,7 @@ bool import_kv_string(std::string variableNameStr, std::string variableValueStr,
 	else if (variableNameStr.compare("relaxArea") == 0)
 	{
 		param.area0 = std::stod(variableValueStr);
+		param.setRelaxAreaToDefault = false;
 		std::cout << "relaxArea set to: " << variableValueStr
 				  << std::endl;
 		return true;

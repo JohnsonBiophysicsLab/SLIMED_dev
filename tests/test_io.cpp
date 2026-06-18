@@ -1,4 +1,6 @@
 #include "test_io.hpp"
+
+#include <cmath>
 /**
  * @brief Test import_kv_string function
  *
@@ -26,6 +28,35 @@ TEST(ImportKVStringTest, BoundaryTypeTest)
 
     import_kv_string("boundaryType", "Unknown", param);
     EXPECT_EQ(param.boundaryCondition, BoundaryType::Fixed);
+}
+
+TEST(ParamDefaultTest, AreaAndVolumeDefaultsAreInitialized)
+{
+    Param param;
+
+    EXPECT_TRUE(param.setRelaxAreaToDefault);
+    EXPECT_DOUBLE_EQ(param.kSpring, 0.0);
+    EXPECT_DOUBLE_EQ(param.area0, 0.0);
+    EXPECT_DOUBLE_EQ(param.area, 0.0);
+    EXPECT_DOUBLE_EQ(param.vol0, 0.0);
+    EXPECT_DOUBLE_EQ(param.vol, 0.0);
+    EXPECT_DOUBLE_EQ(param.insertCurv, 0.0);
+    EXPECT_DOUBLE_EQ(param.spontCurv, 0.0);
+    EXPECT_DOUBLE_EQ(param.dFaceX, 0.0);
+    EXPECT_DOUBLE_EQ(param.dFaceY, 0.0);
+    EXPECT_DOUBLE_EQ(param.meanL, 0.0);
+    EXPECT_EQ(param.subDivideTimes, 0);
+    EXPECT_DOUBLE_EQ(param.elementTriangleArea0, 0.0);
+}
+
+TEST(ParamImportTest, ExplicitRelaxAreaDisablesDefaultRelaxedArea)
+{
+    Param param;
+
+    EXPECT_TRUE(import_kv_string("relaxArea", "123.5", param));
+
+    EXPECT_FALSE(param.setRelaxAreaToDefault);
+    EXPECT_DOUBLE_EQ(param.area0, 123.5);
 }
 
 /**
@@ -71,8 +102,51 @@ TEST(ParamImportTest, ImportParamFile)
     EXPECT_DOUBLE_EQ(testParam.KBT, 4.17);
     EXPECT_DOUBLE_EQ(testParam.timeStep, 0.001);
     EXPECT_DOUBLE_EQ(testParam.diffConst, 1.0);
+    EXPECT_TRUE(testParam.setRelaxAreaToDefault);
 
     // Add more expectations based on your Param object - GPT
+}
+
+TEST(ParamImportTest, ExampleFlatMeshInitialEnergyAndForceAreFinite)
+{
+    Param param;
+    ASSERT_TRUE(import_param_file(param, "./data/example/example.params"));
+    param.VERBOSE_MODE = false;
+
+    Mesh mesh(param);
+    mesh.setup_flat();
+    mesh.calculate_element_area_volume();
+    if (mesh.param.setRelaxAreaToDefault)
+    {
+        mesh.sum_membrane_area_and_volume(mesh.param.area0, mesh.param.vol0);
+    }
+    else
+    {
+        double initArea = 0.0;
+        mesh.sum_membrane_area_and_volume(initArea, mesh.param.vol0);
+    }
+
+    mesh.update_previous_coord_for_vertex();
+    mesh.update_reference_coord_from_previous_coord();
+    mesh.Compute_Energy_And_Force();
+
+    EXPECT_TRUE(std::isfinite(mesh.param.area0));
+    EXPECT_GT(mesh.param.area0, 0.0);
+    EXPECT_TRUE(std::isfinite(mesh.param.vol0));
+    EXPECT_DOUBLE_EQ(mesh.param.vol0, 0.0);
+    EXPECT_TRUE(std::isfinite(mesh.param.energy.energyTotal));
+
+    const double meanForce = mesh.calculate_mean_force();
+    EXPECT_TRUE(std::isfinite(meanForce));
+
+    for (const Vertex &vertex : mesh.vertices)
+    {
+        for (int component = 0; component < 3; ++component)
+        {
+            EXPECT_TRUE(std::isfinite(vertex.force.forceTotal(component, 0)))
+                << "vertex " << vertex.index << " component " << component;
+        }
+    }
 }
 
 // Test import_mesh_from_vertices_faces function

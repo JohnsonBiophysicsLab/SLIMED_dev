@@ -124,14 +124,14 @@ struct Param
     double uSurf = 250.0; ///< Surface area constraint i.e. surface constant (us)
     double uVol = 0.0;    ///< Volume constraint i.e. volume constant (uv)
     double kReg = 83.4;    ///< Coefficient of the regularization constraint (k)
-    double kSpring;       ///< Spring constant for insertion zones (K)
-    bool setRelaxAreaToDefault = false; ///< true to set area0 equal to area of starting config
-    double area0;         ///< Target area for membrane (S0)
-    double area;          ///< Total area of the membrane (S)
-    double vol0;        ///< Target volume for membrane (V0)
-    double vol;         ///< Total volume of the membrane (V)
-    double insertCurv;  ///< Spontaneous curvature of insertions (C0)
-    double spontCurv;   ///< Spontaneous curvature of membrane (c0)
+    double kSpring = 0.0;       ///< Spring constant for insertion zones (K)
+    bool setRelaxAreaToDefault = true; ///< true to set area0 equal to area of starting config
+    double area0 = 0.0;         ///< Target area for membrane (S0)
+    double area = 0.0;          ///< Total area of the membrane (S)
+    double vol0 = 0.0;        ///< Target volume for membrane (V0)
+    double vol = 0.0;         ///< Total volume of the membrane (V)
+    double insertCurv = 0.0;  ///< Spontaneous curvature of insertions (C0)
+    double spontCurv = 0.0;   ///< Spontaneous curvature of membrane (c0)
 
     // membrane size and axes division
     double sideX = 100.0;                           ///< X-axis length for flat membrane
@@ -140,15 +140,15 @@ struct Param
     double lFace = 5.0;                           ///< lFace
     int nFaceX = -1;                        ///< Number of faces (edges) along X axis for flat membrane
     int nFaceY = -1;                        ///< Number of faces (edges) along Y axis for flat membrane
-    double dFaceX;                          ///< Initial actual face side length along X axis for flat membrane
-    double dFaceY;                          ///< Initial actual face side length along Y axis for flat membrane
-    double meanL;                           ///< Mean length of edges after subdivision
+    double dFaceX = 0.0;                          ///< Initial actual face side length along X axis for flat membrane
+    double dFaceY = 0.0;                          ///< Initial actual face side length along Y axis for flat membrane
+    double meanL = 0.0;                           ///< Mean length of edges after subdivision
     double sigma = 0.0;                     ///< Noise level for vertex positions
-    int subDivideTimes;                     ///< Number of times to subdivide each edge
+    int subDivideTimes = 0;                     ///< Number of times to subdivide each edge
     bool isInsertionAreaConstraint = false; ///< Whether to apply area constraint to insertions
     bool isAdditiveScheme = false;          ///< Whether to use additive scheme for constraints
     bool isGlobalConstraint = true;                ///< Whether to apply global constraint across entire membrane
-    double elementTriangleArea0;            ///< Target area for individual triangles
+    double elementTriangleArea0 = 0.0;            ///< Target area for individual triangles
 
     // gauss quadrature
     int gaussQuadratureN = 2;    ///< Number of Gaussian quadrature points to use
