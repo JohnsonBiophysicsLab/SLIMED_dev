@@ -21,6 +21,15 @@ std::string pop_space(std::string rawString)
 	return poppedString;
 }
 
+std::string trim_trailing_semicolon(std::string rawString)
+{
+	if (!rawString.empty() && rawString.back() == ';')
+	{
+		rawString.pop_back();
+	}
+	return rawString;
+}
+
 /*
  * import parameters from key-value strings
  * store value in given Param object
@@ -52,6 +61,30 @@ bool import_kv_string(std::string variableNameStr, std::string variableValueStr,
 	{
 		param.maxIterations = std::stoi(variableValueStr);
 		std::cout << "MAXITERATIONS set to: " << variableValueStr
+				  << std::endl;
+		return true;
+	}
+	else if (variableNameStr.compare("restartInputFile") == 0 ||
+			 variableNameStr.compare("restartFrom") == 0)
+	{
+		param.restartInputFile = variableValueStr;
+		std::cout << "restartInputFile set to: " << variableValueStr
+				  << std::endl;
+		return true;
+	}
+	else if (variableNameStr.compare("checkpointOutputFile") == 0 ||
+			 variableNameStr.compare("checkpointFile") == 0)
+	{
+		param.checkpointOutputFile = variableValueStr;
+		std::cout << "checkpointOutputFile set to: " << variableValueStr
+				  << std::endl;
+		return true;
+	}
+	else if (variableNameStr.compare("checkpointOutputInterval") == 0 ||
+			 variableNameStr.compare("checkpointInterval") == 0)
+	{
+		param.checkpointOutputInterval = std::stoi(variableValueStr);
+		std::cout << "checkpointOutputInterval set to: " << variableValueStr
 				  << std::endl;
 		return true;
 	}
@@ -167,6 +200,62 @@ bool import_kv_string(std::string variableNameStr, std::string variableValueStr,
 	{
 		param.KBT = std::stod(variableValueStr);
 		std::cout << "KBT set to: " << variableValueStr
+				  << std::endl;
+		return true;
+	}
+	else if (variableNameStr.compare("randomSeed") == 0)
+	{
+		param.randomSeed = static_cast<unsigned int>(std::stoul(variableValueStr));
+		std::cout << "randomSeed set to: " << variableValueStr
+				  << std::endl;
+		return true;
+	}
+	else if (variableNameStr.compare("thermalFluctuationEnabled") == 0)
+	{
+		param.thermalFluctuationEnabled = (variableValueStr.compare("true") == 0);
+		std::cout << "thermalFluctuationEnabled set to: " << variableValueStr
+				  << std::endl;
+		return true;
+	}
+	else if (variableNameStr.compare("thermalFluctuationPureMMC") == 0)
+	{
+		param.thermalFluctuationPureMMC = (variableValueStr.compare("true") == 0);
+		std::cout << "thermalFluctuationPureMMC set to: " << variableValueStr
+				  << std::endl;
+		return true;
+	}
+	else if (variableNameStr.compare("thermalFluctuationInterval") == 0)
+	{
+		param.thermalFluctuationInterval = std::stoi(variableValueStr);
+		std::cout << "thermalFluctuationInterval set to: " << variableValueStr
+				  << std::endl;
+		return true;
+	}
+	else if (variableNameStr.compare("thermalFluctuationTemperatureKelvin") == 0)
+	{
+		param.thermalFluctuationTemperatureKelvin = std::stod(variableValueStr);
+		std::cout << "thermalFluctuationTemperatureKelvin set to: " << variableValueStr
+				  << std::endl;
+		return true;
+	}
+	else if (variableNameStr.compare("thermalFluctuationMinTemperatureKelvin") == 0)
+	{
+		param.thermalFluctuationMinTemperatureKelvin = std::stod(variableValueStr);
+		std::cout << "thermalFluctuationMinTemperatureKelvin set to: " << variableValueStr
+				  << std::endl;
+		return true;
+	}
+	else if (variableNameStr.compare("thermalFluctuationCoolingRate") == 0)
+	{
+		param.thermalFluctuationCoolingRate = std::stod(variableValueStr);
+		std::cout << "thermalFluctuationCoolingRate set to: " << variableValueStr
+				  << std::endl;
+		return true;
+	}
+	else if (variableNameStr.compare("thermalFluctuationStepScale") == 0)
+	{
+		param.thermalFluctuationStepScale = std::stod(variableValueStr);
+		std::cout << "thermalFluctuationStepScale set to: " << variableValueStr
 				  << std::endl;
 		return true;
 	}
@@ -393,6 +482,7 @@ bool import_param_file(Param &param, std::string filepath)
 			// std::cout << variableNameStr << "::" << variableValueStr << std::endl;//for testing only
 			variableNameStr = pop_space(variableNameStr);
 			variableValueStr = pop_space(variableValueStr);
+			variableValueStr = trim_trailing_semicolon(variableValueStr);
 			// std::cout << variableNameStr << "::" << variableValueStr << std::endl;//for testing only
 
 			// import kv string and load values to local variables

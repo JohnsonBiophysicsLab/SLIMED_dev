@@ -45,6 +45,12 @@ usMembraneStretching = 250.0	# membrane streching modulus (pN/nm)
 uvVolumeConstraint = 0.0		# volume constraint coefficient (pN/nm^2)
 isGlobalConstraint = false      # true to enable global mode for area and volume
 KBT = 4.17                      # 1KbT = 4.17 pN.nm
+thermalFluctuationEnabled = false         # true to enable Metropolis thermal trial moves
+thermalFluctuationInterval = 50           # iteration interval between thermal trial moves
+thermalFluctuationTemperatureKelvin = 298.0       # thermodynamic temperature in K (298 K ~ room temperature)
+thermalFluctuationMinTemperatureKelvin = 298.0    # lower bound for annealed temperature in K
+thermalFluctuationCoolingRate = 1.0       # multiplicative cooling rate after each thermal trial
+thermalFluctuationStepScale = 0.02        # proposal displacement std. dev. as a fraction of lFace
 
 # dynamics model parameters
 timeStep = 0.001                  # in us

@@ -53,6 +53,18 @@ Matrix &Force::calculate_total_force()
     return forceTotal;
 }
 
+void Force::set_all_zero()
+{
+    forceCurvature.set_all(0.0);
+    forceArea.set_all(0.0);
+    forceVolume.set_all(0.0);
+    forceThickness.set_all(0.0);
+    forceTilt.set_all(0.0);
+    forceRegularization.set_all(0.0);
+    forceHarmonicBond.set_all(0.0);
+    forceTotal.set_all(0.0);
+}
+
 /**
  * @brief Get the magnitude (norm) of total force
  * @return double magnitude of the total force

@@ -78,8 +78,7 @@ void Mesh::update_previous_energy_for_face()
 void Mesh::clear_force_on_vertices_and_energy_on_faces(){
 #pragma omp parallel for
     for (int i = 0; i < vertices.size(); i++){
-        Force forcetmp;
-        vertices[i].force = forcetmp;
+        vertices[i].force.set_all_zero();
     }
 #pragma omp parallel for
     for (int i = 0; i < faces.size(); i++){
