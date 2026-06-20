@@ -130,3 +130,47 @@ converge at step 0, then compare serial and OpenMP outputs within an explicit
 tolerance. Once that exists, the first continuum target should be the
 energy/force accumulation path, especially the per-call per-thread buffers and
 per-face matrix allocations.
+
+## Follow-up Benchmark Workload
+
+`data/benchmark/openmp_pure_mmc.params` is a benchmark-only workload derived
+from `data/example/example.params`. It does not change C++ behavior or the
+committed example input. Instead, it enables the existing pure MMC thermal mode
+with a fixed seed so a short benchmark performs deterministic repeated
+energy/force evaluations rather than exiting at step 0. The fixture disables
+meshpoint, XYZ, and checkpoint outputs, but the executable still writes its
+standard summary CSV files, so run it from a scratch directory.
+
+Stage the workload under `/tmp`:
+
+```console
+python3 scripts/stage_openmp_benchmark_workload.py \
+  --workdir /tmp/slimed-openmp-benchmark-workload \
+  --force
+```
+
+Then use wrapper commands that clean before switching build modes and execute
+the binary from that scratch directory. The benchmark CSV, JSON, logs, and
+simulation outputs should all remain under `/tmp`.
+
+For a short serial-vs-OpenMP smoke run from the repository root:
+
+```console
+ROOT="$(pwd)"
+WORKDIR=/tmp/slimed-openmp-benchmark-workload
+OUTDIR=/tmp/slimed-openmp-meaningful-results
+
+python3 scripts/benchmark_openmp_scaling.py \
+  --baseline-build-command "/bin/zsh -lc 'make -C \"${ROOT}\" clean && make -C \"${ROOT}\" serial'" \
+  --baseline-run-command "/bin/zsh -lc 'cd \"${WORKDIR}\" && \"${ROOT}/bin/continuum_membrane\"'" \
+  --build-command "/bin/zsh -lc 'make -C \"${ROOT}\" clean && make -C \"${ROOT}\" omp'" \
+  --run-command "/bin/zsh -lc 'cd \"${WORKDIR}\" && \"${ROOT}/bin/continuum_membrane\"'" \
+  --threads 1,2 \
+  --repeats 1 \
+  --csv "${OUTDIR}/openmp-smoke.csv" \
+  --json "${OUTDIR}/openmp-smoke.json" \
+  --log-dir "${OUTDIR}/logs"
+```
+
+On 2026-06-20, this smoke workflow completed and each serial/OpenMP log
+recorded steps 1 through 7.
