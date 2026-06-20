@@ -2,6 +2,77 @@
 
 #include <cmath>
 
+namespace
+{
+bool has_gag_scaffolding_output(const Param &param)
+{
+    return param.isGagScaffoldingEnergyIncluded ||
+           param.isIdealizedProteinLatticeEnergyIncluded;
+}
+
+void write_begin_mesh_snapshot(Mesh &mesh)
+{
+    mesh.write_faces_csv("face.csv");
+    mesh.write_vertices_csv("vertex_begin.csv");
+}
+
+void write_initial_step_snapshot(Model &model, const int snapshotIteration)
+{
+    model.mesh.write_vertices_csv("vertex_initial_step_" + std::to_string(snapshotIteration) + ".csv");
+    if (has_gag_scaffolding_output(model.mesh.param))
+    {
+        model.mesh.write_gag_scaffolding_state_dat(
+            "gag_scaffold_initial_step_" + std::to_string(snapshotIteration) + ".dat");
+    }
+}
+
+void write_periodic_vertex_snapshot_if_due(Model &model, const int iteration)
+{
+    if (!should_write_periodic_vertex_snapshot(iteration))
+    {
+        return;
+    }
+
+    write_vertex_data_to_csv(model.mesh, iteration);
+    if (has_gag_scaffolding_output(model.mesh.param))
+    {
+        model.mesh.write_gag_scaffolding_state_dat("gag_scaffold_" + std::to_string(iteration) + ".dat");
+    }
+}
+
+void write_checkpoint_if_due(const Model &model, const int nextIteration)
+{
+    if (!should_write_restart_checkpoint(model.mesh.param, nextIteration))
+    {
+        return;
+    }
+
+    if (!write_model_restart_checkpoint(model,
+                                        model.mesh.param.checkpointOutputFile,
+                                        nextIteration))
+    {
+        std::cerr << "[main()] Checkpoint write failed for "
+                  << model.mesh.param.checkpointOutputFile << "." << std::endl;
+    }
+}
+
+void write_final_checkpoint_if_enabled(const Model &model)
+{
+    if (model.mesh.param.checkpointOutputInterval <= 0)
+    {
+        return;
+    }
+
+    if (!write_model_restart_checkpoint(model,
+                                        model.mesh.param.checkpointOutputFile,
+                                        model.iteration))
+    {
+        std::cerr << "[main()] Final checkpoint write failed for "
+                  << model.mesh.param.checkpointOutputFile << "." << std::endl;
+    }
+}
+}
+
 void run_flat(std::string param_filename)
 {
     Param inputParam;
@@ -71,8 +142,7 @@ void run_flat(std::string param_filename)
     // Output the vertices and faces matrix
     if (!restartRequested)
     {
-        mesh.write_faces_csv("face.csv");
-        mesh.write_vertices_csv("vertex_begin.csv");
+        write_begin_mesh_snapshot(mesh);
     }
     
     // Initialize all value before minimum energy search 
@@ -115,12 +185,7 @@ void run_flat(std::string param_filename)
 
     if (mesh.param.meshpointOutput)
     {
-        model.mesh.write_vertices_csv("vertex_initial_step_0.csv");
-        if (mesh.param.isGagScaffoldingEnergyIncluded ||
-            mesh.param.isIdealizedProteinLatticeEnergyIncluded)
-        {
-            model.mesh.write_gag_scaffolding_state_dat("gag_scaffold_initial_step_0.dat");
-        }
+        write_initial_step_snapshot(model, 0);
     }
     const double initialMeanForce = record.meanForce.back();
     const bool isInitiallyConverged = std::isfinite(initialMeanForce) &&
@@ -158,31 +223,12 @@ void run_flat(std::string param_filename)
             if (mesh.param.meshpointOutput && model.iteration < 5)
             {
                 const int snapshotIteration = model.iteration + 1;
-                model.mesh.write_vertices_csv("vertex_initial_step_" + std::to_string(snapshotIteration) + ".csv");
-                if (mesh.param.isGagScaffoldingEnergyIncluded ||
-                    mesh.param.isIdealizedProteinLatticeEnergyIncluded)
-                {
-                    model.mesh.write_gag_scaffolding_state_dat("gag_scaffold_initial_step_" + std::to_string(snapshotIteration) + ".dat");
-                }
+                write_initial_step_snapshot(model, snapshotIteration);
             }
 
             const int nextIteration = model.iteration + 1;
-            if (nextIteration % 10000 == 0)
-            {
-                write_vertex_data_to_csv(model.mesh, nextIteration);
-                if (mesh.param.isGagScaffoldingEnergyIncluded ||
-                    mesh.param.isIdealizedProteinLatticeEnergyIncluded)
-                {
-                    mesh.write_gag_scaffolding_state_dat("gag_scaffold_" + std::to_string(nextIteration) + ".dat");
-                }
-            }
-            if (mesh.param.checkpointOutputInterval > 0 &&
-                nextIteration % mesh.param.checkpointOutputInterval == 0)
-            {
-                write_model_restart_checkpoint(model,
-                                               mesh.param.checkpointOutputFile,
-                                               nextIteration);
-            }
+            write_periodic_vertex_snapshot_if_due(model, nextIteration);
+            write_checkpoint_if_due(model, nextIteration);
             model.iteration++;
         }
     }
@@ -284,12 +330,7 @@ void run_flat(std::string param_filename)
         if (mesh.param.meshpointOutput && model.iteration < 5)
         {
             const int snapshotIteration = model.iteration + 1;
-            model.mesh.write_vertices_csv("vertex_initial_step_" + std::to_string(snapshotIteration) + ".csv");
-            if (mesh.param.isGagScaffoldingEnergyIncluded ||
-                mesh.param.isIdealizedProteinLatticeEnergyIncluded)
-            {
-                model.mesh.write_gag_scaffolding_state_dat("gag_scaffold_initial_step_" + std::to_string(snapshotIteration) + ".dat");
-            }
+            write_initial_step_snapshot(model, snapshotIteration);
         }
 
         // Update the reference if energy or force is not changing signficantly
@@ -311,32 +352,13 @@ void run_flat(std::string param_filename)
         //if (mesh.param.meshpointOutput) {
         //    output_trajectory_files(mesh, "traj");
         //}
-        if (model.iteration % 10000 == 0)
-        {
-            write_vertex_data_to_csv(model.mesh, model.iteration);
-            if (mesh.param.isGagScaffoldingEnergyIncluded ||
-                mesh.param.isIdealizedProteinLatticeEnergyIncluded)
-            {
-                mesh.write_gag_scaffolding_state_dat("gag_scaffold_" + std::to_string(model.iteration) + ".dat");
-            }
-        }
+        write_periodic_vertex_snapshot_if_due(model, model.iteration);
         const int nextIteration = model.iteration + 1;
-        if (mesh.param.checkpointOutputInterval > 0 &&
-            nextIteration % mesh.param.checkpointOutputInterval == 0)
-        {
-            write_model_restart_checkpoint(model,
-                                           mesh.param.checkpointOutputFile,
-                                           nextIteration);
-        }
+        write_checkpoint_if_due(model, nextIteration);
         model.iteration++;
     }
     }
-    if (mesh.param.checkpointOutputInterval > 0)
-    {
-        write_model_restart_checkpoint(model,
-                                       mesh.param.checkpointOutputFile,
-                                       model.iteration);
-    }
+    write_final_checkpoint_if_enabled(model);
     // Output Energy and meanforce
     write_energy_force_data_to_csv(model);
     if (!model.thermalFluctuationRecords.empty())
@@ -365,8 +387,7 @@ void run_flat(std::string param_filename)
 
     // Output the final structure
     write_final_vertex_data_to_csv(mesh);
-    if (mesh.param.isGagScaffoldingEnergyIncluded ||
-        mesh.param.isIdealizedProteinLatticeEnergyIncluded)
+    if (has_gag_scaffolding_output(mesh.param))
     {
         mesh.write_gag_scaffolding_state_dat("gag_scaffold_final.dat");
     }

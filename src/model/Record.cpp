@@ -1,11 +1,20 @@
 #include "model/Record.hpp"
+
+#include <algorithm>
+
+namespace
+{
+constexpr int kMaxInitialRecordReserve = 1024;
+}
+
 Record::Record() {}
 
 Record::Record(const int numIterations)
 {
-    areaTotal.reserve(numIterations);
-    energyVec.reserve(numIterations);
-    meanForce.reserve(numIterations);
+    const int reserveCount = std::max(0, std::min(numIterations, kMaxInitialRecordReserve));
+    areaTotal.reserve(reserveCount);
+    energyVec.reserve(reserveCount);
+    meanForce.reserve(reserveCount);
 }
 
 /**

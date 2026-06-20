@@ -171,6 +171,16 @@ void write_vertex_data_to_csv(const Mesh &mesh, const int iteration)
 __attribute__((deprecated("Use Mesh::write_vertex_data_to_csv instead.")));
 
 /**
+ * @brief Return true when a periodic vertex snapshot should be emitted.
+ */
+bool should_write_periodic_vertex_snapshot(const int iteration);
+
+/**
+ * @brief Return true when the restart checkpoint cadence is due.
+ */
+bool should_write_restart_checkpoint(const Param &param, const int nextIteration);
+
+/**
  * @brief Writes the energy force data to a CSV file.
  *
  * This function writes the energy and force data for each iteration in the following format:
@@ -183,6 +193,7 @@ __attribute__((deprecated("Use Mesh::write_vertex_data_to_csv instead.")));
  *
  */
 void write_energy_force_data_to_csv(const Model &model);
+bool write_energy_force_data_to_csv(const Model &model, const std::string &filepath);
 
 /**
  * @brief Write a restart checkpoint for a minimization model.
