@@ -221,16 +221,24 @@ void run_flat(std::string param_filename)
             }
         }
         // Search for a step size above model.oa.stepSizeThreshold
-        model.linear_search_for_stepsize_to_minimize_energy(); 
-        // Command line out put for current step
-        std::cout << "[main()] " << model.to_string_current_step() << std::endl;
- 
+        model.linear_search_for_stepsize_to_minimize_energy();
+        if (model.oa.lineSearchStatus == OptimizationAlgorithm::LineSearchStatus::ConvergedZeroGradient)
+        {
+            std::cout << "[main()] Step: " << model.iteration << "  -- zero force; converged. Stopped." << std::endl;
+            break;
+        }
+
         // End program if no efficient step size found; assumed energy minimized (criteria based on model.oa.stepSizeThreshold)
         if (model.stepSize < 0)
         {
-            std::cout << "[main()] Step: " << model.iteration << "  -- could not find an efficient step size. Stopped." << std::endl;
+            std::cout << "[main()] Step: " << model.iteration
+                      << "  -- could not find an efficient step size ("
+                      << model.oa.line_search_status_string()
+                      << "). Stopped." << std::endl;
             break;
         }
+        // Command line out put for current step
+        std::cout << "[main()] " << model.to_string_current_step() << std::endl;
  
         model.update_vertex_using_NCG(); // apply displacement to vertices based on forces
         bool thermalMoveAttempted = model.simulated_annealing_next_step(); // optional Metropolis thermal trial
@@ -263,12 +271,12 @@ void run_flat(std::string param_filename)
         // calculate the new Force and Energy; sync previous energy and force values with current values
         mesh.Compute_Energy_And_Force();
         mesh.update_previous_coord_for_vertex();
-        mesh.update_previous_force_for_vertex();
         mesh.update_previous_energy_for_face();
         mesh.param.energyPrev = mesh.param.energy;
 
         // Calculate the direction vector for nonlinear conjugate method (NCG)
         model.update_ncg_direction();
+        mesh.update_previous_force_for_vertex();
         model.oa.trialStepSize = model.stepSize;
  
         // Record the Energy and nodal Force

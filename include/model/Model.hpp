@@ -31,15 +31,39 @@
 class OptimizationAlgorithm
 {
 public:
+    enum class DirectionUpdateStatus
+    {
+        NotStarted,
+        SteepestDescent,
+        ConjugateDescent,
+        RestartedNonDescent,
+        RestartedNonFinite,
+        ConvergedZeroGradient
+    };
+
+    enum class LineSearchStatus
+    {
+        NotStarted,
+        AcceptedNcgWolfe,
+        AcceptedSimpleDecrease,
+        ConvergedZeroGradient,
+        FailedNonFinite,
+        FailedStepTooSmall,
+        FailedUphillDirection
+    };
+
     bool usingNCG = false;                  ///< Flag indicating whether to use the nonlinear conjugate gradient optimizer.
     bool isNCGstuck = false;               ///< Flag indicating whether the NCG optimizer has gotten stuck and cannot further minimize.
     bool usingRpi = false;                  ///< Flag indicating whether to use the R-pi adaptive method for regularization energy.
     bool isCriteriaSatisfied = false;      ///< Flag indicating whether the optimization criteria have been met.
+    DirectionUpdateStatus directionUpdateStatus = DirectionUpdateStatus::NotStarted; ///< Most recent NCG direction update result.
+    LineSearchStatus lineSearchStatus = LineSearchStatus::NotStarted; ///< Most recent line-search result.
     double trialStepSize = 0.0;            ///< The step size used in the optimization algorithm.
     int trialIterationInterval = 300;       ///< The number of iterations between trial step size adjustments.
     double c1 = 1e-6;                      ///< The c1 parameter in the NCG Wolfe condition.
     double c2 = 0.001;                     ///< The c2 parameter in the NCG Wolfe condition.
     double stepThreshold = 1e-15;          ///< The lower bound for the step size in NCG.
+    double betaRestartThreshold = 1e-30;   ///< Force-norm threshold below which NCG restarts as steepest descent.
     int nConsecutiveNcgStuck = 0;          ///< The number of consecutive times the NCG optimizer has gotten stuck.
     int nConsecutiveNcgStuckThreshold = 3; ///< The threshold of consecutive NCG stuck iterations before disabling it.
     double energyDiffThreshold = 1e-5;     ///< The energy difference threshold for convergence checking.
@@ -71,6 +95,20 @@ public:
      * Sets usingNCG to true, isNCGstuck to false, and usingRpi to true.
      */
     void reset_NCG_Rpi();
+
+    bool is_finite_value(double value) const;
+    bool is_descent_direction(double forceDotDirection) const;
+    double compute_fletcher_reeves_beta(double previousForceNormSquared,
+                                        double currentForceNormSquared) const;
+    bool accepts_ncg_wolfe_step(double currentEnergy,
+                                double newEnergy,
+                                double stepSize,
+                                double initialDirectionalDerivative,
+                                double trialDirectionalDerivative) const;
+    bool accepts_simple_energy_decrease(double currentEnergy,
+                                        double newEnergy,
+                                        double trialForceNormSquared) const;
+    const char *line_search_status_string() const;
 
     /**
      * @brief Disables the use of NCG if it has been stuck consecutively over a threshold.

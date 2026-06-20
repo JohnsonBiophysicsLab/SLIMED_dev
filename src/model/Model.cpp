@@ -1,5 +1,7 @@
 #include "model/Model.hpp"
 
+#include <cmath>
+
 /**
  * @brief Constructs a new Model object.
  *
@@ -25,6 +27,9 @@ Model::Model(Mesh &mesh_, Record &record_)
     }
     oa.energyDiffThreshold = mesh.param.deltaEnergyConverge;
     oa.forceDiffThreshold = mesh.param.deltaForceScaleConverge;
+    oa.usingNCG = mesh.param.usingNCG;
+    oa.isNCGstuck = mesh.param.isNCGstuck;
+    oa.usingRpi = mesh.param.usingRpi;
 }
 
 /**
@@ -44,9 +49,13 @@ void Model::determine_trial_step_size()
         // test
         std::cout << "max_force_scale=" << maxForceMag << ", energy=" << mesh.param.energy.energyTotal << std::endl;
         // exit(0);
-        if (maxForceMag == 0)
+        if (!std::isfinite(maxForceMag))
         {
             oa.trialStepSize = -1;
+        }
+        else if (maxForceMag == 0)
+        {
+            oa.trialStepSize = 0;
         }
         else if (maxForceMag < 5.0)
         {
@@ -119,16 +128,65 @@ void Model::update_ncg_direction()
             // Update NCG direction to be the current force
             ncgDirection0[i].forceTotal = mesh.vertices[i].force.forceTotal;
         }
+        if (!oa.is_finite_value(ncgFactorCurr))
+        {
+            oa.directionUpdateStatus = OptimizationAlgorithm::DirectionUpdateStatus::RestartedNonFinite;
+        }
+        else if (ncgFactorCurr <= oa.betaRestartThreshold)
+        {
+            oa.directionUpdateStatus = OptimizationAlgorithm::DirectionUpdateStatus::ConvergedZeroGradient;
+        }
+        else
+        {
+            oa.directionUpdateStatus = OptimizationAlgorithm::DirectionUpdateStatus::SteepestDescent;
+        }
     }
     else
     { // If using NCG
-        double peta1 = ncgFactorCurr / ncgFactorPrev;
+        const double peta1 = oa.compute_fletcher_reeves_beta(ncgFactorPrev, ncgFactorCurr);
 
 #pragma omp parallel for
         for (int i = 0; i < mesh.vertices.size(); i++)
         {
             // Update NCG direction as a combination of current force and previous NCG direction
             ncgDirection0[i].forceTotal = mesh.vertices[i].force.forceTotal + peta1 * ncgDirection0[i].forceTotal;
+        }
+
+        double forceDotDirection = 0.0;
+#pragma omp parallel for reduction(+ \
+                                   : forceDotDirection)
+        for (int i = 0; i < mesh.vertices.size(); i++)
+        {
+            forceDotDirection += dot_col(mesh.vertices[i].force.forceTotal, ncgDirection0[i].forceTotal);
+        }
+
+        if (oa.is_descent_direction(forceDotDirection))
+        {
+            oa.directionUpdateStatus = peta1 == 0.0
+                ? OptimizationAlgorithm::DirectionUpdateStatus::SteepestDescent
+                : OptimizationAlgorithm::DirectionUpdateStatus::ConjugateDescent;
+            return;
+        }
+
+#pragma omp parallel for
+        for (int i = 0; i < mesh.vertices.size(); i++)
+        {
+            ncgDirection0[i].forceTotal = mesh.vertices[i].force.forceTotal;
+        }
+
+        if (!oa.is_finite_value(forceDotDirection) ||
+            !oa.is_finite_value(ncgFactorPrev) ||
+            !oa.is_finite_value(ncgFactorCurr))
+        {
+            oa.directionUpdateStatus = OptimizationAlgorithm::DirectionUpdateStatus::RestartedNonFinite;
+        }
+        else if (ncgFactorCurr <= oa.betaRestartThreshold)
+        {
+            oa.directionUpdateStatus = OptimizationAlgorithm::DirectionUpdateStatus::ConvergedZeroGradient;
+        }
+        else
+        {
+            oa.directionUpdateStatus = OptimizationAlgorithm::DirectionUpdateStatus::RestartedNonDescent;
         }
     }
 }
