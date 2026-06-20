@@ -79,6 +79,22 @@ targets from the gate.
 - Prefer post-processing diagnostics for analysis-only validation.
 - Add tests only where they protect behavior that the refactor touches.
 
+## Energy/Force Evaluator Boundary
+
+The first core-physics seam is `EnergyForceEvaluator`, a behavior-preserving
+facade over `Mesh::Compute_Energy_And_Force()`. Its boundary is the current
+mesh-state recomputation: element area and volume, current face energies,
+current vertex force components/totals, `Param::energy`, optional scaffolding
+energy/force contributions, and boundary/ghost force handling. Callers remain
+responsible for previous-coordinate snapshots, previous-force/energy snapshots,
+records, checkpoint state, optimizer state, RNG state, and propagation policy.
+
+Keep future refactor slices on one side of this boundary at a time: either make
+propagation/minimization call the evaluator more consistently, or split the
+physics implementation behind it, but do not change numerical algorithms,
+OpenMP scheduling, RNG behavior, Loop subdivision, or output/checkpoint formats
+as part of evaluator plumbing.
+
 ## OpenMP Benchmark Harness
 
 Use the lightweight benchmark harness to collect reproducible serial-vs-OpenMP

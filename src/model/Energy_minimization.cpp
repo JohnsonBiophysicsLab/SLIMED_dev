@@ -2,6 +2,8 @@
 
 #include <cmath>
 
+#include "energy_force/Energy_force_evaluator.hpp"
+
 namespace
 {
 double force_norm_squared(const std::vector<Vertex> &vertices, bool usePreviousForce)
@@ -53,6 +55,12 @@ void restore_current_coord_from_previous(std::vector<Vertex> &vertices)
     {
         vertices[i].update_coord_with_prev_coord();
     }
+}
+
+void evaluate_energy_force(Mesh &mesh)
+{
+    EnergyForceEvaluator evaluator;
+    evaluator.evaluate(mesh);
 }
 }
 
@@ -144,7 +152,7 @@ double Model::linear_search_for_stepsize_to_minimize_energy()
 
         // Apply displacement and recompute energy and force
         update_vertex_using_NCG();//cout << "R43" << endl;
-        mesh.Compute_Energy_And_Force();//cout << "R44" << endl;
+        evaluate_energy_force(mesh);//cout << "R44" << endl;
         newEnergy = mesh.param.energy.energyTotal;
 //if (ROWOUTPUT)cout << "R46" << endl;
         // Check if using NCG and not stuck
@@ -491,7 +499,7 @@ bool Model::simulated_annealing_next_step(bool forceAttempt)
     }
 
     enforce_boundary_conditions_after_coordinate_update();
-    mesh.Compute_Energy_And_Force();
+    evaluate_energy_force(mesh);
     const double deltaEnergy = param.energy.energyTotal - currentEnergy;
     double acceptanceProbability = 1.0;
     bool accepted = true;
@@ -513,7 +521,7 @@ bool Model::simulated_annealing_next_step(bool forceAttempt)
         {
             mesh.vertices[i].coord = previousCoords[i];
         }
-        mesh.Compute_Energy_And_Force();
+        evaluate_energy_force(mesh);
     }
 
     ThermalFluctuationRecord record;
