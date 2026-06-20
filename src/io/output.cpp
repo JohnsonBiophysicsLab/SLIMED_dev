@@ -1,4 +1,5 @@
 #include "io/io.hpp"
+#include <algorithm>
 #include <cstdio>
 #include <iomanip>
 
@@ -88,6 +89,18 @@ void write_vertex_data_to_csv(const Mesh &mesh, const int iteration)
     outfile.close();
 }
 
+bool should_write_periodic_vertex_snapshot(const int iteration)
+{
+    return iteration % 10000 == 0;
+}
+
+bool should_write_restart_checkpoint(const Param &param, const int nextIteration)
+{
+    return nextIteration > 0 &&
+           param.checkpointOutputInterval > 0 &&
+           nextIteration % param.checkpointOutputInterval == 0;
+}
+
 /**
  * @brief Writes the energy force data to a CSV file.
  *
@@ -101,10 +114,22 @@ void write_vertex_data_to_csv(const Mesh &mesh, const int iteration)
  */
 void write_energy_force_data_to_csv(const Model &model)
 {
-    // Output Energy and meanforce
-    std::string ENERGY_FORCE_FILENAME = "EnergyForce.csv";
-    ofstream outfileEF(ENERGY_FORCE_FILENAME);
-    for (int j = 0; j <= model.iteration; j++)
+    write_energy_force_data_to_csv(model, "EnergyForce.csv");
+}
+
+bool write_energy_force_data_to_csv(const Model &model, const std::string &filepath)
+{
+    ofstream outfileEF(filepath);
+    if (!outfileEF.is_open())
+    {
+        std::cerr << "[write_energy_force_data_to_csv] Could not open "
+                  << filepath << " for writing." << std::endl;
+        return false;
+    }
+
+    const int recordCount = static_cast<int>(std::min(model.record.energyVec.size(),
+        std::min(model.record.areaTotal.size(), model.record.meanForce.size())));
+    for (int j = 0; j < recordCount; j++)
     {
         if (j == 0)
         {
@@ -120,6 +145,13 @@ void write_energy_force_data_to_csv(const Model &model)
                   << model.record.meanForce[j] << '\n';
     }
     outfileEF.close();
+    if (!outfileEF)
+    {
+        std::cerr << "[write_energy_force_data_to_csv] Failed while writing "
+                  << filepath << "." << std::endl;
+        return false;
+    }
+    return true;
 }
 
 bool write_model_restart_checkpoint(const Model &model,

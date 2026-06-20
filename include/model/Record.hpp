@@ -22,9 +22,9 @@ public:
     Record();
 
     /**
-     * @brief Constructor for Record class that pre-allocates memory for the data vectors.
+     * @brief Constructor for Record class that reserves a bounded initial capacity.
      *
-     * @param numIterations The number of iterations to allocate memory for.
+     * @param numIterations The requested number of iterations.
      */
     Record(const int numIterations);
 

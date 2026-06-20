@@ -1,6 +1,52 @@
 #include "test_io.hpp"
 
 #include <cmath>
+#include <filesystem>
+#include <fstream>
+#include <sstream>
+
+namespace
+{
+std::filesystem::path create_clean_test_dir(const std::string &name)
+{
+    const std::filesystem::path dir = std::filesystem::temp_directory_path() / ("slimed_" + name);
+    std::filesystem::remove_all(dir);
+    std::filesystem::create_directories(dir);
+    return dir;
+}
+
+Param load_example_param()
+{
+    Param param;
+    EXPECT_TRUE(import_param_file(param, "./data/example/example.params"));
+    param.VERBOSE_MODE = false;
+    param.meshpointOutput = false;
+    param.xyzOutput = false;
+    param.surfacepointOutput = false;
+    return param;
+}
+
+void initialize_flat_example_mesh(Mesh &mesh)
+{
+    mesh.setup_flat();
+    mesh.calculate_element_area_volume();
+    double initArea = 0.0;
+    if (mesh.param.setRelaxAreaToDefault)
+    {
+        mesh.sum_membrane_area_and_volume(mesh.param.area0, mesh.param.vol0);
+    }
+    else
+    {
+        mesh.sum_membrane_area_and_volume(initArea, mesh.param.vol0);
+    }
+    mesh.update_previous_coord_for_vertex();
+    mesh.update_reference_coord_from_previous_coord();
+    mesh.Compute_Energy_And_Force();
+    mesh.update_previous_coord_for_vertex();
+    mesh.update_previous_force_for_vertex();
+}
+}
+
 /**
  * @brief Test import_kv_string function
  *
@@ -179,6 +225,114 @@ TEST(ImportKVStringTest, ThermalFluctuationParameters)
     EXPECT_DOUBLE_EQ(param.thermalFluctuationMinTemperatureKelvin, 298.0);
     EXPECT_DOUBLE_EQ(param.thermalFluctuationCoolingRate, 0.95);
     EXPECT_DOUBLE_EQ(param.thermalFluctuationStepScale, 0.01);
+}
+
+TEST(OutputCadenceTest, CheckpointAndSnapshotCadenceAreExplicit)
+{
+    Param param;
+    param.checkpointOutputInterval = 3;
+
+    EXPECT_FALSE(should_write_restart_checkpoint(param, 1));
+    EXPECT_FALSE(should_write_restart_checkpoint(param, 2));
+    EXPECT_TRUE(should_write_restart_checkpoint(param, 3));
+    EXPECT_TRUE(should_write_restart_checkpoint(param, 6));
+
+    param.checkpointOutputInterval = 0;
+    EXPECT_FALSE(should_write_restart_checkpoint(param, 3));
+
+    EXPECT_TRUE(should_write_periodic_vertex_snapshot(0));
+    EXPECT_FALSE(should_write_periodic_vertex_snapshot(1));
+    EXPECT_TRUE(should_write_periodic_vertex_snapshot(10000));
+}
+
+TEST(OutputWriteTest, EnergyForceWriterClosesReadableFile)
+{
+    const std::filesystem::path dir = create_clean_test_dir("energy_force_writer");
+    const std::filesystem::path outputPath = dir / "EnergyForce.csv";
+
+    Param param = load_example_param();
+    Mesh mesh(param);
+    initialize_flat_example_mesh(mesh);
+    Record record(2);
+    record.add(mesh.param.area, mesh.param.energy, mesh.calculate_mean_force());
+    Model model(mesh, record);
+
+    ASSERT_TRUE(write_energy_force_data_to_csv(model, outputPath.string()));
+
+    std::ifstream input(outputPath);
+    ASSERT_TRUE(input.is_open());
+
+    std::string header;
+    std::string row;
+    ASSERT_TRUE(static_cast<bool>(std::getline(input, header)));
+    ASSERT_TRUE(static_cast<bool>(std::getline(input, row)));
+    EXPECT_NE(header.find("E_Curvature"), std::string::npos);
+    EXPECT_FALSE(row.empty());
+}
+
+TEST(CheckpointOutputTest, CheckpointOutputPathRespectsParams)
+{
+    const std::filesystem::path dir = create_clean_test_dir("checkpoint_output_path");
+
+    Param param = load_example_param();
+    param.checkpointOutputFile = (dir / "custom_restart.chk").string();
+    Mesh mesh(param);
+    initialize_flat_example_mesh(mesh);
+    Record record(4);
+    record.add(mesh.param.area, mesh.param.energy, mesh.calculate_mean_force());
+    Model model(mesh, record);
+    model.iteration = 2;
+    model.stepSize = 0.125;
+
+    ASSERT_TRUE(write_model_restart_checkpoint(model, model.mesh.param.checkpointOutputFile, 3));
+
+    EXPECT_TRUE(std::filesystem::exists(dir / "custom_restart.chk"));
+    EXPECT_FALSE(std::filesystem::exists(dir / "slimed_restart.chk"));
+}
+
+TEST(CheckpointRestartTest, RestartReadsExpectedCheckpointFields)
+{
+    const std::filesystem::path dir = create_clean_test_dir("checkpoint_restart_fields");
+    const std::filesystem::path checkpointPath = dir / "restart.chk";
+
+    Param param = load_example_param();
+    Mesh mesh(param);
+    initialize_flat_example_mesh(mesh);
+    Record record(4);
+    record.add(mesh.param.area, mesh.param.energy, mesh.calculate_mean_force());
+    Model model(mesh, record);
+    model.iteration = 4;
+    model.stepSize = 0.25;
+    model.oa.usingNCG = false;
+    model.oa.trialStepSize = 0.5;
+    model.currentCoolingStep = 7;
+    model.mesh.param.springConst = 3.5;
+    model.mesh.vertices[0].coord.set(0, 0, 12.25);
+    model.ncgDirection0[0].forceTotal.set(1, 0, -2.0);
+
+    ASSERT_TRUE(write_model_restart_checkpoint(model, checkpointPath.string(), 5));
+
+    Param restartParam = load_example_param();
+    Mesh restartMesh(restartParam);
+    initialize_flat_example_mesh(restartMesh);
+    Record restartRecord(4);
+    restartRecord.add(restartMesh.param.area,
+                      restartMesh.param.energy,
+                      restartMesh.calculate_mean_force());
+    Model restartModel(restartMesh, restartRecord);
+
+    ASSERT_TRUE(load_model_restart_checkpoint(restartModel, checkpointPath.string()));
+
+    EXPECT_EQ(restartModel.iteration, 5);
+    EXPECT_DOUBLE_EQ(restartModel.stepSize, 0.25);
+    EXPECT_FALSE(restartModel.oa.usingNCG);
+    EXPECT_DOUBLE_EQ(restartModel.oa.trialStepSize, 0.5);
+    EXPECT_EQ(restartModel.currentCoolingStep, 7);
+    EXPECT_DOUBLE_EQ(restartModel.mesh.param.springConst, 3.5);
+    EXPECT_DOUBLE_EQ(restartModel.mesh.vertices[0].coord(0, 0), 12.25);
+    EXPECT_DOUBLE_EQ(restartModel.ncgDirection0[0].forceTotal(1, 0), -2.0);
+    ASSERT_EQ(restartModel.record.energyVec.size(), model.record.energyVec.size());
+    EXPECT_DOUBLE_EQ(restartModel.record.meanForce[0], model.record.meanForce[0]);
 }
 
 // Test import_mesh_from_vertices_faces function
