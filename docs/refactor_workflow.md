@@ -124,11 +124,42 @@ metadata plus aggregate mean/min/max/stdev timing summaries.
 Do not commit generated benchmark CSV, JSON, or log files. Prefer `/tmp` paths
 or another local scratch directory for all benchmark artifacts.
 
-As of the 2026-06-19 post-merge baseline, the committed example minimization
-exits successfully because the initial mean force is already below the
-convergence threshold. It writes `EnergyForce.csv`, `vertexfinal.csv`, and
-`slimed_restart.chk`. Use `--dry-run` or a harmless smoke command when the goal
-is only to validate the benchmark harness instead of timing a real simulation.
+The committed example minimization exits successfully because the initial mean
+force is already below the convergence threshold, so it is not a useful OpenMP
+optimization workload. For real timing smoke tests, stage the benchmark-only
+workload under `/tmp`:
+
+```console
+python3 scripts/stage_openmp_benchmark_workload.py \
+  --workdir /tmp/slimed-openmp-benchmark-workload \
+  --force
+```
+
+Then point the benchmark harness at wrapper commands that run
+`continuum_membrane` from `/tmp/slimed-openmp-benchmark-workload`. The staged
+input enables deterministic pure MMC thermal steps with a fixed seed and avoids
+meshpoint, XYZ, and checkpoint outputs. The executable still writes standard
+summary CSV files in its working directory, so keep the working directory under
+`/tmp`.
+
+Example smoke run:
+
+```console
+ROOT="$(pwd)"
+WORKDIR=/tmp/slimed-openmp-benchmark-workload
+OUTDIR=/tmp/slimed-openmp-meaningful-results
+
+python3 scripts/benchmark_openmp_scaling.py \
+  --baseline-build-command "/bin/zsh -lc 'make -C \"${ROOT}\" clean && make -C \"${ROOT}\" serial'" \
+  --baseline-run-command "/bin/zsh -lc 'cd \"${WORKDIR}\" && \"${ROOT}/bin/continuum_membrane\"'" \
+  --build-command "/bin/zsh -lc 'make -C \"${ROOT}\" clean && make -C \"${ROOT}\" omp'" \
+  --run-command "/bin/zsh -lc 'cd \"${WORKDIR}\" && \"${ROOT}/bin/continuum_membrane\"'" \
+  --threads 1,2 \
+  --repeats 1 \
+  --csv "${OUTDIR}/openmp-smoke.csv" \
+  --json "${OUTDIR}/openmp-smoke.json" \
+  --log-dir "${OUTDIR}/logs"
+```
 
 ## Diagnostic Plan
 

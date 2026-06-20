@@ -1,0 +1,76 @@
+# Benchmark-only OpenMP workload derived from data/example/example.params.
+# This fixture is not a scientific protocol. It enables the existing pure MMC
+# thermal mode with a fixed seed so benchmark runs perform deterministic
+# repeated energy/force evaluations instead of stopping at step 0.
+# Please do not change the variable name strings.
+
+############################################
+## Dynamics Model Parameters
+############################################
+
+maxIterations = 8              # short smoke workload: records steps 1 through 7
+meshpointOutput = false        # avoid per-step meshpoint snapshots in benchmark runs
+xyzOutput = false              # avoid trajectory.xyz in benchmark runs
+checkpointOutputInterval = 0   # avoid restart checkpoints in benchmark runs
+
+############################################
+## Boundary Conditions
+############################################
+
+boundaryType = Periodic
+
+############################################
+## Geometric Parameters
+############################################
+
+lFace = 5.0
+setRelaxAreaToDefault = true
+
+# Flat model
+isFlat = true
+sideX = 100.0
+sideY = 100.0
+
+############################################
+## Physical Properties
+############################################
+
+c0Insertion = 0.8
+c0Membrane = 0.0
+kcMembraneBending = 83.4
+usMembraneStretching = 250.0
+uvVolumeConstraint = 0.0
+isGlobalConstraint = false
+KBT = 4.17
+thermalFluctuationEnabled = true
+thermalFluctuationPureMMC = true
+thermalFluctuationInterval = 1
+thermalFluctuationTemperatureKelvin = 298.0
+thermalFluctuationMinTemperatureKelvin = 298.0
+thermalFluctuationCoolingRate = 1.0
+thermalFluctuationStepScale = 0.02
+randomSeed = 42
+
+# dynamics model parameters
+timeStep = 0.001
+diffConst = 1.0
+
+############################################
+## Insertion Mode
+############################################
+
+isInsertionIncluded = false
+sigma = 0.0
+
+############################################
+## Scaffolding Mode
+############################################
+
+isEnergyHarmonicBondIncluded = false
+scaffoldingFileName = COM.csv
+
+############################################
+## Developer options
+############################################
+
+VERBOSE_MODE = false
