@@ -38,7 +38,7 @@ C++17, so this baseline enables test modernization without vendoring or
 upgrading GoogleTest in this PR. On macOS, the Makefile currently selects
 `g++-15` for OpenMP builds.
 
-### GoogleTest Status
+### Post-Merge Baseline Status
 
 The `Fix gtest include path` implementation thread resolved the local
 GoogleTest discovery failure that previously stopped the PR gate at
@@ -47,14 +47,22 @@ Homebrew `googletest` prefix for include and library paths, adds the Homebrew
 `libomp` include path needed by headers that include `omp.h`, and isolates test
 objects under `obj/test/` so test builds do not reuse normal-mode objects.
 
-Verified on 2026-06-17 in the planning thread:
+Verified on 2026-06-19 after the optimizer and thermal checkpoint merges
+(`aeba08277e2066d3e90653068e95b20586a93f30`):
 
 - `make test` completed and linked `bin/test_main`.
-- `./bin/test_main` passed 18 tests from 10 suites.
+- `./bin/test_main` passed 39 tests from 18 suites.
+- `make -B serial` completed and linked `bin/continuum_membrane`.
+- `./scripts/verify_pr_ready.sh` completed all 13 build/test steps.
+- The committed example params, a checkpoint/restart smoke, the Fourier and
+  boundary diagnostic CLIs/tests, and the OpenMP benchmark help/dry-run/smoke
+  commands all passed.
 
-The separate `Foundation PR` implementation thread owns the broader C++17
-transition for every Makefile mode. Treat the full PR gate as the final source
-of truth before marking the foundation work ready.
+Known warnings in that baseline are not blockers: `src/Run_flat.cpp` still calls
+the deprecated `write_vertex_data_to_csv` wrapper, and the clang test build
+reports missing `BoundaryType::Fixed` switch cases in
+`src/mesh/Mesh_setup_boundary_condition.cpp`. Treat the full PR gate as the
+source of truth before marking later refactor work ready.
 
 If a command fails because of local environment limits, record the exact command
 and the relevant error output in the PR notes. Do not hide failures by removing
@@ -115,10 +123,11 @@ metadata plus aggregate mean/min/max/stdev timing summaries.
 Do not commit generated benchmark CSV, JSON, or log files. Prefer `/tmp` paths
 or another local scratch directory for all benchmark artifacts.
 
-Known limitation: real simulation benchmarking may need to wait for the active
-example energy-minimization NaN fix. Until that lands, use `--dry-run` or a
-harmless smoke command to validate the harness without depending on the
-unhealthy committed example minimization.
+As of the 2026-06-19 post-merge baseline, the committed example minimization
+exits successfully because the initial mean force is already below the
+convergence threshold. It writes `EnergyForce.csv`, `vertexfinal.csv`, and
+`slimed_restart.chk`. Use `--dry-run` or a harmless smoke command when the goal
+is only to validate the benchmark harness instead of timing a real simulation.
 
 ## Diagnostic Plan
 
