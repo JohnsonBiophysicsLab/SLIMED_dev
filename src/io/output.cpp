@@ -75,18 +75,7 @@ bool read_energy_terms(std::istream &in, Energy &energy)
  */
 void write_vertex_data_to_csv(const Mesh &mesh, const int iteration)
 {
-    const int STEP_SIZE = 100;
-    const std::string VERTEX_FILENAME_PREFIX = "vertex";
-    const std::string VERTEX_FILENAME_SUFFIX = ".csv";
-    const int nFile = iteration / STEP_SIZE;
-    const std::string filename = VERTEX_FILENAME_PREFIX + std::to_string(nFile) + VERTEX_FILENAME_SUFFIX;
-
-    std::ofstream outfile(filename);
-    for (const auto &vertex : mesh.vertices)
-    {
-        outfile << vertex.coord(0, 0) << ',' << vertex.coord(1, 0) << ',' << vertex.coord(2, 0) << '\n';
-    }
-    outfile.close();
+    mesh.write_vertex_data_to_csv(iteration);
 }
 
 bool should_write_periodic_vertex_snapshot(const int iteration)

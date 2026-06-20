@@ -38,31 +38,32 @@ C++17, so this baseline enables test modernization without vendoring or
 upgrading GoogleTest in this PR. On macOS, the Makefile currently selects
 `g++-15` for OpenMP builds.
 
-### Post-Merge Baseline Status
+### Post-PR10 Baseline Status
 
-The `Fix gtest include path` implementation thread resolved the local
-GoogleTest discovery failure that previously stopped the PR gate at
-`gtest/gtest.h`. The fix keeps GoogleTest scoped to `make test`, detects the
-Homebrew `googletest` prefix for include and library paths, adds the Homebrew
-`libomp` include path needed by headers that include `omp.h`, and isolates test
-objects under `obj/test/` so test builds do not reuse normal-mode objects.
+The post-PR10 baseline was refreshed from `origin/main` at
+`4456e2383bd36fa2d462f68e10c37eb0cb71f32c`. The local GoogleTest discovery fix
+remains in place: GoogleTest is scoped to `make test`, Homebrew `googletest`
+and `libomp` include/library paths are detected for test builds, and test
+objects are isolated under `obj/test/` so test builds do not reuse normal-mode
+objects.
 
-Verified on 2026-06-19 after the optimizer and thermal checkpoint merges
-(`aeba08277e2066d3e90653068e95b20586a93f30`):
+Verified on 2026-06-20 after the output/checkpoint cleanup merge
+(`4456e2383bd36fa2d462f68e10c37eb0cb71f32c`):
 
 - `make test` completed and linked `bin/test_main`.
-- `./bin/test_main` passed 39 tests from 18 suites.
+- `./bin/test_main` passed 43 tests from 22 suites.
 - `make -B serial` completed and linked `bin/continuum_membrane`.
 - `./scripts/verify_pr_ready.sh` completed all 13 build/test steps.
 - The committed example params, a checkpoint/restart smoke, the Fourier and
-  boundary diagnostic CLIs/tests, and the OpenMP benchmark help/dry-run/smoke
-  commands all passed.
+  boundary diagnostic CLIs/tests, and the OpenMP benchmark harness smoke all
+  passed.
+- The remaining post-PR10 warning buckets were removed: `BoundaryType::Fixed`
+  is handled explicitly in the boundary-condition switches, and `Run_flat.cpp`
+  no longer calls the deprecated `write_vertex_data_to_csv` wrapper.
 
-Known warnings in that baseline are not blockers: `src/Run_flat.cpp` still calls
-the deprecated `write_vertex_data_to_csv` wrapper, and the clang test build
-reports missing `BoundaryType::Fixed` switch cases in
-`src/mesh/Mesh_setup_boundary_condition.cpp`. Treat the full PR gate as the
-source of truth before marking later refactor work ready.
+Treat the full PR gate as the source of truth before marking later refactor work
+ready. If warnings return in later baseline work, record the exact compiler,
+target, and warning text here.
 
 If a command fails because of local environment limits, record the exact command
 and the relevant error output in the PR notes. Do not hide failures by removing

@@ -33,7 +33,7 @@ void write_periodic_vertex_snapshot_if_due(Model &model, const int iteration)
         return;
     }
 
-    write_vertex_data_to_csv(model.mesh, iteration);
+    model.mesh.write_vertex_data_to_csv(iteration);
     if (has_gag_scaffolding_output(model.mesh.param))
     {
         model.mesh.write_gag_scaffolding_state_dat("gag_scaffold_" + std::to_string(iteration) + ".dat");
