@@ -711,6 +711,13 @@ public:
     void write_vertices_csv_with_type(const std::string &outfile_name);
 
     /**
+     * @brief Writes periodic vertex snapshot data using the legacy vertexN.csv cadence.
+     *
+     * @param iteration The current iteration number of the optimization algorithm.
+     */
+    void write_vertex_data_to_csv(const int iteration) const;
+
+    /**
      * @brief Writes the current Gag scaffold state in a selected-complex style .dat layout.
      *
      * @param outfile_name The name of the output .dat file

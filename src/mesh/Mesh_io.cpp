@@ -71,6 +71,22 @@ void Mesh::write_vertices_csv_with_type(const std::string &outfile_name)
     outfile.close();
 }
 
+void Mesh::write_vertex_data_to_csv(const int iteration) const
+{
+    const int STEP_SIZE = 100;
+    const std::string VERTEX_FILENAME_PREFIX = "vertex";
+    const std::string VERTEX_FILENAME_SUFFIX = ".csv";
+    const int nFile = iteration / STEP_SIZE;
+    const std::string filename = VERTEX_FILENAME_PREFIX + std::to_string(nFile) + VERTEX_FILENAME_SUFFIX;
+
+    std::ofstream outfile(filename);
+    for (const auto &vertex : vertices)
+    {
+        outfile << vertex.coord(0, 0) << ',' << vertex.coord(1, 0) << ',' << vertex.coord(2, 0) << '\n';
+    }
+    outfile.close();
+}
+
 void Mesh::write_gag_scaffolding_state_dat(const std::string &outfile_name) const
 {
     if ((!param.isGagScaffoldingEnergyIncluded && !param.isIdealizedProteinLatticeEnergyIncluded) ||

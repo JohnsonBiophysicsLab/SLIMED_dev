@@ -21,6 +21,8 @@ void Mesh::determine_ghost_vertices_faces()
         topBottom.insert(topBottom.end(), {0, param.nFaceY});
         leftRight.insert(leftRight.end(), {0, param.nFaceX});
         break;
+    case BoundaryType::Fixed:
+        break;
     }
     // top and bottom ghost vertex
     for (int k = 0; k < topBottom.size(); k++)
@@ -60,6 +62,8 @@ void Mesh::determine_ghost_vertices_faces()
     case BoundaryType::Free:
         topBottom.insert(topBottom.end(), {0, param.nFaceY - 1});
         leftRight.insert(leftRight.end(), {0, param.nFaceX - 1});
+        break;
+    case BoundaryType::Fixed:
         break;
     }
 
