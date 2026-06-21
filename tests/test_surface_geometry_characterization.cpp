@@ -1,10 +1,12 @@
 #include <cmath>
+#include <stdexcept>
 #include <vector>
 
 #include <gtest/gtest.h>
 
 #include "Parameters.hpp"
 #include "mesh/Gauss_quadrature.hpp"
+#include "mesh/Limit_surface_evaluator.hpp"
 #include "mesh/Mesh.hpp"
 
 namespace
@@ -87,6 +89,31 @@ void expect_selection_rows(const Matrix &matrix)
         EXPECT_EQ(selectedColumnCount, 1);
     }
 }
+
+Matrix make_deterministic_regular_control_points()
+{
+    Matrix controlPoints(12, 3, true);
+    for (int control = 0; control < controlPoints.nrow(); ++control)
+    {
+        controlPoints.set(control, 0, 0.25 + 0.5 * control);
+        controlPoints.set(control, 1, -1.0 + 0.125 * control * control);
+        controlPoints.set(control, 2, 2.0 - 0.2 * control);
+    }
+    return controlPoints;
+}
+
+void expect_column_matches_row(const Matrix &column,
+                               const Matrix &rows,
+                               const int row)
+{
+    ASSERT_EQ(column.nrow(), 3);
+    ASSERT_EQ(column.ncol(), 1);
+    ASSERT_EQ(rows.ncol(), 3);
+    for (int axis = 0; axis < 3; ++axis)
+    {
+        EXPECT_DOUBLE_EQ(column.get(axis, 0), rows.get(row, axis));
+    }
+}
 } // namespace
 
 TEST(SurfaceShapeFunctionsCharacterization, PartitionOfUnityAndDerivativeSums)
@@ -121,6 +148,88 @@ TEST(SurfaceShapeFunctionsCharacterization, PartitionOfUnityAndDerivativeSums)
             EXPECT_NEAR(shapefunction.get(5, col), shapefunction.get(6, col), kTolerance);
         }
     }
+}
+
+TEST(SurfaceLimitSurfaceEvaluatorContract, SlimedLoopShapeFunctionRowsMatchCurrentContract)
+{
+    const std::vector<std::vector<double>> barycentricSamples = {
+        {1.0 / 3.0, 1.0 / 3.0, 1.0 / 3.0},
+        {0.20, 0.30, 0.50},
+        {0.05, 0.85, 0.10},
+    };
+    const SlimedLoopLimitSurfaceEvaluator evaluator;
+
+    for (const auto &sample : barycentricSamples)
+    {
+        SCOPED_TRACE(::testing::Message()
+                     << "v=" << sample[0] << ", w=" << sample[1] << ", u=" << sample[2]);
+
+        Matrix vwu({sample});
+        Matrix shapefunction = evaluator.shape_function(vwu);
+
+        ASSERT_EQ(shapefunction.nrow(), SlimedLoopLimitSurfaceEvaluator::kShapeFunctionRowCount);
+        ASSERT_EQ(shapefunction.ncol(), evaluator.regular_patch_control_point_count());
+        EXPECT_NEAR(row_sum(shapefunction, static_cast<int>(LimitSurfaceDerivativeRow::Position)),
+                    1.0,
+                    kTolerance);
+
+        for (int derivativeRow = static_cast<int>(LimitSurfaceDerivativeRow::FirstDerivativeV);
+             derivativeRow < shapefunction.nrow();
+             ++derivativeRow)
+        {
+            EXPECT_NEAR(row_sum(shapefunction, derivativeRow), 0.0, kTolerance);
+        }
+
+        for (int col = 0; col < shapefunction.ncol(); ++col)
+        {
+            EXPECT_NEAR(shapefunction.get(static_cast<int>(LimitSurfaceDerivativeRow::MixedDerivativeVW), col),
+                        shapefunction.get(static_cast<int>(LimitSurfaceDerivativeRow::MixedDerivativeWV), col),
+                        kTolerance);
+        }
+    }
+}
+
+TEST(SurfaceLimitSurfaceEvaluatorContract, SlimedLoopEvaluationMatchesDirectShapeFunctionProduct)
+{
+    Matrix vwu({{0.20, 0.30, 0.50}});
+    Matrix controlPoints = make_deterministic_regular_control_points();
+    Matrix shapefunction(7, 12, true);
+    get_shapefunction(vwu, shapefunction);
+
+    const Matrix directRows = shapefunction * controlPoints;
+    const SlimedLoopLimitSurfaceEvaluator evaluator;
+    const LimitSurfaceEvaluation evaluation = evaluator.evaluate(vwu, controlPoints);
+
+    expect_column_matches_row(evaluation.position,
+                              directRows,
+                              static_cast<int>(LimitSurfaceDerivativeRow::Position));
+    expect_column_matches_row(evaluation.firstDerivativeV,
+                              directRows,
+                              static_cast<int>(LimitSurfaceDerivativeRow::FirstDerivativeV));
+    expect_column_matches_row(evaluation.firstDerivativeW,
+                              directRows,
+                              static_cast<int>(LimitSurfaceDerivativeRow::FirstDerivativeW));
+    expect_column_matches_row(evaluation.secondDerivativeVV,
+                              directRows,
+                              static_cast<int>(LimitSurfaceDerivativeRow::SecondDerivativeVV));
+    expect_column_matches_row(evaluation.secondDerivativeWW,
+                              directRows,
+                              static_cast<int>(LimitSurfaceDerivativeRow::SecondDerivativeWW));
+    expect_column_matches_row(evaluation.mixedDerivativeVW,
+                              directRows,
+                              static_cast<int>(LimitSurfaceDerivativeRow::MixedDerivativeVW));
+    expect_column_matches_row(evaluation.mixedDerivativeWV,
+                              directRows,
+                              static_cast<int>(LimitSurfaceDerivativeRow::MixedDerivativeWV));
+}
+
+TEST(SurfaceLimitSurfaceEvaluatorContract, SlimedLoopRegularPatchRejectsIrregularControlCount)
+{
+    Matrix vwu({{1.0 / 3.0, 1.0 / 3.0, 1.0 / 3.0}});
+    Matrix irregularControlPoints(11, 3, true);
+    const SlimedLoopLimitSurfaceEvaluator evaluator;
+
+    EXPECT_THROW(evaluator.evaluate(vwu, irregularControlPoints), std::invalid_argument);
 }
 
 TEST(SurfaceQuadratureCharacterization, SupportedRulesHaveBarycentricCoordinatesAndUnitWeight)

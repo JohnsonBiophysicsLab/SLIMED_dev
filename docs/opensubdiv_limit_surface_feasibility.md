@@ -172,6 +172,22 @@ samples over repeated runtime patch-basis lookup, because topology is static
 within a run while vertex coordinates move. The adapter must preserve SLIMED
 vertex ids for force scatter; returning only evaluated points is insufficient.
 
+## Contract Slice Added After PR #15
+
+The first code seam is `LimitSurfaceEvaluator` in
+`include/mesh/Limit_surface_evaluator.hpp`. Its value object,
+`LimitSurfaceEvaluation`, names the seven geometry outputs currently consumed
+from SLIMED's regular Loop shape-function matrix: position, first derivatives
+with respect to `v` and `w`, pure second derivatives, and the two mixed rows.
+`SlimedLoopLimitSurfaceEvaluator` is a wrapper around the existing
+`get_shapefunction` regular 12-control implementation.
+
+This contract intentionally covers only regular `12 x 3` one-ring control
+patches. The current irregular `11 x 3` path remains documented as future work:
+area/volume still use subdivision matrices, while energy/force behavior is not
+changed by this seam. No OpenSubdiv headers, build flags, dependencies, or
+production defaults are introduced here.
+
 ## Build/Dependency Options
 
 Viable paths, in increasing ownership:

@@ -95,6 +95,17 @@ physics implementation behind it, but do not change numerical algorithms,
 OpenMP scheduling, RNG behavior, Loop subdivision, or output/checkpoint formats
 as part of evaluator plumbing.
 
+## Limit-Surface Evaluator Boundary
+
+The first geometry seam is `LimitSurfaceEvaluator`, with the active
+`SlimedLoopLimitSurfaceEvaluator` backend wrapping the current regular
+12-control SLIMED Loop shape-function implementation. This boundary names the
+per-sample position, first-derivative, second-derivative, and mixed-derivative
+outputs needed by area, curvature, energy, and force code. It does not change
+production call sites, irregular 11-control behavior, boundary/ghost policy,
+dynamics projection, or dependency requirements. OpenSubdiv remains a future
+opt-in backend after equivalence and dependency review.
+
 ## OpenMP Benchmark Harness
 
 Use the lightweight benchmark harness to collect reproducible serial-vs-OpenMP
