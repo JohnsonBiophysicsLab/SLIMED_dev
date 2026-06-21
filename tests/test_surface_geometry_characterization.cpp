@@ -114,6 +114,44 @@ void expect_column_matches_row(const Matrix &column,
         EXPECT_DOUBLE_EQ(column.get(axis, 0), rows.get(row, axis));
     }
 }
+
+struct AreaVolume
+{
+    double area = 0.0;
+    double volume = 0.0;
+};
+
+Matrix make_one_ring_control_points(const Mesh &mesh, const Face &face)
+{
+    Matrix controlPoints(face.oneRingVertices.size(), 3, true);
+    for (int row = 0; row < controlPoints.nrow(); ++row)
+    {
+        const Matrix &coord = mesh.vertices[face.oneRingVertices[row]].coord;
+        for (int axis = 0; axis < controlPoints.ncol(); ++axis)
+        {
+            controlPoints.set(row, axis, coord(axis, 0));
+        }
+    }
+    return controlPoints;
+}
+
+AreaVolume direct_regular_patch_area_volume(const Param &param,
+                                            const Matrix &controlPoints)
+{
+    AreaVolume result;
+    for (int i = 0; i < param.shapeFunctions.size(); ++i)
+    {
+        const Matrix &sf = param.shapeFunctions[i];
+        Matrix x = sf.get_row(0) * controlPoints;
+        Matrix a_3 = cross_row(sf.get_row(1) * controlPoints,
+                               sf.get_row(2) * controlPoints);
+        const double sqa = a_3.calculate_norm();
+        const double coeff = param.gaussQuadratureCoeff(i, 0);
+        result.area += 0.5 * coeff * sqa;
+        result.volume += 0.16666666666 * coeff * dot_row(x, a_3);
+    }
+    return result;
+}
 } // namespace
 
 TEST(SurfaceShapeFunctionsCharacterization, PartitionOfUnityAndDerivativeSums)
@@ -191,36 +229,71 @@ TEST(SurfaceLimitSurfaceEvaluatorContract, SlimedLoopShapeFunctionRowsMatchCurre
 
 TEST(SurfaceLimitSurfaceEvaluatorContract, SlimedLoopEvaluationMatchesDirectShapeFunctionProduct)
 {
-    Matrix vwu({{0.20, 0.30, 0.50}});
+    const std::vector<std::vector<double>> barycentricSamples = {
+        {1.0 / 3.0, 1.0 / 3.0, 1.0 / 3.0},
+        {0.20, 0.30, 0.50},
+        {0.05, 0.85, 0.10},
+    };
     Matrix controlPoints = make_deterministic_regular_control_points();
-    Matrix shapefunction(7, 12, true);
-    get_shapefunction(vwu, shapefunction);
-
-    const Matrix directRows = shapefunction * controlPoints;
     const SlimedLoopLimitSurfaceEvaluator evaluator;
-    const LimitSurfaceEvaluation evaluation = evaluator.evaluate(vwu, controlPoints);
 
-    expect_column_matches_row(evaluation.position,
-                              directRows,
-                              static_cast<int>(LimitSurfaceDerivativeRow::Position));
-    expect_column_matches_row(evaluation.firstDerivativeV,
-                              directRows,
-                              static_cast<int>(LimitSurfaceDerivativeRow::FirstDerivativeV));
-    expect_column_matches_row(evaluation.firstDerivativeW,
-                              directRows,
-                              static_cast<int>(LimitSurfaceDerivativeRow::FirstDerivativeW));
-    expect_column_matches_row(evaluation.secondDerivativeVV,
-                              directRows,
-                              static_cast<int>(LimitSurfaceDerivativeRow::SecondDerivativeVV));
-    expect_column_matches_row(evaluation.secondDerivativeWW,
-                              directRows,
-                              static_cast<int>(LimitSurfaceDerivativeRow::SecondDerivativeWW));
-    expect_column_matches_row(evaluation.mixedDerivativeVW,
-                              directRows,
-                              static_cast<int>(LimitSurfaceDerivativeRow::MixedDerivativeVW));
-    expect_column_matches_row(evaluation.mixedDerivativeWV,
-                              directRows,
-                              static_cast<int>(LimitSurfaceDerivativeRow::MixedDerivativeWV));
+    for (const auto &sample : barycentricSamples)
+    {
+        SCOPED_TRACE(::testing::Message()
+                     << "v=" << sample[0] << ", w=" << sample[1] << ", u=" << sample[2]);
+
+        Matrix vwu({sample});
+        Matrix shapefunction(7, 12, true);
+        get_shapefunction(vwu, shapefunction);
+
+        const Matrix directRows = shapefunction * controlPoints;
+        const LimitSurfaceEvaluation evaluation = evaluator.evaluate(vwu, controlPoints);
+        const LimitSurfaceEvaluation cachedEvaluation =
+            evaluator.evaluate_shape_function(shapefunction, controlPoints);
+
+        expect_column_matches_row(evaluation.position,
+                                  directRows,
+                                  static_cast<int>(LimitSurfaceDerivativeRow::Position));
+        expect_column_matches_row(evaluation.firstDerivativeV,
+                                  directRows,
+                                  static_cast<int>(LimitSurfaceDerivativeRow::FirstDerivativeV));
+        expect_column_matches_row(evaluation.firstDerivativeW,
+                                  directRows,
+                                  static_cast<int>(LimitSurfaceDerivativeRow::FirstDerivativeW));
+        expect_column_matches_row(evaluation.secondDerivativeVV,
+                                  directRows,
+                                  static_cast<int>(LimitSurfaceDerivativeRow::SecondDerivativeVV));
+        expect_column_matches_row(evaluation.secondDerivativeWW,
+                                  directRows,
+                                  static_cast<int>(LimitSurfaceDerivativeRow::SecondDerivativeWW));
+        expect_column_matches_row(evaluation.mixedDerivativeVW,
+                                  directRows,
+                                  static_cast<int>(LimitSurfaceDerivativeRow::MixedDerivativeVW));
+        expect_column_matches_row(evaluation.mixedDerivativeWV,
+                                  directRows,
+                                  static_cast<int>(LimitSurfaceDerivativeRow::MixedDerivativeWV));
+        expect_column_matches_row(cachedEvaluation.position,
+                                  directRows,
+                                  static_cast<int>(LimitSurfaceDerivativeRow::Position));
+        expect_column_matches_row(cachedEvaluation.firstDerivativeV,
+                                  directRows,
+                                  static_cast<int>(LimitSurfaceDerivativeRow::FirstDerivativeV));
+        expect_column_matches_row(cachedEvaluation.firstDerivativeW,
+                                  directRows,
+                                  static_cast<int>(LimitSurfaceDerivativeRow::FirstDerivativeW));
+        expect_column_matches_row(cachedEvaluation.secondDerivativeVV,
+                                  directRows,
+                                  static_cast<int>(LimitSurfaceDerivativeRow::SecondDerivativeVV));
+        expect_column_matches_row(cachedEvaluation.secondDerivativeWW,
+                                  directRows,
+                                  static_cast<int>(LimitSurfaceDerivativeRow::SecondDerivativeWW));
+        expect_column_matches_row(cachedEvaluation.mixedDerivativeVW,
+                                  directRows,
+                                  static_cast<int>(LimitSurfaceDerivativeRow::MixedDerivativeVW));
+        expect_column_matches_row(cachedEvaluation.mixedDerivativeWV,
+                                  directRows,
+                                  static_cast<int>(LimitSurfaceDerivativeRow::MixedDerivativeWV));
+    }
 }
 
 TEST(SurfaceLimitSurfaceEvaluatorContract, SlimedLoopRegularPatchRejectsIrregularControlCount)
@@ -370,6 +443,50 @@ TEST(SurfaceFlatMeshCharacterization, PeriodicFlatMeshKeepsInteriorRegularAndPla
         {
             EXPECT_NEAR(face.elementArea, param.elementTriangleArea0, 1.0e-11);
             EXPECT_NEAR(face.elementVolume, 0.0, 1.0e-11);
+        }
+    }
+}
+
+TEST(SurfaceFlatMeshCharacterization, RegularAreaVolumeUsesLimitSurfaceEvaluatorEquivalentToDirectRows)
+{
+    Param param;
+    param.VERBOSE_MODE = false;
+    param.boundaryCondition = BoundaryType::Periodic;
+    param.sideX = 40.0;
+    param.sideY = 10.0 * std::sqrt(3.0) / 2.0 * param.lFace;
+
+    Mesh mesh(param);
+    ::testing::internal::CaptureStdout();
+    mesh.setup_flat();
+    ::testing::internal::GetCapturedStdout();
+
+    for (Vertex &vertex : mesh.vertices)
+    {
+        const double index = static_cast<double>(vertex.index);
+        vertex.coord.set(2, 0, 0.01 * std::sin(0.7 * index)
+                                   + 0.005 * std::cos(0.3 * index));
+    }
+
+    std::vector<AreaVolume> expected(mesh.faces.size());
+    for (const Face &face : mesh.faces)
+    {
+        if (!face.isGhost)
+        {
+            ASSERT_EQ(face.oneRingVertices.size(), 12);
+            expected[face.index] = direct_regular_patch_area_volume(
+                param,
+                make_one_ring_control_points(mesh, face));
+        }
+    }
+
+    mesh.calculate_element_area_volume();
+
+    for (const Face &face : mesh.faces)
+    {
+        if (!face.isGhost)
+        {
+            EXPECT_NEAR(face.elementArea, expected[face.index].area, 1.0e-12);
+            EXPECT_NEAR(face.elementVolume, expected[face.index].volume, 1.0e-12);
         }
     }
 }

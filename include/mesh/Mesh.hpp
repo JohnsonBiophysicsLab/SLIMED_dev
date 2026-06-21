@@ -746,6 +746,17 @@ protected:
 
     /**
      * @brief
+     * Private member used in calculating regular-patch element area volume:
+     * evaluates the already-regular 12-control patch through the limit-surface
+     * evaluator contract.
+     */
+    void enumerate_regular_patch_area_volume_with_limit_surface_evaluator(
+        const Matrix &dots,
+        double &area,
+        double &volume);
+
+    /**
+     * @brief
      * Private member used in calculating element area volume:
      * Computes a matrix containing the coordinates of the one-ring vertices for the input face.
      *

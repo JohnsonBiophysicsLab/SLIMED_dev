@@ -1,5 +1,7 @@
 #include "mesh/Mesh.hpp"
 
+#include "mesh/Limit_surface_evaluator.hpp"
+
 Mesh::Mesh(Param &srcParam) : param(srcParam)
 {
     // Calculate element triangle area
@@ -207,6 +209,33 @@ void Mesh::enumerate_gauss_quadrature_point_area_volume(
     }
 }
 
+void Mesh::enumerate_regular_patch_area_volume_with_limit_surface_evaluator(
+    const Matrix &matOneRingVertex,
+    double &area,
+    double &volume)
+{
+    const SlimedLoopLimitSurfaceEvaluator evaluator;
+
+#pragma omp parallel for reduction(+ \
+                                   : area, volume)
+    for (int j = 0; j < param.gaussQuadratureCoeff.nrow(); j++)
+    {
+        Matrix &sf = param.shapeFunctions[j];
+        const LimitSurfaceEvaluation evaluation =
+            evaluator.evaluate_shape_function(sf, matOneRingVertex);
+        Matrix a_3 = cross_col(evaluation.firstDerivativeV,
+                               evaluation.firstDerivativeW);
+        double sqa = a_3.calculate_norm();
+
+        double coeff = param.gaussQuadratureCoeff(j, 0);
+        area += 0.5 * coeff * sqa;
+        // Preserve the legacy dot_row behavior for 1 x 3 rows, which only
+        // accumulates the first component in the current linear algebra helper.
+        volume += 0.16666666666 * coeff
+                * evaluation.position.get(0, 0) * a_3.get(0, 0);
+    }
+}
+
 // Computes a matrix containing the coordinates of the one-ring vertices for the input face.
 Matrix Mesh::get_one_ring_vertex_matrix(const Face &face)
 {
@@ -259,8 +288,10 @@ void Mesh::calculate_element_area_volume()
                 Matrix matOneRingVertex = get_one_ring_vertex_matrix(face);
 
                 // Use Gaussian quadrature with 3 points to compute area and volume
-                enumerate_gauss_quadrature_point_area_volume(matOneRingVertex,
-                                                            area, volume);
+                enumerate_regular_patch_area_volume_with_limit_surface_evaluator(
+                    matOneRingVertex,
+                    area,
+                    volume);
             }
             break;
 
