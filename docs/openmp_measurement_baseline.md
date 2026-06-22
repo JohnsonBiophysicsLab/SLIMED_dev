@@ -174,3 +174,68 @@ python3 scripts/benchmark_openmp_scaling.py \
 
 On 2026-06-20, this smoke workflow completed and each serial/OpenMP log
 recorded steps 1 through 7.
+
+## Post-PR30 1-10 Thread Sweep
+
+A follow-up sweep after PR #30 measured the OpenMP continuum minimization path
+on a larger, scaffold-forced local workload. This was still a measurement-only
+pass: no production source, Makefile behavior, OpenMP schedule, numerical
+algorithm, RNG behavior, or output format was changed.
+
+- Date: 2026-06-22
+- Commit: `06b35bcf260828131070ab1c58758b8b56553833`
+- Hardware: 10 logical CPUs total, described locally as 8 performance-core
+  threads plus 2 efficiency-core threads, with no SMT.
+- Workload: fixed 3 minimization steps (`maxIterations = 4`) on a
+  50 nm x 50 nm membrane with scaffold forcing from `data/csv/GagR50_22.csv`.
+- Completion: all serial and OpenMP runs completed exactly 3 minimization
+  steps.
+- Local artifacts: the ad hoc run wrote CSV and JSON under
+  `/tmp/slimed_omp_scaling`. Those generated outputs are intentionally not
+  committed.
+
+| Phase | Threads | Mean wall seconds | Min | Max | Speedup vs serial |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Serial baseline | 1 | 2.896 | 2.827 | 3.006 | 1.000 |
+| OpenMP | 1 | 2.944 | 2.883 | 3.060 | 0.984 |
+| OpenMP | 2 | 1.636 | 1.627 | 1.649 | 1.771 |
+| OpenMP | 3 | 2.054 | 2.047 | 2.065 | 1.410 |
+| OpenMP | 4 | 1.636 | 1.632 | 1.642 | 1.770 |
+| OpenMP | 5 | 1.325 | 1.305 | 1.342 | 2.186 |
+| OpenMP | 6 | 1.336 | 1.333 | 1.338 | 2.169 |
+| OpenMP | 7 | 1.350 | 1.329 | 1.373 | 2.146 |
+| OpenMP | 8 | 1.181 | 1.171 | 1.186 | 2.453 |
+| OpenMP | 9 | 1.315 | 1.308 | 1.318 | 2.203 |
+| OpenMP | 10 | 1.207 | 1.195 | 1.219 | 2.399 |
+
+The best mean wall time in this sweep was at 8 OpenMP threads. Using all 10
+hardware threads still worked and remained close to the best result, but was
+slightly slower than 8 for this machine and workload. The current local
+recommendation for this benchmark shape is therefore to cap measurement runs at
+8 OpenMP threads when comparing against this machine. Treat this as
+machine/workload-specific evidence, not a universal hard cap for SLIMED.
+
+To reproduce a comparable sweep, stage a scratch `input.params` under `/tmp`
+with the workload properties above, keep generated simulation outputs in that
+scratch directory, and run the harness with a full 1-10 thread list:
+
+```console
+ROOT="$(pwd)"
+WORKDIR=/tmp/slimed-omp-50nm-scaffold-workload
+OUTDIR=/tmp/slimed_omp_scaling
+
+python3 scripts/benchmark_openmp_scaling.py \
+  --baseline-build-command "/bin/zsh -lc 'make -C \"${ROOT}\" clean && make -C \"${ROOT}\" serial'" \
+  --baseline-run-command "/bin/zsh -lc 'cd \"${WORKDIR}\" && \"${ROOT}/bin/continuum_membrane\"'" \
+  --build-command "/bin/zsh -lc 'make -C \"${ROOT}\" clean && make -C \"${ROOT}\" omp'" \
+  --run-command "/bin/zsh -lc 'cd \"${WORKDIR}\" && \"${ROOT}/bin/continuum_membrane\"'" \
+  --threads 1,2,3,4,5,6,7,8,9,10 \
+  --repeats 3 \
+  --csv "${OUTDIR}/openmp_sweep_1_10.csv" \
+  --json "${OUTDIR}/openmp_sweep_1_10.json" \
+  --log-dir "${OUTDIR}/logs"
+```
+
+If the staged params use a relative `scaffoldingFileName`, copy or symlink the
+scaffold CSV into the scratch workload directory; otherwise use an absolute
+path to the repository's `data/csv/GagR50_22.csv`.
