@@ -91,8 +91,10 @@ This production route is preserved by showing:
 
 - The evaluator equivalence tests still pass, especially direct-call parity and
   repeated-evaluation clearing of stale force/energy state.
-- A short deterministic minimization fixture produces finite `EnergyForce.csv`
-  and unchanged record/checkpoint/output timing.
+- The committed accepted-step minimization smoke staged by
+  `scripts/stage_accepted_step_smoke.py` produces finite `EnergyForce.csv`
+  data rows, including at least one post-initial record from the accepted-step
+  branch. Validate the CSV with `scripts/check_accepted_step_smoke.py`.
 - A thermal-enabled fixture with a fixed seed preserves thermal attempt count,
   diagnostics, restart serialization, and accepted/rejected rollback behavior.
 - A restart checkpoint smoke path preserves `coord`, `coordPrev`, current and

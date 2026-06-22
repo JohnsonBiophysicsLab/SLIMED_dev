@@ -100,6 +100,40 @@ For the post-PR20 propagation-mode map, see
 minimization, thermalized minimization, dynamics, checkpoint, output, and
 record ownership before production separation work.
 
+### Accepted-Step Minimization Smoke
+
+Use the committed accepted-step smoke fixture when a refactor touches
+`run_flat()` minimization evaluator plumbing or neighboring optimizer state:
+
+```console
+ROOT="$(pwd)"
+WORKDIR=/tmp/slimed-accepted-step-smoke
+make serial
+python3 scripts/stage_accepted_step_smoke.py \
+  --workdir "${WORKDIR}" \
+  --force
+(
+  cd "${WORKDIR}"
+  "${ROOT}/bin/continuum_membrane"
+)
+python3 scripts/check_accepted_step_smoke.py \
+  "${WORKDIR}/EnergyForce.csv"
+```
+
+The staging helper copies `data/benchmark/accepted_step_minimization.params` to
+`input.params` and copies the committed `data/COM.csv` scaffold into the same
+scratch directory. The fixture enables existing harmonic scaffolding with
+thermal fluctuations, meshpoint snapshots, XYZ output, and checkpoints disabled.
+With `maxIterations = 2`, a successful run writes an initial `EnergyForce.csv`
+row plus one post-initial finite row from the deterministic minimization branch.
+That post-initial row is recorded after `run_flat()` accepts the line-search
+step, applies the accepted displacement, refreshes energy and force through the
+file-local evaluator helper, and updates the caller-owned snapshots and record.
+
+Keep generated smoke outputs in `/tmp` or another scratch directory. Do not
+commit `EnergyForce.csv`, vertex snapshots, face snapshots, checkpoints, or log
+captures from this smoke.
+
 ## Limit-Surface Evaluator Boundary
 
 The first geometry seam is `LimitSurfaceEvaluator`, with the active
