@@ -1,0 +1,89 @@
+# Energy Force Evaluator Architecture Cleanup Candidates
+
+This note characterizes the next `EnergyForceEvaluator` architecture cleanup
+candidates after PR #33. It is a docs/scripts-only decision aid and does not
+change production C++ behavior.
+
+Regenerate the source call-site and helper inventory with:
+
+```console
+python3 scripts/inventory_energy_force_call_sites.py --helpers
+```
+
+## Current Boundary
+
+PR #33 left no production direct `Mesh::Compute_Energy_And_Force()` callers
+outside `src/energy_force/Energy_force_evaluator.cpp`. The remaining production
+refreshes all route through `EnergyForceEvaluator`, but the callers still keep
+small file-local helpers named `evaluate_energy_force(Mesh&)`:
+
+| File | Helper role | Current routed refreshes |
+| --- | --- | --- |
+| `src/Run_flat.cpp` | Runner-local wrapper around `EnergyForceEvaluator::evaluate()` | Initial setup, restart reload, and accepted deterministic/thermal/scaffold step refresh. |
+| `src/Run_dynamics_flat.cpp` | Runner-local wrapper around `EnergyForceEvaluator::evaluate()` | Initial setup and end-of-loop dynamics refresh. |
+| `src/model/Energy_minimization.cpp` | Model-local wrapper around `EnergyForceEvaluator::evaluate()` | Line-search trial evaluation and thermal trial/rejection evaluation. |
+
+`Energy_minimization.cpp` already uses the facade through its local helper.
+That file is therefore not a remaining direct-call-routing candidate. Any next
+change there should be treated as production architecture cleanup around helper
+ownership or trial-evaluation policy, not as mechanical routing.
+
+## Candidate Slices
+
+| Candidate slice | Why consider it | Risk | Expected files touched | Required validation | Approval needed |
+| --- | --- | --- | --- | --- | --- |
+| Keep file-local helpers and move implementation work behind `EnergyForceEvaluator` | Avoids cross-mode coupling while enabling internal physics extraction behind the existing facade. | Medium: internal extraction can disturb formula order, force scatter, OpenMP reductions, scaffolding side effects, or boundary force handling. | `src/energy_force/*`, `include/energy_force/*`, focused tests/docs. | `make test`, `./bin/test_main`, evaluator equivalence tests, OpenMP/serial numerical baseline, accepted-step smoke if runner behavior is touched. | Yes, because production physics code changes. |
+| Consolidate local `evaluate_energy_force(Mesh&)` wrappers into a shared helper | Removes three duplicated wrappers and makes routed refreshes visually uniform. | Low to medium: the helper is simple, but a shared header could couple runners and model code through a new public utility. | New or existing evaluator helper header/source plus `src/Run_flat.cpp`, `src/Run_dynamics_flat.cpp`, `src/model/Energy_minimization.cpp`; docs updates. | Full test gate plus accepted-step smoke; compare helper inventory before/after; no output/checkpoint diffs expected. | Yes, because production C++ files and ownership boundaries change. |
+| Replace local wrappers with direct `EnergyForceEvaluator evaluator; evaluator.evaluate(mesh);` at each call site | Removes helper indirection without adding a shared API. | Low: call timing should remain unchanged, but repeated object construction statements add visual noise at sensitive loop points. | `src/Run_flat.cpp`, `src/Run_dynamics_flat.cpp`, `src/model/Energy_minimization.cpp`; docs updates. | Full test gate plus accepted-step smoke; reviewer check that no neighboring state moved. | Yes, because production C++ call sites change. |
+| Add a shared propagation helper that owns refresh plus adjacent snapshots | Could reduce duplicated ordering in runners if broader propagation ownership is desired. | High: easily changes previous-state snapshots, records, checkpoints, thermal rollback, dynamics record-before-recompute behavior, or restart-visible state. | Runners, `Model`, possible new propagation header/source, IO/checkpoint tests/docs. | Fresh behavior baseline for minimization, thermal, restart, dynamics trajectory, records, checkpoints, serial/OpenMP output. | Yes, explicit reviewer/user approval recommended before starting. |
+| Test-fixture cleanup to route non-control direct calls through the facade | Makes tests mirror production routing while retaining at least one direct-vs-facade control. | Low: fixture setup only, but careless cleanup can weaken the evaluator equivalence test. | `tests/test_io.cpp`, `tests/test_optimization_algorithm.cpp`, docs. | `make test`, `./bin/test_main`; verify `EnergyForceEvaluatorTest.MatchesExistingMeshEnergyForceCall` still uses a direct control. | Usually yes, but can be a small test-only PR if reviewers agree. |
+| Documentation-only refresh as architecture changes land | Keeps PR #25/#29/#30/#33 notes aligned with future production changes. | Low: no production behavior. | `docs/*`, optionally `scripts/inventory_energy_force_call_sites.py`. | `git diff --check`, Python syntax check if scripts changed. | No special approval beyond normal docs review. |
+
+## Shared Helper Tradeoff
+
+A shared evaluator helper/header would reduce the repeated three-line wrapper,
+but it would also create a new include-level ownership point used by runners and
+`Model` code. That is reasonable only if reviewers want a named project-level
+operation such as `evaluate_energy_force(mesh)` to become part of the
+architecture. Otherwise, the current file-local helpers are intentionally
+boring and keep each mode responsible for its own refresh timing.
+
+Do not combine helper consolidation with propagation helper extraction. The
+current runner/model code owns important neighboring state:
+
+- `run_flat()` owns accepted-step snapshots, `energyPrev`, NCG direction,
+  records, output cadence, checkpoints, and iteration increment.
+- `Energy_minimization.cpp` owns line-search trial restore paths and thermal
+  acceptance/rejection reevaluation.
+- `run_dynamics_flat()` owns record-before-recompute behavior and force
+  preparation for the next dynamics step.
+
+Moving any of that state into a shared helper would need a separate baseline
+and explicit review.
+
+## Missing Evidence Before Production Cleanup
+
+Before a production helper-consolidation or behind-facade extraction PR, collect
+or preserve:
+
+- evaluator equivalence and stale-force clearing tests;
+- accepted-step smoke output from the committed PR #32 fixture;
+- restart/checkpoint evidence if `run_flat()` neighboring state moves;
+- dynamics smoke evidence if `run_dynamics_flat()` ordering moves;
+- thermal attempt/rollback evidence if `Energy_minimization.cpp` trial
+  evaluation moves;
+- serial and OpenMP-sensitive numerical comparisons if code inside
+  `Mesh::Compute_Energy_And_Force()` is split.
+
+## Recommended Next Production Prompt
+
+```text
+Create a narrow production cleanup after PR #33 without changing evaluator call
+timing. Prefer one slice only: either consolidate the file-local
+evaluate_energy_force(Mesh&) wrappers, or extract one internal responsibility
+behind EnergyForceEvaluator. Do not move propagation snapshots, records,
+checkpoints, RNG calls, optimizer state, force scatter, OpenMP reductions,
+Loop/OpenSubdiv behavior, scaffolding side effects, or output cadence. Provide
+before/after helper inventory, full test validation, and the PR #32
+accepted-step smoke if any runner or Model call site is touched.
+```

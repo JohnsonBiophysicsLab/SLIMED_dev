@@ -103,6 +103,9 @@ record ownership before production separation work.
 For the post-PR32 call-site inventory, see
 `docs/energy_force_evaluator_callsite_inventory.md` and regenerate the source
 classification with `python3 scripts/inventory_energy_force_call_sites.py`.
+For the post-PR33 architecture cleanup candidate map, see
+`docs/energy_force_evaluator_architecture_candidates.md` and include
+`--helpers` when regenerating the local helper inventory.
 
 ### Accepted-Step Minimization Smoke
 
