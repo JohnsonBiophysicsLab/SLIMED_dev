@@ -5,8 +5,8 @@ hard-coded triangular Loop-subdivision limit-surface machinery. It is a
 feasibility/design slice only: the production backend remains the current SLIMED
 implementation, and no OpenSubdiv dependency is introduced here.
 
-Baseline checked for this phase: `origin/main` includes PR #14 at merge commit
-`21003067953d730db67aaab54f4cf8a339d9cc96`.
+Baseline checked for this phase: `origin/main` includes PR #17 at commit
+`1e3c0b8e726d351dfacce2217039a8b37924c432`.
 
 ## Current SLIMED Contract
 
@@ -188,7 +188,7 @@ area/volume still use subdivision matrices, while energy/force behavior is not
 changed by this seam. No OpenSubdiv headers, build flags, dependencies, or
 production defaults are introduced here.
 
-## Regular Area/Volume Adoption After PR #16
+## Regular Area/Volume Adoption After PR #17
 
 The first production call-site adoption is intentionally narrow:
 `Mesh::calculate_element_area_volume()` routes only the regular `12 x 3`
@@ -200,6 +200,54 @@ Characterization tests compare the adopted regular area/volume path against the
 previous direct row-multiplication formula on deterministic nonplanar controls,
 including the current volume accumulation semantics. Boundary, ghost, periodic,
 irregular, force, dynamics, and OpenSubdiv behavior remain deferred.
+
+## Post-PR17 Adoption Map
+
+Already migrated:
+
+- Regular non-ghost `12 x 3` area/volume evaluation in
+  `Mesh::calculate_element_area_volume()` now routes through
+  `SlimedLoopLimitSurfaceEvaluator`.
+- The adopted path uses the cached `Param::shapeFunctions` matrices, keeps the
+  existing OpenMP reduction shape, and preserves the legacy volume accumulation
+  factor `0.16666666666` plus the current first-component `dot_row` behavior.
+
+Mechanically safe characterization targets:
+
+- Direct regular shape-function products for representative `12 x 3` control
+  patches can be compared with `SlimedLoopLimitSurfaceEvaluator` outputs in
+  tests without changing production behavior.
+- The geometry extraction subset inside `element_energy_force_regular` can be
+  characterized as evaluator-equivalent for cached quadrature matrices, because
+  both forms compute the same seven `sf * controlPoints` rows before any force
+  formulas or scatter occur.
+- Documentation-only mapping of regular, irregular, boundary, ghost, periodic,
+  OpenMP, and OpenSubdiv boundaries is safe and helps gate future slices.
+
+Deferred production adoption categories:
+
+- `element_energy_force_regular` is not a safe next production migration by
+  itself. Although its initial geometry rows are evaluator-equivalent, the same
+  loop immediately uses shape-function entries in bending, area, and volume
+  force formulas, accumulates face energy/mean curvature/normal, and fills
+  `fBend`, `fArea`, and `fVolume`.
+- `Compute_Energy_And_Force` scatters per-face force components into per-thread
+  buffers and then reduces them over vertices. Any change that moves this
+  boundary needs a separate numerical-baseline PR covering floating-point
+  summation order, OpenMP reductions, and force component ordering.
+- Irregular `11 x 3` area/volume still uses subdivision matrices and direct
+  regular child-patch evaluation. Irregular energy/force currently calls the
+  regular energy routine with 11 controls and remains a scientific-review
+  topic before backend migration.
+- Boundary, ghost, periodic, and dynamics projection behavior must stay
+  separate from evaluator adoption because they encode application policy, not
+  only surface evaluation.
+- OpenSubdiv remains dependency-gated and should not be introduced until the
+  SLIMED backend has regular-interior equivalence baselines for geometry,
+  source-index mapping, and force scatter.
+- Volume-semantics changes, including the legacy quadrature factor or the
+  current `dot_row` behavior, require an explicit scientific/numerical review
+  rather than being bundled with evaluator plumbing.
 
 ## Build/Dependency Options
 
@@ -221,23 +269,27 @@ proven and reviewed.
 
 ## Recommended Next PR Sequence
 
-1. Add a backend-neutral `LimitSurfaceEvaluator` contract and a
+1. Done: add a backend-neutral `LimitSurfaceEvaluator` contract and a
    `SlimedLoopLimitSurfaceEvaluator` wrapper around the current regular-patch
    shape-function path. Keep `Mesh` call sites numerically unchanged.
-2. Add focused tests for regular-patch evaluator outputs: shape dimensions,
+2. Done: add focused tests for regular-patch evaluator outputs: shape dimensions,
    partition of unity, derivative sums, mixed-derivative equality, and exact
    agreement with current `Param::shapeFunctions`.
-3. Adopt the contract in one regular area/volume path only after proving
+3. Done: adopt the contract in one regular area/volume path only after proving
    equivalence to direct shape-function row multiplication.
-4. Characterize current irregular energy/force behavior separately, especially
+4. Next: characterize current irregular energy/force behavior separately,
+   especially
    the 11-control path that currently calls the regular evaluator.
-5. Decide the OpenSubdiv dependency path. For a system-install experiment,
+5. Decide whether regular energy/force geometry extraction should migrate only
+   after a force/energy numerical-baseline PR, because production code there is
+   coupled to force formulas, scatter, accumulation order, and OpenMP behavior.
+6. Decide the OpenSubdiv dependency path. For a system-install experiment,
    introduce an opt-in `USE_OPENSUBDIV=1` build flag that default builds ignore.
-6. Prototype an OpenSubdiv stencil generator for non-ghost regular faces only,
+7. Prototype an OpenSubdiv stencil generator for non-ghost regular faces only,
    with explicit `v,w,u` to `u,v` mapping tests and force-scatter source-index
    tests. Compare flat regular-patch area, normal, mean curvature, and force
    outputs against the SLIMED backend.
-7. Expand to boundary/periodic/ghost topology only after regular interior
+8. Expand to boundary/periodic/ghost topology only after regular interior
    equivalence is demonstrated. Keep dynamics projection and ghost
    postprocessing in a separate PR.
 

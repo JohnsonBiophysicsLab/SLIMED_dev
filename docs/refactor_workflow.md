@@ -101,10 +101,26 @@ The first geometry seam is `LimitSurfaceEvaluator`, with the active
 `SlimedLoopLimitSurfaceEvaluator` backend wrapping the current regular
 12-control SLIMED Loop shape-function implementation. This boundary names the
 per-sample position, first-derivative, second-derivative, and mixed-derivative
-outputs needed by area, curvature, energy, and force code. It does not change
-production call sites, irregular 11-control behavior, boundary/ghost policy,
-dynamics projection, or dependency requirements. OpenSubdiv remains a future
-opt-in backend after equivalence and dependency review.
+outputs needed by area, curvature, energy, and force code.
+
+After PR #17, only the regular non-ghost `12 x 3` area/volume path in
+`Mesh::calculate_element_area_volume()` is migrated to this evaluator. That
+path must keep using cached `Param::shapeFunctions`, the existing OpenMP
+reduction structure, and the legacy volume semantics, including
+`0.16666666666`.
+
+The next safe work is characterization, not production force migration:
+regular shape-function products can be compared against evaluator outputs in
+tests, and the geometry-extraction subset inside `element_energy_force_regular`
+can be proven equivalent before force formulas run. Migrating that production
+path requires a separate numerical-baseline PR because it is coupled to face
+energy accumulation, force component construction, force scatter into
+per-thread buffers, OpenMP reduction order, and global area/volume constraints.
+
+Keep irregular `11 x 3` handling, boundary/ghost/periodic policy, dynamics
+projection, OpenSubdiv dependency work, output/checkpoint formats, RNG behavior,
+and volume-semantics changes out of evaluator-plumbing PRs unless the PR is
+explicitly scoped to one of those topics and has its own baseline.
 
 ## OpenMP Benchmark Harness
 
