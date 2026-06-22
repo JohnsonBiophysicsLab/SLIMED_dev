@@ -194,6 +194,10 @@ metadata plus aggregate mean/min/max/stdev timing summaries.
 Do not commit generated benchmark CSV, JSON, or log files. Prefer `/tmp` paths
 or another local scratch directory for all benchmark artifacts.
 
+For the current local 1-10 thread scalability result and the 8-thread
+recommendation for the post-PR30 scaffold workload, see
+`docs/openmp_measurement_baseline.md`.
+
 The committed example minimization exits successfully because the initial mean
 force is already below the convergence threshold, so it is not a useful OpenMP
 optimization workload. For real timing smoke tests, stage the benchmark-only
