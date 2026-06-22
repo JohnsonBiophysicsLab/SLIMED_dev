@@ -1,5 +1,16 @@
 #include "Run_simulation.hpp"
 
+#include "energy_force/Energy_force_evaluator.hpp"
+
+namespace
+{
+void evaluate_energy_force(Mesh &mesh)
+{
+    EnergyForceEvaluator evaluator;
+    evaluator.evaluate(mesh);
+}
+}
+
 void run_dynamics_flat(std::string param_filename) {
 
     Param inputParam;
@@ -71,7 +82,7 @@ void run_dynamics_flat(std::string param_filename) {
     mesh.sum_membrane_area_and_volume(mesh.param.area0, mesh.param.vol0); // Calculate initial area and volume
     mesh.update_previous_coord_for_vertex(); // Update previous coordinate...
     mesh.update_reference_coord_from_previous_coord(); // ...and reference coord
-    mesh.Compute_Energy_And_Force();// Calculate energy on faces and force on vertices
+    evaluate_energy_force(mesh); // Calculate energy on faces and force on vertices
     mesh.update_previous_coord_for_vertex(); // Update previous coordinate
     mesh.update_previous_force_for_vertex(); // Update forces
 

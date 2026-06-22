@@ -18,7 +18,8 @@ not a target design.
    `<input>vertex_type_begin.csv`.
 5. Compute initial element area/volume and membrane reference area/volume.
 6. Copy current coordinates to `coordPrev`, then to `coordRef`.
-7. Call `mesh.Compute_Energy_And_Force()`.
+7. Call the file-local `evaluate_energy_force()` helper, which routes through
+   `EnergyForceEvaluator::evaluate()` to `Mesh::Compute_Energy_And_Force()`.
 8. Copy current coordinates and current forces into previous-state storage.
 9. Add the initial `Record` row from the freshly computed area, energy, and
    mean force.
@@ -98,8 +99,7 @@ and record history.
 
 For dynamics evaluator plumbing, keep ownership boundaries narrow:
 
-- route the setup evaluation before the loop separately from the end-of-loop
-  recomputation;
+- route the end-of-loop recomputation separately from the setup evaluation;
 - leave `record.add()` timing unchanged;
 - leave `DynamicModel::next_step()` RNG behavior and force consumption
   unchanged;
