@@ -95,6 +95,11 @@ physics implementation behind it, but do not change numerical algorithms,
 OpenMP scheduling, RNG behavior, Loop subdivision, or output/checkpoint formats
 as part of evaluator plumbing.
 
+For the post-PR20 propagation-mode map, see
+`docs/propagation_mode_architecture.md`. That note records current
+minimization, thermalized minimization, dynamics, checkpoint, output, and
+record ownership before production separation work.
+
 ## Limit-Surface Evaluator Boundary
 
 The first geometry seam is `LimitSurfaceEvaluator`, with the active
