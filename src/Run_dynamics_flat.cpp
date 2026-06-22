@@ -2,15 +2,6 @@
 
 #include "energy_force/Energy_force_evaluator.hpp"
 
-namespace
-{
-void evaluate_energy_force(Mesh &mesh)
-{
-    EnergyForceEvaluator evaluator;
-    evaluator.evaluate(mesh);
-}
-}
-
 void run_dynamics_flat(std::string param_filename) {
 
     Param inputParam;

@@ -74,11 +74,6 @@ void write_final_checkpoint_if_enabled(const Model &model)
     }
 }
 
-void evaluate_energy_force(Mesh &mesh)
-{
-    EnergyForceEvaluator evaluator;
-    evaluator.evaluate(mesh);
-}
 }
 
 void run_flat(std::string param_filename)
