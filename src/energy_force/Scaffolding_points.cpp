@@ -1075,6 +1075,7 @@ double Mesh::calculate_scaffolding_energy_force(bool doLocalSearch)
 
     // initialize total energy to zero; reset total force
     double totalEnergy = 0.0;
+    double harmonicBondEnergy = 0.0;
     forceTotalOnScaffolding = mat_calloc(3, 1);
     forceOnScaffoldingPoints.assign(param.scaffoldingPoints.size(), Matrix(3, 1));
 
@@ -1087,7 +1088,7 @@ double Mesh::calculate_scaffolding_energy_force(bool doLocalSearch)
         // distance = abs(distance);
 
         // calculate energy = 0.5 * k * (r - l)^2
-        totalEnergy += 0.5 * param.springConst * pow(distance - param.lbond, 2);
+        harmonicBondEnergy += 0.5 * param.springConst * pow(distance - param.lbond, 2);
 
         // vertices[index].energy.EnergySpline = 0.5 * springConst * (distance - lbond) * (distance - lbond);
         // vertices[index].energy.EnergyTotal += vertices[index].energy.EnergySpline;
@@ -1115,6 +1116,8 @@ double Mesh::calculate_scaffolding_energy_force(bool doLocalSearch)
         forceTotalOnScaffolding -= vertices[index].force.forceHarmonicBond;
         forceOnScaffoldingPoints[i] -= vertices[index].force.forceHarmonicBond;
     }
+    param.energy.energyHarmonicBond = harmonicBondEnergy;
+    totalEnergy += harmonicBondEnergy;
 
     if (param.isGagScaffoldingEnergyIncluded || param.isIdealizedProteinLatticeEnergyIncluded)
     {

@@ -1,5 +1,37 @@
 #include "test_scaffolding_points.hpp"
 
+#include <cmath>
+
+namespace
+{
+void configure_single_harmonic_scaffold(Mesh &mesh)
+{
+    mesh.param.isEnergyHarmonicBondIncluded = true;
+    mesh.param.isGagScaffoldingEnergyIncluded = false;
+    mesh.param.isIdealizedProteinLatticeEnergyIncluded = false;
+    mesh.param.springConst = 2.0;
+    mesh.param.lbond = 3.0;
+
+    mesh.param.scaffoldingPoints.assign(1, Matrix(3, 1));
+    mesh.param.scaffoldingPoints[0].set(0, 0, mesh.vertices[0].coord(0, 0));
+    mesh.param.scaffoldingPoints[0].set(1, 0, mesh.vertices[0].coord(1, 0));
+    mesh.param.scaffoldingPoints[0].set(2, 0, mesh.vertices[0].coord(2, 0) - 5.0);
+    mesh.param.scaffoldingPoints_correspondingVertexIndex = {0};
+
+    mesh.param.energy.energyHarmonicBond = -1.0;
+    mesh.param.energy.energyGagScaffolding = 0.0;
+    mesh.param.energy.energyIdealizedProteinLattice = 0.0;
+}
+
+double expected_single_harmonic_scaffold_energy()
+{
+    const double distance = 5.0;
+    const double springConst = 2.0;
+    const double lbond = 3.0;
+    return 0.5 * springConst * std::pow(distance - lbond, 2.0);
+}
+}
+
 
 // Test fixture for Mesh class
 class ScaffoldingPointsTest : public ::testing::Test {
@@ -72,6 +104,29 @@ TEST_F(ScaffoldingPointsTest, ApproximateScaffoldingCapRadius) {
     // You should calculate the expected result based on your test data
     // For example, if the center is determined based on the maximum Z coordinate and radius is 1, and (7,8,9) has the maximum Z coordinate, the expected radius would be sqrt(7 * 7 + 8 * 8) - 1
     EXPECT_DOUBLE_EQ(result, sqrt(7 * 7 + 8 * 8));
+}
+
+TEST(ScaffoldingEnergyAccountingTest, CalculateScaffoldingEnergyForceRecordsHarmonicEnergyAtSource) {
+    Param param;
+    param.VERBOSE_MODE = false;
+    Mesh mesh(param);
+    mesh.setup_flat();
+    ASSERT_FALSE(mesh.vertices.empty());
+    configure_single_harmonic_scaffold(mesh);
+
+    const double totalScaffoldingEnergy = mesh.calculate_scaffolding_energy_force(false);
+    const double expectedEnergy = expected_single_harmonic_scaffold_energy();
+
+    EXPECT_TRUE(std::isfinite(totalScaffoldingEnergy));
+    EXPECT_TRUE(std::isfinite(mesh.param.energy.energyHarmonicBond));
+    EXPECT_DOUBLE_EQ(expectedEnergy, totalScaffoldingEnergy);
+    EXPECT_DOUBLE_EQ(expectedEnergy, mesh.param.energy.energyHarmonicBond);
+    EXPECT_DOUBLE_EQ(0.0, mesh.param.energy.energyGagScaffolding);
+    EXPECT_DOUBLE_EQ(0.0, mesh.param.energy.energyIdealizedProteinLattice);
+    EXPECT_DOUBLE_EQ(totalScaffoldingEnergy,
+                     mesh.param.energy.energyHarmonicBond
+                   + mesh.param.energy.energyGagScaffolding
+                   + mesh.param.energy.energyIdealizedProteinLattice);
 }
 /*
 // Test case for move_vertices_based_on_scaffolding with fixDir set to false
