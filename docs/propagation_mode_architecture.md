@@ -1,9 +1,8 @@
 # Propagation Mode Architecture Characterization
 
-This note characterizes the propagation-mode boundaries after PR #28
-(`aace93c`, "Merge pull request #28 from
-JohnsonBiophysicsLab/codex/dynamics-loop-evaluator-routing"). It was
-introduced as the PR #25 call-site map and is kept current as narrow
+This note characterizes the propagation-mode boundaries after the
+`run_flat()` accepted-step refresh was routed through `EnergyForceEvaluator`.
+It was introduced as the PR #25 call-site map and is kept current as narrow
 evaluator-routing slices land.
 
 ## Current Energy/Force Entry Points
@@ -22,15 +21,12 @@ Current production call sites:
 | Minimization line search | `Model::linear_search_for_stepsize_to_minimize_energy()` -> local `evaluate_energy_force()` -> `EnergyForceEvaluator::evaluate()` -> `Mesh::Compute_Energy_And_Force()` | Trial coordinates are evaluated inside the line search. Rejected/failed trials may restore coordinates before returning. |
 | Thermalized minimization | `Model::simulated_annealing_next_step()` -> local `evaluate_energy_force()` -> `EnergyForceEvaluator::evaluate()` -> `Mesh::Compute_Energy_And_Force()` | The thermal trial evaluates the displaced mesh and evaluates again after rollback when the Metropolis trial is rejected. |
 | Flat minimization executable setup/restart | `run_flat()` -> local `evaluate_energy_force()` -> `EnergyForceEvaluator::evaluate()` -> `Mesh::Compute_Energy_And_Force()` | Used for initial force/energy setup before `Model` construction and after restart load. PR #22 routed these calls through the evaluator without moving their timing. |
-| Flat minimization executable main loop | `run_flat()` -> `mesh.Compute_Energy_And_Force()` | Direct call used after applying the accepted deterministic/thermal/scaffolding step, before previous-state snapshots, NCG direction update, records, snapshots, checkpoints, and iteration increment. |
+| Flat minimization executable main loop | `run_flat()` -> local `evaluate_energy_force()` -> `EnergyForceEvaluator::evaluate()` -> `Mesh::Compute_Energy_And_Force()` | Used after applying the accepted deterministic/thermal/scaffolding step, before previous-state snapshots, NCG direction update, records, snapshots, checkpoints, and iteration increment. |
 | Dynamics executable setup | `run_dynamics_flat()` -> local `evaluate_energy_force()` -> `EnergyForceEvaluator::evaluate()` -> `Mesh::Compute_Energy_And_Force()` | Used for initial force/energy setup before `DynamicModel` construction. |
 | Dynamics executable main loop | `run_dynamics_flat()` -> local `evaluate_energy_force()` -> `EnergyForceEvaluator::evaluate()` -> `Mesh::Compute_Energy_And_Force()` | PR #28 routed the end-of-loop recomputation through the evaluator while preserving record-before-recompute ordering for the next dynamic displacement. |
 
-Remaining production direct-call inventory:
-
-| File | Surface | Relative risk | Refactor note |
-| --- | --- | --- | --- |
-| `src/Run_flat.cpp` | Accepted-step minimization refresh | Medium | Keep the existing order relative to previous-state snapshots, `energyPrev`, NCG direction update, records, snapshots, checkpoints, and iteration increment. Route separately from dynamics setup. |
+Remaining production direct-call inventory: none outside the
+`EnergyForceEvaluator` facade implementation.
 
 The direct call inside `src/energy_force/Energy_force_evaluator.cpp` is the
 facade implementation, not a remaining production caller. Direct calls in tests
@@ -111,9 +107,8 @@ evaluator helpers with no change to call timing. Those slices keep propagation
 policy, dynamics RNG behavior, records, trajectory timing, checkpoints, and
 line-search behavior outside the evaluator.
 
-The remaining production evaluator-routing candidate is the `run_flat()`
-accepted-step refresh. See `docs/run_flat_accepted_step_ordering.md` for the
-ordering baseline and evidence expected before replacing that direct call.
+The `run_flat()` accepted-step refresh now routes through the evaluator. See
+`docs/run_flat_accepted_step_ordering.md` for the preserved ordering baseline.
 
 ## Stop Conditions For Later Refactors
 

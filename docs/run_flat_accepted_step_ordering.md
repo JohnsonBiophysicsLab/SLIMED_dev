@@ -1,16 +1,16 @@
 # run_flat Accepted-Step Ordering
 
-This note characterizes the remaining direct production
-`Mesh::Compute_Energy_And_Force()` caller after PR #28. It is a baseline for a
-future mechanical evaluator-routing slice, not a target design.
+This note characterizes the `run_flat()` accepted-step evaluator routing after
+the direct production `Mesh::Compute_Energy_And_Force()` caller was replaced by
+the file-local evaluator helper. It records the preserved ordering for future
+mechanical refactor slices.
 
 ## Direct Call Inventory
 
-Outside the `EnergyForceEvaluator` implementation itself, the only remaining
-production direct caller is the accepted-step refresh in `src/Run_flat.cpp`.
-The setup and restart evaluations in `run_flat()`, the minimization line search,
-thermal trial evaluation, and both `run_dynamics_flat()` production surfaces
-already route through file-local `evaluate_energy_force()` helpers.
+Outside the `EnergyForceEvaluator` implementation itself, production refreshes
+in `run_flat()`, the minimization line search, thermal trial evaluation, and
+both `run_dynamics_flat()` production surfaces route through file-local
+`evaluate_energy_force()` helpers.
 
 Test direct calls remain intentional controls or fixture setup.
 
@@ -43,8 +43,8 @@ currently performs:
 8. Optionally scale the harmonic spring constant and reset the NCG direction.
 9. Optionally propagate scaffolding, reset closest-vertex correspondence, and
    reset the NCG direction.
-10. Call the direct accepted-step refresh:
-    `mesh.Compute_Energy_And_Force()`.
+10. Call the accepted-step refresh through the file-local evaluator helper:
+    `evaluate_energy_force(mesh)`.
 11. Copy current coordinates to `coordPrev`.
 12. Copy current face energy into previous face energy storage.
 13. Set `mesh.param.energyPrev = mesh.param.energy`.
@@ -85,10 +85,9 @@ behavior.
 | Checkpoints | Checkpoints are written near the end of the iteration for `model.iteration + 1` and include current/previous coordinates, current/previous force, NCG direction, optimizer state, thermal state, scaffold state, and records. | The refresh replacement must not alter checkpoint cadence or serialized field values. |
 | Iteration logging and termination | `Record::print_iteration()` runs before snapshots/checkpoint and before `model.iteration++`; loop termination is checked at the next loop head. | Preserve stdout order and avoid adding any final extra evaluation. |
 
-## Evidence Required Before Routing
+## Evidence Required For Routing
 
-A future production PR can route the direct call through the existing
-file-local `evaluate_energy_force()` helper only after showing:
+This production route is preserved by showing:
 
 - The evaluator equivalence tests still pass, especially direct-call parity and
   repeated-evaluation clearing of stale force/energy state.
@@ -101,7 +100,7 @@ file-local `evaluate_energy_force()` helper only after showing:
   state, and record history across the accepted-step boundary.
 - The full validation gate passes for tests plus the serial executable build.
 
-The expected production implementation should be a narrow replacement of
+The production implementation is a narrow replacement of
 `mesh.Compute_Energy_And_Force()` with the existing `evaluate_energy_force(mesh)`
-helper in `run_flat()`. If that requires moving any neighboring state update,
-stop and collect a fresh behavior baseline instead.
+helper in `run_flat()`. If future work requires moving any neighboring state
+update, stop and collect a fresh behavior baseline instead.

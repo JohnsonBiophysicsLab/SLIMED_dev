@@ -323,7 +323,7 @@ void run_flat(std::string param_filename)
         }
  
         // calculate the new Force and Energy; sync previous energy and force values with current values
-        mesh.Compute_Energy_And_Force();
+        evaluate_energy_force(mesh);
         mesh.update_previous_coord_for_vertex();
         mesh.update_previous_energy_for_face();
         mesh.param.energyPrev = mesh.param.energy;
