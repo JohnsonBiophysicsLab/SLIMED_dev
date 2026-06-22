@@ -1,10 +1,10 @@
 # Propagation Mode Architecture Characterization
 
-This note characterizes the propagation-mode boundaries on `origin/main` after
-PR #24 (`f5e587a`, "Merge pull request #24 from
-JohnsonBiophysicsLab/codex/scaffolding-energy-accounting-cleanup"). It is
-intentionally documentation-only so baseline verification can proceed in
-parallel without production C++ behavior changes.
+This note characterizes the propagation-mode boundaries after PR #24
+(`f5e587a`, "Merge pull request #24 from
+JohnsonBiophysicsLab/codex/scaffolding-energy-accounting-cleanup"). It was
+introduced as the PR #25 call-site map and is kept current as narrow
+evaluator-routing slices land.
 
 ## Current Energy/Force Entry Points
 
@@ -23,14 +23,13 @@ Current production call sites:
 | Thermalized minimization | `Model::simulated_annealing_next_step()` -> local `evaluate_energy_force()` -> `EnergyForceEvaluator::evaluate()` -> `Mesh::Compute_Energy_And_Force()` | The thermal trial evaluates the displaced mesh and evaluates again after rollback when the Metropolis trial is rejected. |
 | Flat minimization executable setup/restart | `run_flat()` -> local `evaluate_energy_force()` -> `EnergyForceEvaluator::evaluate()` -> `Mesh::Compute_Energy_And_Force()` | Used for initial force/energy setup before `Model` construction and after restart load. PR #22 routed these calls through the evaluator without moving their timing. |
 | Flat minimization executable main loop | `run_flat()` -> `mesh.Compute_Energy_And_Force()` | Direct call used after applying the accepted deterministic/thermal/scaffolding step, before previous-state snapshots, NCG direction update, records, snapshots, checkpoints, and iteration increment. |
-| Dynamics executable setup | `run_dynamics_flat()` -> `mesh.Compute_Energy_And_Force()` | Used for initial force/energy setup before `DynamicModel` construction. |
+| Dynamics executable setup | `run_dynamics_flat()` -> local `evaluate_energy_force()` -> `EnergyForceEvaluator::evaluate()` -> `Mesh::Compute_Energy_And_Force()` | Used for initial force/energy setup before `DynamicModel` construction. |
 | Dynamics executable main loop | `run_dynamics_flat()` -> `mesh.Compute_Energy_And_Force()` | The loop records current energy/force before this recomputation, then recomputes force/energy for the next dynamic displacement. Preserve this ordering until a dynamics-specific baseline says otherwise. |
 
 Remaining production direct-call inventory:
 
 | File | Surface | Relative risk | Refactor note |
 | --- | --- | --- | --- |
-| `src/Run_dynamics_flat.cpp` | Setup evaluation before `DynamicModel` construction | Low | The call is outside the dynamics loop and happens after initial mesh file writes but before initial record/model construction. It is the narrowest next evaluator-routing slice if the post-PR24 baseline is clean. |
 | `src/Run_dynamics_flat.cpp` | End-of-loop evaluation after dynamics coordinate update | Medium | Keep the current `record.add()` before recomputation and preserve the force fields prepared for the next `DynamicModel::next_step()` call. Route in a separate PR from setup. |
 | `src/Run_flat.cpp` | Accepted-step minimization refresh | Medium | Keep the existing order relative to previous-state snapshots, `energyPrev`, NCG direction update, records, snapshots, checkpoints, and iteration increment. Route separately from dynamics setup. |
 
@@ -104,29 +103,18 @@ only when a production call site is actually routed through the evaluator.
 characterize the dynamics-specific force-consumption and record-before-recompute
 ordering that should be preserved before routing the dynamics loop call site.
 
-## Recommended Next Production Slice
+## Remaining Production Slices
 
-The safest next production slice after PR #22 is to route only the
-`run_dynamics_flat()` setup evaluation through a file-local evaluator helper,
-with no changes to call timing:
+The `run_dynamics_flat()` setup evaluation now uses a file-local evaluator
+helper with no change to call timing. That slice keeps propagation policy,
+dynamics RNG behavior, records, trajectory timing, checkpoints, and line-search
+behavior outside the evaluator. It also avoids the dynamics loop, where
+record-before-recompute ordering deserves a separate production PR even though
+it already has a documentation/test baseline.
 
-1. Add a local helper in `src/Run_dynamics_flat.cpp` that constructs
-   `EnergyForceEvaluator` and calls `evaluate(mesh)`.
-2. Replace only the initial setup evaluation before `DynamicModel` construction
-   with that helper.
-3. Leave the dynamics end-of-loop direct call and the `run_flat()` accepted-step
-   direct call in place for later PRs.
-4. Validate with the existing evaluator tests, dynamics characterization tests,
-   serial/dynamics builds, and the full PR gate.
-
-This slice keeps propagation policy, dynamics RNG behavior, records, trajectory
-timing, checkpoints, and line-search behavior outside the evaluator. It also
-avoids the dynamics loop, where record-before-recompute ordering deserves a
-separate production PR even though it already has a documentation/test baseline.
-
-The next candidates after that setup-only slice are either the dynamics
-end-of-loop recomputation or the `run_flat()` accepted-step refresh. Keep them
-separate unless a reviewer explicitly asks for a single mechanical sweep.
+The next candidates are either the dynamics end-of-loop recomputation or the
+`run_flat()` accepted-step refresh. Keep them separate unless a reviewer
+explicitly asks for a single mechanical sweep.
 
 ## Stop Conditions For Later Refactors
 
