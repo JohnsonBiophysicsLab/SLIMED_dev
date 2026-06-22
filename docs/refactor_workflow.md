@@ -106,6 +106,10 @@ classification with `python3 scripts/inventory_energy_force_call_sites.py`.
 For the post-PR33 architecture cleanup candidate map, see
 `docs/energy_force_evaluator_architecture_candidates.md` and include
 `--helpers` when regenerating the local helper inventory.
+For the post-PR35 internal evaluator side-effect map, see
+`docs/energy_force_evaluator_side_effect_boundary.md` and regenerate the
+write-surface inventory with
+`python3 scripts/inventory_energy_force_side_effects.py`.
 
 ### Accepted-Step Minimization Smoke
 
