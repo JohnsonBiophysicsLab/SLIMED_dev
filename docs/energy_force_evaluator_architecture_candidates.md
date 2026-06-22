@@ -10,6 +10,14 @@ Regenerate the source call-site and helper inventory with:
 python3 scripts/inventory_energy_force_call_sites.py --helpers
 ```
 
+For the internal side-effect boundary of the current facade call, see
+`docs/energy_force_evaluator_side_effect_boundary.md` and regenerate its
+write-surface inventory with:
+
+```console
+python3 scripts/inventory_energy_force_side_effects.py
+```
+
 ## Current Boundary
 
 PR #33 left no production direct `Mesh::Compute_Energy_And_Force()` callers
@@ -67,6 +75,8 @@ and explicit review.
 Before a production helper-consolidation or behind-facade extraction PR, collect
 or preserve:
 
+- the internal side-effect boundary in
+  `docs/energy_force_evaluator_side_effect_boundary.md`;
 - evaluator equivalence and stale-force clearing tests;
 - accepted-step smoke output from the committed PR #32 fixture;
 - restart/checkpoint evidence if `run_flat()` neighboring state moves;
