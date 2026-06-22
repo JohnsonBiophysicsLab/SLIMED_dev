@@ -133,7 +133,7 @@ void run_dynamics_flat(std::string param_filename) {
         // Record the Energy and nodal Force
         record.add(mesh.param.area, mesh.param.energy, mesh.calculate_mean_force());
 
-        mesh.Compute_Energy_And_Force();
+        evaluate_energy_force(mesh);
         cout<<"=========ITERATION:" << model.iteration << "==========================" << endl;
 
     }
