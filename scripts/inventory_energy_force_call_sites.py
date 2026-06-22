@@ -12,12 +12,26 @@ from typing import Iterable, Optional, Sequence
 
 DIRECT_PATTERN = re.compile(r"\bCompute_Energy_And_Force\s*\(")
 EVALUATOR_PATTERN = re.compile(r"\bEnergyForceEvaluator\b")
+LOCAL_HELPER_PATTERN = re.compile(r"\bevaluate_energy_force\s*\(")
+LOCAL_HELPER_DEFINITION_PATTERN = re.compile(
+    r"^\s*void\s+evaluate_energy_force\s*\(\s*Mesh\s*&\s*\w+\s*\)"
+)
 SKIP_DIRS = {".git", "bin", "obj"}
 SOURCE_SUFFIXES = {".cpp", ".hpp", ".h", ".md", ".py"}
 
 
 @dataclass(frozen=True)
 class Occurrence:
+    path: Path
+    line_number: int
+    kind: str
+    classification: str
+    detail: str
+    line: str
+
+
+@dataclass(frozen=True)
+class HelperOccurrence:
     path: Path
     line_number: int
     kind: str
@@ -168,6 +182,73 @@ def collect_occurrences(root: Path) -> list[Occurrence]:
     return occurrences
 
 
+def classify_local_helper(path: Path, line: str) -> tuple[str, str]:
+    normalized = path.as_posix()
+    if normalized in {
+        "src/Run_flat.cpp",
+        "src/Run_dynamics_flat.cpp",
+        "src/model/Energy_minimization.cpp",
+    }:
+        if LOCAL_HELPER_DEFINITION_PATTERN.search(line):
+            return (
+                "production file-local helper definition",
+                "This wrapper owns no policy; it constructs EnergyForceEvaluator and calls evaluate().",
+            )
+        return (
+            "production file-local helper use",
+            "This routed energy/force refresh currently goes through a file-local helper.",
+        )
+    if normalized.startswith("docs/"):
+        return (
+            "documentation reference",
+            "Documentation names the helper while describing current architecture.",
+        )
+    if normalized.startswith("scripts/"):
+        return (
+            "analysis script reference",
+            "Analysis tooling names the helper while classifying usage.",
+        )
+    if line.strip().startswith("//") or line.strip().startswith("*"):
+        return (
+            "comment reference",
+            "Comment text references the helper name.",
+        )
+    return (
+        "unclassified local helper reference",
+        "Review whether this helper reference should be documented or routed differently.",
+    )
+
+
+def collect_local_helpers(root: Path) -> list[HelperOccurrence]:
+    helpers: list[HelperOccurrence] = []
+    for path in iter_scan_files(root):
+        relative_path = path.relative_to(root)
+        try:
+            lines = path.read_text(encoding="utf-8").splitlines()
+        except UnicodeDecodeError:
+            continue
+        for line_number, line in enumerate(lines, start=1):
+            if not LOCAL_HELPER_PATTERN.search(line):
+                continue
+            classification, detail = classify_local_helper(relative_path, line)
+            kind = (
+                "definition"
+                if LOCAL_HELPER_DEFINITION_PATTERN.search(line)
+                else "use/reference"
+            )
+            helpers.append(
+                HelperOccurrence(
+                    path=relative_path,
+                    line_number=line_number,
+                    kind=kind,
+                    classification=classification,
+                    detail=detail,
+                    line=line.strip(),
+                )
+            )
+    return helpers
+
+
 def print_inventory(occurrences: Sequence[Occurrence]) -> None:
     current_classification: Optional[str] = None
     for occurrence in sorted(
@@ -184,6 +265,22 @@ def print_inventory(occurrences: Sequence[Occurrence]) -> None:
         print(f"  {occurrence.detail}")
 
 
+def print_helper_inventory(helpers: Sequence[HelperOccurrence]) -> None:
+    current_classification: Optional[str] = None
+    for helper in sorted(
+        helpers,
+        key=lambda item: (item.classification, item.path.as_posix(), item.line_number, item.kind),
+    ):
+        if helper.classification != current_classification:
+            current_classification = helper.classification
+            print(f"\n## {current_classification}")
+        print(
+            f"- {helper.path}:{helper.line_number} "
+            f"[{helper.kind}] {helper.line}"
+        )
+        print(f"  {helper.detail}")
+
+
 def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
@@ -196,6 +293,11 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         action="store_true",
         help="Exit nonzero if a production direct call outside the facade is found.",
     )
+    parser.add_argument(
+        "--helpers",
+        action="store_true",
+        help="Also inventory local evaluate_energy_force(Mesh&) helper definitions and uses.",
+    )
     return parser.parse_args(argv)
 
 
@@ -203,6 +305,19 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     args = parse_args(argv)
     occurrences = collect_occurrences(repo_root())
     print_inventory(occurrences)
+    if args.helpers:
+        print("\n# Local evaluate_energy_force(Mesh&) helper inventory")
+        helpers = collect_local_helpers(repo_root())
+        print_helper_inventory(helpers)
+        unclassified_helpers = [
+            helper
+            for helper in helpers
+            if helper.classification == "unclassified local helper reference"
+        ]
+        print(
+            "\nHelper summary: "
+            f"{len(unclassified_helpers)} unclassified local helper reference(s)."
+        )
 
     production_direct = [
         occurrence

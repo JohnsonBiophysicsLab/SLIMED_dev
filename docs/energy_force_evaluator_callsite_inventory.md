@@ -10,6 +10,13 @@ Regenerate the source inventory with:
 python3 scripts/inventory_energy_force_call_sites.py
 ```
 
+To also list file-local `evaluate_energy_force(Mesh&)` helper definitions and
+uses, run:
+
+```console
+python3 scripts/inventory_energy_force_call_sites.py --helpers
+```
+
 The script reports current line numbers for reviewer convenience, but the
 classification is path/context based and should not be treated as a line-number
 assertion.
@@ -43,6 +50,9 @@ Safe low-conflict options:
 
 - Extend the inventory script only when new source roots or test fixture
   patterns appear.
+- Use `docs/energy_force_evaluator_architecture_candidates.md` to choose
+  between helper consolidation, behind-facade implementation work, or a
+  higher-risk propagation helper slice.
 - Add a focused test cleanup PR if reviewers want test fixture setup to use the
   evaluator, while preserving at least one direct-vs-facade equivalence test.
 - Start a production implementation slice behind `EnergyForceEvaluator`, with a
