@@ -117,6 +117,28 @@ path requires a separate numerical-baseline PR because it is coupled to face
 energy accumulation, force component construction, force scatter into
 per-thread buffers, OpenMP reduction order, and global area/volume constraints.
 
+For a future production energy/force evaluator migration, require a two-stage
+baseline:
+
+- Geometry-only checks must compare all seven regular rows from the evaluator
+  against the current cached `shapeFunctions * 12 x 3 controlPoints` extraction
+  for deterministic regular fixtures. Tests using the same SLIMED matrix helper
+  should be exact; alternate arithmetic order or backend results need an
+  explicit absolute/relative tolerance and recorded maximum deltas.
+- Full energy/force checks must compare deterministic serial and OpenMP
+  outputs for area, volume, face curvature energy, mean curvature, normals,
+  per-vertex bending/area/volume/regularization/total forces, and total energy.
+  The PR must state thread counts, compiler/platform, commands, and tolerance
+  policy.
+- Force scatter order through `face.oneRingVertices`, per-thread accumulation,
+  OpenMP scheduling/reductions, boundary/ghost/periodic policy, output formats,
+  checkpoint/restart-visible state, and legacy volume semantics must remain
+  unchanged unless the PR is explicitly a numerical-behavior change.
+- Stop instead of migrating if reviewable evidence would require exposing new
+  production internals only for tests, duplicating the large force algorithm in
+  tests, changing access boundaries, or making scientific tolerance decisions
+  beyond isolated double-precision geometry equivalence.
+
 Keep irregular `11 x 3` handling, boundary/ghost/periodic policy, dynamics
 projection, OpenSubdiv dependency work, output/checkpoint formats, RNG behavior,
 and volume-semantics changes out of evaluator-plumbing PRs unless the PR is

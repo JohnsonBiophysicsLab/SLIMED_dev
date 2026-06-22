@@ -5,8 +5,8 @@ hard-coded triangular Loop-subdivision limit-surface machinery. It is a
 feasibility/design slice only: the production backend remains the current SLIMED
 implementation, and no OpenSubdiv dependency is introduced here.
 
-Baseline checked for this phase: `origin/main` includes PR #17 at commit
-`1e3c0b8e726d351dfacce2217039a8b37924c432`.
+Baseline checked for this phase: `origin/main` includes PR #18 at commit
+`7a455625ae3b22cc4cc59359df19c2633ad631bf`.
 
 ## Current SLIMED Contract
 
@@ -249,6 +249,61 @@ Deferred production adoption categories:
   current `dot_row` behavior, require an explicit scientific/numerical review
   rather than being bundled with evaluator plumbing.
 
+## Energy/Force Numerical Baseline Checklist
+
+Before any production `element_energy_force_regular` migration to
+`LimitSurfaceEvaluator`, the PR must provide evidence for the current
+regular-patch behavior at two levels.
+
+Geometry-only baseline:
+
+- Use deterministic non-ghost regular `12 x 3` fixtures whose one-ring ordering
+  matches `Face::oneRingVertices`; include flat, gently curved, mixed-sign, and
+  anisotropic coordinate scales.
+- For every cached `Param::shapeFunctions` row used by the configured Gauss
+  quadrature rule, compare evaluator outputs against the current
+  `multiplication(sf, matOneRingVertices, sfDotOneRingV)` extraction in
+  `element_energy_force_regular`.
+- Require exact equality when the test routes through the same SLIMED matrix
+  multiplication helper. If a future backend changes arithmetic order, use an
+  explicitly reviewed absolute/relative tolerance and record the largest
+  observed component deltas for all seven rows: `x`, `a_1`, `a_2`, `a_11`,
+  `a_22`, `a_12`, and `a_21`.
+- Keep geometry comparisons local to test calculations. They must not mutate
+  mesh coordinates, cached shape functions, face state, forces, energies, or
+  global area/volume parameters.
+
+Energy/force baseline:
+
+- Compare full reference outputs for at least one deterministic flat regular
+  periodic mesh and one deterministic nonplanar regular mesh: total area,
+  volume, face curvature energy, mean curvature, normals, per-vertex bending
+  force, area force, volume force, regularization force, total force, and total
+  energy.
+- Run serial and OpenMP builds on the same fixtures. OpenMP comparisons must
+  state thread counts, schedules/default environment, and whether expected
+  deltas are exact or tolerance-based due to reduction order.
+- Preserve force scatter order from `face.oneRingVertices` into the per-thread
+  accumulation buffers unless a separate baseline explicitly approves an order
+  change.
+- Include smoke coverage for the committed example parameter file and for a
+  checkpoint/restart path if the migrated code can affect restart-visible
+  forces, energies, area, volume, normals, or output rows.
+- Document compiler, platform, command lines, and tolerance policy in the PR
+  body. Tolerances beyond straightforward double-precision equivalence of
+  isolated geometry rows are scientific decisions and need reviewer approval.
+
+Stop conditions:
+
+- Do not proceed in a production migration PR if equivalence requires exposing
+  new production internals only for tests, duplicating the large bending/area/
+  volume force algorithm in test code, changing OpenMP reductions or schedules,
+  changing checkpoint/output formats, or resolving irregular `11 x 3` semantics
+  as a side effect.
+- Legacy volume semantics remain frozen for evaluator work, including the
+  quadrature factor `0.16666666666` and the existing regular area/volume
+  behavior. Any proposed volume change needs its own numerical-baseline PR.
+
 ## Build/Dependency Options
 
 Viable paths, in increasing ownership:
@@ -277,19 +332,21 @@ proven and reviewed.
    agreement with current `Param::shapeFunctions`.
 3. Done: adopt the contract in one regular area/volume path only after proving
    equivalence to direct shape-function row multiplication.
-4. Next: characterize current irregular energy/force behavior separately,
-   especially
-   the 11-control path that currently calls the regular evaluator.
-5. Decide whether regular energy/force geometry extraction should migrate only
+4. Done: characterize the regular energy/force geometry-extraction subset with
+   multiple deterministic `12 x 3` fixtures and cached quadrature rows, without
+   changing production behavior.
+5. Next: characterize current irregular energy/force behavior separately,
+   especially the 11-control path that currently calls the regular evaluator.
+6. Decide whether regular energy/force geometry extraction should migrate only
    after a force/energy numerical-baseline PR, because production code there is
    coupled to force formulas, scatter, accumulation order, and OpenMP behavior.
-6. Decide the OpenSubdiv dependency path. For a system-install experiment,
+7. Decide the OpenSubdiv dependency path. For a system-install experiment,
    introduce an opt-in `USE_OPENSUBDIV=1` build flag that default builds ignore.
-7. Prototype an OpenSubdiv stencil generator for non-ghost regular faces only,
+8. Prototype an OpenSubdiv stencil generator for non-ghost regular faces only,
    with explicit `v,w,u` to `u,v` mapping tests and force-scatter source-index
    tests. Compare flat regular-patch area, normal, mean curvature, and force
    outputs against the SLIMED backend.
-8. Expand to boundary/periodic/ghost topology only after regular interior
+9. Expand to boundary/periodic/ghost topology only after regular interior
    equivalence is demonstrated. Keep dynamics projection and ghost
    postprocessing in a separate PR.
 

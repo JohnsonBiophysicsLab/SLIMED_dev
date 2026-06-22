@@ -102,6 +102,36 @@ Matrix make_deterministic_regular_control_points()
     return controlPoints;
 }
 
+std::vector<Matrix> make_regular_energy_force_control_point_fixtures()
+{
+    Matrix flat(12, 3, true);
+    Matrix gentlyCurved(12, 3, true);
+    Matrix mixedSign(12, 3, true);
+    Matrix anisotropic(12, 3, true);
+    for (int control = 0; control < 12; ++control)
+    {
+        const double index = static_cast<double>(control);
+
+        flat.set(control, 0, 0.2 + 0.35 * index);
+        flat.set(control, 1, -0.4 + 0.08 * index * index);
+        flat.set(control, 2, 0.0);
+
+        gentlyCurved.set(control, 0, 0.2 + 0.35 * index);
+        gentlyCurved.set(control, 1, -0.4 + 0.08 * index * index);
+        gentlyCurved.set(control, 2, 0.1 * std::sin(0.5 * index));
+
+        mixedSign.set(control, 0, -1.5 + 0.17 * index * index);
+        mixedSign.set(control, 1, 2.0 - 0.31 * index);
+        mixedSign.set(control, 2, -0.75 + 0.04 * index * index * index);
+
+        anisotropic.set(control, 0, 4.0 + std::cos(0.25 * index));
+        anisotropic.set(control, 1, -3.0 + std::sin(0.3 * index));
+        anisotropic.set(control, 2, 1.0 + 0.125 * index);
+    }
+
+    return {flat, gentlyCurved, mixedSign, anisotropic};
+}
+
 void expect_column_matches_row(const Matrix &column,
                                const Matrix &rows,
                                const int row)
@@ -112,6 +142,21 @@ void expect_column_matches_row(const Matrix &column,
     for (int axis = 0; axis < 3; ++axis)
     {
         EXPECT_DOUBLE_EQ(column.get(axis, 0), rows.get(row, axis));
+    }
+}
+
+void expect_matrix_exactly_matches(const Matrix &expected,
+                                   const Matrix &actual)
+{
+    ASSERT_EQ(actual.nrow(), expected.nrow());
+    ASSERT_EQ(actual.ncol(), expected.ncol());
+    for (int row = 0; row < expected.nrow(); ++row)
+    {
+        for (int col = 0; col < expected.ncol(); ++col)
+        {
+            EXPECT_DOUBLE_EQ(actual.get(row, col), expected.get(row, col))
+                << "row " << row << " col " << col;
+        }
     }
 }
 
@@ -354,6 +399,51 @@ TEST(SurfaceLimitSurfaceEvaluatorContract, RegularEnergyForceGeometryExtractionM
             evaluator.evaluate_shape_function(shapeFunction, controlPoints);
 
         expect_evaluation_matches_rows(evaluation, directRows);
+    }
+}
+
+TEST(SurfaceLimitSurfaceEvaluatorContract, RegularEnergyForceGeometryRowsMatchLegacyMultiplicationForFixtures)
+{
+    Param param;
+    param.VERBOSE_MODE = false;
+    Mesh mesh(param);
+    const SlimedLoopLimitSurfaceEvaluator evaluator;
+    const std::vector<Matrix> controlPointFixtures =
+        make_regular_energy_force_control_point_fixtures();
+    const std::vector<Matrix> shapeFunctionBaseline = param.shapeFunctions;
+
+    ASSERT_FALSE(param.shapeFunctions.empty());
+    ASSERT_EQ(param.shapeFunctions.size(),
+              static_cast<std::size_t>(param.gaussQuadratureCoeff.nrow()));
+
+    for (int fixture = 0; fixture < static_cast<int>(controlPointFixtures.size()); ++fixture)
+    {
+        SCOPED_TRACE(::testing::Message() << "fixture " << fixture);
+        const Matrix &controlPoints = controlPointFixtures[fixture];
+        ASSERT_EQ(controlPoints.nrow(), evaluator.regular_patch_control_point_count());
+        ASSERT_EQ(controlPoints.ncol(), SlimedLoopLimitSurfaceEvaluator::kSpatialDimension);
+
+        for (int sample = 0; sample < static_cast<int>(param.shapeFunctions.size()); ++sample)
+        {
+            SCOPED_TRACE(::testing::Message() << "sample " << sample);
+            const Matrix &shapeFunction = param.shapeFunctions[sample];
+            Matrix legacyRows(7, 3, true);
+
+            multiplication(shapeFunction, controlPoints, legacyRows);
+
+            const LimitSurfaceEvaluation evaluation =
+                evaluator.evaluate_shape_function(shapeFunction, controlPoints);
+
+            expect_evaluation_matches_rows(evaluation, legacyRows);
+        }
+    }
+
+    ASSERT_EQ(shapeFunctionBaseline.size(), param.shapeFunctions.size());
+    for (int sample = 0; sample < static_cast<int>(shapeFunctionBaseline.size()); ++sample)
+    {
+        SCOPED_TRACE(::testing::Message() << "shape function baseline " << sample);
+        expect_matrix_exactly_matches(shapeFunctionBaseline[sample],
+                                      param.shapeFunctions[sample]);
     }
 }
 
