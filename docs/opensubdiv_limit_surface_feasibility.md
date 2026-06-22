@@ -188,6 +188,19 @@ area/volume still use subdivision matrices, while energy/force behavior is not
 changed by this seam. No OpenSubdiv headers, build flags, dependencies, or
 production defaults are introduced here.
 
+## Regular Area/Volume Adoption After PR #16
+
+The first production call-site adoption is intentionally narrow:
+`Mesh::calculate_element_area_volume()` routes only the regular `12 x 3`
+one-ring case through `SlimedLoopLimitSurfaceEvaluator` for position and first
+derivatives. The irregular `11 x 3` subdivision path still uses the previous
+direct shape-function helper, and energy/force scatter remains unchanged.
+
+Characterization tests compare the adopted regular area/volume path against the
+previous direct row-multiplication formula on deterministic nonplanar controls,
+including the current volume accumulation semantics. Boundary, ghost, periodic,
+irregular, force, dynamics, and OpenSubdiv behavior remain deferred.
+
 ## Build/Dependency Options
 
 Viable paths, in increasing ownership:
@@ -214,15 +227,17 @@ proven and reviewed.
 2. Add focused tests for regular-patch evaluator outputs: shape dimensions,
    partition of unity, derivative sums, mixed-derivative equality, and exact
    agreement with current `Param::shapeFunctions`.
-3. Characterize current irregular energy/force behavior separately, especially
+3. Adopt the contract in one regular area/volume path only after proving
+   equivalence to direct shape-function row multiplication.
+4. Characterize current irregular energy/force behavior separately, especially
    the 11-control path that currently calls the regular evaluator.
-4. Decide the OpenSubdiv dependency path. For a system-install experiment,
+5. Decide the OpenSubdiv dependency path. For a system-install experiment,
    introduce an opt-in `USE_OPENSUBDIV=1` build flag that default builds ignore.
-5. Prototype an OpenSubdiv stencil generator for non-ghost regular faces only,
+6. Prototype an OpenSubdiv stencil generator for non-ghost regular faces only,
    with explicit `v,w,u` to `u,v` mapping tests and force-scatter source-index
    tests. Compare flat regular-patch area, normal, mean curvature, and force
    outputs against the SLIMED backend.
-6. Expand to boundary/periodic/ghost topology only after regular interior
+7. Expand to boundary/periodic/ghost topology only after regular interior
    equivalence is demonstrated. Keep dynamics projection and ghost
    postprocessing in a separate PR.
 
