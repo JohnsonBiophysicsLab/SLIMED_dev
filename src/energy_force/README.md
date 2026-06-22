@@ -1,0 +1,98 @@
+# Energy/Force Geometry Notation
+
+This directory contains the membrane energy and force evaluation code. The
+regular Loop limit-surface geometry used by bending, area, and volume terms is
+evaluated in `Mesh::element_energy_force_regular()`.
+
+## Limit-Surface Evaluator Path
+
+For regular energy/force patches, the default geometry extraction path now uses
+`SlimedLoopLimitSurfaceEvaluator`.
+
+In `element_energy_force_regular()`, the local guard
+`useLimitSurfaceEvaluator` is `true` when the one-ring control matrix has the
+regular Loop patch shape:
+
+```cpp
+matOneRingVertices.nrow() == limitSurfaceEvaluator.regular_patch_control_point_count()
+```
+
+That is the regular `12 x 3` case. In this case the code asks
+`SlimedLoopLimitSurfaceEvaluator` to evaluate the cached `Param::shapeFunctions`
+matrix against the current one-ring coordinates and returns the seven geometry
+rows used by the existing force formulas.
+
+The old direct multiplication path is intentionally preserved:
+
+```cpp
+multiplication(sf, matOneRingVertices, sfDotOneRingV)
+```
+
+It remains the compatibility/fallback path for non-regular call-throughs, such
+as the existing `11 x 3` irregular path. This keeps the PR conservative: only
+regular geometry row extraction changes, while the force formulas, raw
+`sf(row, j)` usage, loop order, scatter order, OpenMP behavior, checkpoint and
+output behavior, and volume semantics remain unchanged.
+
+There is no user-facing parameter named `useLimitSurfaceEvaluator`; it is an
+internal per-call guard derived from patch size.
+
+## Shape-Function Row Correspondence
+
+For each quadrature sample, `Param::shapeFunctions[i]` is a `7 x 12` matrix for
+regular patches. Multiplying it by the `12 x 3` one-ring coordinate matrix gives
+a `7 x 3` geometry matrix. Each row is a 3-vector:
+
+| Row | Code name | Meaning |
+| --- | --- | --- |
+| 0 | `x` | Limit-surface position |
+| 1 | `a_1` | First covariant tangent, `dx/dv` in SLIMED's cached shape-function convention |
+| 2 | `a_2` | First covariant tangent, `dx/dw` |
+| 3 | `a_11` | Second covariant derivative, `d2x/dv2` |
+| 4 | `a_22` | Second covariant derivative, `d2x/dw2` |
+| 5 | `a_12` | Mixed covariant derivative, `d2x/dv dw` |
+| 6 | `a_21` | Mixed covariant derivative, `d2x/dw dv` |
+
+The evaluator-backed path returns the same seven quantities through
+`LimitSurfaceEvaluation`:
+
+| Evaluator field | Energy/force variable |
+| --- | --- |
+| `position` | `x` |
+| `firstDerivativeV` | `a_1` |
+| `firstDerivativeW` | `a_2` |
+| `secondDerivativeVV` | `a_11` |
+| `secondDerivativeWW` | `a_22` |
+| `mixedDerivativeVW` | `a_12` |
+| `mixedDerivativeWV` | `a_21` |
+
+## Covariant and Contravariant Names
+
+The underscore names are covariant surface derivatives:
+
+- `a_1`, `a_2`: tangent basis vectors.
+- `a_11`, `a_22`, `a_12`, `a_21`: second derivatives of the surface position.
+- `a_3`: unit normal, computed from `a_1 x a_2`.
+- `a_31`, `a_32`: derivatives of the unit normal along directions 1 and 2.
+
+The names without underscores are contravariant or derivative quantities derived
+from the covariant basis:
+
+- `a1 = cross(a_2, a_3) / |a_1 x a_2|`
+- `a2 = cross(a_3, a_1) / |a_1 x a_2|`
+- `a11`, `a12`, `a21`, `a22`: derivatives of the contravariant basis vectors,
+  used in the bending force terms.
+
+The code keeps both naming systems because the existing force formulas use both
+sets:
+
+- Geometry extraction fills the covariant quantities `x`, `a_1`, `a_2`,
+  `a_11`, `a_22`, `a_12`, and `a_21`.
+- Later force terms derive `a_3`, `a_31`, `a_32`, `a1`, `a2`, `a11`, `a12`,
+  `a21`, and `a22`.
+- The per-control-point force loop still uses the original cached shape rows
+  through `sf(row, j)`.
+
+In smooth theory the two mixed derivatives should agree, but SLIMED keeps
+`a_12` and `a_21` as separate rows because the legacy cached shape-function
+contract exposes both. The evaluator preserves that contract.
