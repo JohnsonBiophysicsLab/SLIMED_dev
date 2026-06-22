@@ -53,6 +53,32 @@ vertex forces that were available before the recomputation at the end of
 iteration `N`. The end-of-loop recomputation prepares the force components that
 `DynamicModel::next_step()` will consume on the next iteration.
 
+The end-of-loop recomputation is the only remaining direct dynamics production
+call after the PR #26 setup routing. Its ordering dependencies are:
+
+| Neighboring state/action | Current ordering around recomputation | Routing caution |
+| --- | --- | --- |
+| Trajectory rows | Optional trajectory rows are appended before `record.add()` and before recomputation. | A routing PR should not move trajectory output after recomputation or alter the initial trajectory file creation. |
+| Records | `record.add()` runs immediately before recomputation. | Preserve the current record-before-recompute behavior; records intentionally see the pre-recompute energy/force state for that iteration. |
+| Force fields for dynamics | Recomputed force components are consumed by the next `DynamicModel::next_step()` call. | The evaluator call can replace the direct call only if it leaves force clearing, force scatter, and boundary force handling identical. |
+| Iteration banner | The `=========ITERATION:N==========================` banner prints after recomputation. | Preserve stdout order so existing smoke logs remain comparable. |
+| Loop termination | The `for` loop increments `model.iteration` after the banner and exits when `model.iteration == maxIterations`. | Do not add a final extra evaluation outside the current loop or skip the last in-loop recomputation. |
+| Coordinate snapshots | The dynamics loop does not update previous-coordinate, previous-force, previous-energy, NCG, or restart snapshot state. | Do not introduce minimization-style snapshot ownership while routing this call. |
+| RNG state | `DynamicModel::next_step()` is the RNG-consuming step; recomputation is deterministic with respect to dynamics RNG state. | Routing should not move, duplicate, or remove `next_step()` calls, and should not touch RNG construction or call counts. |
+| Dynamics checkpointing | There is no dynamics restart checkpoint write or load in this loop. | Evaluator routing should stay independent of minimization checkpoint helpers and file formats. |
+
+Before routing this call through `EnergyForceEvaluator`, require evidence that a
+one-line replacement preserves:
+
+- finite dynamics smoke output, including `EnergyForce.csv`;
+- unchanged trajectory and final-output file timing for a short committed
+  dynamics fixture;
+- existing `DynamicModelCharacterizationTest` force-consumption and RNG
+  characterization;
+- the evaluator equivalence tests that compare `EnergyForceEvaluator` to the
+  direct mesh call;
+- the full build/test gate for both serial minimization and dynamics binaries.
+
 ## Force Inputs To DynamicModel
 
 `DynamicModel::next_step()` does not call `Compute_Energy_And_Force()`. It reads

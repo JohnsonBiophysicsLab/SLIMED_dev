@@ -1,8 +1,8 @@
 # Propagation Mode Architecture Characterization
 
-This note characterizes the propagation-mode boundaries after PR #24
-(`f5e587a`, "Merge pull request #24 from
-JohnsonBiophysicsLab/codex/scaffolding-energy-accounting-cleanup"). It was
+This note characterizes the propagation-mode boundaries after PR #26
+(`b6a57c9`, "Merge pull request #26 from
+JohnsonBiophysicsLab/codex/dynamics-setup-evaluator-routing"). It was
 introduced as the PR #25 call-site map and is kept current as narrow
 evaluator-routing slices land.
 
