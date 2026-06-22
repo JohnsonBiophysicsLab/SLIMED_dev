@@ -6,3 +6,9 @@ void EnergyForceEvaluator::evaluate(Mesh &mesh) const
 {
     mesh.Compute_Energy_And_Force();
 }
+
+void evaluate_energy_force(Mesh &mesh)
+{
+    EnergyForceEvaluator evaluator;
+    evaluator.evaluate(mesh);
+}

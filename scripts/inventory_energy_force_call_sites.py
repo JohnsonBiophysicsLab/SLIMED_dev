@@ -105,8 +105,8 @@ def classify_evaluator(path: Path, line: str) -> tuple[str, str]:
         "src/model/Energy_minimization.cpp",
     }:
         return (
-            "production path already routed through evaluator facade",
-            "A production refresh path uses a file-local evaluator helper.",
+            "production path routed through shared evaluator helper",
+            "A production refresh path uses the shared evaluator helper.",
         )
     if normalized == "src/energy_force/Energy_force_evaluator.cpp":
         return (
@@ -184,6 +184,16 @@ def collect_occurrences(root: Path) -> list[Occurrence]:
 
 def classify_local_helper(path: Path, line: str) -> tuple[str, str]:
     normalized = path.as_posix()
+    if normalized == "include/energy_force/Energy_force_evaluator.hpp":
+        return (
+            "shared evaluator helper api",
+            "This declares the shared helper that routes through EnergyForceEvaluator.",
+        )
+    if normalized == "src/energy_force/Energy_force_evaluator.cpp":
+        return (
+            "shared evaluator helper implementation",
+            "This centralizes the formerly duplicated wrappers.",
+        )
     if normalized in {
         "src/Run_flat.cpp",
         "src/Run_dynamics_flat.cpp",
@@ -191,12 +201,12 @@ def classify_local_helper(path: Path, line: str) -> tuple[str, str]:
     }:
         if LOCAL_HELPER_DEFINITION_PATTERN.search(line):
             return (
-                "production file-local helper definition",
+                "production duplicate helper definition",
                 "This wrapper owns no policy; it constructs EnergyForceEvaluator and calls evaluate().",
             )
         return (
-            "production file-local helper use",
-            "This routed energy/force refresh currently goes through a file-local helper.",
+            "production shared helper use",
+            "This routed energy/force refresh keeps its call-site timing and uses the shared evaluator helper.",
         )
     if normalized.startswith("docs/"):
         return (
@@ -296,7 +306,7 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     parser.add_argument(
         "--helpers",
         action="store_true",
-        help="Also inventory local evaluate_energy_force(Mesh&) helper definitions and uses.",
+        help="Also inventory evaluate_energy_force(Mesh&) helper definitions and uses.",
     )
     return parser.parse_args(argv)
 
@@ -306,7 +316,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     occurrences = collect_occurrences(repo_root())
     print_inventory(occurrences)
     if args.helpers:
-        print("\n# Local evaluate_energy_force(Mesh&) helper inventory")
+        print("\n# evaluate_energy_force(Mesh&) helper inventory")
         helpers = collect_local_helpers(repo_root())
         print_helper_inventory(helpers)
         unclassified_helpers = [
@@ -316,7 +326,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         ]
         print(
             "\nHelper summary: "
-            f"{len(unclassified_helpers)} unclassified local helper reference(s)."
+            f"{len(unclassified_helpers)} unclassified helper reference(s)."
         )
 
     production_direct = [

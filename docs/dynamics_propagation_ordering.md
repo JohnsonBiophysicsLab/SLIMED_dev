@@ -18,7 +18,7 @@ through `EnergyForceEvaluator`. It is a baseline, not a target design.
    `<input>vertex_type_begin.csv`.
 5. Compute initial element area/volume and membrane reference area/volume.
 6. Copy current coordinates to `coordPrev`, then to `coordRef`.
-7. Call the file-local `evaluate_energy_force()` helper, which routes through
+7. Call the shared `evaluate_energy_force()` helper, which routes through
    `EnergyForceEvaluator::evaluate()` to `Mesh::Compute_Energy_And_Force()`.
 8. Copy current coordinates and current forces into previous-state storage.
 9. Add the initial `Record` row from the freshly computed area, energy, and
@@ -42,7 +42,7 @@ For each `model.iteration` from `0` to `maxIterations - 1`,
 5. Copy `matMesh` back to `mesh.vertices[*].coord`.
 6. Append dynamics trajectory rows when `meshpointOutput` is enabled.
 7. Add a `Record` row.
-8. Call the file-local `evaluate_energy_force()` helper, which routes through
+8. Call the shared `evaluate_energy_force()` helper, which routes through
    `EnergyForceEvaluator::evaluate()` to `Mesh::Compute_Energy_And_Force()`.
 9. Print the iteration banner.
 

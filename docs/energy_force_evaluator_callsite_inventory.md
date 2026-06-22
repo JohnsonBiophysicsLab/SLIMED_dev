@@ -1,8 +1,9 @@
 # Energy Force Evaluator Call-Site Inventory
 
-This note characterizes the direct `Mesh::Compute_Energy_And_Force()` callers
-and `EnergyForceEvaluator` usage after PR #32. It is a docs/scripts-only map for
-future consolidation work; it does not change production C++ behavior.
+This note characterizes the direct `Mesh::Compute_Energy_And_Force()` callers,
+`EnergyForceEvaluator` usage, and the shared `evaluate_energy_force(Mesh&)`
+helper after the helper-consolidation cleanup. It is a map for future
+consolidation work.
 
 Regenerate the source inventory with:
 
@@ -10,8 +11,7 @@ Regenerate the source inventory with:
 python3 scripts/inventory_energy_force_call_sites.py
 ```
 
-To also list file-local `evaluate_energy_force(Mesh&)` helper definitions and
-uses, run:
+To also list `evaluate_energy_force(Mesh&)` helper definitions and uses, run:
 
 ```console
 python3 scripts/inventory_energy_force_call_sites.py --helpers
@@ -25,12 +25,12 @@ assertion.
 
 | Classification | Current locations | Follow-up |
 | --- | --- | --- |
-| Production path already routed through evaluator facade | `src/Run_flat.cpp`, `src/Run_dynamics_flat.cpp`, `src/model/Energy_minimization.cpp` | Keep using file-local `evaluate_energy_force()` helpers unless a later PR deliberately changes ownership boundaries. |
+| Production path routed through shared evaluator helper | `src/Run_flat.cpp`, `src/Run_dynamics_flat.cpp`, `src/model/Energy_minimization.cpp` | Keep the existing `evaluate_energy_force()` call locations unless a later PR deliberately changes propagation ownership or timing. |
 | Facade implementation call | `src/energy_force/Energy_force_evaluator.cpp` | Keep as the only production direct call from the facade into `Mesh::Compute_Energy_And_Force()`. |
 | Core implementation/API declaration | `src/energy_force/Compute_energy_and_force_on_mesh.cpp`, `include/mesh/Mesh.hpp` | Not routing candidates; these define and declare the existing physics method. |
 | Intentional test/control direct call | `tests/test_energy_force_evaluator.cpp`, `tests/test_io.cpp`, `tests/test_optimization_algorithm.cpp` | Leave direct calls when they provide the control baseline or fixture setup. Route only in a test-specific cleanup PR with equivalent assertions. |
 | Documentation reference | `docs/`, `src/energy_force/README.md` | Keep references current when production ownership changes. |
-| Remaining production direct call requiring future review | None found after PR #32. | New production direct calls should be routed through `EnergyForceEvaluator` or explicitly justified. |
+| Remaining production direct call requiring future review | None found in the current inventory. | New production direct calls should be routed through `EnergyForceEvaluator` or explicitly justified. |
 
 ## Direct Test Calls
 
@@ -51,8 +51,8 @@ Safe low-conflict options:
 - Extend the inventory script only when new source roots or test fixture
   patterns appear.
 - Use `docs/energy_force_evaluator_architecture_candidates.md` to choose
-  between helper consolidation, behind-facade implementation work, or a
-  higher-risk propagation helper slice.
+  between behind-facade implementation work, shared-helper docs/test cleanup,
+  or a higher-risk propagation helper slice.
 - Add a focused test cleanup PR if reviewers want test fixture setup to use the
   evaluator, while preserving at least one direct-vs-facade equivalence test.
 - Start a production implementation slice behind `EnergyForceEvaluator`, with a

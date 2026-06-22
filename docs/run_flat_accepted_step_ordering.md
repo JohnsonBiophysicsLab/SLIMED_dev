@@ -1,16 +1,16 @@
 # run_flat Accepted-Step Ordering
 
 This note characterizes the `run_flat()` accepted-step evaluator routing after
-the direct production `Mesh::Compute_Energy_And_Force()` caller was replaced by
-the file-local evaluator helper. It records the preserved ordering for future
+the direct production `Mesh::Compute_Energy_And_Force()` caller was routed
+through the evaluator helper. It records the preserved ordering for future
 mechanical refactor slices.
 
 ## Direct Call Inventory
 
 Outside the `EnergyForceEvaluator` implementation itself, production refreshes
 in `run_flat()`, the minimization line search, thermal trial evaluation, and
-both `run_dynamics_flat()` production surfaces route through file-local
-`evaluate_energy_force()` helpers.
+both `run_dynamics_flat()` production surfaces route through the shared
+`evaluate_energy_force()` helper.
 
 Test direct calls remain intentional controls or fixture setup.
 
@@ -43,7 +43,7 @@ currently performs:
 8. Optionally scale the harmonic spring constant and reset the NCG direction.
 9. Optionally propagate scaffolding, reset closest-vertex correspondence, and
    reset the NCG direction.
-10. Call the accepted-step refresh through the file-local evaluator helper:
+10. Call the accepted-step refresh through the shared evaluator helper:
     `evaluate_energy_force(mesh)`.
 11. Copy current coordinates to `coordPrev`.
 12. Copy current face energy into previous face energy storage.
@@ -102,7 +102,6 @@ This production route is preserved by showing:
   state, and record history across the accepted-step boundary.
 - The full validation gate passes for tests plus the serial executable build.
 
-The production implementation is a narrow replacement of
-`mesh.Compute_Energy_And_Force()` with the existing `evaluate_energy_force(mesh)`
+The production implementation now calls the shared `evaluate_energy_force(mesh)`
 helper in `run_flat()`. If future work requires moving any neighboring state
 update, stop and collect a fresh behavior baseline instead.

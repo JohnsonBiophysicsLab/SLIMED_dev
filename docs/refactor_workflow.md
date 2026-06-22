@@ -135,7 +135,7 @@ With `maxIterations = 2`, a successful run writes an initial `EnergyForce.csv`
 row plus one post-initial finite row from the deterministic minimization branch.
 That post-initial row is recorded after `run_flat()` accepts the line-search
 step, applies the accepted displacement, refreshes energy and force through the
-file-local evaluator helper, and updates the caller-owned snapshots and record.
+shared evaluator helper, and updates the caller-owned snapshots and record.
 
 Keep generated smoke outputs in `/tmp` or another scratch directory. Do not
 commit `EnergyForce.csv`, vertex snapshots, face snapshots, checkpoints, or log

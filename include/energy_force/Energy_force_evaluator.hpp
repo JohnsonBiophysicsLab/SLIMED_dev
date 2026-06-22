@@ -20,3 +20,12 @@ class EnergyForceEvaluator
 public:
     void evaluate(Mesh &mesh) const;
 };
+
+/**
+ * @brief Shared shorthand for the standard energy/force refresh.
+ *
+ * This helper owns no propagation policy. It only routes the refresh through
+ * EnergyForceEvaluator so callers keep owning timing, snapshots, records,
+ * checkpoints, optimizer state, and output cadence.
+ */
+void evaluate_energy_force(Mesh &mesh);

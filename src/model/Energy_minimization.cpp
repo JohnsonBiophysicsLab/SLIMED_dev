@@ -57,11 +57,6 @@ void restore_current_coord_from_previous(std::vector<Vertex> &vertices)
     }
 }
 
-void evaluate_energy_force(Mesh &mesh)
-{
-    EnergyForceEvaluator evaluator;
-    evaluator.evaluate(mesh);
-}
 }
 
 /**
