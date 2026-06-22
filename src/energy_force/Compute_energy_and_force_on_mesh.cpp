@@ -1,10 +1,23 @@
 #include "mesh/Mesh.hpp"
+
+#include "mesh/Limit_surface_evaluator.hpp"
 #pragma omp declare reduction(vector_plus                                                                                             \
                               : std::vector <Force>                                                                                   \
                               : std::transform(omp_out.begin(), omp_out.end(), omp_in.begin(), omp_out.begin(), std::plus <Force>())) \
     initializer(omp_priv = decltype(omp_orig)(omp_orig.size()))
 
 using namespace std;
+
+namespace
+{
+void copy_column_vector(const Matrix &source, Matrix &destination)
+{
+    for (int row = 0; row < source.nrow(); ++row)
+    {
+        destination.set(row, 0, source(row, 0));
+    }
+}
+} // namespace
 
 /**
  *
@@ -284,6 +297,7 @@ void Mesh::element_energy_force_regular(const std::vector<Matrix> &coordOneRingV
     // Matrix definition
 
     Matrix sfDotOneRingV(7, 3);
+    const SlimedLoopLimitSurfaceEvaluator limitSurfaceEvaluator;
     Matrix x(3, 1);
     Matrix a_1(3, 1);
     Matrix a_2(3, 1);
@@ -350,6 +364,8 @@ void Mesh::element_energy_force_regular(const std::vector<Matrix> &coordOneRingV
             matOneRingVertices.set(i, j, coordOneRingVertices[i](j, 0));
         }
     }
+    const bool useLimitSurfaceEvaluator =
+        matOneRingVertices.nrow() == limitSurfaceEvaluator.regular_patch_control_point_count();
 
     // Gaussian quadrature, second-order or 3 points.
     //std::cout << param.shapeFunctions.size() << std::endl;
@@ -359,27 +375,42 @@ void Mesh::element_energy_force_regular(const std::vector<Matrix> &coordOneRingV
         //std::cout << halfGaussQuadratureCoeff << std::endl;
         Matrix &sf = param.shapeFunctions[i];
 
-        multiplication(sf, matOneRingVertices, sfDotOneRingV); //< (7, 12) . (12, 3) = (7, 3)
+        if (useLimitSurfaceEvaluator)
+        {
+            const LimitSurfaceEvaluation evaluation =
+                limitSurfaceEvaluator.evaluate_shape_function(sf, matOneRingVertices);
+            copy_column_vector(evaluation.position, x);
+            copy_column_vector(evaluation.firstDerivativeV, a_1);
+            copy_column_vector(evaluation.firstDerivativeW, a_2);
+            copy_column_vector(evaluation.secondDerivativeVV, a_11);
+            copy_column_vector(evaluation.secondDerivativeWW, a_22);
+            copy_column_vector(evaluation.mixedDerivativeVW, a_12);
+            copy_column_vector(evaluation.mixedDerivativeWV, a_21);
+        }
+        else
+        {
+            multiplication(sf, matOneRingVertices, sfDotOneRingV); //< (7, 12) . (12, 3) = (7, 3)
 ////cout << "EEFR 297" << endl;
-        /*
-         * The (7, 3) matrix represents the coordinate and derivatives of the point
-         * on the limit surface:
-         *   x : point on the limit surface; shapefunction(0,:), shape functions;
-         *   a_1 : dx/du; shapefunction(1,:), differential to v;
-         *   a_2 : dx/dv; shapefunction(2,:), differential to w;
-         *   a_11 : d^2x/du^2; shapefunction(3,:), double differential to v;
-         *   a_22 : d^2x/dv^2; shapefunction(4,:), double differential to w;
-         *   a_12 : d^2x/dudv; shapefunction(5,:), differential to v and w;
-         *   a_21 : d^2x/dvdu; shapefunction(6,:), differential to w and v;
-         */
+            /*
+             * The (7, 3) matrix represents the coordinate and derivatives of the point
+             * on the limit surface:
+             *   x : point on the limit surface; shapefunction(0,:), shape functions;
+             *   a_1 : dx/du; shapefunction(1,:), differential to v;
+             *   a_2 : dx/dv; shapefunction(2,:), differential to w;
+             *   a_11 : d^2x/du^2; shapefunction(3,:), double differential to v;
+             *   a_22 : d^2x/dv^2; shapefunction(4,:), double differential to w;
+             *   a_12 : d^2x/dudv; shapefunction(5,:), differential to v and w;
+             *   a_21 : d^2x/dvdu; shapefunction(6,:), differential to w and v;
+             */
 
-        assign_rowVec_to_colVec(sfDotOneRingV.get_row(0), x);
-        assign_rowVec_to_colVec(sfDotOneRingV.get_row(1), a_1);
-        assign_rowVec_to_colVec(sfDotOneRingV.get_row(2), a_2);
-        assign_rowVec_to_colVec(sfDotOneRingV.get_row(3), a_11);
-        assign_rowVec_to_colVec(sfDotOneRingV.get_row(4), a_22);
-        assign_rowVec_to_colVec(sfDotOneRingV.get_row(5), a_12);
-        assign_rowVec_to_colVec(sfDotOneRingV.get_row(6), a_21);
+            assign_rowVec_to_colVec(sfDotOneRingV.get_row(0), x);
+            assign_rowVec_to_colVec(sfDotOneRingV.get_row(1), a_1);
+            assign_rowVec_to_colVec(sfDotOneRingV.get_row(2), a_2);
+            assign_rowVec_to_colVec(sfDotOneRingV.get_row(3), a_11);
+            assign_rowVec_to_colVec(sfDotOneRingV.get_row(4), a_22);
+            assign_rowVec_to_colVec(sfDotOneRingV.get_row(5), a_12);
+            assign_rowVec_to_colVec(sfDotOneRingV.get_row(6), a_21);
+        }
 
         cross(a_1, a_2, xa); // a_1 x a_2, perpendicular to the tangent plane
         sqa = xa.calculate_norm();
