@@ -2,6 +2,8 @@
 
 #include <cmath>
 
+#include "energy_force/Energy_force_evaluator.hpp"
+
 namespace
 {
 bool has_gag_scaffolding_output(const Param &param)
@@ -70,6 +72,12 @@ void write_final_checkpoint_if_enabled(const Model &model)
         std::cerr << "[main()] Final checkpoint write failed for "
                   << model.mesh.param.checkpointOutputFile << "." << std::endl;
     }
+}
+
+void evaluate_energy_force(Mesh &mesh)
+{
+    EnergyForceEvaluator evaluator;
+    evaluator.evaluate(mesh);
 }
 }
 
@@ -152,7 +160,7 @@ void run_flat(std::string param_filename)
 
     mesh.update_previous_coord_for_vertex(); // Update previous coordinate...
     mesh.update_reference_coord_from_previous_coord(); // ...and reference coord
-    mesh.Compute_Energy_And_Force();// Calculate energy on faces and force on vertices
+    evaluate_energy_force(mesh); // Calculate energy on faces and force on vertices
     mesh.update_previous_coord_for_vertex(); // Update previous coordinate
     mesh.update_previous_force_for_vertex(); // Update forces
 
@@ -176,7 +184,7 @@ void run_flat(std::string param_filename)
         {
             mesh.set_scaffolding_vertices_correspondence();
         }
-        mesh.Compute_Energy_And_Force();
+        evaluate_energy_force(mesh);
         mesh.update_previous_coord_for_vertex();
         mesh.update_previous_force_for_vertex();
         mesh.update_previous_energy_for_face();
