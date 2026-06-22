@@ -100,6 +100,10 @@ For the post-PR20 propagation-mode map, see
 minimization, thermalized minimization, dynamics, checkpoint, output, and
 record ownership before production separation work.
 
+For the post-PR32 call-site inventory, see
+`docs/energy_force_evaluator_callsite_inventory.md` and regenerate the source
+classification with `python3 scripts/inventory_energy_force_call_sites.py`.
+
 ### Accepted-Step Minimization Smoke
 
 Use the committed accepted-step smoke fixture when a refactor touches
