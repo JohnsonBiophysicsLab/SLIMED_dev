@@ -121,6 +121,8 @@ struct AreaVolume
     double volume = 0.0;
 };
 
+constexpr double kLegacyVolumeQuadratureFactor = 0.16666666666;
+
 Matrix make_one_ring_control_points(const Mesh &mesh, const Face &face)
 {
     Matrix controlPoints(face.oneRingVertices.size(), 3, true);
@@ -148,7 +150,7 @@ AreaVolume direct_regular_patch_area_volume(const Param &param,
         const double sqa = a_3.calculate_norm();
         const double coeff = param.gaussQuadratureCoeff(i, 0);
         result.area += 0.5 * coeff * sqa;
-        result.volume += 0.16666666666 * coeff * dot_row(x, a_3);
+        result.volume += kLegacyVolumeQuadratureFactor * coeff * dot_row(x, a_3);
     }
     return result;
 }

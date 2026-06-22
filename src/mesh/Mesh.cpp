@@ -2,6 +2,11 @@
 
 #include "mesh/Limit_surface_evaluator.hpp"
 
+namespace
+{
+constexpr double kLegacyVolumeQuadratureFactor = 0.16666666666;
+} // namespace
+
 Mesh::Mesh(Param &srcParam) : param(srcParam)
 {
     // Calculate element triangle area
@@ -205,7 +210,7 @@ void Mesh::enumerate_gauss_quadrature_point_area_volume(
         // v = 1/3 * s * dot(x, d) <<< tetrahedron volume
         // namely -> double v = dot_row(x, a_3) / 3.0;
         // volume += 0.5 * coeff * v; // Update the accumulated volume
-        volume += 0.16666666666 * coeff * dot_row(x, a_3); // Update the accumulated volume
+        volume += kLegacyVolumeQuadratureFactor * coeff * dot_row(x, a_3); // Update the accumulated volume
     }
 }
 
@@ -231,7 +236,7 @@ void Mesh::enumerate_regular_patch_area_volume_with_limit_surface_evaluator(
         area += 0.5 * coeff * sqa;
         // Preserve the legacy dot_row behavior for 1 x 3 rows, which only
         // accumulates the first component in the current linear algebra helper.
-        volume += 0.16666666666 * coeff
+        volume += kLegacyVolumeQuadratureFactor * coeff
                 * evaluation.position.get(0, 0) * a_3.get(0, 0);
     }
 }
