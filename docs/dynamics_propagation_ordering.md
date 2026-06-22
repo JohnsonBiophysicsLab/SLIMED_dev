@@ -98,8 +98,8 @@ and record history.
 
 For dynamics evaluator plumbing, keep ownership boundaries narrow:
 
-- replace only the explicit force/energy recomputation call site when routing
-  through a dynamics evaluator;
+- route the setup evaluation before the loop separately from the end-of-loop
+  recomputation;
 - leave `record.add()` timing unchanged;
 - leave `DynamicModel::next_step()` RNG behavior and force consumption
   unchanged;
