@@ -68,21 +68,3 @@ void Mesh::update_previous_energy_for_face()
         face.energyPrev = face.energy;
     }
 }
-
-/**
- * @brief this function sets the force member variable of each vertex, and the energy
- * member variable of each face to their default values. This is useful to clear out
- * any residual forces or energies before computing new ones.
- * 
- */
-void Mesh::clear_force_on_vertices_and_energy_on_faces(){
-#pragma omp parallel for
-    for (int i = 0; i < vertices.size(); i++){
-        vertices[i].force.set_all_zero();
-    }
-#pragma omp parallel for
-    for (int i = 0; i < faces.size(); i++){
-        Energy energytmp;
-        faces[i].energy = energytmp;
-    }
-}

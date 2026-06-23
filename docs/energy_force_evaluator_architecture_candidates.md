@@ -1,8 +1,9 @@
 # Energy Force Evaluator Architecture Cleanup Candidates
 
 This note characterizes the next `EnergyForceEvaluator` architecture cleanup
-candidates after PR #33 and records that the narrow helper-consolidation slice
-has been implemented. It is kept as a decision aid for future cleanup.
+candidates after PR #33 and records that the narrow helper-consolidation and
+clearing pre-pass implementation placement slices have been implemented. It is
+kept as a decision aid for future cleanup.
 
 Regenerate the source call-site and helper inventory with:
 
