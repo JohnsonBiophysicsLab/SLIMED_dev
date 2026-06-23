@@ -115,6 +115,57 @@ properly oriented irregular fixture sample, and that the first three-source
 result was caused by the probe's topology construction/API path rather than by
 a missing derivative-weight API.
 
+## Aggregate Source-Coverage Follow-Up
+
+The follow-up `--aggregate-source-coverage-report` mode remains opt-in and
+inert without `OPENSUBDIV_ROOT`. It builds on the same scratch OpenSubdiv
+`v3_7_0` install and samples every ptex face in each synthetic topology at a
+documented nine-point barycentric grid:
+
+- the PR #50 samples `{(v,w) = (1/3,1/3), (0.20,0.30), (0.05,0.85)}`;
+- three interior grid points `{(0.20,0.20), (0.60,0.20), (0.20,0.60)}`; and
+- three near-corner/interior points `{(0.10,0.10), (0.45,0.10), (0.10,0.45)}`.
+
+The prototype still uses the provisional coordinate mapping `s=w,t=v`. For
+each evaluated location, the report unions original control ids with nonzero
+value, first-derivative, and second-derivative weights. It also records the
+sampled patch ids/types returned through `Far::PatchMap`, so the aggregate is
+explicitly across adjacent ptex faces and the child patches reached by the
+current OpenSubdiv patch table.
+
+Observed aggregate coverage with:
+
+```bash
+OPENSUBDIV_ROOT=/tmp/slimed-opensubdiv-install \
+OPENSUBDIV_CXXFLAGS='-arch arm64' \
+python3 scripts/probe_opensubdiv_feasibility.py \
+  --json --require-opensubdiv --aggregate-source-coverage-report
+```
+
+| Case | Ptex faces | Samples | Sampled patch type | Value ids | First-derivative ids | Second-derivative ids | Interpretation |
+| --- | ---: | ---: | --- | --- | --- | --- | --- |
+| oriented 11-control fixture | 12 | 108 | `LOOP` | `0..10` | `0..10` | `0..10` | All original fixture controls, including ids `8` and `10`, are represented when coverage is aggregated across adjacent ptex faces/sample locations. |
+| oriented 11-control fixture with outer annulus | 28 | 252 | `LOOP` | `0..18` (`0..10` all present) | `0..18` (`0..10` all present) | `0..18` (`0..10` all present) | Padding does not break the aggregate mapping; all original fixture controls remain represented. |
+
+This proves only aggregate source coverage for the observational topology and
+sample grid. It does not prove that a single SLIMED face-level force contract
+should gather from every adjacent ptex face, that OpenSubdiv's coordinates are
+numerically equivalent to SLIMED's regular evaluator, or that force
+contributions can be transposed into SLIMED's current scatter order without a
+separate review.
+
+Before production adoption, SLIMED still needs:
+
+- regular-patch numerical equivalence against `SlimedLoopLimitSurfaceEvaluator`
+  for position, first derivatives, second derivatives, normals, area integrand,
+  and legacy volume integrand;
+- a reviewed force transpose/back-projection contract from OpenSubdiv value and
+  derivative weights to SLIMED original vertex ids;
+- an accumulation/scatter ordering proof preserving serial and OpenMP behavior;
+- a backend interface decision behind `LimitSurfaceEvaluator`;
+- an explicit build/dependency/licensing policy for OpenSubdiv; and
+- scientific review before irregular force routing is enabled.
+
 ## Added Probe
 
 `scripts/probe_opensubdiv_feasibility.py` checks for an explicitly supplied or
@@ -165,6 +216,14 @@ python3 scripts/probe_opensubdiv_feasibility.py \
   --json --require-opensubdiv --backprojection-report
 ```
 
+Example opt-in aggregate source-coverage report:
+
+```bash
+OPENSUBDIV_ROOT=/path/to/opensubdiv \
+python3 scripts/probe_opensubdiv_feasibility.py \
+  --json --require-opensubdiv --aggregate-source-coverage-report
+```
+
 If the local install needs nonstandard flags, callers can provide
 `OPENSUBDIV_CXXFLAGS`, `OPENSUBDIV_LDFLAGS`, or `CXX`. The script does not
 modify the production Makefile and does not copy third-party source into the
@@ -188,14 +247,15 @@ repo.
 3. Can prototype code expose source control-vertex indices/weights clearly
    enough to support force back-projection later?
 
-   Partially proven. The regular lattice sample exposes 12 source ids and
-   matching derivative weight counts. The original compact 11-control fixture
-   reported only three source ids because its face list was not consistently
-   oriented for OpenSubdiv manifold topology. An orientation-normalized fixture
-   exposes nine original source ids with value, first-derivative, and
-   second-derivative weights for the sampled ptex face. This proves more than
-   the first probe, but it still does not prove an all-11 force
-   back-projection contract. A later production lane would need a reviewed
+   Proven for aggregate observational coverage, but not for production force
+   routing. The regular lattice sample exposes 12 source ids and matching
+   derivative weight counts. The original compact 11-control fixture reported
+   only three source ids for one sampled face because its face list was not
+   consistently oriented for OpenSubdiv manifold topology. An
+   orientation-normalized fixture exposes nine original source ids for sampled
+   ptex face `0`, then exposes all ids `0..10` with value, first-derivative,
+   and second-derivative weights when aggregated across all ptex faces and the
+   documented sample grid. A later production lane still needs a reviewed
    transpose/back-projection contract and force scatter ordering proof.
 
 4. Can a regular case be compared against SLIMED's regular evaluator at
@@ -209,12 +269,13 @@ repo.
 5. Can the PR #45 11-control irregular fixture be represented at least as
    topology/source-id mapping?
 
-   Partially proven. The installed run accepted the 11-control triangular
-   topology and produced finite value and derivative vectors. With consistent
-   face orientation, the selected samples report nine original-control source
-   ids and derivative-complete weights. It did not prove stable all-11-control
-   coverage for force back-projection because a single sampled ptex face did
-   not include local fixture ids `8` and `10`.
+   Proven for aggregate observational source coverage. The installed run
+   accepted the 11-control triangular topology and produced finite value and
+   derivative vectors. With consistent face orientation, the selected ptex face
+   reports nine original-control source ids and derivative-complete weights.
+   Aggregating over all ptex faces and the documented sample grid reports ids
+   `0..10` for value, first-derivative, and second-derivative weights,
+   including the previously missing ids `8` and `10`.
 
 ## Next Review Gate
 
@@ -225,12 +286,11 @@ With an approved local OpenSubdiv install path, extend the observational
 prototype or add a test-only executable that links against SLIMED's
 SlimedLoopLimitSurfaceEvaluator to compare regular samples for position,
 first derivatives, second derivatives, normals, area integrand, and legacy
-volume integrand. Also revise the 11-control fixture sampling to aggregate
-source coverage across the adjacent ptex faces or across the regular child
-patches that match SLIMED's irregular subdivision route. The minimal missing
-output is a per-sample and aggregate table of original-control ids, value
-weights, first-derivative weights, and second-derivative weights, with explicit
-pass/fail evidence for fixture ids 0 through 10. Do not change production
-routing, force scatter, default Makefile targets, vendoring policy, or
-dependency requirements in that lane.
+volume integrand. Then define a reviewable force transpose/back-projection
+contract that explains exactly which ptex faces/sample locations contribute to
+one SLIMED face, how derivative rows map to SLIMED's `v,w,u` convention, and
+how contributions scatter back to original vertex ids without changing serial
+or OpenMP accumulation order. Do not change production routing, force scatter,
+default Makefile targets, vendoring policy, or dependency requirements in that
+lane.
 ```

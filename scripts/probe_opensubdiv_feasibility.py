@@ -45,6 +45,10 @@ using namespace OpenSubdiv;
 #define SLIMED_BACKPROJECTION_REPORT 0
 #endif
 
+#ifndef SLIMED_AGGREGATE_SOURCE_COVERAGE_REPORT
+#define SLIMED_AGGREGATE_SOURCE_COVERAGE_REPORT 0
+#endif
+
 struct Point {
     float x;
     float y;
@@ -329,6 +333,249 @@ static void print_int_array(std::vector<int> const &values) {
     std::cout << "]";
 }
 
+static void print_int_set(std::set<int> const &values) {
+    std::cout << "[";
+    bool first = true;
+    for (int value : values) {
+        if (!first) {
+            std::cout << ",";
+        }
+        first = false;
+        std::cout << value;
+    }
+    std::cout << "]";
+}
+
+static std::vector<int> missing_expected_ids(
+    std::set<int> const &sourceIds, std::vector<int> const &expectedIds) {
+    std::vector<int> missing;
+    for (int expectedId : expectedIds) {
+        if (!sourceIds.count(expectedId)) {
+            missing.push_back(expectedId);
+        }
+    }
+    return missing;
+}
+
+static std::set<int> limit_weight_source_ids(Far::LimitStencil const &stencil,
+                                             float const *weights) {
+    std::set<int> sourceIds;
+    Far::Index const *indices = stencil.GetVertexIndices();
+    for (int i = 0; i < stencil.GetSize(); ++i) {
+        if (std::abs(weights[i]) > 1.0e-8f) {
+            sourceIds.insert(indices[i]);
+        }
+    }
+    return sourceIds;
+}
+
+static void merge_ids(std::set<int> &dest, std::set<int> const &src) {
+    dest.insert(src.begin(), src.end());
+}
+
+static void print_coverage_summary(char const *name,
+                                   std::set<int> const &sourceIds,
+                                   std::vector<int> const &expectedIds) {
+    std::vector<int> missing = missing_expected_ids(sourceIds, expectedIds);
+    std::cout << ",\"" << name << "_source_ids\":";
+    print_int_set(sourceIds);
+    std::cout << ",\"" << name << "_source_count\":" << sourceIds.size();
+    std::cout << ",\"" << name << "_expected_local_control_count\":"
+              << represented_expected_count(sourceIds, expectedIds);
+    std::cout << ",\"" << name
+              << "_missing_expected_local_control_ids\":";
+    print_int_array(missing);
+    std::cout << ",\"" << name << "_all_expected_local_controls_represented\":"
+              << (missing.empty() ? "true" : "false");
+}
+
+static void print_highlighted_id_coverage(std::set<int> const &valueIds,
+                                          std::set<int> const &firstIds,
+                                          std::set<int> const &secondIds) {
+    std::cout << ",\"highlighted_ids\":{\"8\":{\"value\":"
+              << (valueIds.count(8) ? "true" : "false")
+              << ",\"first_derivative\":"
+              << (firstIds.count(8) ? "true" : "false")
+              << ",\"second_derivative\":"
+              << (secondIds.count(8) ? "true" : "false")
+              << "},\"10\":{\"value\":"
+              << (valueIds.count(10) ? "true" : "false")
+              << ",\"first_derivative\":"
+              << (firstIds.count(10) ? "true" : "false")
+              << ",\"second_derivative\":"
+              << (secondIds.count(10) ? "true" : "false") << "}}";
+}
+
+struct AggregateSampleLocation {
+    char const *label;
+    float v;
+    float w;
+};
+
+static std::vector<AggregateSampleLocation> aggregate_sample_locations() {
+    return {
+        {"centroid", 1.0f / 3.0f, 1.0f / 3.0f},
+        {"pr50_regular_sample_1", 0.20f, 0.30f},
+        {"pr50_regular_sample_2", 0.05f, 0.85f},
+        {"grid_020_020", 0.20f, 0.20f},
+        {"grid_060_020", 0.60f, 0.20f},
+        {"grid_020_060", 0.20f, 0.60f},
+        {"grid_010_010", 0.10f, 0.10f},
+        {"grid_045_010", 0.45f, 0.10f},
+        {"grid_010_045", 0.10f, 0.45f},
+    };
+}
+
+static void print_string_set(std::set<std::string> const &values) {
+    std::cout << "[";
+    bool first = true;
+    for (std::string const &value : values) {
+        if (!first) {
+            std::cout << ",";
+        }
+        first = false;
+        std::cout << "\"" << value << "\"";
+    }
+    std::cout << "]";
+}
+
+static void print_aggregate_source_coverage(
+    MeshCase const &mesh,
+    Far::TopologyRefiner const &refiner,
+    Far::PatchTable const *patchTable,
+    Far::StencilTable const *cvStencils) {
+    std::cout << ",\"aggregate_source_coverage\":{";
+    if (!patchTable || !cvStencils) {
+        std::cout << "\"available\":false}";
+        return;
+    }
+
+    std::vector<AggregateSampleLocation> sampleLocations =
+        aggregate_sample_locations();
+    const int ptexFaceCount = patchTable->GetNumPtexFaces();
+    std::vector<std::vector<float>> sValues(ptexFaceCount);
+    std::vector<std::vector<float>> tValues(ptexFaceCount);
+    Far::LimitStencilTableFactory::LocationArrayVec locations;
+    locations.reserve(ptexFaceCount);
+
+    for (int ptexFace = 0; ptexFace < ptexFaceCount; ++ptexFace) {
+        sValues[ptexFace].reserve(sampleLocations.size());
+        tValues[ptexFace].reserve(sampleLocations.size());
+        for (AggregateSampleLocation const &sample : sampleLocations) {
+            sValues[ptexFace].push_back(sample.w);
+            tValues[ptexFace].push_back(sample.v);
+        }
+
+        Far::LimitStencilTableFactory::LocationArray location;
+        location.ptexIdx = ptexFace;
+        location.numLocations = static_cast<int>(sampleLocations.size());
+        location.s = sValues[ptexFace].data();
+        location.t = tValues[ptexFace].data();
+        locations.push_back(location);
+    }
+
+    Far::LimitStencilTableFactory::Options stencilOptions;
+    stencilOptions.generate1stDerivatives = true;
+    stencilOptions.generate2ndDerivatives = true;
+    Far::LimitStencilTable const *stencils =
+        Far::LimitStencilTableFactory::Create(
+            refiner, locations, cvStencils, patchTable, stencilOptions);
+    if (!stencils) {
+        std::cout << "\"available\":false,\"reason\":\"limit_stencil_creation_failed\"}";
+        return;
+    }
+
+    Far::PatchMap patchMap(*patchTable);
+    std::set<int> sampledPatchIndices;
+    std::set<std::string> sampledPatchTypes;
+    int foundPatchLookups = 0;
+    int requestedSamples = ptexFaceCount * static_cast<int>(sampleLocations.size());
+    for (int ptexFace = 0; ptexFace < ptexFaceCount; ++ptexFace) {
+        for (int sample = 0; sample < static_cast<int>(sampleLocations.size());
+             ++sample) {
+            Far::PatchMap::Handle const *handle = patchMap.FindPatch(
+                ptexFace, sValues[ptexFace][sample], tValues[ptexFace][sample]);
+            if (handle) {
+                ++foundPatchLookups;
+                sampledPatchIndices.insert(handle->patchIndex);
+                sampledPatchTypes.insert(
+                    patch_type_name(
+                        patchTable->GetPatchDescriptor(*handle).GetType()));
+            }
+        }
+    }
+
+    std::set<int> valueIds;
+    std::set<int> duIds;
+    std::set<int> dvIds;
+    std::set<int> firstIds;
+    std::set<int> duuIds;
+    std::set<int> duvIds;
+    std::set<int> dvvIds;
+    std::set<int> secondIds;
+
+    for (int stencilIndex = 0; stencilIndex < stencils->GetNumStencils();
+         ++stencilIndex) {
+        Far::LimitStencil stencil = stencils->GetLimitStencil(stencilIndex);
+        merge_ids(valueIds, limit_weight_source_ids(stencil, stencil.GetWeights()));
+        merge_ids(duIds, limit_weight_source_ids(stencil, stencil.GetDuWeights()));
+        merge_ids(dvIds, limit_weight_source_ids(stencil, stencil.GetDvWeights()));
+        merge_ids(duuIds, limit_weight_source_ids(stencil, stencil.GetDuuWeights()));
+        merge_ids(duvIds, limit_weight_source_ids(stencil, stencil.GetDuvWeights()));
+        merge_ids(dvvIds, limit_weight_source_ids(stencil, stencil.GetDvvWeights()));
+    }
+    merge_ids(firstIds, duIds);
+    merge_ids(firstIds, dvIds);
+    merge_ids(secondIds, duuIds);
+    merge_ids(secondIds, duvIds);
+    merge_ids(secondIds, dvvIds);
+
+    std::cout << "\"available\":true";
+    std::cout << ",\"strategy\":\"all_ptex_faces_x_sample_grid\"";
+    std::cout << ",\"ptex_face_count\":" << ptexFaceCount;
+    std::cout << ",\"coarse_face_count\":" << mesh.vertsPerFace.size();
+    std::cout << ",\"sample_location_count_per_face\":"
+              << sampleLocations.size();
+    std::cout << ",\"requested_sample_count\":" << requestedSamples;
+    std::cout << ",\"evaluated_sample_count\":"
+              << stencils->GetNumStencils();
+    std::cout << ",\"found_patch_lookup_count\":" << foundPatchLookups;
+    std::cout << ",\"unique_patch_count_sampled\":"
+              << sampledPatchIndices.size();
+    std::cout << ",\"sampled_patch_indices\":";
+    print_int_set(sampledPatchIndices);
+    std::cout << ",\"sampled_patch_types\":";
+    print_string_set(sampledPatchTypes);
+    std::cout << ",\"sample_locations\":[";
+    for (int i = 0; i < static_cast<int>(sampleLocations.size()); ++i) {
+        AggregateSampleLocation const &sample = sampleLocations[i];
+        if (i > 0) {
+            std::cout << ",";
+        }
+        std::cout << "{\"label\":\"" << sample.label << "\",\"v\":"
+                  << sample.v << ",\"w\":" << sample.w
+                  << ",\"s\":" << sample.w << ",\"t\":" << sample.v
+                  << "}";
+    }
+    std::cout << "]";
+    print_coverage_summary("value", valueIds, mesh.expectedLocalControlIds);
+    print_coverage_summary("du", duIds, mesh.expectedLocalControlIds);
+    print_coverage_summary("dv", dvIds, mesh.expectedLocalControlIds);
+    print_coverage_summary("first_derivative",
+                           firstIds,
+                           mesh.expectedLocalControlIds);
+    print_coverage_summary("duu", duuIds, mesh.expectedLocalControlIds);
+    print_coverage_summary("duv", duvIds, mesh.expectedLocalControlIds);
+    print_coverage_summary("dvv", dvvIds, mesh.expectedLocalControlIds);
+    print_coverage_summary("second_derivative",
+                           secondIds,
+                           mesh.expectedLocalControlIds);
+    print_highlighted_id_coverage(valueIds, firstIds, secondIds);
+    std::cout << "}";
+
+    delete stencils;
+}
+
 static void print_patch_table_report(Far::PatchTable const *patchTable,
                                      Far::StencilTable const *cvStencils,
                                      std::vector<int> const &expectedIds,
@@ -471,7 +718,7 @@ static int run_case(MeshCase const &mesh) {
     Far::PatchTable *patchTable = 0;
     Far::StencilTable const *cvStencils = 0;
 
-#if SLIMED_BACKPROJECTION_REPORT
+#if SLIMED_BACKPROJECTION_REPORT || SLIMED_AGGREGATE_SOURCE_COVERAGE_REPORT
     Far::PatchTableFactory::Options patchOptions(5);
     refiner->RefineAdaptive(patchOptions.GetRefineAdaptiveOptions());
     patchTable = Far::PatchTableFactory::Create(*refiner, patchOptions);
@@ -619,7 +866,11 @@ static int run_case(MeshCase const &mesh) {
 #endif
         std::cout << "}";
     }
-    std::cout << "]}" << std::endl;
+    std::cout << "]";
+#if SLIMED_AGGREGATE_SOURCE_COVERAGE_REPORT
+    print_aggregate_source_coverage(mesh, *refiner, patchTable, cvStencils);
+#endif
+    std::cout << "}" << std::endl;
 
     delete stencils;
     delete cvStencils;
@@ -637,7 +888,7 @@ int main() {
     if (status != 0) {
         return status;
     }
-#if SLIMED_BACKPROJECTION_REPORT
+#if SLIMED_BACKPROJECTION_REPORT || SLIMED_AGGREGATE_SOURCE_COVERAGE_REPORT
     status = run_case(make_oriented_irregular_fixture_case());
     if (status != 0) {
         return status;
@@ -682,6 +933,14 @@ def parse_args() -> argparse.Namespace:
         help=(
             "Opt into extra patch-table/source-control reporting for force "
             "back-projection investigation."
+        ),
+    )
+    parser.add_argument(
+        "--aggregate-source-coverage-report",
+        action="store_true",
+        help=(
+            "Opt into aggregate original-control source coverage across all "
+            "ptex faces and a documented sample grid."
         ),
     )
     parser.add_argument(
@@ -791,6 +1050,8 @@ def main() -> int:
         ]
         if args.backprojection_report:
             command.append("-DSLIMED_BACKPROJECTION_REPORT=1")
+        if args.aggregate_source_coverage_report:
+            command.append("-DSLIMED_AGGREGATE_SOURCE_COVERAGE_REPORT=1")
         command.extend(shlex.split(os.environ.get("OPENSUBDIV_CXXFLAGS", "")))
         command.extend(
             [
