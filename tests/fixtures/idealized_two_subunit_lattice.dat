@@ -1,0 +1,60 @@
+{
+  "molecules": {
+    "0": {
+      "com": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "interfaces": {
+        "a": {
+          "coord": [
+            1.0,
+            0.0,
+            0.0
+          ],
+          "sphere_normal": [
+            0.0,
+            0.0,
+            1.0
+          ]
+        }
+      }
+    },
+    "1": {
+      "com": [
+        4.0,
+        0.0,
+        0.0
+      ],
+      "interfaces": {
+        "b": {
+          "coord": [
+            3.0,
+            0.0,
+            0.0
+          ],
+          "sphere_normal": [
+            0.0,
+            0.0,
+            1.0
+          ]
+        }
+      }
+    }
+  },
+  "bound_states": [
+    {
+      "mol1": {
+        "molecule_index": 0,
+        "interface_name": "a",
+        "interface_index": 0
+      },
+      "mol2": {
+        "molecule_index": 1,
+        "interface_name": "b",
+        "interface_index": 0
+      }
+    }
+  ]
+}

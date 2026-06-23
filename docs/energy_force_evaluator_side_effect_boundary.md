@@ -28,7 +28,9 @@ optimizer state, RNG state, and scaffold propagation timing.
 ## Scaffold-Enabled Characterization
 
 `EnergyForceEvaluatorTest.SharedHelperRecordsScaffoldEnergyAndForceSideEffects`
-protects the current scaffold-enabled helper path:
+and
+`EnergyForceEvaluatorTest.SharedHelperRecordsIdealizedLatticeScaffoldEnergy`
+protect the current scaffold-enabled helper path:
 
 ```text
 evaluate_energy_force(Mesh&)
@@ -37,14 +39,25 @@ evaluate_energy_force(Mesh&)
      -> Mesh::calculate_scaffolding_energy_force(false)
 ```
 
-The test uses a small flat mesh with one harmonic scaffold point bound to a
+The harmonic test uses a small flat mesh with one scaffold point bound to a
 force-visible vertex. It verifies that the shared helper/facade route records
 finite harmonic, Gag, and idealized-lattice energy components in
 `Param::energy`, preserves disabled Gag/lattice terms as zero, adds the
 harmonic contribution to the bonded vertex total force, and records the
-equal/opposite scaffold force accumulators. This is intentionally a
-harmonic-only fixture: it does not initialize Gag or idealized lattice topology,
-does not propagate scaffold points, and does not change production C++ behavior.
+equal/opposite scaffold force accumulators.
+
+The idealized-lattice test uses a synthetic two-subunit reference fixture in
+`tests/fixtures/idealized_two_subunit_lattice.dat`. The fixture initializes the
+idealized lattice topology, then perturbs one scaffold COM before calling the
+shared helper. This verifies that evaluator-facing scaffold accounting records
+a finite, nonzero idealized-lattice energy term while preserving harmonic and
+Gag components as zero. The fixture is mechanical coverage for current
+evaluator side effects, not scientific validation of a Gag assembly.
+
+No committed evaluator-facing test currently enables Gag-specific reaction
+targets. That remains intentionally candidate-only until a reviewer or domain
+owner supplies a representative reference-state file plus matching NERDSS
+reaction `.inp` parameters.
 
 ## Side-Effect Map
 
@@ -58,7 +71,7 @@ does not propagate scaffold points, and does not change production C++ behavior.
 | Regularization | `Face::energy.energyRegularization`, `Vertex::force.forceRegularization`, and `Param::deformationCount` are updated by `energy_force_regularization()`. | Reads adjacent triangle coordinates, `Vertex::coordRef`, `Param::kCurv`, `Param::gamaShape`, `Param::gamaArea`, and `Param::usingRpi`. | Keep deformation classification, reference-coordinate reads, per-thread force accumulation, and count semantics unchanged. |
 | Vertex total force | `Vertex::force.forceTotal` is recalculated after curvature/area/volume/regularization terms and updated again when scaffold bonds are enabled. | Reads all current force components on the vertex. | The scaffold path currently adds harmonic bond force to `forceTotal` after the first total-force calculation. Preserve that order until a dedicated physics change approves otherwise. |
 | Face total energy and `Param::energy` | Each face calls `Energy::calculateTotalEnergy()`. A local `sumEnergy` accumulates face energies, global area/volume terms are applied, then `Param::energy` is replaced and total energy recalculated. | Reads `Param::isGlobalConstraint`, `Param::uSurf`, `Param::area0`, `Param::uVol`, `Param::vol0`, and the just-refreshed `Param::area`/`Param::vol`. | Do not split total-energy accounting from global constraint accounting without exact equivalence tests. |
-| Optional harmonic/Gag/lattice scaffold energy | When `Param::isEnergyHarmonicBondIncluded` is true, `Param::energy.energyHarmonicBond`, `energyGagScaffolding`, and `energyIdealizedProteinLattice` are reset before `calculate_scaffolding_energy_force(false)`. That helper writes scaffold energy terms and recalculates `Param::energy.energyTotal`. | Reads scaffold points, scaffold-to-vertex correspondence, spring constants, Gag/lattice flags, and Gag reference/topology state. | Preserve disabled-scaffold behavior and the current distinction between harmonic membrane coupling, Gag internal energy, and idealized lattice energy. |
+| Optional harmonic/Gag/lattice scaffold energy | When `Param::isEnergyHarmonicBondIncluded` is true, `Param::energy.energyHarmonicBond`, `energyGagScaffolding`, and `energyIdealizedProteinLattice` are reset before `calculate_scaffolding_energy_force(false)`. That helper writes scaffold energy terms and recalculates `Param::energy.energyTotal`. | Reads scaffold points, scaffold-to-vertex correspondence, spring constants, Gag/lattice flags, and Gag reference/topology state. Idealized-lattice evaluator coverage now uses a synthetic two-subunit topology; Gag-specific coverage still needs a reference-state plus reaction-file fixture. | Preserve disabled-scaffold behavior and the current distinction between harmonic membrane coupling, Gag internal energy, and idealized lattice energy. |
 | Scaffold force state | `calculate_scaffolding_energy_force(false)` resets `forceTotalOnScaffolding` and `forceOnScaffoldingPoints`, writes bonded vertices' `forceHarmonicBond`, adds it to bonded vertices' `forceTotal`, and accumulates equal/opposite scaffold forces. | Reads `Param::scaffoldingPoints`, `Param::scaffoldingPoints_correspondingVertexIndex`, `Param::lbond`, `Param::springConst`, and current bonded vertex coordinates. | Do not mix evaluator refresh with scaffold propagation. `propagate_scaffolding()` remains caller-owned policy. |
 | Boundary/ghost force handling | `manage_force_for_boundary_ghost_vertex()` replaces whole `Vertex::force` objects with zero force for fixed/free/periodic boundary cases according to the existing branch logic. | Reads `Param::boundaryCondition`, face boundary flags, vertex boundary/ghost flags, and `Param::nFaceX`/`Param::nFaceY` for free boundaries. | Preserve zeroing scope and ordering after scaffold force application. Boundary force handling is output- and trajectory-visible. |
 | Output/checkpoint-visible state | No files are written directly, but `Param::area`, `Param::vol`, `Param::energy`, current vertex forces, face energy/geometry fields, and scaffold force fields become visible to records, output, checkpoints, and later propagation. | Caller timing determines when records/checkpoints consume refreshed state. | Do not move record/checkpoint/output calls into the evaluator. |
@@ -85,7 +98,7 @@ reviewer/user approval before implementation.
 | --- | --- | --- |
 | Extract a geometry-refresh helper behind the facade | It is the first step in `Compute_Energy_And_Force()` and has a clear output pair: face area/volume plus `Param::area`/`Param::vol`. | Preserve ghost filtering, regular/irregular path selection, Loop evaluator behavior, setup-time reference semantics, and serial/OpenMP numerical baselines. |
 | Extract force/energy clearing as a named pre-pass | It is already a separate mesh helper and covered by stale-force evaluator tests. | Keep it behind the facade and do not change when previous-state snapshots are taken. |
-| Extend scaffold-enabled evaluator characterization to Gag or idealized lattice fixtures | Harmonic scaffold side effects are now covered through the shared helper/facade path, but no committed focused fixture currently initializes internal Gag/lattice topology for evaluator-level assertions. | Use existing scaffold fixtures where possible and avoid changing scaffold propagation, topology initialization, or Gag finite-difference behavior. |
+| Extend scaffold-enabled evaluator characterization to Gag fixtures | Harmonic and synthetic idealized-lattice scaffold side effects are now covered through the shared helper/facade path, but no committed focused fixture currently initializes Gag-specific reaction targets for evaluator-level assertions. | Use existing scaffold fixtures where possible and avoid changing scaffold propagation, topology initialization, or Gag finite-difference behavior. |
 | Defer propagation helper extraction | It would cross from core refresh into accepted-step, thermal, dynamics, records, and checkpoint policy. | Start only after a fresh behavior baseline and an explicit prompt approving propagation ownership changes. |
 
 Suggested approved-production prompt:

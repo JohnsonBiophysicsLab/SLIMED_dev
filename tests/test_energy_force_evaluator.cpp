@@ -84,12 +84,69 @@ void configure_single_harmonic_scaffold(Mesh &mesh, int vertexIndex)
     mesh.param.energy.energyIdealizedProteinLattice = std::numeric_limits<double>::quiet_NaN();
 }
 
+Matrix make_scaffold_point(double x, double y, double z)
+{
+    Matrix point(3, 1);
+    point.set(0, 0, x);
+    point.set(1, 0, y);
+    point.set(2, 0, z);
+    return point;
+}
+
+std::vector<int> first_force_visible_vertex_indices(const Mesh &mesh, int count)
+{
+    std::vector<int> indices;
+    indices.reserve(count);
+    for (int i = 0; i < static_cast<int>(mesh.vertices.size()) &&
+                    static_cast<int>(indices.size()) < count; ++i)
+    {
+        if (!mesh.vertices[i].isGhost && !mesh.vertices[i].isBoundary)
+        {
+            indices.push_back(i);
+        }
+    }
+    return indices;
+}
+
+void configure_two_subunit_idealized_lattice_scaffold(Mesh &mesh,
+                                                      const std::vector<int> &vertexIndices)
+{
+    mesh.param.isEnergyHarmonicBondIncluded = true;
+    mesh.param.isGagScaffoldingEnergyIncluded = false;
+    mesh.param.isIdealizedProteinLatticeEnergyIncluded = true;
+    mesh.param.idealizedProteinLatticeFileName =
+        "./tests/fixtures/idealized_two_subunit_lattice.dat";
+    mesh.param.springConst = 0.0;
+    mesh.param.lbond = 0.0;
+    mesh.param.gagKsigma = 3.0;
+    mesh.param.gagKtheta = 0.0;
+    mesh.param.gagKphi = 0.0;
+    mesh.param.gagKomega = 0.0;
+
+    mesh.param.scaffoldingPoints = {
+        make_scaffold_point(0.0, 0.0, 0.0),
+        make_scaffold_point(4.0, 0.0, 0.0),
+    };
+    mesh.param.scaffoldingPoints_correspondingVertexIndex = vertexIndices;
+
+    mesh.param.energy.energyHarmonicBond = std::numeric_limits<double>::quiet_NaN();
+    mesh.param.energy.energyGagScaffolding = std::numeric_limits<double>::quiet_NaN();
+    mesh.param.energy.energyIdealizedProteinLattice = std::numeric_limits<double>::quiet_NaN();
+}
+
 double expected_single_harmonic_scaffold_energy()
 {
     const double distance = 5.0;
     const double springConst = 2.0;
     const double lbond = 3.0;
     return 0.5 * springConst * std::pow(distance - lbond, 2.0);
+}
+
+double expected_two_subunit_idealized_lattice_energy()
+{
+    const double sigmaDelta = 0.5;
+    const double gagKsigma = 3.0;
+    return 0.5 * gagKsigma * sigmaDelta * sigmaDelta;
 }
 
 Matrix expected_single_harmonic_scaffold_force()
@@ -282,4 +339,40 @@ TEST(EnergyForceEvaluatorTest, SharedHelperRecordsScaffoldEnergyAndForceSideEffe
                          scaffoldMesh.forceTotalOnScaffolding(component, 0))
             << "total scaffold force component " << component;
     }
+}
+
+TEST(EnergyForceEvaluatorTest, SharedHelperRecordsIdealizedLatticeScaffoldEnergy)
+{
+    Param baselineParam = make_scaffold_characterization_param();
+    Mesh baselineMesh(baselineParam);
+    initialize_area_reference(baselineMesh);
+    evaluate_energy_force(baselineMesh);
+
+    Param latticeParam = make_scaffold_characterization_param();
+    Mesh latticeMesh(latticeParam);
+    initialize_area_reference(latticeMesh);
+    const std::vector<int> bondedVertexIndices =
+        first_force_visible_vertex_indices(latticeMesh, 2);
+    ASSERT_EQ(2, static_cast<int>(bondedVertexIndices.size()));
+    configure_two_subunit_idealized_lattice_scaffold(latticeMesh, bondedVertexIndices);
+    ASSERT_TRUE(latticeMesh.initialize_gag_scaffolding_topology());
+    ASSERT_TRUE(latticeMesh.gagScaffoldingTopologyInitialized);
+    ASSERT_EQ(1, static_cast<int>(latticeMesh.gagInteractions.size()));
+
+    latticeMesh.param.scaffoldingPoints[1].set(0, 0, 4.5);
+
+    evaluate_energy_force(latticeMesh);
+
+    const double expectedEnergy = expected_two_subunit_idealized_lattice_energy();
+    EXPECT_TRUE(std::isfinite(latticeMesh.param.energy.energyHarmonicBond));
+    EXPECT_TRUE(std::isfinite(latticeMesh.param.energy.energyGagScaffolding));
+    EXPECT_TRUE(std::isfinite(latticeMesh.param.energy.energyIdealizedProteinLattice));
+    EXPECT_DOUBLE_EQ(0.0, latticeMesh.param.energy.energyHarmonicBond);
+    EXPECT_DOUBLE_EQ(0.0, latticeMesh.param.energy.energyGagScaffolding);
+    EXPECT_DOUBLE_EQ(expectedEnergy,
+                     latticeMesh.param.energy.energyIdealizedProteinLattice);
+    EXPECT_NEAR(expectedEnergy,
+                latticeMesh.param.energy.energyTotal - baselineMesh.param.energy.energyTotal,
+                1.0e-10);
+    ASSERT_EQ(2, static_cast<int>(latticeMesh.forceOnScaffoldingPoints.size()));
 }
