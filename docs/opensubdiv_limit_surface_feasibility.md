@@ -335,8 +335,10 @@ proven and reviewed.
 4. Done: characterize the regular energy/force geometry-extraction subset with
    multiple deterministic `12 x 3` fixtures and cached quadrature rows, without
    changing production behavior.
-5. Next: characterize current irregular energy/force behavior separately,
-   especially the 11-control path that currently calls the regular evaluator.
+5. Done for geometry-only fixture readiness: characterize an explicit
+   11-control irregular area/volume patch and document why the current
+   energy/force route remains a known gap. See
+   `docs/irregular_patch_fixture_requirements.md`.
 6. Decide whether regular energy/force geometry extraction should migrate only
    after a force/energy numerical-baseline PR, because production code there is
    coupled to force formulas, scatter, accumulation order, and OpenMP behavior.

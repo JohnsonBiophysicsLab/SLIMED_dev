@@ -14,6 +14,11 @@ routes the `nOneRingVertices == 11` branch through
 that route fix with evaluator extraction; it needs its own fixture,
 backend/design decision, and focused numerical baseline.
 
+The current fixture requirements and candidate map are recorded in
+`docs/irregular_patch_fixture_requirements.md`. The committed characterization
+covers the 11-control geometry route only and deliberately leaves production
+energy/force behavior unchanged.
+
 Regenerate the source-side write inventory with:
 
 ```console

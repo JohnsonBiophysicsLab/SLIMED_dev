@@ -225,6 +225,71 @@ AreaVolume direct_regular_patch_area_volume(const Param &param,
     }
     return result;
 }
+
+AreaVolume direct_irregular_patch_area_volume(const Param &param,
+                                              const Matrix &controlPoints)
+{
+    AreaVolume result;
+    Matrix carriedIrregularPatch = controlPoints;
+
+    for (int depth = 0; depth < param.subDivideTimes; ++depth)
+    {
+        Matrix subdividedNodes = param.subMatrix.irregM * carriedIrregularPatch;
+
+        const std::vector<Matrix> regularSubpatches = {
+            param.subMatrix.irregM1 * subdividedNodes,
+            param.subMatrix.irregM2 * subdividedNodes,
+            param.subMatrix.irregM3 * subdividedNodes,
+        };
+        for (const Matrix &regularSubpatch : regularSubpatches)
+        {
+            const AreaVolume subpatchAreaVolume =
+                direct_regular_patch_area_volume(param, regularSubpatch);
+            result.area += subpatchAreaVolume.area;
+            result.volume += subpatchAreaVolume.volume;
+        }
+
+        carriedIrregularPatch = param.subMatrix.irregM4 * subdividedNodes;
+    }
+
+    return result;
+}
+
+void populate_synthetic_irregular_patch_mesh(Mesh &mesh)
+{
+    const std::vector<std::vector<double>> coordinates = {
+        {-0.70, -0.86, 0.01},
+        {-0.18, -0.92, -0.02},
+        {0.00, 0.00, 0.04},
+        {0.58, -0.78, 0.03},
+        {-0.78, -0.05, -0.03},
+        {-0.12, 0.56, 0.02},
+        {0.64, 0.08, -0.01},
+        {1.16, -0.58, 0.05},
+        {-0.30, 1.12, -0.04},
+        {0.54, 1.06, 0.03},
+        {1.20, 0.46, 0.00},
+    };
+
+    mesh.vertices.clear();
+    mesh.vertices.resize(coordinates.size());
+    for (int vertexIndex = 0; vertexIndex < static_cast<int>(coordinates.size()); ++vertexIndex)
+    {
+        Vertex &vertex = mesh.vertices[vertexIndex];
+        vertex.index = vertexIndex;
+        vertex.coord.set(0, 0, coordinates[vertexIndex][0]);
+        vertex.coord.set(1, 0, coordinates[vertexIndex][1]);
+        vertex.coord.set(2, 0, coordinates[vertexIndex][2]);
+    }
+
+    mesh.faces.clear();
+    mesh.faces.resize(1);
+
+    Face &face = mesh.faces.front();
+    face.index = 0;
+    face.adjacentVertices = {2, 5, 6};
+    face.oneRingVertices = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10};
+}
 } // namespace
 
 TEST(SurfaceShapeFunctionsCharacterization, PartitionOfUnityAndDerivativeSums)
@@ -532,6 +597,38 @@ TEST(SurfaceSubdivisionCharacterization, IrregularPatchMatricesPreserveAffineWei
     expect_selection_rows(subPatch2);
     expect_selection_rows(subPatch3);
     expect_selection_rows(subPatch4);
+}
+
+TEST(SurfaceSubdivisionCharacterization, SyntheticIrregularPatchAreaVolumeUsesSubdivisionFixture)
+{
+    Param param;
+    param.VERBOSE_MODE = false;
+    param.subDivideTimes = 2;
+    Mesh mesh(param);
+    populate_synthetic_irregular_patch_mesh(mesh);
+    const Face &fixtureFace = mesh.faces.front();
+
+    ASSERT_EQ(fixtureFace.oneRingVertices.size(), 11);
+    ASSERT_GT(param.subDivideTimes, 0);
+
+    const AreaVolume expected = direct_irregular_patch_area_volume(
+        param,
+        make_one_ring_control_points(mesh, fixtureFace));
+
+    mesh.calculate_element_area_volume();
+
+    EXPECT_TRUE(std::isfinite(mesh.faces.front().elementArea));
+    EXPECT_TRUE(std::isfinite(mesh.faces.front().elementVolume));
+    EXPECT_GT(mesh.faces.front().elementArea, 0.0);
+    EXPECT_NEAR(mesh.faces.front().elementArea, expected.area, 1.0e-12);
+    EXPECT_NEAR(mesh.faces.front().elementVolume, expected.volume, 1.0e-12);
+
+    double area = 0.0;
+    double volume = 0.0;
+    mesh.sum_membrane_area_and_volume(area, volume);
+
+    EXPECT_NEAR(area, expected.area, 1.0e-12);
+    EXPECT_NEAR(volume, expected.volume, 1.0e-12);
 }
 
 TEST(SurfaceFlatMeshCharacterization, PeriodicFlatMeshKeepsInteriorRegularAndPlanar)
