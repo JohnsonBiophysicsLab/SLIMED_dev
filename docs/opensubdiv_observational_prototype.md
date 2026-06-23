@@ -69,6 +69,52 @@ accepted and evaluated, but it does not yet prove the future force
 back-projection contract or a stable original-control mapping for all 11
 fixture controls.
 
+## Force Back-Projection Mapping Follow-Up
+
+The follow-up `--backprojection-report` mode keeps the probe opt-in and
+docs/scripts-only. It adds patch-table diagnostics, expands patch control
+vertices through generated control-vertex stencils, and compares three
+11-control variants:
+
+- the original compact fixture topology used by the first probe;
+- an orientation-normalized version of the same 11-control face set; and
+- the orientation-normalized fixture with an added outer annulus so the
+  original 11 controls are not on the miniature mesh boundary.
+
+The scratch OpenSubdiv `v3_7_0` build at `/tmp/slimed-opensubdiv-install` was
+run with:
+
+```bash
+OPENSUBDIV_ROOT=/tmp/slimed-opensubdiv-install \
+OPENSUBDIV_CXXFLAGS='-arch arm64' \
+python3 scripts/probe_opensubdiv_feasibility.py \
+  --json --require-opensubdiv --backprojection-report
+```
+
+Observed source-control coverage:
+
+| Case | Sample locations | Limit-stencil source ids | Derivative weights | Expected local controls represented | Interpretation |
+| --- | ---: | ---: | --- | ---: | --- |
+| regular triangular lattice | 3 | 12 | value, first, second | n/a | Regular Loop patch source mapping remains available and derivative-complete. |
+| compact 11-control fixture | 3 | 3 | value, first, second | 3 of 11 | The original fixture face list is not consistently oriented as a manifold OpenSubdiv topology, so this result is a topology artifact. |
+| oriented 11-control fixture | 3 | 9 | value, first, second | 9 of 11 | Orientation fixes the three-source collapse and exposes broader original-control weights, but not all 11 controls for this one sampled face. |
+| oriented 11-control fixture with outer annulus | 3 | 9 | value, first, second | 9 of 11 | Padding the local boundary does not change the sampled face support; the missing controls are not recovered by a simple outer ring. |
+
+The missing expected local controls in the oriented fixture were ids `8` and
+`10` for sampled ptex face `0`. That suggests the current all-11 question is
+mostly a sampling/support question: a single triangle patch sample does not
+necessarily touch every SLIMED 11-control local fixture entry. The next
+experiment should aggregate source coverage over the adjacent ptex faces or
+over the regular child patches that correspond to SLIMED's irregular
+subdivision route before asking whether a face-level force contract covers all
+11 original controls.
+
+This is not a production force back-projection implementation. It only shows
+that OpenSubdiv can expose derivative-complete original-control weights for a
+properly oriented irregular fixture sample, and that the first three-source
+result was caused by the probe's topology construction/API path rather than by
+a missing derivative-weight API.
+
 ## Added Probe
 
 `scripts/probe_opensubdiv_feasibility.py` checks for an explicitly supplied or
@@ -111,6 +157,14 @@ OPENSUBDIV_ROOT=/path/to/opensubdiv \
 python3 scripts/probe_opensubdiv_feasibility.py --json --require-opensubdiv
 ```
 
+Example opt-in force back-projection report:
+
+```bash
+OPENSUBDIV_ROOT=/path/to/opensubdiv \
+python3 scripts/probe_opensubdiv_feasibility.py \
+  --json --require-opensubdiv --backprojection-report
+```
+
 If the local install needs nonstandard flags, callers can provide
 `OPENSUBDIV_CXXFLAGS`, `OPENSUBDIV_LDFLAGS`, or `CXX`. The script does not
 modify the production Makefile and does not copy third-party source into the
@@ -135,11 +189,14 @@ repo.
    enough to support force back-projection later?
 
    Partially proven. The regular lattice sample exposes 12 source ids and
-   matching derivative weight counts. The 11-control fixture topology is
-   accepted, but the selected sample reports only three source ids, so this
-   does not yet prove an irregular force back-projection contract. A later
-   production lane would still need a reviewed transpose/back-projection
-   contract and force scatter ordering proof.
+   matching derivative weight counts. The original compact 11-control fixture
+   reported only three source ids because its face list was not consistently
+   oriented for OpenSubdiv manifold topology. An orientation-normalized fixture
+   exposes nine original source ids with value, first-derivative, and
+   second-derivative weights for the sampled ptex face. This proves more than
+   the first probe, but it still does not prove an all-11 force
+   back-projection contract. A later production lane would need a reviewed
+   transpose/back-projection contract and force scatter ordering proof.
 
 4. Can a regular case be compared against SLIMED's regular evaluator at
    quadrature-like sample points?
@@ -153,9 +210,11 @@ repo.
    topology/source-id mapping?
 
    Partially proven. The installed run accepted the 11-control triangular
-   topology and produced finite value and derivative vectors. It did not prove
-   a stable all-11-control source stencil for force back-projection because the
-   selected samples reported only three source ids.
+   topology and produced finite value and derivative vectors. With consistent
+   face orientation, the selected samples report nine original-control source
+   ids and derivative-complete weights. It did not prove stable all-11-control
+   coverage for force back-projection because a single sampled ptex face did
+   not include local fixture ids `8` and `10`.
 
 ## Next Review Gate
 
@@ -166,9 +225,12 @@ With an approved local OpenSubdiv install path, extend the observational
 prototype or add a test-only executable that links against SLIMED's
 SlimedLoopLimitSurfaceEvaluator to compare regular samples for position,
 first derivatives, second derivatives, normals, area integrand, and legacy
-volume integrand. Also revise the 11-control fixture sampling so it can prove
-whether OpenSubdiv can expose original-control source ids and weights for all
-controls needed by a future force back-projection contract. Do not change
-production routing, force scatter, default Makefile targets, vendoring policy,
-or dependency requirements in that lane.
+volume integrand. Also revise the 11-control fixture sampling to aggregate
+source coverage across the adjacent ptex faces or across the regular child
+patches that match SLIMED's irregular subdivision route. The minimal missing
+output is a per-sample and aggregate table of original-control ids, value
+weights, first-derivative weights, and second-derivative weights, with explicit
+pass/fail evidence for fixture ids 0 through 10. Do not change production
+routing, force scatter, default Makefile targets, vendoring policy, or
+dependency requirements in that lane.
 ```

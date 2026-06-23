@@ -23,16 +23,27 @@ import textwrap
 PROBE_SOURCE = r"""
 #include <opensubdiv/far/stencilTable.h>
 #include <opensubdiv/far/stencilTableFactory.h>
+#include <opensubdiv/far/patchMap.h>
+#include <opensubdiv/far/patchTableFactory.h>
 #include <opensubdiv/far/topologyDescriptor.h>
 #include <opensubdiv/far/topologyRefinerFactory.h>
 
+#include <algorithm>
+#include <array>
 #include <cmath>
 #include <iomanip>
 #include <iostream>
+#include <map>
+#include <queue>
+#include <set>
 #include <string>
 #include <vector>
 
 using namespace OpenSubdiv;
+
+#ifndef SLIMED_BACKPROJECTION_REPORT
+#define SLIMED_BACKPROJECTION_REPORT 0
+#endif
 
 struct Point {
     float x;
@@ -46,6 +57,7 @@ struct MeshCase {
     std::vector<int> vertsPerFace;
     std::vector<int> vertIndices;
     std::vector<Point> points;
+    std::vector<int> expectedLocalControlIds;
     int sampleFace = 0;
 };
 
@@ -103,6 +115,7 @@ static MeshCase make_irregular_fixture_case() {
     };
 
     mesh.sampleFace = 0;
+    mesh.expectedLocalControlIds = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10};
     append_face(mesh, 2, 5, 6);
     append_face(mesh, 1, 2, 5);
     append_face(mesh, 9, 5, 6);
@@ -116,6 +129,294 @@ static MeshCase make_irregular_fixture_case() {
     append_face(mesh, 4, 8, 9);
     append_face(mesh, 3, 7, 10);
     return mesh;
+}
+
+static void orient_triangles_consistently(MeshCase &mesh) {
+    std::vector<std::array<int, 3>> faces;
+    faces.reserve(mesh.vertsPerFace.size());
+    for (int face = 0; face < static_cast<int>(mesh.vertsPerFace.size());
+         ++face) {
+        faces.push_back({mesh.vertIndices[3 * face],
+                         mesh.vertIndices[3 * face + 1],
+                         mesh.vertIndices[3 * face + 2]});
+    }
+
+    std::map<std::pair<int, int>, std::vector<int>> edgeFaces;
+    for (int face = 0; face < static_cast<int>(faces.size()); ++face) {
+        for (int edge = 0; edge < 3; ++edge) {
+            int a = faces[face][edge];
+            int b = faces[face][(edge + 1) % 3];
+            edgeFaces[{std::min(a, b), std::max(a, b)}].push_back(face);
+        }
+    }
+
+    std::vector<bool> visited(faces.size(), false);
+    std::queue<int> pending;
+    visited[0] = true;
+    pending.push(0);
+
+    while (!pending.empty()) {
+        int face = pending.front();
+        pending.pop();
+
+        for (int edge = 0; edge < 3; ++edge) {
+            int a = faces[face][edge];
+            int b = faces[face][(edge + 1) % 3];
+            std::vector<int> const &neighbors =
+                edgeFaces[{std::min(a, b), std::max(a, b)}];
+            for (int neighbor : neighbors) {
+                if (neighbor == face || visited[neighbor]) {
+                    continue;
+                }
+
+                for (int neighborEdge = 0; neighborEdge < 3; ++neighborEdge) {
+                    int na = faces[neighbor][neighborEdge];
+                    int nb = faces[neighbor][(neighborEdge + 1) % 3];
+                    if (na == a && nb == b) {
+                        std::swap(faces[neighbor][1], faces[neighbor][2]);
+                        break;
+                    }
+                }
+                visited[neighbor] = true;
+                pending.push(neighbor);
+            }
+        }
+    }
+
+    mesh.vertIndices.clear();
+    mesh.vertIndices.reserve(faces.size() * 3);
+    for (std::array<int, 3> const &face : faces) {
+        mesh.vertIndices.push_back(face[0]);
+        mesh.vertIndices.push_back(face[1]);
+        mesh.vertIndices.push_back(face[2]);
+    }
+}
+
+static MeshCase make_oriented_irregular_fixture_case() {
+    MeshCase mesh = make_irregular_fixture_case();
+    mesh.name = "synthetic_11_control_fixture_oriented_topology";
+    orient_triangles_consistently(mesh);
+    return mesh;
+}
+
+static MeshCase make_padded_irregular_fixture_case() {
+    MeshCase mesh = make_oriented_irregular_fixture_case();
+    mesh.name = "synthetic_11_control_fixture_oriented_outer_annulus";
+
+    float centroid[3] = {0.0f, 0.0f, 0.0f};
+    for (int id : mesh.expectedLocalControlIds) {
+        centroid[0] += mesh.points[id].x;
+        centroid[1] += mesh.points[id].y;
+        centroid[2] += mesh.points[id].z;
+    }
+    for (float &axis : centroid) {
+        axis /= static_cast<float>(mesh.expectedLocalControlIds.size());
+    }
+
+    std::vector<int> boundaryLoop = {0, 1, 4, 8, 9, 7, 10, 3};
+    std::vector<int> outerIds;
+    outerIds.reserve(boundaryLoop.size());
+    for (int id : boundaryLoop) {
+        Point const &point = mesh.points[id];
+        outerIds.push_back(static_cast<int>(mesh.points.size()));
+        mesh.points.push_back(Point{
+            centroid[0] + 1.45f * (point.x - centroid[0]),
+            centroid[1] + 1.45f * (point.y - centroid[1]),
+            centroid[2] + 0.50f * (point.z - centroid[2])});
+    }
+
+    mesh.numVertices = static_cast<int>(mesh.points.size());
+    for (int i = 0; i < static_cast<int>(boundaryLoop.size()); ++i) {
+        int next = (i + 1) % static_cast<int>(boundaryLoop.size());
+        int a = boundaryLoop[i];
+        int b = boundaryLoop[next];
+        int outerA = outerIds[i];
+        int outerB = outerIds[next];
+        append_face(mesh, a, b, outerB);
+        append_face(mesh, a, outerB, outerA);
+    }
+
+    return mesh;
+}
+
+static char const *patch_type_name(Far::PatchDescriptor::Type type) {
+    switch (type) {
+        case Far::PatchDescriptor::NON_PATCH:
+            return "NON_PATCH";
+        case Far::PatchDescriptor::POINTS:
+            return "POINTS";
+        case Far::PatchDescriptor::LINES:
+            return "LINES";
+        case Far::PatchDescriptor::QUADS:
+            return "QUADS";
+        case Far::PatchDescriptor::TRIANGLES:
+            return "TRIANGLES";
+        case Far::PatchDescriptor::LOOP:
+            return "LOOP";
+        case Far::PatchDescriptor::REGULAR:
+            return "REGULAR";
+        case Far::PatchDescriptor::GREGORY:
+            return "GREGORY";
+        case Far::PatchDescriptor::GREGORY_BOUNDARY:
+            return "GREGORY_BOUNDARY";
+        case Far::PatchDescriptor::GREGORY_BASIS:
+            return "GREGORY_BASIS";
+        case Far::PatchDescriptor::GREGORY_TRIANGLE:
+            return "GREGORY_TRIANGLE";
+    }
+    return "UNKNOWN";
+}
+
+static int count_nonzero(float const *weights, int count) {
+    int result = 0;
+    for (int i = 0; i < count; ++i) {
+        if (std::abs(weights[i]) > 1.0e-8f) {
+            ++result;
+        }
+    }
+    return result;
+}
+
+static std::set<int> expanded_source_ids(Far::ConstIndexArray const &patchVertices,
+                                         float const *basisWeights,
+                                         int controlCount,
+                                         Far::StencilTable const *cvStencils,
+                                         int originalVertexCount) {
+    std::set<int> sourceIds;
+    for (int basisIndex = 0; basisIndex < controlCount; ++basisIndex) {
+        if (std::abs(basisWeights[basisIndex]) <= 1.0e-8f) {
+            continue;
+        }
+
+        int patchVertex = patchVertices[basisIndex];
+        if (cvStencils && patchVertex < cvStencils->GetNumStencils()) {
+            Far::Stencil stencil = cvStencils->GetStencil(patchVertex);
+            Far::Index const *indices = stencil.GetVertexIndices();
+            float const *weights = stencil.GetWeights();
+            for (int stencilIndex = 0; stencilIndex < stencil.GetSize();
+                 ++stencilIndex) {
+                if (std::abs(basisWeights[basisIndex] * weights[stencilIndex]) >
+                    1.0e-8f) {
+                    sourceIds.insert(indices[stencilIndex]);
+                }
+            }
+        } else if (patchVertex < originalVertexCount) {
+            sourceIds.insert(patchVertex);
+        }
+    }
+    return sourceIds;
+}
+
+static int represented_expected_count(std::set<int> const &sourceIds,
+                                      std::vector<int> const &expectedIds) {
+    int represented = 0;
+    for (int expectedId : expectedIds) {
+        if (sourceIds.count(expectedId)) {
+            ++represented;
+        }
+    }
+    return represented;
+}
+
+static void print_int_array(std::vector<int> const &values) {
+    std::cout << "[";
+    for (int i = 0; i < static_cast<int>(values.size()); ++i) {
+        if (i > 0) {
+            std::cout << ",";
+        }
+        std::cout << values[i];
+    }
+    std::cout << "]";
+}
+
+static void print_patch_table_report(Far::PatchTable const *patchTable,
+                                     Far::StencilTable const *cvStencils,
+                                     std::vector<int> const &expectedIds,
+                                     int originalVertexCount,
+                                     int sampleFace,
+                                     float s,
+                                     float t) {
+    if (!patchTable) {
+        std::cout << ",\"patch_table\":{\"available\":false}";
+        return;
+    }
+
+    Far::PatchMap patchMap(*patchTable);
+    Far::PatchMap::Handle const *handle = patchMap.FindPatch(sampleFace, s, t);
+    if (!handle) {
+        std::cout << ",\"patch_table\":{\"available\":true,\"found\":false}";
+        return;
+    }
+
+    Far::PatchDescriptor descriptor = patchTable->GetPatchDescriptor(*handle);
+    int const controlCount = descriptor.GetNumControlVertices();
+    Far::ConstIndexArray patchVertices = patchTable->GetPatchVertices(*handle);
+    std::vector<float> weights(controlCount);
+    std::vector<float> du(controlCount);
+    std::vector<float> dv(controlCount);
+    std::vector<float> duu(controlCount);
+    std::vector<float> duv(controlCount);
+    std::vector<float> dvv(controlCount);
+
+    patchTable->EvaluateBasis(
+        *handle, s, t, weights.data(), du.data(), dv.data(), duu.data(),
+        duv.data(), dvv.data());
+
+    std::set<int> expandedBasis = expanded_source_ids(
+        patchVertices, weights.data(), controlCount, cvStencils,
+        originalVertexCount);
+    std::set<int> expandedDu = expanded_source_ids(
+        patchVertices, du.data(), controlCount, cvStencils, originalVertexCount);
+    std::set<int> expandedDv = expanded_source_ids(
+        patchVertices, dv.data(), controlCount, cvStencils, originalVertexCount);
+    std::set<int> expandedDuu = expanded_source_ids(
+        patchVertices, duu.data(), controlCount, cvStencils, originalVertexCount);
+    std::set<int> expandedDuv = expanded_source_ids(
+        patchVertices, duv.data(), controlCount, cvStencils, originalVertexCount);
+    std::set<int> expandedDvv = expanded_source_ids(
+        patchVertices, dvv.data(), controlCount, cvStencils, originalVertexCount);
+    std::set<int> expandedAnySecond = expandedDuu;
+    expandedAnySecond.insert(expandedDuv.begin(), expandedDuv.end());
+    expandedAnySecond.insert(expandedDvv.begin(), expandedDvv.end());
+
+    std::cout << ",\"patch_table\":{\"available\":true,\"found\":true";
+    std::cout << ",\"patch_type\":\"" << patch_type_name(descriptor.GetType())
+              << "\"";
+    std::cout << ",\"patch_control_vertex_count\":" << controlCount;
+    std::cout << ",\"patch_vertices\":[";
+    for (int i = 0; i < patchVertices.size(); ++i) {
+        if (i > 0) {
+            std::cout << ",";
+        }
+        std::cout << patchVertices[i];
+    }
+    std::cout << "]";
+    std::cout << ",\"nonzero_basis_weights\":"
+              << count_nonzero(weights.data(), controlCount);
+    std::cout << ",\"nonzero_du_weights\":"
+              << count_nonzero(du.data(), controlCount);
+    std::cout << ",\"nonzero_dv_weights\":"
+              << count_nonzero(dv.data(), controlCount);
+    std::cout << ",\"nonzero_second_derivative_weights\":"
+              << std::max(count_nonzero(duu.data(), controlCount),
+                          std::max(count_nonzero(duv.data(), controlCount),
+                                   count_nonzero(dvv.data(), controlCount)));
+    std::cout << ",\"cv_stencil_count\":"
+              << (cvStencils ? cvStencils->GetNumStencils() : 0);
+    std::cout << ",\"expanded_basis_source_count\":"
+              << expandedBasis.size();
+    std::cout << ",\"expanded_du_source_count\":" << expandedDu.size();
+    std::cout << ",\"expanded_dv_source_count\":" << expandedDv.size();
+    std::cout << ",\"expanded_second_derivative_source_count\":"
+              << expandedAnySecond.size();
+    std::cout << ",\"expanded_basis_expected_local_control_count\":"
+              << represented_expected_count(expandedBasis, expectedIds);
+    std::cout << ",\"expanded_first_derivative_expected_local_control_count\":"
+              << std::max(represented_expected_count(expandedDu, expectedIds),
+                          represented_expected_count(expandedDv, expectedIds));
+    std::cout << ",\"expanded_second_derivative_expected_local_control_count\":"
+              << represented_expected_count(expandedAnySecond, expectedIds);
+    std::cout << "}";
 }
 
 static Far::TopologyRefiner *create_refiner(MeshCase const &mesh) {
@@ -167,8 +468,24 @@ static int run_case(MeshCase const &mesh) {
         return 2;
     }
 
+    Far::PatchTable *patchTable = 0;
+    Far::StencilTable const *cvStencils = 0;
+
+#if SLIMED_BACKPROJECTION_REPORT
+    Far::PatchTableFactory::Options patchOptions(5);
+    refiner->RefineAdaptive(patchOptions.GetRefineAdaptiveOptions());
+    patchTable = Far::PatchTableFactory::Create(*refiner, patchOptions);
+
+    Far::StencilTableFactory::Options cvOptions;
+    cvOptions.generateControlVerts = true;
+    cvOptions.generateIntermediateLevels = true;
+    cvOptions.factorizeIntermediateLevels = true;
+    cvOptions.maxLevel = 5;
+    cvStencils = Far::StencilTableFactory::Create(*refiner, cvOptions);
+#else
     Far::TopologyRefiner::AdaptiveOptions adaptiveOptions(3);
     refiner->RefineAdaptive(adaptiveOptions);
+#endif
 
     const float slimedV[3] = {1.0f / 3.0f, 0.20f, 0.05f};
     const float slimedW[3] = {1.0f / 3.0f, 0.30f, 0.85f};
@@ -194,10 +511,12 @@ static int run_case(MeshCase const &mesh) {
 
     Far::LimitStencilTable const *stencils =
         Far::LimitStencilTableFactory::Create(
-            *refiner, locations, 0, 0, stencilOptions);
+            *refiner, locations, cvStencils, patchTable, stencilOptions);
     if (!stencils) {
         std::cerr << "failed to create limit stencils for " << mesh.name
                   << "\n";
+        delete cvStencils;
+        delete patchTable;
         delete refiner;
         return 3;
     }
@@ -207,6 +526,9 @@ static int run_case(MeshCase const &mesh) {
     std::cout << "\"face_count\":" << mesh.vertsPerFace.size() << ",";
     std::cout << "\"sample_face\":" << mesh.sampleFace << ",";
     std::cout << "\"slimed_to_opensubdiv_uv\":\"s=w,t=v (prototype mapping)\",";
+    std::cout << "\"expected_local_control_ids\":";
+    print_int_array(mesh.expectedLocalControlIds);
+    std::cout << ",";
     std::cout << "\"samples\":[";
 
     for (int sample = 0; sample < stencils->GetNumStencils(); ++sample) {
@@ -217,6 +539,8 @@ static int run_case(MeshCase const &mesh) {
             std::cerr << "missing derivative weights for " << mesh.name
                       << "\n";
             delete stencils;
+            delete cvStencils;
+            delete patchTable;
             delete refiner;
             return 4;
         }
@@ -233,8 +557,21 @@ static int run_case(MeshCase const &mesh) {
             std::cerr << "non-finite evaluated value for " << mesh.name
                       << "\n";
             delete stencils;
+            delete cvStencils;
+            delete patchTable;
             delete refiner;
             return 5;
+        }
+
+        std::set<int> sourceIdSet;
+        for (int i = 0; i < stencil.GetSize(); ++i) {
+            sourceIdSet.insert(stencil.GetVertexIndices()[i]);
+        }
+        int representedExpected = 0;
+        for (int expectedId : mesh.expectedLocalControlIds) {
+            if (sourceIdSet.count(expectedId)) {
+                ++representedExpected;
+            }
         }
 
         if (sample > 0) {
@@ -258,17 +595,35 @@ static int run_case(MeshCase const &mesh) {
         std::cout << ",\"finite_position\":true";
         std::cout << ",\"finite_first_derivatives\":true";
         std::cout << ",\"finite_second_derivatives\":true";
+        std::cout << ",\"represented_expected_local_control_count\":"
+                  << representedExpected;
+        std::cout << ",\"all_expected_local_controls_represented\":"
+                  << (representedExpected ==
+                              static_cast<int>(mesh.expectedLocalControlIds.size())
+                          ? "true"
+                          : "false");
         print_vec3("position", position);
         print_vec3("du", du);
         print_vec3("dv", dv);
         print_vec3("duu", duu);
         print_vec3("duv", duv);
         print_vec3("dvv", dvv);
+#if SLIMED_BACKPROJECTION_REPORT
+        print_patch_table_report(patchTable,
+                                 cvStencils,
+                                 mesh.expectedLocalControlIds,
+                                 mesh.numVertices,
+                                 mesh.sampleFace,
+                                 s[sample],
+                                 t[sample]);
+#endif
         std::cout << "}";
     }
     std::cout << "]}" << std::endl;
 
     delete stencils;
+    delete cvStencils;
+    delete patchTable;
     delete refiner;
     return 0;
 }
@@ -282,6 +637,16 @@ int main() {
     if (status != 0) {
         return status;
     }
+#if SLIMED_BACKPROJECTION_REPORT
+    status = run_case(make_oriented_irregular_fixture_case());
+    if (status != 0) {
+        return status;
+    }
+    status = run_case(make_padded_irregular_fixture_case());
+    if (status != 0) {
+        return status;
+    }
+#endif
     return 0;
 }
 """
@@ -310,6 +675,14 @@ def parse_args() -> argparse.Namespace:
         "--json",
         action="store_true",
         help="Emit the probe status as JSON.",
+    )
+    parser.add_argument(
+        "--backprojection-report",
+        action="store_true",
+        help=(
+            "Opt into extra patch-table/source-control reporting for force "
+            "back-projection investigation."
+        ),
     )
     parser.add_argument(
         "--mode",
@@ -416,6 +789,8 @@ def main() -> int:
             args.cxx,
             "-std=c++17",
         ]
+        if args.backprojection_report:
+            command.append("-DSLIMED_BACKPROJECTION_REPORT=1")
         command.extend(shlex.split(os.environ.get("OPENSUBDIV_CXXFLAGS", "")))
         command.extend(
             [
