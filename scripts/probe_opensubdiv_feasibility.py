@@ -155,6 +155,11 @@ static bool finite3(float const values[3]) {
            std::isfinite(values[2]);
 }
 
+static void print_vec3(char const *name, float const values[3]) {
+    std::cout << ",\"" << name << "\":[" << std::setprecision(9)
+              << values[0] << "," << values[1] << "," << values[2] << "]";
+}
+
 static int run_case(MeshCase const &mesh) {
     Far::TopologyRefiner *refiner = create_refiner(mesh);
     if (!refiner) {
@@ -244,9 +249,21 @@ static int run_case(MeshCase const &mesh) {
             }
             std::cout << indices[i];
         }
-        std::cout << "],\"weight_count\":" << stencil.GetSize();
-        std::cout << ",\"position_x\":" << std::setprecision(9)
-                  << position[0];
+        std::cout << "],\"position_weight_count\":" << stencil.GetSize();
+        std::cout << ",\"du_weight_count\":" << stencil.GetSize();
+        std::cout << ",\"dv_weight_count\":" << stencil.GetSize();
+        std::cout << ",\"duu_weight_count\":" << stencil.GetSize();
+        std::cout << ",\"duv_weight_count\":" << stencil.GetSize();
+        std::cout << ",\"dvv_weight_count\":" << stencil.GetSize();
+        std::cout << ",\"finite_position\":true";
+        std::cout << ",\"finite_first_derivatives\":true";
+        std::cout << ",\"finite_second_derivatives\":true";
+        print_vec3("position", position);
+        print_vec3("du", du);
+        print_vec3("dv", dv);
+        print_vec3("duu", duu);
+        print_vec3("duv", duv);
+        print_vec3("dvv", dvv);
         std::cout << "}";
     }
     std::cout << "]}" << std::endl;
