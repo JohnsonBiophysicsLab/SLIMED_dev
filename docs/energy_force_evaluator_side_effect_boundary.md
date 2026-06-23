@@ -1,14 +1,21 @@
 # Energy Force Evaluator Side-Effect Boundary
 
 This note characterizes the internal side-effect boundary of
-`EnergyForceEvaluator` after PR #35. The production facade still delegates
-directly to `Mesh::Compute_Energy_And_Force()`, so this is a current-state map,
+`EnergyForceEvaluator` after PR #41. The production facade still delegates
+directly to `Mesh::Compute_Energy_And_Force()`, which now starts with named
+geometry-refresh and clearing pre-pass helpers. This is a current-state map,
 not a proposal to split formulas or move calls.
 
 Regenerate the source-side write inventory with:
 
 ```console
 python3 scripts/inventory_energy_force_side_effects.py
+```
+
+Regenerate the coarse post-PR41 phase map with:
+
+```console
+python3 scripts/inventory_energy_force_side_effects.py --phase-map
 ```
 
 ## Current Call Boundary
@@ -24,6 +31,48 @@ evaluate_energy_force(Mesh&)
 The helper and facade own no propagation policy. Callers still own accepted
 steps, trial rollback, snapshots, records, checkpoints, output cadence,
 optimizer state, RNG state, and scaffold propagation timing.
+
+## Post-PR41 Phase Map
+
+`Mesh::Compute_Energy_And_Force()` currently runs these phases in order:
+
+```text
+EnergyForceEvaluator::evaluate(mesh)
+  -> Mesh::Compute_Energy_And_Force()
+     1. refresh_energy_force_geometry(*this)
+        -> calculate_element_area_volume()
+        -> sum_membrane_area_and_volume(param.area, param.vol)
+     2. clear_force_on_vertices_and_energy_on_faces()
+     3. per-face membrane accumulation
+        -> non-boundary faces only
+        -> element_energy_force_regular(...)
+        -> Face::energy.energyCurvature, Face::meanCurvature, Face::normVector
+        -> thread-local curvature/area/volume force components
+     4. per-thread force scatter reduction
+        -> Vertex::force.forceCurvature
+        -> Vertex::force.forceArea
+        -> Vertex::force.forceVolume
+     5. energy_force_regularization()
+        -> Face::energy.energyRegularization
+        -> Vertex::force.forceRegularization
+        -> Param::deformationCount
+     6. vertex total-force calculation
+        -> Vertex::force.forceTotal before scaffold force additions
+     7. face and Param energy totalization
+        -> Energy::calculateTotalEnergy() on faces
+        -> global area and volume energy terms
+        -> Param::energy replacement and total recalculation
+     8. optional scaffold energy/force
+        -> reset scaffold energy components
+        -> calculate_scaffolding_energy_force(false)
+        -> harmonic/Gag/idealized-lattice energy and force side effects
+     9. boundary and ghost force handling
+        -> manage_force_for_boundary_ghost_vertex()
+```
+
+The map is intentionally phase-level. It should not be read as approval to
+change formula order, scatter order, OpenMP reduction shape, scaffold timing,
+or boundary force zeroing.
 
 ## Scaffold-Enabled Characterization
 
@@ -140,6 +189,44 @@ Missing evidence before any broader geometry rewrite:
 - Boundary, ghost, periodic, dynamics projection, and scaffold propagation
   behavior remain separate policy surfaces, not part of this extraction.
 
+## Remaining Energy/Force Term Boundary
+
+After the clearing and geometry-refresh extractions, the next tempting boundary
+is the actual membrane term accumulation between the clearing helper and the
+regularization helper. That region is not one low-risk operation. It combines
+one-ring coordinate capture, regular/irregular path selection, quadrature,
+bending formulas, global area/volume force formulas, face writes, per-thread
+force accumulation, and later reduction into vertex force components.
+
+Candidate classification:
+
+| Candidate | Risk class | Why |
+| --- | --- | --- |
+| Name a docs-only phase as `membrane term accumulation` | Low-risk characterization only | The label helps discussion and script output without changing production C++ behavior. |
+| Extract the face loop and force-reduction block as-is | Requires scientific/physics review | Even a mechanical move can perturb floating-point accumulation order, OpenMP scheduling assumptions, force scatter shape, face skip behavior, or the timing of `Face::normVector` and `Face::meanCurvature` writes. |
+| Extract `element_energy_force_regular()` call preparation into a helper | Requires ownership/signature decisions | The current loop builds one-ring coordinate matrices from `Mesh`, reads `Param`, mutates `Face`, and returns multiple force matrices whose sizes assume the existing 12-control formula path. A helper boundary needs a reviewer-approved data contract. |
+| Split bending, area, and volume terms inside `element_energy_force_regular()` | Requires scientific/physics review | The formulas share geometry intermediates, quadrature weights, scratch matrices, and accumulation order. Splitting them would need exact equivalence baselines plus domain review of the mathematical contract. |
+| Extract global energy totalization after regularization | Medium to high risk | This looks smaller than the face loop, but it couples face total-energy calls, global area/volume energy, `Param::energy` replacement, and total-energy recalculation. It needs focused equivalence tests before production movement. |
+| Extract scaffold energy/force application from the main method | Medium risk plus ownership decisions | The scaffold helper already exists, but the caller-owned reset of scaffold energy components and the post-total-force harmonic force addition are order-sensitive. Gag-specific evaluator coverage is still missing. |
+| Extract boundary/ghost force handling behind an evaluator-named helper | Low naming risk but behavior-sensitive | The implementation already lives in `Mesh::manage_force_for_boundary_ghost_vertex()`. Moving or renaming the call is less risky than formula extraction, but the call must remain after scaffold force application. |
+
+Evidence gaps before a production term extraction:
+
+- No focused fixture currently proves that a moved face-loop helper preserves
+  serial and OpenMP force accumulation order beyond the broad evaluator
+  equivalence tests.
+- No Gag-specific evaluator fixture initializes reaction targets and asserts
+  Gag energy side effects through the facade.
+- Existing tests observe harmonic scaffold and synthetic idealized-lattice
+  accounting, but they do not approve changing scaffold force timing.
+- Existing geometry tests protect the regular limit-surface row path, but they
+  do not approve changing irregular subdivision semantics or adding an
+  OpenSubdiv backend.
+- A future production extraction should start from a fresh numerical baseline
+  and should keep formulas, force scatter, boundary handling, and scaffold
+  timing byte-for-byte equivalent unless a domain reviewer explicitly approves
+  otherwise.
+
 ## Fields Currently Outside The Boundary
 
 The evaluator refresh should not mutate these caller-owned or policy-owned
@@ -161,6 +248,7 @@ reviewer/user approval before implementation.
 | Slice | Why it is next | Required guardrails |
 | --- | --- | --- |
 | Extract a geometry-refresh helper behind the facade | Implemented: it remains the first step in `Compute_Energy_And_Force()` and has a clear output pair: face area/volume plus `Param::area`/`Param::vol`. | Preserve ghost filtering, regular/irregular path selection, Loop evaluator behavior, setup-time reference semantics, and serial/OpenMP numerical baselines. |
+| Characterize the membrane term accumulation boundary | Implemented here as docs/scripts-only phase mapping. No production formulas or call timing changed. | Treat any future production extraction as review-gated because it touches formulas, scatter order, OpenMP reductions, and global constraint forces. |
 | Extend scaffold-enabled evaluator characterization to Gag fixtures | Harmonic and synthetic idealized-lattice scaffold side effects are now covered through the shared helper/facade path, but no committed focused fixture currently initializes Gag-specific reaction targets for evaluator-level assertions. | Use existing scaffold fixtures where possible and avoid changing scaffold propagation, topology initialization, or Gag finite-difference behavior. |
 | Defer propagation helper extraction | It would cross from core refresh into accepted-step, thermal, dynamics, records, and checkpoint policy. | Start only after a fresh behavior baseline and an explicit prompt approving propagation ownership changes. |
 
@@ -169,8 +257,9 @@ Suggested approved-production prompt:
 ```text
 Create one narrow production slice behind EnergyForceEvaluator using the
 side-effect map in docs/energy_force_evaluator_side_effect_boundary.md. Extract
-only the geometry-refresh or clearing pre-pass responsibility, keep all caller
-timing and propagation policy unchanged, and prove serial/OpenMP energy, force,
-area, volume, scaffold-disabled behavior, output, and checkpoint-visible state
-remain unchanged.
+only one named internal responsibility, keep all formulas, force scatter,
+OpenMP reduction shape, scaffold timing, boundary handling, caller timing, and
+propagation policy unchanged, and prove serial/OpenMP energy, force, area,
+volume, scaffold-disabled behavior, output, and checkpoint-visible state remain
+unchanged.
 ```
