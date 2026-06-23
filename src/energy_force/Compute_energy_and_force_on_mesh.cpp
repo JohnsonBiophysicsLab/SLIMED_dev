@@ -23,54 +23,10 @@ void refresh_energy_force_geometry(Mesh &mesh)
     mesh.calculate_element_area_volume();
     mesh.sum_membrane_area_and_volume(mesh.param.area, mesh.param.vol);
 }
-} // namespace
 
-/**
- * @brief Clear current force and face-energy state before recomputing energy and force.
- *
- * Previous-state snapshots are owned by callers; this pre-pass only resets the
- * current recomputation targets.
- */
-void Mesh::clear_force_on_vertices_and_energy_on_faces()
+void accumulate_membrane_face_energy_and_forces(Mesh &mesh)
 {
-#pragma omp parallel for
-    for (int i = 0; i < vertices.size(); i++)
-    {
-        vertices[i].force.set_all_zero();
-    }
-#pragma omp parallel for
-    for (int i = 0; i < faces.size(); i++)
-    {
-        Energy energytmp;
-        faces[i].energy = energytmp;
-    }
-}
-
-/**
- *
- * @brief Computes the energy and force on each vertex and face of the mesh.
- *
- * This function performs the following steps:
- *       Calculates the area and volume of each element triangle and sums up the total area and volume of the membrane.
- *       Iterates through faces and calculates the energy and force on each triangular patch.
- *       Regularizes the force and energy.
- *       Sums up the energy and force on each vertex and face.
- *       Calculates the energy due to area constraint.
- *       Calculates the energy due to volume constraint.
- *       Calculates the energy due to scaffolding.
- *
- * @return void
- */
-void Mesh::Compute_Energy_And_Force()
-{
-
-    // Step 1. Refresh per-face and global geometry from current coordinates.
-    refresh_energy_force_geometry(*this);
-
-    // Reset the force on vertices and energy on faces
-    clear_force_on_vertices_and_energy_on_faces();
-
-    const int nVertices = static_cast<int>(vertices.size());
+    const int nVertices = static_cast<int>(mesh.vertices.size());
 #ifdef OMP
     const int nThreads = omp_get_max_threads();
 #else
@@ -81,10 +37,9 @@ void Mesh::Compute_Energy_And_Force()
     std::vector<std::vector<double>> faceForceComponents(
         nThreads, std::vector<double>(nVertices * 9, 0.0));
 
-    // Step 2.
     // Iterate through faces and calculate forces
 #pragma omp parallel for
-    for (Face &face : faces)
+    for (Face &face : mesh.faces)
     {
 #ifdef OMP
         const int threadIndex = omp_get_thread_num();
@@ -103,8 +58,8 @@ void Mesh::Compute_Energy_And_Force()
         std::vector<Matrix> coordOneRingVertices(nOneRingVertices);
         std::transform(face.oneRingVertices.begin(), face.oneRingVertices.end(),
                        coordOneRingVertices.begin(),
-                       [this](int iVertex)
-                       { return vertices[iVertex].coord; });
+                       [&mesh](int iVertex)
+                       { return mesh.vertices[iVertex].coord; });
 
         double spontCurv = face.spontCurvature;         // spontaneous curvature of each patch,
         double eBend = 0.0;                             // curvature Energy of this element;
@@ -120,15 +75,15 @@ void Mesh::Compute_Energy_And_Force()
         if (nOneRingVertices == 12)
         {
 //cout << "CEAF 75" << endl;
-            element_energy_force_regular(coordOneRingVertices,
-                                         face,
-                                         spontCurv,
-                                         meanCurv,
-                                         face.normVector,
-                                         eBend,
-                                         fBend,
-                                         fArea,
-                                         fVol);
+            mesh.element_energy_force_regular(coordOneRingVertices,
+                                              face,
+                                              spontCurv,
+                                              meanCurv,
+                                              face.normVector,
+                                              eBend,
+                                              fBend,
+                                              fArea,
+                                              fVol);
 
             // irregular patch
         }
@@ -136,15 +91,15 @@ void Mesh::Compute_Energy_And_Force()
         {
             //@todo energy force irregular
             // element_energy_force_irregular(coordOneRingVertices, param, spontCurv, meanCurv, normVector, eBend, fBend, fArea, fVol, GaussQuadratureCoeff, ShapeFunctions, subMatrix);
-            element_energy_force_regular(coordOneRingVertices,
-                                         face,
-                                         spontCurv,
-                                         meanCurv,
-                                         face.normVector,
-                                         eBend,
-                                         fBend,
-                                         fArea,
-                                         fVol);
+            mesh.element_energy_force_regular(coordOneRingVertices,
+                                              face,
+                                              spontCurv,
+                                              meanCurv,
+                                              face.normVector,
+                                              eBend,
+                                              fBend,
+                                              fArea,
+                                              fVol);
         }
         face.energy.energyCurvature = eBend; ///< store curvature energy in face object
 
@@ -196,11 +151,61 @@ void Mesh::Compute_Energy_And_Force()
         }
         for (int axis = 0; axis < 3; ++axis)
         {
-            vertices[i].force.forceCurvature.set(axis, 0, componentSums[axis]);
-            vertices[i].force.forceArea.set(axis, 0, componentSums[3 + axis]);
-            vertices[i].force.forceVolume.set(axis, 0, componentSums[6 + axis]);
+            mesh.vertices[i].force.forceCurvature.set(axis, 0, componentSums[axis]);
+            mesh.vertices[i].force.forceArea.set(axis, 0, componentSums[3 + axis]);
+            mesh.vertices[i].force.forceVolume.set(axis, 0, componentSums[6 + axis]);
         }
     }
+}
+} // namespace
+
+/**
+ * @brief Clear current force and face-energy state before recomputing energy and force.
+ *
+ * Previous-state snapshots are owned by callers; this pre-pass only resets the
+ * current recomputation targets.
+ */
+void Mesh::clear_force_on_vertices_and_energy_on_faces()
+{
+#pragma omp parallel for
+    for (int i = 0; i < vertices.size(); i++)
+    {
+        vertices[i].force.set_all_zero();
+    }
+#pragma omp parallel for
+    for (int i = 0; i < faces.size(); i++)
+    {
+        Energy energytmp;
+        faces[i].energy = energytmp;
+    }
+}
+
+/**
+ *
+ * @brief Computes the energy and force on each vertex and face of the mesh.
+ *
+ * This function performs the following steps:
+ *       Calculates the area and volume of each element triangle and sums up the total area and volume of the membrane.
+ *       Iterates through faces and calculates the energy and force on each triangular patch.
+ *       Regularizes the force and energy.
+ *       Sums up the energy and force on each vertex and face.
+ *       Calculates the energy due to area constraint.
+ *       Calculates the energy due to volume constraint.
+ *       Calculates the energy due to scaffolding.
+ *
+ * @return void
+ */
+void Mesh::Compute_Energy_And_Force()
+{
+
+    // Step 1. Refresh per-face and global geometry from current coordinates.
+    refresh_energy_force_geometry(*this);
+
+    // Reset the force on vertices and energy on faces
+    clear_force_on_vertices_and_energy_on_faces();
+
+    // Step 2.
+    accumulate_membrane_face_energy_and_forces(*this);
 
     // Step 3.
     energy_force_regularization(); // regularization Force and Energy
