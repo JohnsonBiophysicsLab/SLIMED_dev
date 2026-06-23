@@ -1,9 +1,9 @@
 # Energy Force Evaluator Architecture Cleanup Candidates
 
 This note characterizes the next `EnergyForceEvaluator` architecture cleanup
-candidates after PR #33 and records that the narrow helper-consolidation and
-clearing pre-pass implementation placement slices have been implemented. It is
-kept as a decision aid for future cleanup.
+candidates after PR #33 and records that the narrow helper-consolidation,
+clearing pre-pass implementation placement, and geometry-refresh extraction
+slices have been implemented. It is kept as a decision aid for future cleanup.
 
 Regenerate the source call-site and helper inventory with:
 
@@ -42,7 +42,7 @@ ownership or trial-evaluation policy, not as mechanical routing.
 
 | Candidate slice | Why consider it | Risk | Expected files touched | Required validation | Approval needed |
 | --- | --- | --- | --- | --- | --- |
-| Keep the shared helper and move implementation work behind `EnergyForceEvaluator` | Avoids cross-mode coupling while enabling internal physics extraction behind the existing facade. | Medium: internal extraction can disturb formula order, force scatter, OpenMP reductions, scaffolding side effects, or boundary force handling. | `src/energy_force/*`, `include/energy_force/*`, focused tests/docs. | `make test`, `./bin/test_main`, evaluator equivalence tests, OpenMP/serial numerical baseline, accepted-step smoke if runner behavior is touched. | Yes, because production physics code changes. |
+| Keep the shared helper and move implementation work behind `EnergyForceEvaluator` | Partly implemented: the clearing pre-pass and geometry refresh are now named inside the existing implementation boundary. Remaining slices should avoid cross-mode coupling while enabling internal physics extraction behind the existing facade. | Medium: internal extraction can disturb formula order, force scatter, OpenMP reductions, scaffolding side effects, or boundary force handling. | `src/energy_force/*`, `include/energy_force/*`, focused tests/docs. | `make test`, `./bin/test_main`, evaluator equivalence tests, OpenMP/serial numerical baseline, accepted-step smoke if runner behavior is touched. | Yes, because production physics code changes. |
 | Consolidate local `evaluate_energy_force(Mesh&)` wrappers into a shared helper | Implemented: removes three duplicated wrappers and makes routed refreshes visually uniform. | Low to medium: the helper is simple, but a shared header couples runners and model code through a named evaluator utility. | `include/energy_force/Energy_force_evaluator.hpp`, `src/energy_force/Energy_force_evaluator.cpp`, `src/Run_flat.cpp`, `src/Run_dynamics_flat.cpp`, `src/model/Energy_minimization.cpp`; docs/scripts updates. | Full test gate plus accepted-step smoke; compare helper inventory before/after; no output/checkpoint diffs expected. | Yes, because production C++ files and ownership boundaries change. |
 | Replace local wrappers with direct `EnergyForceEvaluator evaluator; evaluator.evaluate(mesh);` at each call site | Removes helper indirection without adding a shared API. | Low: call timing should remain unchanged, but repeated object construction statements add visual noise at sensitive loop points. | `src/Run_flat.cpp`, `src/Run_dynamics_flat.cpp`, `src/model/Energy_minimization.cpp`; docs updates. | Full test gate plus accepted-step smoke; reviewer check that no neighboring state moved. | Yes, because production C++ call sites change. |
 | Add a shared propagation helper that owns refresh plus adjacent snapshots | Could reduce duplicated ordering in runners if broader propagation ownership is desired. | High: easily changes previous-state snapshots, records, checkpoints, thermal rollback, dynamics record-before-recompute behavior, or restart-visible state. | Runners, `Model`, possible new propagation header/source, IO/checkpoint tests/docs. | Fresh behavior baseline for minimization, thermal, restart, dynamics trajectory, records, checkpoints, serial/OpenMP output. | Yes, explicit reviewer/user approval recommended before starting. |

@@ -17,6 +17,12 @@ void copy_column_vector(const Matrix &source, Matrix &destination)
         destination.set(row, 0, source(row, 0));
     }
 }
+
+void refresh_energy_force_geometry(Mesh &mesh)
+{
+    mesh.calculate_element_area_volume();
+    mesh.sum_membrane_area_and_volume(mesh.param.area, mesh.param.vol);
+}
 } // namespace
 
 /**
@@ -58,12 +64,8 @@ void Mesh::clear_force_on_vertices_and_energy_on_faces()
 void Mesh::Compute_Energy_And_Force()
 {
 
-    // Step 1.
-    // Calculate the area and volume of each element triangle
-    calculate_element_area_volume();
-
-    // Sum up the total area and volume of the membrane and sync with parameter
-    sum_membrane_area_and_volume(param.area, param.vol);
+    // Step 1. Refresh per-face and global geometry from current coordinates.
+    refresh_energy_force_geometry(*this);
 
     // Reset the force on vertices and energy on faces
     clear_force_on_vertices_and_energy_on_faces();

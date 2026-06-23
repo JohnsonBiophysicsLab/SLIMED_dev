@@ -23,6 +23,7 @@ SCAN_TARGETS: dict[Path, tuple[str, ...]] = {
         "evaluate_energy_force",
     ),
     Path("src/energy_force/Compute_energy_and_force_on_mesh.cpp"): (
+        "refresh_energy_force_geometry",
         "Mesh::clear_force_on_vertices_and_energy_on_faces",
         "Mesh::Compute_Energy_And_Force",
         "Mesh::energy_force_regularization",
@@ -40,7 +41,9 @@ SCAN_TARGETS: dict[Path, tuple[str, ...]] = {
 SCAN_FILES = tuple(SCAN_TARGETS)
 
 SIDE_EFFECT_CALL_PATTERN = re.compile(
-    r"\b(assign|calculate_total_force|clear_force_on_vertices_and_energy_on_faces|"
+    r"\b(assign|calculate_element_area_volume|calculate_total_force|"
+    r"clear_force_on_vertices_and_energy_on_faces|"
+    r"sum_membrane_area_and_volume|"
     r"set_all_zero|set)\s*\("
 )
 
@@ -77,7 +80,11 @@ CATEGORIES = (
     Category(
         "element geometry writes",
         "Per-face area/volume are refreshed from current coordinates.",
-        compile_patterns(r"\bface\.elementArea\b", r"\bface\.elementVolume\b"),
+        compile_patterns(
+            r"\bcalculate_element_area_volume\s*\(",
+            r"\bface\.elementArea\b",
+            r"\bface\.elementVolume\b",
+        ),
     ),
     Category(
         "global area/volume writes",

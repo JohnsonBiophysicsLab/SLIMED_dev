@@ -78,30 +78,31 @@ reaction `.inp` parameters.
 
 ## Geometry-Refresh Extraction Readiness
 
-The narrow geometry-refresh candidate is the opening phase of
+The narrow geometry-refresh extraction is implemented as the opening phase of
 `Mesh::Compute_Energy_And_Force()`:
 
 ```text
 Mesh::Compute_Energy_And_Force()
-  -> calculate_element_area_volume()
+  -> refresh_energy_force_geometry(mesh)
+     -> calculate_element_area_volume()
      -> non-ghost regular faces: get_one_ring_vertex_matrix()
         -> enumerate_regular_patch_area_volume_with_limit_surface_evaluator()
      -> non-ghost irregular faces: get_one_ring_vertex_matrix()
         -> subdivision matrices M/M1/M2/M3/M4
         -> enumerate_gauss_quadrature_point_area_volume()
      -> writes Face::elementArea and Face::elementVolume
-  -> sum_membrane_area_and_volume(param.area, param.vol)
+     -> sum_membrane_area_and_volume(param.area, param.vol)
      -> resets and sums Param::area and Param::vol over non-ghost faces
   -> clear_force_on_vertices_and_energy_on_faces()
   -> face energy/force accumulation, regularization, totals, scaffolding, boundary handling
 ```
 
-This boundary is smaller than a broad mesh-geometry rewrite because it can be
-named as a helper next to the existing energy-force implementation without
-changing formula ownership, caller timing, force scatter, or output policy. A
-production extraction should move only the two existing calls above behind a
-private/internal helper such as `refresh_energy_force_geometry(mesh)`, then call
-that helper at the same point before `clear_force_on_vertices_and_energy_on_faces()`.
+This boundary is smaller than a broad mesh-geometry rewrite because it is named
+as an internal helper next to the existing energy-force implementation without
+changing formula ownership, caller timing, force scatter, or output policy. The
+production extraction moved only the two existing calls above behind
+`refresh_energy_force_geometry(mesh)`, then calls that helper at the same point
+before `clear_force_on_vertices_and_energy_on_faces()`.
 
 Fields refreshed by this candidate:
 
@@ -159,7 +160,7 @@ reviewer/user approval before implementation.
 
 | Slice | Why it is next | Required guardrails |
 | --- | --- | --- |
-| Extract a geometry-refresh helper behind the facade | It is the first step in `Compute_Energy_And_Force()` and has a clear output pair: face area/volume plus `Param::area`/`Param::vol`. | Preserve ghost filtering, regular/irregular path selection, Loop evaluator behavior, setup-time reference semantics, and serial/OpenMP numerical baselines. |
+| Extract a geometry-refresh helper behind the facade | Implemented: it remains the first step in `Compute_Energy_And_Force()` and has a clear output pair: face area/volume plus `Param::area`/`Param::vol`. | Preserve ghost filtering, regular/irregular path selection, Loop evaluator behavior, setup-time reference semantics, and serial/OpenMP numerical baselines. |
 | Extend scaffold-enabled evaluator characterization to Gag fixtures | Harmonic and synthetic idealized-lattice scaffold side effects are now covered through the shared helper/facade path, but no committed focused fixture currently initializes Gag-specific reaction targets for evaluator-level assertions. | Use existing scaffold fixtures where possible and avoid changing scaffold propagation, topology initialization, or Gag finite-difference behavior. |
 | Defer propagation helper extraction | It would cross from core refresh into accepted-step, thermal, dynamics, records, and checkpoint policy. | Start only after a fresh behavior baseline and an explicit prompt approving propagation ownership changes. |
 
