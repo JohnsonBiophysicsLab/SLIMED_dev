@@ -49,6 +49,10 @@ using namespace OpenSubdiv;
 #define SLIMED_AGGREGATE_SOURCE_COVERAGE_REPORT 0
 #endif
 
+#ifndef SLIMED_REGULAR_EQUIVALENCE_REPORT
+#define SLIMED_REGULAR_EQUIVALENCE_REPORT 0
+#endif
+
 struct Point {
     float x;
     float y;
@@ -462,8 +466,8 @@ static void print_aggregate_source_coverage(
         sValues[ptexFace].reserve(sampleLocations.size());
         tValues[ptexFace].reserve(sampleLocations.size());
         for (AggregateSampleLocation const &sample : sampleLocations) {
-            sValues[ptexFace].push_back(sample.w);
-            tValues[ptexFace].push_back(sample.v);
+            sValues[ptexFace].push_back(sample.v);
+            tValues[ptexFace].push_back(sample.w);
         }
 
         Far::LimitStencilTableFactory::LocationArray location;
@@ -554,7 +558,7 @@ static void print_aggregate_source_coverage(
         }
         std::cout << "{\"label\":\"" << sample.label << "\",\"v\":"
                   << sample.v << ",\"w\":" << sample.w
-                  << ",\"s\":" << sample.w << ",\"t\":" << sample.v
+                  << ",\"s\":" << sample.v << ",\"t\":" << sample.w
                   << "}";
     }
     std::cout << "]";
@@ -708,6 +712,142 @@ static void print_vec3(char const *name, float const values[3]) {
               << values[0] << "," << values[1] << "," << values[2] << "]";
 }
 
+#if SLIMED_REGULAR_EQUIVALENCE_REPORT
+static constexpr double kRegularEquivalenceAbsTolerance = 5.0e-6;
+static constexpr double kRegularEquivalenceRelTolerance = 5.0e-6;
+
+struct DifferenceSummary {
+    double maxAbs = 0.0;
+    double maxRel = 0.0;
+
+    bool passed() const {
+        return maxAbs <= kRegularEquivalenceAbsTolerance &&
+               maxRel <= kRegularEquivalenceRelTolerance;
+    }
+};
+
+static double relative_difference(double actual, double expected) {
+    return std::abs(actual - expected) / std::max(1.0, std::abs(expected));
+}
+
+static void update_summary(DifferenceSummary &summary,
+                           double actual,
+                           double expected) {
+    summary.maxAbs = std::max(summary.maxAbs, std::abs(actual - expected));
+    summary.maxRel =
+        std::max(summary.maxRel, relative_difference(actual, expected));
+}
+
+static void compare_vec3(DifferenceSummary &sampleSummary,
+                         DifferenceSummary &aggregateSummary,
+                         float const actual[3],
+                         double const expected[3]) {
+    for (int axis = 0; axis < 3; ++axis) {
+        update_summary(sampleSummary, actual[axis], expected[axis]);
+        update_summary(aggregateSummary, actual[axis], expected[axis]);
+    }
+}
+
+static constexpr double kSlimedRegularExpected[3][7][3] = {
+    {
+        {3.4999999999999982, 2.0207259421636894, -0.003450545921933364},
+        {0.99999999999999978, -3.6236828367093433e-17,
+         -0.019210698845634439},
+        {0.50000000000000022, 0.86602540378443882,
+         -0.019210698845634439},
+        {3.3306690738754696e-16, 3.4587734865006226e-17,
+         0.0017240750489055767},
+        {-1.1102230246251565e-16, -1.1674737245020074e-16,
+         0.0017240750489055771},
+        {-5.5511151231257827e-17, -1.9572029680632367e-16,
+         0.0017240750489055834},
+        {-5.5511151231257827e-17, -1.9572029680632367e-16,
+         0.0017240750489055834},
+    },
+    {
+        {3.3500000000000001, 1.9918584287042085, -0.0002322832431500952},
+        {0.99999999999999978, -1.2002033867471152e-16,
+         -0.019363657606087825},
+        {0.50000000000000033, 0.86602540378443882,
+         -0.019363657606087818},
+        {2.7755575615628914e-16, 4.1296024847155701e-16,
+         0.00011143007653501233},
+        {1.1102230246251565e-16, 1.1399713609118315e-16,
+         0.0001114300765350122},
+        {5.5511151231257827e-17, -2.6556107582143733e-16,
+         0.0001114300765350114},
+        {5.5511151231257827e-17, -2.6556107582143733e-16,
+         0.0001114300765350114},
+    },
+    {
+        {3.4750000000000001, 2.4681724007856505, -0.007865622601230705},
+        {0.99999999999999978, -2.5312096407330787e-16,
+         -0.018545015988735949},
+        {0.50000000000000022, 0.86602540378443882,
+         -0.018545015988735942},
+        {-2.7755575615628914e-16, -5.2999475976476768e-16,
+         0.0039817780102243674},
+        {-4.4408920985006262e-16, -8.1361688734307423e-16,
+         0.0039817780102243709},
+        {2.2204460492503131e-16, 2.0460560118955678e-16,
+         0.0039817780102243657},
+        {2.2204460492503131e-16, 2.0460560118955678e-16,
+         0.0039817780102243657},
+    },
+};
+
+static void print_regular_equivalence_sample(
+    int sample,
+    float const position[3],
+    float const du[3],
+    float const dv[3],
+    float const duu[3],
+    float const duv[3],
+    float const dvv[3],
+    DifferenceSummary &aggregateSummary) {
+    DifferenceSummary sampleSummary;
+    compare_vec3(sampleSummary,
+                 aggregateSummary,
+                 position,
+                 kSlimedRegularExpected[sample][0]);
+    compare_vec3(sampleSummary,
+                 aggregateSummary,
+                 du,
+                 kSlimedRegularExpected[sample][1]);
+    compare_vec3(sampleSummary,
+                 aggregateSummary,
+                 dv,
+                 kSlimedRegularExpected[sample][2]);
+    compare_vec3(sampleSummary,
+                 aggregateSummary,
+                 duu,
+                 kSlimedRegularExpected[sample][3]);
+    compare_vec3(sampleSummary,
+                 aggregateSummary,
+                 dvv,
+                 kSlimedRegularExpected[sample][4]);
+    compare_vec3(sampleSummary,
+                 aggregateSummary,
+                 duv,
+                 kSlimedRegularExpected[sample][5]);
+    compare_vec3(sampleSummary,
+                 aggregateSummary,
+                 duv,
+                 kSlimedRegularExpected[sample][6]);
+
+    std::cout << ",\"regular_equivalence\":{\"reference\":\"frozen "
+                 "SlimedLoopLimitSurfaceEvaluator output for the same "
+                 "regular one-ring controls\"";
+    std::cout << ",\"derivative_mapping\":\"du=d/dv,dv=d/dw,duu=d2/dv2,"
+                 "dvv=d2/dw2,duv=d2/dvdw=d2/dwdv\"";
+    std::cout << ",\"sample_max_abs_difference\":" << sampleSummary.maxAbs;
+    std::cout << ",\"sample_max_relative_difference\":"
+              << sampleSummary.maxRel;
+    std::cout << ",\"passed\":" << (sampleSummary.passed() ? "true" : "false")
+              << "}";
+}
+#endif
+
 static int run_case(MeshCase const &mesh) {
     Far::TopologyRefiner *refiner = create_refiner(mesh);
     if (!refiner) {
@@ -739,8 +879,8 @@ static int run_case(MeshCase const &mesh) {
     float s[3];
     float t[3];
     for (int i = 0; i < 3; ++i) {
-        s[i] = slimedW[i];
-        t[i] = slimedV[i];
+        s[i] = slimedV[i];
+        t[i] = slimedW[i];
     }
 
     Far::LimitStencilTableFactory::LocationArray location;
@@ -772,11 +912,15 @@ static int run_case(MeshCase const &mesh) {
     std::cout << "\"control_vertex_count\":" << mesh.numVertices << ",";
     std::cout << "\"face_count\":" << mesh.vertsPerFace.size() << ",";
     std::cout << "\"sample_face\":" << mesh.sampleFace << ",";
-    std::cout << "\"slimed_to_opensubdiv_uv\":\"s=w,t=v (prototype mapping)\",";
+    std::cout << "\"slimed_to_opensubdiv_uv\":\"s=v,t=w\",";
     std::cout << "\"expected_local_control_ids\":";
     print_int_array(mesh.expectedLocalControlIds);
     std::cout << ",";
     std::cout << "\"samples\":[";
+
+#if SLIMED_REGULAR_EQUIVALENCE_REPORT
+    DifferenceSummary regularEquivalenceSummary;
+#endif
 
     for (int sample = 0; sample < stencils->GetNumStencils(); ++sample) {
         Far::LimitStencil stencil = stencils->GetLimitStencil(sample);
@@ -855,6 +999,18 @@ static int run_case(MeshCase const &mesh) {
         print_vec3("duu", duu);
         print_vec3("duv", duv);
         print_vec3("dvv", dvv);
+#if SLIMED_REGULAR_EQUIVALENCE_REPORT
+        if (mesh.name == "regular_triangular_lattice") {
+            print_regular_equivalence_sample(sample,
+                                             position,
+                                             du,
+                                             dv,
+                                             duu,
+                                             duv,
+                                             dvv,
+                                             regularEquivalenceSummary);
+        }
+#endif
 #if SLIMED_BACKPROJECTION_REPORT
         print_patch_table_report(patchTable,
                                  cvStencils,
@@ -867,6 +1023,23 @@ static int run_case(MeshCase const &mesh) {
         std::cout << "}";
     }
     std::cout << "]";
+#if SLIMED_REGULAR_EQUIVALENCE_REPORT
+    if (mesh.name == "regular_triangular_lattice") {
+        std::cout << ",\"regular_equivalence_summary\":{";
+        std::cout << "\"sample_count\":" << stencils->GetNumStencils();
+        std::cout << ",\"abs_tolerance\":"
+                  << kRegularEquivalenceAbsTolerance;
+        std::cout << ",\"relative_tolerance\":"
+                  << kRegularEquivalenceRelTolerance;
+        std::cout << ",\"max_abs_difference\":"
+                  << regularEquivalenceSummary.maxAbs;
+        std::cout << ",\"max_relative_difference\":"
+                  << regularEquivalenceSummary.maxRel;
+        std::cout << ",\"passed\":"
+                  << (regularEquivalenceSummary.passed() ? "true" : "false")
+                  << "}";
+    }
+#endif
 #if SLIMED_AGGREGATE_SOURCE_COVERAGE_REPORT
     print_aggregate_source_coverage(mesh, *refiner, patchTable, cvStencils);
 #endif
@@ -876,6 +1049,12 @@ static int run_case(MeshCase const &mesh) {
     delete cvStencils;
     delete patchTable;
     delete refiner;
+#if SLIMED_REGULAR_EQUIVALENCE_REPORT
+    if (mesh.name == "regular_triangular_lattice" &&
+        !regularEquivalenceSummary.passed()) {
+        return 6;
+    }
+#endif
     return 0;
 }
 
@@ -941,6 +1120,14 @@ def parse_args() -> argparse.Namespace:
         help=(
             "Opt into aggregate original-control source coverage across all "
             "ptex faces and a documented sample grid."
+        ),
+    )
+    parser.add_argument(
+        "--regular-equivalence-report",
+        action="store_true",
+        help=(
+            "Opt into a regular-face comparison against frozen SLIMED "
+            "regular evaluator values."
         ),
     )
     parser.add_argument(
@@ -1052,6 +1239,8 @@ def main() -> int:
             command.append("-DSLIMED_BACKPROJECTION_REPORT=1")
         if args.aggregate_source_coverage_report:
             command.append("-DSLIMED_AGGREGATE_SOURCE_COVERAGE_REPORT=1")
+        if args.regular_equivalence_report:
+            command.append("-DSLIMED_REGULAR_EQUIVALENCE_REPORT=1")
         command.extend(shlex.split(os.environ.get("OPENSUBDIV_CXXFLAGS", "")))
         command.extend(
             [

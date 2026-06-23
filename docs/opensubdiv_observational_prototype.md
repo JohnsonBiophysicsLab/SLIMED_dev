@@ -126,7 +126,7 @@ documented nine-point barycentric grid:
 - three interior grid points `{(0.20,0.20), (0.60,0.20), (0.20,0.60)}`; and
 - three near-corner/interior points `{(0.10,0.10), (0.45,0.10), (0.10,0.45)}`.
 
-The prototype still uses the provisional coordinate mapping `s=w,t=v`. For
+The prototype now reports the observed coordinate mapping `s=v,t=w`. For
 each evaluated location, the report unions original control ids with nonzero
 value, first-derivative, and second-derivative weights. It also records the
 sampled patch ids/types returned through `Far::PatchMap`, so the aggregate is
@@ -149,22 +149,57 @@ python3 scripts/probe_opensubdiv_feasibility.py \
 
 This proves only aggregate source coverage for the observational topology and
 sample grid. It does not prove that a single SLIMED face-level force contract
-should gather from every adjacent ptex face, that OpenSubdiv's coordinates are
-numerically equivalent to SLIMED's regular evaluator, or that force
-contributions can be transposed into SLIMED's current scatter order without a
-separate review.
+should gather from every adjacent ptex face or that force contributions can be
+transposed into SLIMED's current scatter order without a separate review.
 
 Before production adoption, SLIMED still needs:
 
 - regular-patch numerical equivalence against `SlimedLoopLimitSurfaceEvaluator`
-  for position, first derivatives, second derivatives, normals, area integrand,
-  and legacy volume integrand;
+  for normals, area integrand, and legacy volume integrand;
 - a reviewed force transpose/back-projection contract from OpenSubdiv value and
   derivative weights to SLIMED original vertex ids;
 - an accumulation/scatter ordering proof preserving serial and OpenMP behavior;
 - a backend interface decision behind `LimitSurfaceEvaluator`;
 - an explicit build/dependency/licensing policy for OpenSubdiv; and
 - scientific review before irregular force routing is enabled.
+
+## Regular Equivalence Follow-Up
+
+The follow-up `--regular-equivalence-report` mode remains opt-in and inert
+without `OPENSUBDIV_ROOT`. It compares OpenSubdiv's regular triangular lattice
+samples against frozen values generated from the current
+`SlimedLoopLimitSurfaceEvaluator` for the same 12-control regular one-ring
+fixture. The frozen SLIMED values are also covered by
+`SurfaceLimitSurfaceEvaluatorContract.RegularLatticeProbeFrozenOutputsMatchCurrentEvaluator`
+in `tests/test_surface_geometry_characterization.cpp`, so default tests can
+detect accidental drift without linking OpenSubdiv.
+
+The scratch OpenSubdiv `v3_7_0` build at `/tmp/slimed-opensubdiv-install` was
+run with:
+
+```bash
+OPENSUBDIV_ROOT=/tmp/slimed-opensubdiv-install \
+OPENSUBDIV_CXXFLAGS='-arch arm64' \
+python3 scripts/probe_opensubdiv_feasibility.py \
+  --json --require-opensubdiv --regular-equivalence-report
+```
+
+Observed regular comparison:
+
+| Case | Samples | Compared quantities | Coordinate mapping | Tolerance | Max absolute difference | Max relative difference |
+| --- | ---: | --- | --- | ---: | ---: | ---: |
+| regular triangular lattice | 3 | value, `d/dv`, `d/dw`, `d2/dv2`, `d2/dw2`, and mixed derivative rows | `s=v, t=w` | `5e-6` | `3.87430191e-7` | `3.87430191e-7` |
+
+This corrects the earlier provisional `s=w,t=v` note. For the sampled regular
+face, OpenSubdiv's `s` parameter follows SLIMED's `v` derivative row, and
+OpenSubdiv's `t` parameter follows SLIMED's `w` derivative row. OpenSubdiv
+provides one mixed derivative, which matched both of SLIMED's duplicated mixed
+rows within the stated tolerance.
+
+This remains observational evidence, not a production backend approval. It
+does not define force transpose semantics, force scatter or accumulation order,
+boundary/ghost/periodic policy, irregular routing, dependency policy, or
+default build integration.
 
 ## Added Probe
 
@@ -188,9 +223,8 @@ probe. The generated probe:
 - evaluates finite position, first derivative, and second derivative vectors
   from the stencil weights.
 
-The probe uses a provisional SLIMED-to-OpenSubdiv coordinate mapping of
-`s=w, t=v`. That mapping is reported in the output and remains unproven until
-an installed OpenSubdiv run can be compared against SLIMED's regular evaluator.
+The probe reports the observed regular SLIMED-to-OpenSubdiv coordinate mapping
+of `s=v, t=w`.
 
 Example absent-dependency command:
 
@@ -229,6 +263,14 @@ If the local install needs nonstandard flags, callers can provide
 modify the production Makefile and does not copy third-party source into the
 repo.
 
+Example opt-in regular-equivalence report:
+
+```bash
+OPENSUBDIV_ROOT=/path/to/opensubdiv \
+python3 scripts/probe_opensubdiv_feasibility.py \
+  --json --require-opensubdiv --regular-equivalence-report
+```
+
 ## Feasibility Questions
 
 1. Can a Loop-scheme OpenSubdiv Far topology be built from SLIMED-style
@@ -261,10 +303,11 @@ repo.
 4. Can a regular case be compared against SLIMED's regular evaluator at
    quadrature-like sample points?
 
-   Not completed in this lane. The probe uses SLIMED-like barycentric samples
-   and records the provisional coordinate mapping, but numerical equivalence
-   against `SlimedLoopLimitSurfaceEvaluator` must wait for a real OpenSubdiv
-   install or an approved test-only dependency path.
+   Proven observationally for the scratch OpenSubdiv `v3_7_0` build above.
+   The regular lattice comparison matched value, first derivatives, pure second
+   derivatives, and both SLIMED mixed derivative rows for three sample points
+   with max absolute and relative differences of `3.87430191e-7` against a
+   `5e-6` tolerance. The observed coordinate mapping is `s=v, t=w`.
 
 5. Can the PR #45 11-control irregular fixture be represented at least as
    topology/source-id mapping?
@@ -283,10 +326,8 @@ The next useful lane is review-gated:
 
 ```text
 With an approved local OpenSubdiv install path, extend the observational
-prototype or add a test-only executable that links against SLIMED's
-SlimedLoopLimitSurfaceEvaluator to compare regular samples for position,
-first derivatives, second derivatives, normals, area integrand, and legacy
-volume integrand. Then define a reviewable force transpose/back-projection
+prototype to compare regular-sample normals, area integrand, and legacy volume
+integrand. Then define a reviewable force transpose/back-projection
 contract that explains exactly which ptex faces/sample locations contribute to
 one SLIMED face, how derivative rows map to SLIMED's `v,w,u` convention, and
 how contributions scatter back to original vertex ids without changing serial
