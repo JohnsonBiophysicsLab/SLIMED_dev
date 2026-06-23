@@ -76,6 +76,69 @@ reaction `.inp` parameters.
 | Boundary/ghost force handling | `manage_force_for_boundary_ghost_vertex()` replaces whole `Vertex::force` objects with zero force for fixed/free/periodic boundary cases according to the existing branch logic. | Reads `Param::boundaryCondition`, face boundary flags, vertex boundary/ghost flags, and `Param::nFaceX`/`Param::nFaceY` for free boundaries. | Preserve zeroing scope and ordering after scaffold force application. Boundary force handling is output- and trajectory-visible. |
 | Output/checkpoint-visible state | No files are written directly, but `Param::area`, `Param::vol`, `Param::energy`, current vertex forces, face energy/geometry fields, and scaffold force fields become visible to records, output, checkpoints, and later propagation. | Caller timing determines when records/checkpoints consume refreshed state. | Do not move record/checkpoint/output calls into the evaluator. |
 
+## Geometry-Refresh Extraction Readiness
+
+The narrow geometry-refresh candidate is the opening phase of
+`Mesh::Compute_Energy_And_Force()`:
+
+```text
+Mesh::Compute_Energy_And_Force()
+  -> calculate_element_area_volume()
+     -> non-ghost regular faces: get_one_ring_vertex_matrix()
+        -> enumerate_regular_patch_area_volume_with_limit_surface_evaluator()
+     -> non-ghost irregular faces: get_one_ring_vertex_matrix()
+        -> subdivision matrices M/M1/M2/M3/M4
+        -> enumerate_gauss_quadrature_point_area_volume()
+     -> writes Face::elementArea and Face::elementVolume
+  -> sum_membrane_area_and_volume(param.area, param.vol)
+     -> resets and sums Param::area and Param::vol over non-ghost faces
+  -> clear_force_on_vertices_and_energy_on_faces()
+  -> face energy/force accumulation, regularization, totals, scaffolding, boundary handling
+```
+
+This boundary is smaller than a broad mesh-geometry rewrite because it can be
+named as a helper next to the existing energy-force implementation without
+changing formula ownership, caller timing, force scatter, or output policy. A
+production extraction should move only the two existing calls above behind a
+private/internal helper such as `refresh_energy_force_geometry(mesh)`, then call
+that helper at the same point before `clear_force_on_vertices_and_energy_on_faces()`.
+
+Fields refreshed by this candidate:
+
+- `Face::elementArea` and `Face::elementVolume` for non-ghost faces.
+- `Param::area` and `Param::vol` through the existing by-reference summation.
+
+Fields intentionally outside this candidate:
+
+- `Face::energy`, `Face::normVector`, `Face::meanCurvature`, and all vertex
+  force components.
+- `Param::energy`, deformation counters, scaffold force state, boundary force
+  policy, previous-state snapshots, records, checkpoints, and propagation state.
+
+Current evidence:
+
+- `SurfaceFlatMeshCharacterization.PeriodicFlatMeshKeepsInteriorRegularAndPlanar`
+  observes ghost-face exclusion and flat regular-patch area/volume.
+- `SurfaceFlatMeshCharacterization.RegularAreaVolumeUsesLimitSurfaceEvaluatorEquivalentToDirectRows`
+  observes the regular limit-surface path against direct shape-function rows.
+- `EnergyForceEvaluatorTest.SharedHelperRefreshesStaleGeometryAreaAndVolume`
+  observes that the shared evaluator helper overwrites stale non-ghost face
+  geometry and stale `Param::area`/`Param::vol` from current coordinates while
+  preserving the current ghost-face skip behavior.
+- `scripts/inventory_energy_force_side_effects.py` inventories the current
+  geometry and clearing writes by scanning the implementation files that now
+  contain those helpers.
+
+Missing evidence before any broader geometry rewrite:
+
+- No evaluator-facing test distinguishes every possible irregular `11`-control
+  subdivision result from a mathematically improved irregular backend.
+- No test should be treated as approval to change the legacy volume factor,
+  `dot_row`/first-component volume behavior, subdivision depth semantics,
+  OpenMP reductions, or OpenSubdiv dependency shape.
+- Boundary, ghost, periodic, dynamics projection, and scaffold propagation
+  behavior remain separate policy surfaces, not part of this extraction.
+
 ## Fields Currently Outside The Boundary
 
 The evaluator refresh should not mutate these caller-owned or policy-owned

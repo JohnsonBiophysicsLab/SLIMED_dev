@@ -167,6 +167,48 @@ std::vector<Force> copy_current_forces(const Mesh &mesh)
     return forces;
 }
 
+struct FaceGeometry
+{
+    double area = 0.0;
+    double volume = 0.0;
+};
+
+std::vector<FaceGeometry> copy_face_geometry(const Mesh &mesh)
+{
+    std::vector<FaceGeometry> geometry;
+    geometry.reserve(mesh.faces.size());
+    for (const Face &face : mesh.faces)
+    {
+        geometry.push_back({face.elementArea, face.elementVolume});
+    }
+    return geometry;
+}
+
+void expect_same_face_geometry(const std::vector<FaceGeometry> &expected,
+                               const Mesh &actual,
+                               const double expectedGhostArea,
+                               const double expectedGhostVolume)
+{
+    ASSERT_EQ(expected.size(), actual.faces.size());
+    for (int i = 0; i < static_cast<int>(expected.size()); ++i)
+    {
+        if (actual.faces[i].isGhost)
+        {
+            EXPECT_DOUBLE_EQ(expectedGhostArea, actual.faces[i].elementArea)
+                << "ghost face " << i << " elementArea";
+            EXPECT_DOUBLE_EQ(expectedGhostVolume, actual.faces[i].elementVolume)
+                << "ghost face " << i << " elementVolume";
+        }
+        else
+        {
+            EXPECT_DOUBLE_EQ(expected[i].area, actual.faces[i].elementArea)
+                << "face " << i << " elementArea";
+            EXPECT_DOUBLE_EQ(expected[i].volume, actual.faces[i].elementVolume)
+                << "face " << i << " elementVolume";
+        }
+    }
+}
+
 void poison_current_force_and_energy(Mesh &mesh)
 {
     mesh.param.energy.energyTotal = 12345.0;
@@ -240,6 +282,43 @@ TEST(EnergyForceEvaluatorTest, MatchesExistingMeshEnergyForceCall)
     EXPECT_DOUBLE_EQ(directMesh.param.energy.energyTotal,
                      evaluatorMesh.param.energy.energyTotal);
     expect_same_forces(copy_current_forces(directMesh), evaluatorMesh);
+}
+
+TEST(EnergyForceEvaluatorTest, SharedHelperRefreshesStaleGeometryAreaAndVolume)
+{
+    Param expectedParam = make_scaffold_characterization_param();
+    Param evaluatorParam = make_scaffold_characterization_param();
+    Mesh expectedMesh(expectedParam);
+    Mesh evaluatorMesh(evaluatorParam);
+    initialize_area_reference(expectedMesh);
+    initialize_area_reference(evaluatorMesh);
+
+    for (int i = 0; i < static_cast<int>(expectedMesh.vertices.size()); ++i)
+    {
+        const double displacement = 0.05 * std::sin(0.7 * static_cast<double>(i));
+        expectedMesh.vertices[i].coord.set(2, 0, displacement);
+        evaluatorMesh.vertices[i].coord.set(2, 0, displacement);
+    }
+
+    expectedMesh.calculate_element_area_volume();
+    expectedMesh.sum_membrane_area_and_volume(expectedMesh.param.area,
+                                              expectedMesh.param.vol);
+    const std::vector<FaceGeometry> expectedGeometry =
+        copy_face_geometry(expectedMesh);
+
+    evaluatorMesh.param.area = -123.0;
+    evaluatorMesh.param.vol = 456.0;
+    for (Face &face : evaluatorMesh.faces)
+    {
+        face.elementArea = -1.0;
+        face.elementVolume = 2.0;
+    }
+
+    evaluate_energy_force(evaluatorMesh);
+
+    EXPECT_DOUBLE_EQ(expectedMesh.param.area, evaluatorMesh.param.area);
+    EXPECT_DOUBLE_EQ(expectedMesh.param.vol, evaluatorMesh.param.vol);
+    expect_same_face_geometry(expectedGeometry, evaluatorMesh, -1.0, 2.0);
 }
 
 TEST(EnergyForceEvaluatorTest, RepeatedEvaluationClearsStaleForceAndFaceEnergy)
