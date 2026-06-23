@@ -55,6 +55,9 @@ Example absent-dependency command:
 python3 scripts/probe_opensubdiv_feasibility.py --json
 ```
 
+The documented spelling is `--json`; legacy checklists that invoke
+`--mode check` receive the same JSON status for compatibility.
+
 Example opt-in command:
 
 ```bash

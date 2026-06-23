@@ -294,7 +294,18 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Emit the probe status as JSON.",
     )
-    return parser.parse_args()
+    parser.add_argument(
+        "--mode",
+        choices=["check"],
+        help=(
+            "Legacy alias for checklist compatibility. "
+            "`--mode check` behaves like `--json`."
+        ),
+    )
+    args = parser.parse_args()
+    if args.mode == "check":
+        args.json = True
+    return args
 
 
 def candidate_roots(explicit_root: str | None) -> list[Path]:
