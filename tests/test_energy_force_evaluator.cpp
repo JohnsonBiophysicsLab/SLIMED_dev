@@ -1,4 +1,5 @@
 #include <cmath>
+#include <limits>
 #include <vector>
 
 #include <gtest/gtest.h>
@@ -27,6 +28,14 @@ Param make_tiny_flat_param()
     return param;
 }
 
+Param make_scaffold_characterization_param()
+{
+    Param param = make_tiny_flat_param();
+    param.sideX = 40.0;
+    param.sideY = 40.0;
+    return param;
+}
+
 void initialize_area_reference(Mesh &mesh)
 {
     mesh.setup_flat();
@@ -42,6 +51,52 @@ void initialize_area_reference(Mesh &mesh)
     }
     mesh.update_previous_coord_for_vertex();
     mesh.update_reference_coord_from_previous_coord();
+}
+
+int first_force_visible_vertex_index(const Mesh &mesh)
+{
+    for (int i = 0; i < static_cast<int>(mesh.vertices.size()); ++i)
+    {
+        if (!mesh.vertices[i].isGhost && !mesh.vertices[i].isBoundary)
+        {
+            return i;
+        }
+    }
+    return -1;
+}
+
+void configure_single_harmonic_scaffold(Mesh &mesh, int vertexIndex)
+{
+    mesh.param.isEnergyHarmonicBondIncluded = true;
+    mesh.param.isGagScaffoldingEnergyIncluded = false;
+    mesh.param.isIdealizedProteinLatticeEnergyIncluded = false;
+    mesh.param.springConst = 2.0;
+    mesh.param.lbond = 3.0;
+
+    mesh.param.scaffoldingPoints.assign(1, Matrix(3, 1));
+    mesh.param.scaffoldingPoints[0].set(0, 0, mesh.vertices[vertexIndex].coord(0, 0));
+    mesh.param.scaffoldingPoints[0].set(1, 0, mesh.vertices[vertexIndex].coord(1, 0));
+    mesh.param.scaffoldingPoints[0].set(2, 0, mesh.vertices[vertexIndex].coord(2, 0) - 5.0);
+    mesh.param.scaffoldingPoints_correspondingVertexIndex = {vertexIndex};
+
+    mesh.param.energy.energyHarmonicBond = std::numeric_limits<double>::quiet_NaN();
+    mesh.param.energy.energyGagScaffolding = std::numeric_limits<double>::quiet_NaN();
+    mesh.param.energy.energyIdealizedProteinLattice = std::numeric_limits<double>::quiet_NaN();
+}
+
+double expected_single_harmonic_scaffold_energy()
+{
+    const double distance = 5.0;
+    const double springConst = 2.0;
+    const double lbond = 3.0;
+    return 0.5 * springConst * std::pow(distance - lbond, 2.0);
+}
+
+Matrix expected_single_harmonic_scaffold_force()
+{
+    Matrix force(3, 1);
+    force.set(2, 0, -4.0);
+    return force;
 }
 
 std::vector<Force> copy_current_forces(const Mesh &mesh)
@@ -176,5 +231,55 @@ TEST(EnergyForceEvaluatorTest, FlatExampleProducesFiniteEnergyAndForce)
             EXPECT_TRUE(std::isfinite(vertex.force.forceTotal(component, 0)))
                 << "vertex " << vertex.index << " component " << component;
         }
+    }
+}
+
+TEST(EnergyForceEvaluatorTest, SharedHelperRecordsScaffoldEnergyAndForceSideEffects)
+{
+    Param baselineParam = make_scaffold_characterization_param();
+    Mesh baselineMesh(baselineParam);
+    initialize_area_reference(baselineMesh);
+    evaluate_energy_force(baselineMesh);
+
+    Param scaffoldParam = make_scaffold_characterization_param();
+    Mesh scaffoldMesh(scaffoldParam);
+    initialize_area_reference(scaffoldMesh);
+    const int bondedVertexIndex = first_force_visible_vertex_index(scaffoldMesh);
+    ASSERT_GE(bondedVertexIndex, 0);
+    configure_single_harmonic_scaffold(scaffoldMesh, bondedVertexIndex);
+
+    evaluate_energy_force(scaffoldMesh);
+
+    const double expectedEnergy = expected_single_harmonic_scaffold_energy();
+    const Matrix expectedForce = expected_single_harmonic_scaffold_force();
+    EXPECT_TRUE(std::isfinite(scaffoldMesh.param.energy.energyHarmonicBond));
+    EXPECT_TRUE(std::isfinite(scaffoldMesh.param.energy.energyGagScaffolding));
+    EXPECT_TRUE(std::isfinite(scaffoldMesh.param.energy.energyIdealizedProteinLattice));
+    EXPECT_DOUBLE_EQ(expectedEnergy, scaffoldMesh.param.energy.energyHarmonicBond);
+    EXPECT_DOUBLE_EQ(0.0, scaffoldMesh.param.energy.energyGagScaffolding);
+    EXPECT_DOUBLE_EQ(0.0, scaffoldMesh.param.energy.energyIdealizedProteinLattice);
+    EXPECT_NEAR(expectedEnergy,
+                scaffoldMesh.param.energy.energyTotal - baselineMesh.param.energy.energyTotal,
+                1.0e-10);
+
+    ASSERT_EQ(1, static_cast<int>(scaffoldMesh.forceOnScaffoldingPoints.size()));
+    for (int component = 0; component < 3; ++component)
+    {
+        const double expectedComponent = expectedForce(component, 0);
+        const double harmonicForce =
+            scaffoldMesh.vertices[bondedVertexIndex].force.forceHarmonicBond(component, 0);
+        EXPECT_DOUBLE_EQ(expectedComponent, harmonicForce)
+            << "bonded vertex harmonic force component " << component;
+        EXPECT_NEAR(expectedComponent,
+                    scaffoldMesh.vertices[bondedVertexIndex].force.forceTotal(component, 0)
+                        - baselineMesh.vertices[bondedVertexIndex].force.forceTotal(component, 0),
+                    1.0e-10)
+            << "bonded vertex total force scaffold delta component " << component;
+        EXPECT_DOUBLE_EQ(-expectedComponent,
+                         scaffoldMesh.forceOnScaffoldingPoints[0](component, 0))
+            << "scaffold point force component " << component;
+        EXPECT_DOUBLE_EQ(-expectedComponent,
+                         scaffoldMesh.forceTotalOnScaffolding(component, 0))
+            << "total scaffold force component " << component;
     }
 }

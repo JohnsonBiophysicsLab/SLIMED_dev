@@ -78,6 +78,8 @@ or preserve:
 - the internal side-effect boundary in
   `docs/energy_force_evaluator_side_effect_boundary.md`;
 - evaluator equivalence and stale-force clearing tests;
+- scaffold-enabled harmonic evaluator characterization through
+  `EnergyForceEvaluatorTest.SharedHelperRecordsScaffoldEnergyAndForceSideEffects`;
 - accepted-step smoke output from the committed PR #32 fixture;
 - restart/checkpoint evidence if `run_flat()` neighboring state moves;
 - dynamics smoke evidence if `run_dynamics_flat()` ordering moves;

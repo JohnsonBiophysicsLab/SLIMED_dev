@@ -208,6 +208,11 @@ def classify_local_helper(path: Path, line: str) -> tuple[str, str]:
             "production shared helper use",
             "This routed energy/force refresh keeps its call-site timing and uses the shared evaluator helper.",
         )
+    if normalized.startswith("tests/"):
+        return (
+            "intentional shared helper test/control usage",
+            "Tests exercise the shared helper without changing production call timing.",
+        )
     if normalized.startswith("docs/"):
         return (
             "documentation reference",

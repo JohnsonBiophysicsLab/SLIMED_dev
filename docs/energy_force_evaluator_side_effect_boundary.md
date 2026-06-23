@@ -25,6 +25,27 @@ The helper and facade own no propagation policy. Callers still own accepted
 steps, trial rollback, snapshots, records, checkpoints, output cadence,
 optimizer state, RNG state, and scaffold propagation timing.
 
+## Scaffold-Enabled Characterization
+
+`EnergyForceEvaluatorTest.SharedHelperRecordsScaffoldEnergyAndForceSideEffects`
+protects the current scaffold-enabled helper path:
+
+```text
+evaluate_energy_force(Mesh&)
+  -> EnergyForceEvaluator::evaluate(Mesh&)
+     -> Mesh::Compute_Energy_And_Force()
+     -> Mesh::calculate_scaffolding_energy_force(false)
+```
+
+The test uses a small flat mesh with one harmonic scaffold point bound to a
+force-visible vertex. It verifies that the shared helper/facade route records
+finite harmonic, Gag, and idealized-lattice energy components in
+`Param::energy`, preserves disabled Gag/lattice terms as zero, adds the
+harmonic contribution to the bonded vertex total force, and records the
+equal/opposite scaffold force accumulators. This is intentionally a
+harmonic-only fixture: it does not initialize Gag or idealized lattice topology,
+does not propagate scaffold points, and does not change production C++ behavior.
+
 ## Side-Effect Map
 
 | Surface | Current writes | Current reads and assumptions | Refactor caution |
@@ -64,7 +85,7 @@ reviewer/user approval before implementation.
 | --- | --- | --- |
 | Extract a geometry-refresh helper behind the facade | It is the first step in `Compute_Energy_And_Force()` and has a clear output pair: face area/volume plus `Param::area`/`Param::vol`. | Preserve ghost filtering, regular/irregular path selection, Loop evaluator behavior, setup-time reference semantics, and serial/OpenMP numerical baselines. |
 | Extract force/energy clearing as a named pre-pass | It is already a separate mesh helper and covered by stale-force evaluator tests. | Keep it behind the facade and do not change when previous-state snapshots are taken. |
-| Characterize scaffold-enabled evaluator behavior with a focused test | Scaffold force/energy writes are the widest side-effect extension inside the refresh. | Use existing scaffold fixtures where possible and avoid changing scaffold propagation or Gag finite-difference behavior. |
+| Extend scaffold-enabled evaluator characterization to Gag or idealized lattice fixtures | Harmonic scaffold side effects are now covered through the shared helper/facade path, but no committed focused fixture currently initializes internal Gag/lattice topology for evaluator-level assertions. | Use existing scaffold fixtures where possible and avoid changing scaffold propagation, topology initialization, or Gag finite-difference behavior. |
 | Defer propagation helper extraction | It would cross from core refresh into accepted-step, thermal, dynamics, records, and checkpoint policy. | Start only after a fresh behavior baseline and an explicit prompt approving propagation ownership changes. |
 
 Suggested approved-production prompt:
