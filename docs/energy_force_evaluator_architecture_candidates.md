@@ -6,6 +6,14 @@ clearing pre-pass implementation placement, geometry-refresh extraction, and
 membrane face-loop force-reduction extraction slices have been implemented. It
 is kept as a decision aid for future cleanup.
 
+Irregular-patch energy/force routing is tracked as a separate numerical
+geometry backlog, not as an evaluator-phase extraction. The current
+`nOneRingVertices == 11` energy/force branch still falls through to
+`element_energy_force_regular(...)` after a TODO; future work should first
+characterize an irregular fixture, then decide whether a unified backend such
+as OpenSubdiv is preferable to expanding local case-by-case matrix code, and
+only then make a focused production routing fix.
+
 Regenerate the source call-site and helper inventory with:
 
 ```console

@@ -6,6 +6,14 @@ membrane face-loop force-reduction helper extractions. The production facade
 still delegates directly to `Mesh::Compute_Energy_And_Force()`. This is a
 current-state map, not a proposal to split formulas or move calls.
 
+Irregular-patch energy/force routing is a known numerical geometry backlog
+outside this evaluator-side-effect map. Area/volume currently has separate
+regular `12` and irregular `11` handling, but the energy/force face loop still
+routes the `nOneRingVertices == 11` branch through
+`element_energy_force_regular(...)` after an irregular-force TODO. Do not mix
+that route fix with evaluator extraction; it needs its own fixture,
+backend/design decision, and focused numerical baseline.
+
 Regenerate the source-side write inventory with:
 
 ```console

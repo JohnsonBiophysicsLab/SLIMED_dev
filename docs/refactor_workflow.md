@@ -194,6 +194,44 @@ projection, OpenSubdiv dependency work, output/checkpoint formats, RNG behavior,
 and volume-semantics changes out of evaluator-plumbing PRs unless the PR is
 explicitly scoped to one of those topics and has its own baseline.
 
+## Geometry And Limit-Surface Backlog
+
+Irregular-patch energy/force routing is a separate geometry and numerical
+correctness backlog, not an evaluator-phase extraction. Area/volume refresh
+already distinguishes regular `12 = 4 + 4 + 4` one-ring patches from special
+irregular `11 = 4 + 3 + 4` one-ring patches: regular faces use the current
+limit-surface evaluator path, while `nOneRingVertices == 11` faces use the
+existing subdivision matrices to enumerate regular subpatches for area and
+volume.
+
+Energy/force accumulation does not currently mirror that split. In the face
+loop, the `nOneRingVertices == 11` branch still has a
+`//@todo energy force irregular` comment and then calls
+`element_energy_force_regular(...)`. Treat this as a known bug and backlog
+item, not compatibility behavior. Existing committed models apparently do not
+exercise irregular patches, which explains why baseline gates have stayed green
+despite the wrong route.
+
+The future work should stay staged and reviewable:
+
+- First add an irregular-patch characterization fixture that exposes the
+  current route and gives reviewers a deterministic geometry to discuss.
+- Then decide the backend/design contract. Before expanding local
+  case-by-case subdivision matrix code, decide whether OpenSubdiv or another
+  limit-surface backend can unify regular and irregular Loop evaluation.
+- Then make a focused production route fix for `nOneRingVertices == 11`,
+  with serial/OpenMP numerical evidence and no unrelated evaluator cleanup.
+- After that, broaden support beyond the current `12` and `11` one-ring cases
+  where possible, or explicitly reject unsupported local geometry with
+  diagnostics instead of falling through to the wrong evaluator.
+
+A useful proof-of-concept reference is
+https://github.com/Yibenfu/continuum_membrane_model/blob/main/myfunctions.cpp.
+Do not copy code from it into SLIMED. The relevant idea to evaluate is an
+`element_energy_force_irregular(...)` route that repeatedly subdivides an
+11-point patch, evaluates regular subpatches, and back-projects subpatch forces
+to the original irregular one-ring vertices through subdivision matrices.
+
 ## OpenMP Benchmark Harness
 
 Use the lightweight benchmark harness to collect reproducible serial-vs-OpenMP
