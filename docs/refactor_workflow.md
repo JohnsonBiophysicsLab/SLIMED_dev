@@ -215,7 +215,11 @@ despite the wrong route.
 The future work should stay staged and reviewable:
 
 - First add an irregular-patch characterization fixture that exposes the
-  current route and gives reviewers a deterministic geometry to discuss.
+  current route and gives reviewers a deterministic geometry to discuss. The
+  current fixture map lives in `docs/irregular_patch_fixture_requirements.md`;
+  it adds geometry-only coverage for an explicit 11-control area/volume patch
+  and keeps the known energy/force route gap documented rather than asserting
+  on brittle source text or GSL failure behavior.
 - Then decide the backend/design contract. Before expanding local
   case-by-case subdivision matrix code, decide whether OpenSubdiv or another
   limit-surface backend can unify regular and irregular Loop evaluation.

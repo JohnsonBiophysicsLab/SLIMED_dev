@@ -14,6 +14,12 @@ characterize an irregular fixture, then decide whether a unified backend such
 as OpenSubdiv is preferable to expanding local case-by-case matrix code, and
 only then make a focused production routing fix.
 
+The current characterization map is
+`docs/irregular_patch_fixture_requirements.md`. It adds a geometry-only
+11-control area/volume fixture and records why energy/force coverage remains a
+known gap until the irregular force route and force back-projection contract
+are approved.
+
 Regenerate the source call-site and helper inventory with:
 
 ```console
