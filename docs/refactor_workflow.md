@@ -222,7 +222,9 @@ The future work should stay staged and reviewable:
   on brittle source text or GSL failure behavior.
 - Then decide the backend/design contract. Before expanding local
   case-by-case subdivision matrix code, decide whether OpenSubdiv or another
-  limit-surface backend can unify regular and irregular Loop evaluation.
+  limit-surface backend can unify regular and irregular Loop evaluation. The
+  decision record for that lane is
+  `docs/opensubdiv_backend_decision.md`.
 - Then make a focused production route fix for `nOneRingVertices == 11`,
   with serial/OpenMP numerical evidence and no unrelated evaluator cleanup.
 - After that, broaden support beyond the current `12` and `11` one-ring cases
