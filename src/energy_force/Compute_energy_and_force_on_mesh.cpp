@@ -20,6 +20,27 @@ void copy_column_vector(const Matrix &source, Matrix &destination)
 } // namespace
 
 /**
+ * @brief Clear current force and face-energy state before recomputing energy and force.
+ *
+ * Previous-state snapshots are owned by callers; this pre-pass only resets the
+ * current recomputation targets.
+ */
+void Mesh::clear_force_on_vertices_and_energy_on_faces()
+{
+#pragma omp parallel for
+    for (int i = 0; i < vertices.size(); i++)
+    {
+        vertices[i].force.set_all_zero();
+    }
+#pragma omp parallel for
+    for (int i = 0; i < faces.size(); i++)
+    {
+        Energy energytmp;
+        faces[i].energy = energytmp;
+    }
+}
+
+/**
  *
  * @brief Computes the energy and force on each vertex and face of the mesh.
  *
