@@ -67,6 +67,22 @@ class Occurrence:
     line: str
 
 
+@dataclass(frozen=True)
+class PhaseAnchor:
+    order: int
+    name: str
+    path: Path
+    pattern: Pattern[str]
+    detail: str
+
+
+@dataclass(frozen=True)
+class PhaseOccurrence:
+    anchor: PhaseAnchor
+    line_number: int
+    line: str
+
+
 def compile_patterns(*patterns: str) -> tuple[Pattern[str], ...]:
     return tuple(re.compile(pattern) for pattern in patterns)
 
@@ -127,6 +143,79 @@ CATEGORIES = (
         "boundary force handling",
         "Boundary branches replace force objects with zero force.",
         compile_patterns(r"\bboundaryCondition\b", r"\bzeroForce\b"),
+    ),
+)
+
+PHASE_ANCHORS = (
+    PhaseAnchor(
+        1,
+        "facade dispatch",
+        Path("src/energy_force/Energy_force_evaluator.cpp"),
+        re.compile(r"\bmesh\.Compute_Energy_And_Force\s*\("),
+        "Public evaluator facade reaches the legacy mesh implementation.",
+    ),
+    PhaseAnchor(
+        2,
+        "geometry refresh",
+        Path("src/energy_force/Compute_energy_and_force_on_mesh.cpp"),
+        re.compile(r"\brefresh_energy_force_geometry\s*\(\*this\)"),
+        "Refreshes per-face area/volume and global Param::area/Param::vol first.",
+    ),
+    PhaseAnchor(
+        3,
+        "force and face-energy clearing",
+        Path("src/energy_force/Compute_energy_and_force_on_mesh.cpp"),
+        re.compile(r"^\s*clear_force_on_vertices_and_energy_on_faces\s*\("),
+        "Clears current vertex forces and face energies before recomputation.",
+    ),
+    PhaseAnchor(
+        4,
+        "per-face membrane term accumulation",
+        Path("src/energy_force/Compute_energy_and_force_on_mesh.cpp"),
+        re.compile(r"\belement_energy_force_regular\s*\("),
+        "Computes bending energy plus curvature, area, and volume force terms.",
+    ),
+    PhaseAnchor(
+        5,
+        "per-thread force scatter reduction",
+        Path("src/energy_force/Compute_energy_and_force_on_mesh.cpp"),
+        re.compile(r"\bcomponentSums\[component\]\s*\+=\s*localForceComponents\b"),
+        "Uses thread-local accumulation before writing vertex force components.",
+    ),
+    PhaseAnchor(
+        6,
+        "regularization term",
+        Path("src/energy_force/Compute_energy_and_force_on_mesh.cpp"),
+        re.compile(r"\benergy_force_regularization\s*\("),
+        "Updates regularization energy, force, and deformation counters.",
+    ),
+    PhaseAnchor(
+        7,
+        "vertex total force",
+        Path("src/energy_force/Compute_energy_and_force_on_mesh.cpp"),
+        re.compile(r"\bvertex\.force\.calculate_total_force\s*\("),
+        "Totals membrane and regularization force components before scaffolding.",
+    ),
+    PhaseAnchor(
+        8,
+        "face and param energy totalization",
+        Path("src/energy_force/Compute_energy_and_force_on_mesh.cpp"),
+        re.compile(r"\bparam\.energy\s*=\s*sumEnergy\b"),
+        "Sums face energies, applies global constraints, and replaces Param::energy.",
+    ),
+    PhaseAnchor(
+        9,
+        "optional scaffold energy and force",
+        Path("src/energy_force/Compute_energy_and_force_on_mesh.cpp"),
+        re.compile(r"\bcalculate_scaffolding_energy_force\s*\(\s*false\s*\)"),
+        "Adds optional harmonic, Gag, or idealized-lattice scaffold side effects.",
+    ),
+    PhaseAnchor(
+        10,
+        "boundary and ghost force handling",
+        Path("src/energy_force/Compute_energy_and_force_on_mesh.cpp"),
+        re.compile(r"\bmanage_force_for_boundary_ghost_vertex\s*\("),
+        "Zeroes fixed, free, boundary, or ghost forces after scaffold application.",
     ),
 )
 
@@ -256,6 +345,49 @@ def print_inventory(occurrences: Sequence[Occurrence]) -> None:
         print(f"  {occurrence.detail}")
 
 
+def collect_phase_map(root: Path) -> tuple[list[PhaseOccurrence], list[PhaseAnchor]]:
+    occurrences: list[PhaseOccurrence] = []
+    missing: list[PhaseAnchor] = []
+    for anchor in PHASE_ANCHORS:
+        path = root / anchor.path
+        if not path.is_file():
+            missing.append(anchor)
+            continue
+        matched = False
+        for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+            if anchor.pattern.search(line):
+                occurrences.append(
+                    PhaseOccurrence(
+                        anchor=anchor,
+                        line_number=line_number,
+                        line=line.strip(),
+                    )
+                )
+                matched = True
+                break
+        if not matched:
+            missing.append(anchor)
+    return occurrences, missing
+
+
+def print_phase_map(
+    occurrences: Sequence[PhaseOccurrence],
+    missing: Sequence[PhaseAnchor],
+) -> None:
+    print("# Energy/force evaluator phase map")
+    for occurrence in sorted(occurrences, key=lambda item: item.anchor.order):
+        anchor = occurrence.anchor
+        print(
+            f"{anchor.order}. {anchor.name}: "
+            f"{anchor.path}:{occurrence.line_number} {occurrence.line}"
+        )
+        print(f"   {anchor.detail}")
+    if missing:
+        print("\nMissing expected phase anchor(s):")
+        for anchor in sorted(missing, key=lambda item: item.order):
+            print(f"- {anchor.order}. {anchor.name}: {anchor.path}")
+
+
 def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
@@ -273,11 +405,24 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
             "evaluator, mesh update, and scaffolding implementation files."
         ),
     )
+    parser.add_argument(
+        "--phase-map",
+        action="store_true",
+        help=(
+            "Print the coarse post-PR41 evaluator phase map using stable "
+            "function-level anchors instead of assignment-line inventory."
+        ),
+    )
     return parser.parse_args(argv)
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
     args = parse_args(argv)
+    if args.phase_map:
+        occurrences, missing = collect_phase_map(repo_root())
+        print_phase_map(occurrences, missing)
+        return 1 if missing else 0
+
     occurrences = collect_occurrences(repo_root(), args.files)
     print_inventory(occurrences)
     print(
