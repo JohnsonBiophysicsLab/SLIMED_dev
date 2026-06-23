@@ -1,10 +1,10 @@
 # Energy Force Evaluator Side-Effect Boundary
 
 This note characterizes the internal side-effect boundary of
-`EnergyForceEvaluator` after PR #41. The production facade still delegates
-directly to `Mesh::Compute_Energy_And_Force()`, which now starts with named
-geometry-refresh and clearing pre-pass helpers. This is a current-state map,
-not a proposal to split formulas or move calls.
+`EnergyForceEvaluator` after the geometry-refresh, clearing pre-pass, and
+membrane face-loop force-reduction helper extractions. The production facade
+still delegates directly to `Mesh::Compute_Energy_And_Force()`. This is a
+current-state map, not a proposal to split formulas or move calls.
 
 Regenerate the source-side write inventory with:
 
@@ -32,7 +32,7 @@ The helper and facade own no propagation policy. Callers still own accepted
 steps, trial rollback, snapshots, records, checkpoints, output cadence,
 optimizer state, RNG state, and scaffold propagation timing.
 
-## Post-PR41 Phase Map
+## Current Phase Map
 
 `Mesh::Compute_Energy_And_Force()` currently runs these phases in order:
 
@@ -43,30 +43,32 @@ EnergyForceEvaluator::evaluate(mesh)
         -> calculate_element_area_volume()
         -> sum_membrane_area_and_volume(param.area, param.vol)
      2. clear_force_on_vertices_and_energy_on_faces()
-     3. per-face membrane accumulation
+     3. accumulate_membrane_face_energy_and_forces(*this)
+        -> extracted private translation-unit helper
+        -> per-face membrane accumulation
         -> non-boundary faces only
         -> element_energy_force_regular(...)
         -> Face::energy.energyCurvature, Face::meanCurvature, Face::normVector
         -> thread-local curvature/area/volume force components
-     4. per-thread force scatter reduction
+        -> per-thread force scatter reduction
         -> Vertex::force.forceCurvature
         -> Vertex::force.forceArea
         -> Vertex::force.forceVolume
-     5. energy_force_regularization()
+     4. energy_force_regularization()
         -> Face::energy.energyRegularization
         -> Vertex::force.forceRegularization
         -> Param::deformationCount
-     6. vertex total-force calculation
+     5. vertex total-force calculation
         -> Vertex::force.forceTotal before scaffold force additions
-     7. face and Param energy totalization
+     6. face and Param energy totalization
         -> Energy::calculateTotalEnergy() on faces
         -> global area and volume energy terms
         -> Param::energy replacement and total recalculation
-     8. optional scaffold energy/force
+     7. optional scaffold energy/force
         -> reset scaffold energy components
         -> calculate_scaffolding_energy_force(false)
         -> harmonic/Gag/idealized-lattice energy and force side effects
-     9. boundary and ghost force handling
+     8. boundary and ghost force handling
         -> manage_force_for_boundary_ghost_vertex()
 ```
 
@@ -191,19 +193,22 @@ Missing evidence before any broader geometry rewrite:
 
 ## Remaining Energy/Force Term Boundary
 
-After the clearing and geometry-refresh extractions, the next tempting boundary
-is the actual membrane term accumulation between the clearing helper and the
-regularization helper. That region is not one low-risk operation. It combines
-one-ring coordinate capture, regular/irregular path selection, quadrature,
-bending formulas, global area/volume force formulas, face writes, per-thread
-force accumulation, and later reduction into vertex force components.
+After the clearing and geometry-refresh extractions, the narrow face-loop plus
+force-reduction boundary is implemented as
+`accumulate_membrane_face_energy_and_forces(mesh)`. The helper remains private
+to `src/energy_force/Compute_energy_and_force_on_mesh.cpp` and is called in the
+same location between clearing and regularization. It moves the existing
+one-ring coordinate capture, regular/irregular path selection,
+`element_energy_force_regular(...)` calls, face writes, thread-local force
+buffers, and vertex force scatter reduction together without splitting formula
+internals.
 
 Candidate classification:
 
 | Candidate | Risk class | Why |
 | --- | --- | --- |
 | Name a docs-only phase as `membrane term accumulation` | Low-risk characterization only | The label helps discussion and script output without changing production C++ behavior. |
-| Extract the face loop and force-reduction block as-is | Requires scientific/physics review | Even a mechanical move can perturb floating-point accumulation order, OpenMP scheduling assumptions, force scatter shape, face skip behavior, or the timing of `Face::normVector` and `Face::meanCurvature` writes. |
+| Extract the face loop and force-reduction block as-is | Implemented narrow production helper | The helper is translation-unit private and keeps the formulas, OpenMP loops, thread-local buffer shape, face skip behavior, face writes, and scatter reduction together. |
 | Extract `element_energy_force_regular()` call preparation into a helper | Requires ownership/signature decisions | The current loop builds one-ring coordinate matrices from `Mesh`, reads `Param`, mutates `Face`, and returns multiple force matrices whose sizes assume the existing 12-control formula path. A helper boundary needs a reviewer-approved data contract. |
 | Split bending, area, and volume terms inside `element_energy_force_regular()` | Requires scientific/physics review | The formulas share geometry intermediates, quadrature weights, scratch matrices, and accumulation order. Splitting them would need exact equivalence baselines plus domain review of the mathematical contract. |
 | Extract global energy totalization after regularization | Medium to high risk | This looks smaller than the face loop, but it couples face total-energy calls, global area/volume energy, `Param::energy` replacement, and total-energy recalculation. It needs focused equivalence tests before production movement. |

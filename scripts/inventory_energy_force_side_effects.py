@@ -24,6 +24,7 @@ SCAN_TARGETS: dict[Path, tuple[str, ...]] = {
     ),
     Path("src/energy_force/Compute_energy_and_force_on_mesh.cpp"): (
         "refresh_energy_force_geometry",
+        "accumulate_membrane_face_energy_and_forces",
         "Mesh::clear_force_on_vertices_and_energy_on_faces",
         "Mesh::Compute_Energy_And_Force",
         "Mesh::energy_force_regularization",
@@ -170,17 +171,17 @@ PHASE_ANCHORS = (
     ),
     PhaseAnchor(
         4,
-        "per-face membrane term accumulation",
+        "membrane face-loop force reduction",
         Path("src/energy_force/Compute_energy_and_force_on_mesh.cpp"),
-        re.compile(r"\belement_energy_force_regular\s*\("),
-        "Computes bending energy plus curvature, area, and volume force terms.",
+        re.compile(r"\baccumulate_membrane_face_energy_and_forces\s*\(\*this\)"),
+        "Runs the extracted per-face membrane accumulation loop and thread-local force scatter reduction.",
     ),
     PhaseAnchor(
         5,
-        "per-thread force scatter reduction",
+        "membrane term helper formula call",
         Path("src/energy_force/Compute_energy_and_force_on_mesh.cpp"),
-        re.compile(r"\bcomponentSums\[component\]\s*\+=\s*localForceComponents\b"),
-        "Uses thread-local accumulation before writing vertex force components.",
+        re.compile(r"\belement_energy_force_regular\s*\("),
+        "Computes bending energy plus curvature, area, and volume force terms inside the extracted helper.",
     ),
     PhaseAnchor(
         6,
