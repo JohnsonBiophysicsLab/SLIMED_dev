@@ -23,6 +23,7 @@ SCAN_TARGETS: dict[Path, tuple[str, ...]] = {
         "evaluate_energy_force",
     ),
     Path("src/energy_force/Compute_energy_and_force_on_mesh.cpp"): (
+        "Mesh::clear_force_on_vertices_and_energy_on_faces",
         "Mesh::Compute_Energy_And_Force",
         "Mesh::energy_force_regularization",
         "Mesh::manage_force_for_boundary_ghost_vertex",
@@ -33,9 +34,6 @@ SCAN_TARGETS: dict[Path, tuple[str, ...]] = {
     Path("src/mesh/Mesh.cpp"): (
         "Mesh::calculate_element_area_volume",
         "Mesh::sum_membrane_area_and_volume",
-    ),
-    Path("src/mesh/Update.cpp"): (
-        "Mesh::clear_force_on_vertices_and_energy_on_faces",
     ),
 }
 
