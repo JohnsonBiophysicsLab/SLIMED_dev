@@ -150,10 +150,11 @@ gates are green or explicitly review-waived:
 | Irregular fixture coverage | The 11-control fixture source coverage and derivative completeness remain documented, including that aggregate OpenSubdiv coverage is not yet a face-level production scatter contract. |
 | Dependency/build isolation | The force lane does not make OpenSubdiv required for default builds. If it needs OpenSubdiv to run, it uses a separate experimental target or a user-provided install path. |
 
-The existing irregular `nOneRingVertices == 11` force fallback into
-`element_energy_force_regular(...)` is not compatibility behavior. It is a
-known unsupported production gap and must not be used as a baseline for
-approving new irregular physics.
+The previous irregular `nOneRingVertices == 11` force fallback into
+`element_energy_force_regular(...)` was not compatibility behavior. The current
+production route rejects 11-control membrane force requests until an irregular
+force contract is approved, and the former fallback must not be used as a
+baseline for approving new irregular physics.
 
 ## Next PR Prompt: Production Force Back-Projection
 
@@ -190,7 +191,8 @@ The following work remains outside the force back-projection lane:
   irregular backend.
 - Changing boundary, ghost, periodic, or unsupported-topology policy.
 - Broad extraordinary-valence support beyond characterized fixtures.
-- Replacing the known irregular force fallback with production behavior.
+- Replacing the current unsupported irregular force guard with production
+  behavior.
 - Changing formulas, scatter order, OpenMP scheduling/reductions, volume
   semantics, propagation timing, optimizer timing, RNG behavior, checkpoint
   files, output files, or scaffold timing.

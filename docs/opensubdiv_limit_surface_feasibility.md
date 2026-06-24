@@ -135,10 +135,11 @@ name the mathematical quantities:
   conventions. The adapter must either evaluate only non-ghost physical faces
   using an already-expanded SLIMED topology, or own an explicit topology
   expansion/mirroring layer whose results are proven equivalent.
-- Irregular handling is inconsistent today: area/volume have an 11-control
-  subdivision approximation, while energy/force route 11-control faces through
-  the regular evaluator. Any OpenSubdiv irregular path must first reproduce and
-  characterize the current behavior before "improving" it.
+- Irregular handling is intentionally incomplete today: area/volume have an
+  11-control subdivision approximation, while energy/force rejects
+  non-boundary 11-control faces before the membrane force loop. Any OpenSubdiv
+  irregular path must first define a reviewed force contract before replacing
+  that guard.
 - OpenSubdiv does not replace membrane energies, force accumulation, global
   constraints, scaffolding coupling, optimizer state, random thermal moves,
   output/checkpoint formats, or dynamics projection timing.
@@ -236,9 +237,9 @@ Deferred production adoption categories:
   boundary needs a separate numerical-baseline PR covering floating-point
   summation order, OpenMP reductions, and force component ordering.
 - Irregular `11 x 3` area/volume still uses subdivision matrices and direct
-  regular child-patch evaluation. Irregular energy/force currently calls the
-  regular energy routine with 11 controls and remains a scientific-review
-  topic before backend migration.
+  regular child-patch evaluation. Irregular energy/force currently fails with
+  an unsupported-route diagnostic and remains a scientific-review topic before
+  backend migration.
 - Boundary, ghost, periodic, and dynamics projection behavior must stay
   separate from evaluator adoption because they encode application policy, not
   only surface evaluation.

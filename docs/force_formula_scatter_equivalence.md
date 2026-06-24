@@ -63,8 +63,9 @@ weightedSample.row_weight(row, face.oneRingVertices[j])
 
 The legacy direct path remains callable without the opt-in flag and remains the
 control comparator for deterministic regular fixtures. The 11-control branch is
-not routed through this abstraction; it keeps the existing unsupported fallback
-into the direct helper path.
+not routed through this abstraction; production now rejects that unsupported
+route before the membrane OpenMP face loop instead of falling back into the
+direct helper path.
 
 ## Local Rows And Scatter Order
 

@@ -41,9 +41,9 @@ The existing regular limit-surface contract is explicit:
   faces from 11-control irregular faces. The irregular area/volume path applies
   `irregM`, evaluates three regular child patches through `irregM1`/`irregM2`/
   `irregM3`, then carries the remaining irregular child through `irregM4`.
-- `Mesh::Compute_Energy_And_Force()` does not mirror that split. The
-  `nOneRingVertices == 11` branch still has `//@todo energy force irregular`
-  and calls `element_energy_force_regular(...)`.
+- `Mesh::Compute_Energy_And_Force()` does not mirror that split with an
+  irregular force law. Non-boundary 11-control faces are rejected before the
+  membrane force loop instead of calling `element_energy_force_regular(...)`.
 - `element_energy_force_regular(...)` still loops over 12 shape-function
   columns when forming force contributions, so the 11-control route is a known
   bug, not compatibility behavior.
@@ -128,9 +128,9 @@ Choose route B, with one caveat:
 
 - B: OpenSubdiv prototype/backend seam first, then route irregular forces
   through it if the prototype succeeds.
-- D should be the interim production posture if irregular energy/force cases
-  become reachable before the backend is ready: fail loudly instead of routing
-  through the regular evaluator.
+- D is the interim production posture while irregular energy/force cases are
+  reachable before the backend is ready: fail loudly instead of routing through
+  the regular evaluator.
 
 Route A, a local 11-case force fix now, is tempting because the bug is known.
 It is not the shortest reviewable route unless the OpenSubdiv prototype fails:

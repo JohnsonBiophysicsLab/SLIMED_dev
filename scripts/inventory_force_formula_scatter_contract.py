@@ -54,10 +54,10 @@ ANCHORS: tuple[Anchor, ...] = (
         "Regular 12-control faces call the existing force formula helper with one-ring coordinates in face.oneRingVertices order.",
     ),
     Anchor(
-        "irregular force fallback call",
+        "irregular force unsupported guard",
         IMPLEMENTATION_PATH,
-        "//@todo energy force irregular",
-        "The 11-control branch remains a known fallback into the regular helper, not an approved irregular force contract.",
+        "assert_supported_membrane_force_routing(mesh);",
+        "The 11-control route fails before the OpenMP face loop instead of falling back into the regular helper.",
     ),
     Anchor(
         "local row to vertex id",

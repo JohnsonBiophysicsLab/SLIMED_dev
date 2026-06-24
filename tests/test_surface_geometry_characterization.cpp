@@ -1098,6 +1098,33 @@ TEST(SurfaceSubdivisionCharacterization, SyntheticIrregularPatchAreaVolumeUsesSu
     EXPECT_NEAR(volume, expected.volume, 1.0e-12);
 }
 
+TEST(SurfaceSubdivisionCharacterization, SyntheticIrregularPatchEnergyForceFailsBeforeRegularFallback)
+{
+    Param param;
+    param.VERBOSE_MODE = false;
+    param.subDivideTimes = 2;
+    Mesh mesh(param);
+    populate_synthetic_irregular_patch_mesh(mesh);
+
+    ASSERT_EQ(mesh.faces.front().oneRingVertices.size(), 11);
+
+    try
+    {
+        mesh.Compute_Energy_And_Force();
+        FAIL() << "Expected unsupported irregular energy/force routing to throw";
+    }
+    catch (const std::runtime_error &error)
+    {
+        const std::string message = error.what();
+        EXPECT_NE(message.find("Unsupported irregular membrane energy/force routing"),
+                  std::string::npos);
+        EXPECT_NE(message.find("11-control one-ring patches are not implemented"),
+                  std::string::npos);
+        EXPECT_NE(message.find("regular 12-control force fallback is disabled"),
+                  std::string::npos);
+    }
+}
+
 TEST(SurfaceFlatMeshCharacterization, PeriodicFlatMeshKeepsInteriorRegularAndPlanar)
 {
     Param param;
