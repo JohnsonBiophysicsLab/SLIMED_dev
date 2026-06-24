@@ -3,19 +3,23 @@
 Date: 2026-06-24.
 Baseline: `363d6669835d864e43078abd5a9e70a73562286b` plus merged PR #59.
 
-This is a docs/scripts/tests-only evidence map for future 11-control irregular
-force routing. It does not change production C++ behavior, default builds,
-OpenSubdiv dependency policy, force formulas, scatter order, OpenMP
-accumulation, checkpoint/output behavior, propagation behavior, optimizer
-behavior, or the current unsupported irregular force guard.
+This is the evidence map that preceded the narrow production 11-control
+subdivision/back-projection route. The production route now supports the
+documented `11 = 4+3+4` case when `Param::subDivideTimes > 0` by reusing the
+existing irregular subdivision matrices, evaluating regular child patches, and
+transposing child force rows back to the original one-ring controls. It still
+does not change default builds, OpenSubdiv dependency policy, regular
+12-control formulas, scatter order, OpenMP accumulation, checkpoint/output
+behavior, propagation behavior, or optimizer behavior.
 
 ## Current Boundary
 
 The production route still rejects unsupported non-boundary 11-control
-membrane force requests before the membrane OpenMP face loop. That guard is
-intentional. The evidence below is only a map for a later review-gated
-implementation; it is not approval to route production irregular faces through
-OpenSubdiv or through the existing regular force helper.
+membrane force requests with zero subdivision depth before the membrane OpenMP
+face loop. That guard is intentional. Supported 11-control requests use the
+same child-patch subdivision plan as the existing area/volume path; they do not
+route production irregular faces through OpenSubdiv or through the regular
+12-control helper as a direct fallback.
 
 The useful future contract has three separate layers:
 
@@ -23,7 +27,7 @@ The useful future contract has three separate layers:
 | --- | --- | --- |
 | Regular row/integrand equivalence | `--regular-equivalence-report` compares OpenSubdiv regular value/derivative rows, tangent cross product, unit normal, area integrand, and legacy volume integrand against frozen SLIMED regular evaluator values. | Proven only for the documented regular lattice samples within tolerance. |
 | Regular transpose shape | `--force-transpose-report` checks `g dot (W p) == (W^T g) dot p` for OpenSubdiv's regular rows and a SLIMED-compatible seven-row toy shape. | Proven only for a toy scalar functional, not production force formulas. |
-| Irregular source coverage and transpose shape | `--aggregate-source-coverage-report` and `--irregular-transpose-proof-map-report` sample all ptex faces on the orientation-normalized 11-control fixture. | Observational only; it is not a face-level production scatter contract. |
+| Irregular source coverage and transpose shape | The production 11-control route transposes regular child-patch force rows through existing subdivision matrices. `--aggregate-source-coverage-report` and `--irregular-transpose-proof-map-report` remain OpenSubdiv-only observational evidence. | Production-supported only for the existing subdivision-matrix 11-control path; OpenSubdiv evidence remains observational. |
 
 ## Source-Id Transpose Shape
 
@@ -48,11 +52,12 @@ For the SLIMED-compatible seven-row shape used by the opt-in probe:
 | `d2/dvdw` | `duv` | Mixed-row duplication needs production review. |
 | `d2/dwdv` | `duv` | Mixed-row duplication needs production review. |
 
-In production, a back-projected component for source id `k` would have to map
-to the SLIMED one-ring force component addressed by
-`Face::oneRingVertices[k]`, or by an explicitly reviewed irregular local-id
-mapping if the backend sample plan uses child patches. That mapping is not
-implemented here.
+In the production subdivision-matrix route, a regular child patch is represented
+as `child = A * original11`, and child local force rows back-project by
+`A^T * childForce` into the original 11 rows addressed by
+`Face::oneRingVertices[k]`. A future OpenSubdiv backend still needs an
+explicitly reviewed source-id and sample-plan mapping before it can replace or
+augment that route.
 
 ## What Is Proven For Regular Rows
 
@@ -89,7 +94,7 @@ This is useful because it confirms that the fixture controls are visible to
 OpenSubdiv value, first-derivative, second-derivative, and toy transpose
 weights at the aggregate level.
 
-It remains observational because:
+The OpenSubdiv aggregate evidence remains observational because:
 
 - it does not select which ptex faces/sample points should represent one
   production SLIMED irregular face;
@@ -100,7 +105,8 @@ It remains observational because:
 - it does not pass through bending, area, or volume force formulas;
 - it does not characterize quadrature weights or child-patch accumulation
   order for irregular force routing; and
-- it does not change the current unsupported 11-control force guard.
+- it does not change the production subdivision-matrix 11-control force route
+  or the zero-depth unsupported guard.
 
 ## Opt-In Probe Commands
 
@@ -127,14 +133,14 @@ artifact case.
 
 ## Production-Readiness Checklist
 
-Before real irregular force support, a production PR needs explicit evidence
-for each item below:
+Before replacing or broadening the current subdivision-matrix irregular force
+support, a production PR needs explicit evidence for each item below:
 
-| Gate | Required evidence before routing 11-control force |
+| Gate | Required evidence before replacing or broadening 11-control force routing |
 | --- | --- |
 | Derivative convention | Approved `s,t` to SLIMED `v,w,u` mapping, including sign/order and mixed-row convention. |
 | Source-id coverage | Fixture-level source ids prove the exact controls needed by the selected production sample plan, not only aggregate all-ptex visibility. |
-| Transpose/back-projection shape | Backend row weights transpose through original SLIMED vertex ids or an approved child-patch local-id map. |
+| Transpose/back-projection shape | Current subdivision-matrix route transposes regular child-patch forces through child-to-original weights; any backend replacement must transpose through original SLIMED vertex ids or an approved child-patch local-id map. |
 | Production force formulas | Bending, area, and volume formula outputs match the current regular path on regular fixtures before irregular routing is added. |
 | Scatter order | Local force components scatter through `Face::oneRingVertices` in the reviewed order, or a reviewed irregular replacement order is documented and tested. |
 | Quadrature/sample selection | The ptex faces, child patches, sample coordinates, and quadrature weights representing one SLIMED irregular face are fixed and tested. |
@@ -145,22 +151,16 @@ for each item below:
 ## Next Gated Production Prompt
 
 ```text
-Create the production force back-projection proof for an OpenSubdiv-compatible
-backend seam without enabling production irregular routing. Keep default
-builds and production route selection unchanged. Define a backend-neutral
-weighted sample-row contract that returns SLIMED seven-row value/derivative
-weights keyed by original SLIMED vertex id. Prove on regular fixtures that
-transposing those row weights through the actual bending, area, and volume
-force formulas produces the same local force rows and
-`Face::oneRingVertices` scatter as the current regular path. Preserve
-quadrature order, derivative convention, mixed-row policy, scatter order,
-thread-local force buffer shape, reduction order, serial/OpenMP behavior,
-boundary/ghost/periodic policy, legacy volume semantics, outputs,
-checkpoints, RNG behavior, propagation timing, optimizer timing, and accepted
-step behavior. Do not route production 11-control faces through OpenSubdiv or
-replace the unsupported irregular force guard in this PR.
+Extend validation for the production 11-control subdivision/back-projection
+route and keep OpenSubdiv out of default builds. Prove serial/OpenMP numerical
+behavior on representative fixtures while preserving quadrature order,
+derivative convention, mixed-row policy, scatter order, thread-local force
+buffer shape, reduction order, boundary/ghost/periodic policy, legacy volume
+semantics, outputs, checkpoints, RNG behavior, propagation timing, optimizer
+timing, and accepted-step behavior. Do not replace the current production
+11-control subdivision-matrix route with OpenSubdiv in this PR.
 ```
 
-After that proof is accepted, a separate production irregular routing prompt
-can choose the exact 11-control sample/child-patch plan and implement the
-reviewed back-projection into the SLIMED one-ring force components.
+After that proof is accepted, a separate backend prompt can choose an
+OpenSubdiv sample/child-patch plan and compare it against the current
+subdivision-matrix route.

@@ -6,19 +6,22 @@ membrane face-loop force-reduction helper extractions. The production facade
 still delegates directly to `Mesh::Compute_Energy_And_Force()`. This is a
 current-state map, not a proposal to split formulas or move calls.
 
-Irregular-patch energy/force routing is a known numerical geometry backlog
-outside this evaluator-side-effect map. Area/volume currently has separate
-regular `12` and irregular `11` handling, but the membrane energy/force route
-does not yet implement an irregular force law. Non-boundary 11-control faces
-are rejected by a serial preflight before the OpenMP face loop instead of being
-sent through the regular helper. Do not mix the actual route implementation
-with evaluator extraction; it needs its own fixture, backend/design decision,
-and focused numerical baseline.
+Irregular-patch energy/force routing is a numerical geometry boundary outside
+this evaluator-side-effect extraction map. Area/volume has separate regular
+`12` and irregular `11` handling. The membrane energy/force route now supports
+the documented positive-depth 11-control `4+3+4` case by subdividing through
+the existing irregular matrices, evaluating regular child patches, and
+transposing child bending/area/volume force rows back to the 11-control source
+order. Zero-depth 11-control requests and unsupported irregular topologies are
+still rejected by a serial preflight before the OpenMP face loop instead of
+being sent through the regular helper.
 
 The current fixture requirements and candidate map are recorded in
 `docs/irregular_patch_fixture_requirements.md`. The committed characterization
-covers the 11-control geometry route and the explicit unsupported force guard,
-but does not approve irregular force physics.
+covers the 11-control geometry route, positive-depth subdivision-transpose
+force routing, and the explicit zero-depth/unsupported-topology guard. Broader
+valence support and OpenSubdiv-backed production routing remain separate
+review-gated work.
 
 Regenerate the source-side write inventory with:
 
@@ -137,7 +140,7 @@ reaction `.inp` parameters.
 | Element geometry | `Face::elementArea` and `Face::elementVolume` are refreshed by `calculate_element_area_volume()`. Ghost faces are skipped. | Reads current vertex coordinates, face one-ring topology, `Param::subMatrix`, `Param::subDivideTimes`, and shape/quadrature data. Regular `12`-control faces use the limit-surface evaluator path; irregular `11`-control faces use the existing subdivision path. | Preserve regular/irregular selection, Loop/OpenSubdiv contracts, quadrature order, ghost-face exclusion, and area/volume accumulation order. |
 | Global area/volume | `Param::area` and `Param::vol` are reset and summed by `sum_membrane_area_and_volume(param.area, param.vol)`. | Reads current per-face area/volume and skips ghost faces. | Keep setup-time reference-area/reference-volume semantics separate from evaluator refresh semantics. |
 | Current force and face energy clearing | `Mesh::clear_force_on_vertices_and_energy_on_faces()` resets every `Vertex::force` with `Force::set_all_zero()` and replaces every `Face::energy` with a default `Energy`. | Assumes previous-state fields have already been copied elsewhere if needed. | Do not move `coordPrev`, `forcePrev`, `energyPrev`, or `Param::energyPrev` into this boundary without a separate propagation baseline. |
-| Per-face bending state | Supported non-boundary faces write `Face::normVector`, `Face::energy.energyCurvature`, and `Face::meanCurvature`; unsupported non-boundary 11-control faces fail before the OpenMP face loop. | Reads one-ring vertex coordinates, `Face::spontCurvature`, cached shape functions, quadrature coefficients, material constants, and current `Param::area`/`Param::vol` constraint values. | Preserve formula order, `sf(row, j)` access, unsupported-route guard, floating-point accumulation order, and boundary-face skip behavior. |
+| Per-face bending state | Supported non-boundary faces write `Face::normVector`, `Face::energy.energyCurvature`, and `Face::meanCurvature`; regular 12-control faces use the regular helper, and positive-depth 11-control `4+3+4` faces use subdivision-transpose force back-projection. Zero-depth or unsupported irregular faces fail before the OpenMP face loop. | Reads one-ring vertex coordinates, `Face::spontCurvature`, cached shape functions, irregular subdivision matrices, quadrature coefficients, material constants, and current `Param::area`/`Param::vol` constraint values. | Preserve formula order, row/source-id access, unsupported-route guard, floating-point accumulation order, and boundary-face skip behavior. |
 | Curvature/area/volume forces | Per-thread local arrays are reduced into `Vertex::force.forceCurvature`, `forceArea`, and `forceVolume`. | Reads face one-ring membership and current coordinates. | Preserve force scatter order, per-thread accumulation shape, OpenMP scheduling/reduction behavior, and serial/OpenMP numerical expectations. |
 | Regularization | `Face::energy.energyRegularization`, `Vertex::force.forceRegularization`, and `Param::deformationCount` are updated by `energy_force_regularization()`. | Reads adjacent triangle coordinates, `Vertex::coordRef`, `Param::kCurv`, `Param::gamaShape`, `Param::gamaArea`, and `Param::usingRpi`. | Keep deformation classification, reference-coordinate reads, per-thread force accumulation, and count semantics unchanged. |
 | Vertex total force | `Vertex::force.forceTotal` is recalculated after curvature/area/volume/regularization terms and updated again when scaffold bonds are enabled. | Reads all current force components on the vertex. | The scaffold path currently adds harmonic bond force to `forceTotal` after the first total-force calculation. Preserve that order until a dedicated physics change approves otherwise. |

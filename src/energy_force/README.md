@@ -35,13 +35,21 @@ The old direct multiplication path is intentionally preserved:
 multiplication(sf, matOneRingVertices, sfDotOneRingV)
 ```
 
-It remains the compatibility/fallback path for non-regular call-throughs, such
-as the existing `11 x 3` irregular path. The regular direct path is also kept as
-the test/control comparator for force equivalence. This keeps the production
-change conservative: regular force weight lookup changes from direct local
-column indexing to source-id lookup over the identical shape rows, while the
-force formulas, loop order, scatter order, OpenMP behavior, checkpoint and
-output behavior, and volume semantics remain unchanged.
+It remains the test/control comparator for regular force equivalence. It is not
+used as a fallback for `11 x 3` irregular membrane faces. Supported 11-control
+faces with positive `Param::subDivideTimes` now follow
+`Mesh::element_energy_force_irregular_11()`: the existing irregular
+subdivision matrices create regular child patches, each child is evaluated by
+the regular force helper, and child force rows are back-projected through the
+transpose of the child-to-original subdivision weights before scattering in
+`Face::oneRingVertices` order. Zero-depth 11-control force requests still fail
+clearly instead of entering the regular 12-control path.
+
+This keeps the production change conservative: regular force weight lookup
+changes from direct local column indexing to source-id lookup over the
+identical shape rows, while the regular formulas, loop order, scatter order,
+OpenMP behavior, checkpoint and output behavior, and volume semantics remain
+unchanged.
 
 There is no user-facing parameter named `useLimitSurfaceEvaluator`; it is an
 internal per-call guard derived from patch size.

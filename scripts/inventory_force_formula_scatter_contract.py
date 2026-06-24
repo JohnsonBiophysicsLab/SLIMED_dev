@@ -54,10 +54,22 @@ ANCHORS: tuple[Anchor, ...] = (
         "Regular 12-control faces call the existing force formula helper with one-ring coordinates in face.oneRingVertices order.",
     ),
     Anchor(
-        "irregular force unsupported guard",
+        "irregular force subdivision-depth guard",
         IMPLEMENTATION_PATH,
         "assert_supported_membrane_force_routing(mesh);",
-        "The 11-control route fails before the OpenMP face loop instead of falling back into the regular helper.",
+        "Unsupported 11-control routes, including zero subdivision depth, fail before the OpenMP face loop instead of falling back into the regular helper.",
+    ),
+    Anchor(
+        "irregular force helper call",
+        IMPLEMENTATION_PATH,
+        "mesh.element_energy_force_irregular_11(coordOneRingVertices,",
+        "Supported 11-control faces use the documented irregular subdivision route, not the regular 12-control fallback.",
+    ),
+    Anchor(
+        "irregular child force back-projection",
+        IMPLEMENTATION_PATH,
+        "add_back_projected_child_force(childToOriginal, childFBend, fBend);",
+        "Regular child-patch force rows are transposed through the child-to-original subdivision weights before 11-row scatter.",
     ),
     Anchor(
         "local row to vertex id",

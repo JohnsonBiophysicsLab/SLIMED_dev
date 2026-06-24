@@ -41,16 +41,21 @@ The existing regular limit-surface contract is explicit:
   faces from 11-control irregular faces. The irregular area/volume path applies
   `irregM`, evaluates three regular child patches through `irregM1`/`irregM2`/
   `irregM3`, then carries the remaining irregular child through `irregM4`.
-- `Mesh::Compute_Energy_And_Force()` does not mirror that split with an
-  irregular force law. Non-boundary 11-control faces are rejected before the
-  membrane force loop instead of calling `element_energy_force_regular(...)`.
+- `Mesh::Compute_Energy_And_Force()` now mirrors the documented positive-depth
+  11-control `4+3+4` split for membrane forces by building regular child
+  patches, evaluating the regular force helper, and transposing child
+  bending/area/volume force rows through the subdivision matrices.
+- Zero-depth 11-control requests and unsupported irregular topologies are still
+  rejected before the membrane force loop instead of calling
+  `element_energy_force_regular(...)`.
 - `element_energy_force_regular(...)` still loops over 12 shape-function
-  columns when forming force contributions, so the 11-control route is a known
-  bug, not compatibility behavior.
+  columns when forming force contributions, so it must not be used directly as
+  an 11-control fallback.
 
 PR #45 added a deterministic 11-control geometry fixture and matrix-contract
-checks. It deliberately did not approve a production force law or a
-back-projection contract.
+checks. Later force-routing work adds the narrow subdivision-transpose
+production path for that documented fixture shape, while broader valence and
+OpenSubdiv-backed routing remain separate decisions.
 
 ## OpenSubdiv Evidence
 
@@ -204,9 +209,10 @@ Risks to resolve before production adoption:
 
 Postpone these until the prototype and user/scientific review are complete:
 
-- Production irregular energy/force routing.
-- Force scatter/back-projection from backend stencils to original control
-  vertices.
+- Production OpenSubdiv-backed irregular energy/force routing beyond the
+  current dependency-free 11-control subdivision-matrix route.
+- Force scatter/back-projection from OpenSubdiv backend stencils to original
+  control vertices.
 - Broader extraordinary-valence support beyond the characterized regular and
   11-control cases.
 - Any change to formulas, quadrature order, force accumulation order, OpenMP
@@ -219,11 +225,11 @@ Postpone these until the prototype and user/scientific review are complete:
 
 After the prototype, decide one of:
 
-- Adopt OpenSubdiv behind `LimitSurfaceEvaluator` for regular and irregular
-  geometry, with force back-projection as the next reviewed production slice.
-- Keep OpenSubdiv out and implement a local 11-case route using the existing
-  subdivision matrices, with the proof-of-concept idea limited to recursive
-  subdivision of an 11-point irregular patch, regular child evaluation, and
-  force back-projection through subdivision matrices.
+- Adopt OpenSubdiv behind `LimitSurfaceEvaluator` for regular and broader
+  irregular geometry, with backend force back-projection as the next reviewed
+  production slice.
+- Keep OpenSubdiv out and continue with the local 11-case route using the
+  existing subdivision matrices, adding more validation or broader valence
+  support only through separate review-gated PRs.
 - Reject unsupported irregular energy/force cases loudly until one of the
-  above paths has numerical evidence.
+  broader paths has numerical evidence.

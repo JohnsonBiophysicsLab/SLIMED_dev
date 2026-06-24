@@ -63,9 +63,12 @@ weightedSample.row_weight(row, face.oneRingVertices[j])
 
 The legacy direct path remains callable without the opt-in flag and remains the
 control comparator for deterministic regular fixtures. The 11-control branch is
-not routed through this abstraction; production now rejects that unsupported
-route before the membrane OpenMP face loop instead of falling back into the
-direct helper path.
+not routed through the regular source-id row-weight abstraction. Instead,
+supported 11-control faces with positive `Param::subDivideTimes` subdivide into
+regular child patches, evaluate each child with the regular helper, and
+transpose child force rows through the child-to-original subdivision weights.
+Unsupported zero-depth 11-control requests still fail before the membrane
+OpenMP face loop instead of falling back into the direct regular helper path.
 
 ## Local Rows And Scatter Order
 
@@ -102,6 +105,12 @@ outputs against the back-projected production scatter. The focused
 `RegularForceBackProjectionMatchesDirectShapeWeights` test compares the full
 local bending, area, volume, energy, mean-curvature, and normal outputs for
 deterministic fixtures under natural and permuted source-id order.
+
+For the documented 11-control route,
+`SurfaceSubdivisionCharacterization.SyntheticIrregularPatchEnergyForceBackProjectsChildRegularForces`
+compares production scatter against an independent child-patch force transpose
+over the synthetic `11 = 4+3+4` fixture. The zero-depth guard remains covered by
+`SyntheticIrregularPatchEnergyForceRequiresSubdivisionDepth`.
 
 ## Serial And OpenMP Accumulation Shape
 
@@ -169,7 +178,7 @@ rows feed bending, area, and volume force terms; how local 12-control force
 rows map back to `Face::oneRingVertices`; and how serial/OpenMP accumulation
 currently writes mesh force buffers.
 
-What remains before backend work:
+What remains before backend replacement or broader irregular work:
 
 - a reviewed backend interface that can expose the needed row weights and
   source vertex ids without changing production behavior;
@@ -177,6 +186,7 @@ What remains before backend work:
   bending, area, and volume formulas, not just a toy gradient;
 - explicit preservation or review-approved replacement of scatter order,
   thread-local accumulation shape, and reduction order;
-- irregular face-level force support over the 11-control fixture;
+- broader irregular face-level force support beyond the documented
+  subdivision-matrix 11-control fixture;
 - boundary, ghost, periodic, and volume-policy review; and
 - OpenSubdiv dependency, license, and default build policy review.

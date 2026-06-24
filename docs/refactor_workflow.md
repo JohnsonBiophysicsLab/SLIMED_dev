@@ -197,37 +197,36 @@ explicitly scoped to one of those topics and has its own baseline.
 ## Geometry And Limit-Surface Backlog
 
 Irregular-patch energy/force routing is a separate geometry and numerical
-correctness backlog, not an evaluator-phase extraction. Area/volume refresh
-already distinguishes regular `12 = 4 + 4 + 4` one-ring patches from special
-irregular `11 = 4 + 3 + 4` one-ring patches: regular faces use the current
-limit-surface evaluator path, while `nOneRingVertices == 11` faces use the
-existing subdivision matrices to enumerate regular subpatches for area and
-volume.
+correctness boundary, not an evaluator-phase extraction. Area/volume refresh
+distinguishes regular `12 = 4 + 4 + 4` one-ring patches from special irregular
+`11 = 4 + 3 + 4` one-ring patches: regular faces use the current limit-surface
+evaluator path, while `nOneRingVertices == 11` faces use the existing
+subdivision matrices to enumerate regular subpatches for area and volume.
 
-Energy/force accumulation does not currently mirror that split. In the face
-loop, the `nOneRingVertices == 11` branch still has a
-`//@todo energy force irregular` comment and then calls
-`element_energy_force_regular(...)`. Treat this as a known bug and backlog
-item, not compatibility behavior. Existing committed models apparently do not
-exercise irregular patches, which explains why baseline gates have stayed green
-despite the wrong route.
+Energy/force accumulation now mirrors that split for the documented
+positive-depth `11 = 4 + 3 + 4` case by evaluating regular child patches and
+transposing child bending/area/volume force rows back through the subdivision
+matrices. Zero-depth 11-control requests and unsupported irregular topologies
+still fail before the membrane face loop instead of falling through to
+`element_energy_force_regular(...)`.
 
 The future work should stay staged and reviewable:
 
-- First add an irregular-patch characterization fixture that exposes the
-  current route and gives reviewers a deterministic geometry to discuss. The
-  current fixture map lives in `docs/irregular_patch_fixture_requirements.md`;
-  it adds geometry-only coverage for an explicit 11-control area/volume patch
-  and keeps the known energy/force route gap documented rather than asserting
-  on brittle source text or GSL failure behavior.
-- Then decide the backend/design contract. Before expanding local
-  case-by-case subdivision matrix code, decide whether OpenSubdiv or another
-  limit-surface backend can unify regular and irregular Loop evaluation. The
-  decision record for that lane is
+- First add an irregular-patch characterization fixture that exposes the route
+  and gives reviewers a deterministic geometry to discuss. The current fixture
+  map lives in `docs/irregular_patch_fixture_requirements.md`; it covers the
+  explicit 11-control area/volume patch, the positive-depth
+  subdivision-transpose energy/force route, and the remaining
+  zero-depth/unsupported-topology diagnostics.
+- Then decide the backend/design contract for broader support. Before
+  expanding local case-by-case subdivision matrix code further, decide whether
+  OpenSubdiv or another limit-surface backend can unify regular and irregular
+  Loop evaluation. The decision record for that lane is
   `docs/opensubdiv_backend_decision.md`.
-- Then make a focused production route fix for `nOneRingVertices == 11`,
-  with serial/OpenMP numerical evidence and no unrelated evaluator cleanup.
-- After that, broaden support beyond the current `12` and `11` one-ring cases
+- Then broaden support beyond the current `12` and documented positive-depth
+  `11` one-ring cases only with serial/OpenMP numerical evidence and no
+  unrelated evaluator cleanup.
+- After that, expand to additional valences
   where possible, or explicitly reject unsupported local geometry with
   diagnostics instead of falling through to the wrong evaluator.
 
