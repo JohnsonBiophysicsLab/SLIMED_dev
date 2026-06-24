@@ -13,9 +13,11 @@ or `LimitSurfaceEvaluator` behavior.
 
 `Mesh::element_energy_force_regular(...)` consumes the current regular
 `12 x 3` one-ring coordinate matrix and each cached `Param::shapeFunctions[i]`
-matrix in quadrature order. In the regular case,
-`SlimedLoopLimitSurfaceEvaluator::evaluate_shape_function(...)` maps the seven
-shape rows into the existing local variables:
+matrix in quadrature order. The production 12-control branch opts into
+`LimitSurfaceWeightedSample`, which stores the same seven shape rows as row
+weights keyed by `Face::oneRingVertices` source ids. In the regular case,
+`SlimedLoopLimitSurfaceEvaluator::evaluate_weighted_shape_function(...)` maps
+the seven shape rows into the existing local variables:
 
 | Evaluator field | Shape row | Local variable | Formula use |
 | --- | ---: | --- | --- |
@@ -40,6 +42,29 @@ controls `j = 0..11` and writes three local force matrices:
 The local outputs are accumulated in sample order using
 `0.5 * param.gaussQuadratureCoeff(i, 0)`. Bending energy, mean curvature, and
 the face normal use the same quadrature order.
+
+## Regular Back-Projection Slice
+
+The approved production slice adds a backend-neutral row/source-id abstraction
+without changing regular formula semantics. For 12-control production faces,
+`accumulate_membrane_face_energy_and_forces(...)` calls
+`element_energy_force_regular(...)` with regular back-projection enabled. The
+helper builds a `LimitSurfaceWeightedSample` from the current cached
+`Param::shapeFunctions[i]`, current `12 x 3` control matrix, and current
+`Face::oneRingVertices` ids.
+
+Inside the existing per-control loop, the force formula still evaluates local
+rows `j = 0..11` in order. Each `sf(row, j)` use is represented by the same
+numeric row weight looked up as:
+
+```text
+weightedSample.row_weight(row, face.oneRingVertices[j])
+```
+
+The legacy direct path remains callable without the opt-in flag and remains the
+control comparator for deterministic regular fixtures. The 11-control branch is
+not routed through this abstraction; it keeps the existing unsupported fallback
+into the direct helper path.
 
 ## Local Rows And Scatter Order
 
@@ -70,9 +95,12 @@ uses a deliberately permuted 12-control one-ring fixture. It calls
 `element_energy_force_regular(...)` directly, then calls the production
 `Compute_Energy_And_Force()` path on the same one-face fixture and verifies
 that every vertex force component equals the local force row addressed by
-`face.oneRingVertices[j]`. The test also checks that the face bending energy,
-mean curvature, and normal written by the production path match the direct
-helper outputs.
+`face.oneRingVertices[j]`. Because production regular faces now opt into
+row/source-id back-projection, this test also compares direct shape-row force
+outputs against the back-projected production scatter. The focused
+`RegularForceBackProjectionMatchesDirectShapeWeights` test compares the full
+local bending, area, volume, energy, mean-curvature, and normal outputs for
+deterministic fixtures under natural and permuted source-id order.
 
 ## Serial And OpenMP Accumulation Shape
 

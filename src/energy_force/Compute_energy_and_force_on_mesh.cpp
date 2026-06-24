@@ -18,6 +18,35 @@ void copy_column_vector(const Matrix &source, Matrix &destination)
     }
 }
 
+std::vector<int> regular_force_source_ids(const Face &face, const int controlPointCount)
+{
+    if (static_cast<int>(face.oneRingVertices.size()) == controlPointCount)
+    {
+        return face.oneRingVertices;
+    }
+
+    std::vector<int> sourceIds(controlPointCount);
+    for (int sourceIndex = 0; sourceIndex < controlPointCount; ++sourceIndex)
+    {
+        sourceIds[sourceIndex] = sourceIndex;
+    }
+    return sourceIds;
+}
+
+double regular_force_row_weight(const LimitSurfaceWeightedSample &sample,
+                                const Matrix &shapeFunction,
+                                const bool useBackProjection,
+                                const LimitSurfaceDerivativeRow row,
+                                const int sourceId,
+                                const int localControlIndex)
+{
+    if (useBackProjection)
+    {
+        return sample.row_weight(row, sourceId);
+    }
+    return shapeFunction(static_cast<int>(row), localControlIndex);
+}
+
 void refresh_energy_force_geometry(Mesh &mesh)
 {
     mesh.calculate_element_area_volume();
@@ -83,7 +112,8 @@ void accumulate_membrane_face_energy_and_forces(Mesh &mesh)
                                               eBend,
                                               fBend,
                                               fArea,
-                                              fVol);
+                                              fVol,
+                                              true);
 
             // irregular patch
         }
@@ -284,7 +314,8 @@ void Mesh::element_energy_force_regular(const std::vector<Matrix> &coordOneRingV
                                         double &eBend,
                                         Matrix &fBend,
                                         Matrix &fArea,
-                                        Matrix &fVolume)
+                                        Matrix &fVolume,
+                                        const bool useRegularBackProjection)
 {
     // fBend is the Force related to the curvature
     // fArea is the Force related to the area-constraint
@@ -392,6 +423,11 @@ void Mesh::element_energy_force_regular(const std::vector<Matrix> &coordOneRingV
     }
     const bool useLimitSurfaceEvaluator =
         matOneRingVertices.nrow() == limitSurfaceEvaluator.regular_patch_control_point_count();
+    const bool useBackProjectedWeights = useRegularBackProjection && useLimitSurfaceEvaluator;
+    const std::vector<int> regularSourceIds =
+        useBackProjectedWeights
+            ? regular_force_source_ids(face, limitSurfaceEvaluator.regular_patch_control_point_count())
+            : std::vector<int>();
 
     // Gaussian quadrature, second-order or 3 points.
     //std::cout << param.shapeFunctions.size() << std::endl;
@@ -400,8 +436,21 @@ void Mesh::element_energy_force_regular(const std::vector<Matrix> &coordOneRingV
         halfGaussQuadratureCoeff = 0.5 * param.gaussQuadratureCoeff(i, 0);
         //std::cout << halfGaussQuadratureCoeff << std::endl;
         Matrix &sf = param.shapeFunctions[i];
+        LimitSurfaceWeightedSample weightedSample;
 
-        if (useLimitSurfaceEvaluator)
+        if (useBackProjectedWeights)
+        {
+            weightedSample = limitSurfaceEvaluator.evaluate_weighted_shape_function(
+                sf, matOneRingVertices, regularSourceIds);
+            copy_column_vector(weightedSample.evaluation.position, x);
+            copy_column_vector(weightedSample.evaluation.firstDerivativeV, a_1);
+            copy_column_vector(weightedSample.evaluation.firstDerivativeW, a_2);
+            copy_column_vector(weightedSample.evaluation.secondDerivativeVV, a_11);
+            copy_column_vector(weightedSample.evaluation.secondDerivativeWW, a_22);
+            copy_column_vector(weightedSample.evaluation.mixedDerivativeVW, a_12);
+            copy_column_vector(weightedSample.evaluation.mixedDerivativeWV, a_21);
+        }
+        else if (useLimitSurfaceEvaluator)
         {
             const LimitSurfaceEvaluation evaluation =
                 limitSurfaceEvaluator.evaluate_shape_function(sf, matOneRingVertices);
@@ -562,6 +611,49 @@ void Mesh::element_energy_force_regular(const std::vector<Matrix> &coordOneRingV
         // std::cout << "(2H, spontCurv, 2h-spontCurv, ebe)" << 2.0*H_curv << ", " << spontCurv << ", " << (2.0*H_curv-spontCurv) <<", " << ebe << endl;
         for (int j = 0; j < 12; j++)
         {   
+            const int sourceId = useBackProjectedWeights ? regularSourceIds[j] : j;
+            const double sf0 = regular_force_row_weight(weightedSample,
+                                                        sf,
+                                                        useBackProjectedWeights,
+                                                        LimitSurfaceDerivativeRow::Position,
+                                                        sourceId,
+                                                        j);
+            const double sf1 = regular_force_row_weight(weightedSample,
+                                                        sf,
+                                                        useBackProjectedWeights,
+                                                        LimitSurfaceDerivativeRow::FirstDerivativeV,
+                                                        sourceId,
+                                                        j);
+            const double sf2 = regular_force_row_weight(weightedSample,
+                                                        sf,
+                                                        useBackProjectedWeights,
+                                                        LimitSurfaceDerivativeRow::FirstDerivativeW,
+                                                        sourceId,
+                                                        j);
+            const double sf3 = regular_force_row_weight(weightedSample,
+                                                        sf,
+                                                        useBackProjectedWeights,
+                                                        LimitSurfaceDerivativeRow::SecondDerivativeVV,
+                                                        sourceId,
+                                                        j);
+            const double sf4 = regular_force_row_weight(weightedSample,
+                                                        sf,
+                                                        useBackProjectedWeights,
+                                                        LimitSurfaceDerivativeRow::SecondDerivativeWW,
+                                                        sourceId,
+                                                        j);
+            const double sf5 = regular_force_row_weight(weightedSample,
+                                                        sf,
+                                                        useBackProjectedWeights,
+                                                        LimitSurfaceDerivativeRow::MixedDerivativeVW,
+                                                        sourceId,
+                                                        j);
+            const double sf6 = regular_force_row_weight(weightedSample,
+                                                        sf,
+                                                        useBackProjectedWeights,
+                                                        LimitSurfaceDerivativeRow::MixedDerivativeWV,
+                                                        sourceId,
+                                                        j);
             //da1 = -sf(3, j) * kron(a1, a_3)
             //- sf(1, j) * kron(a11, a_3)
             //- sf(1, j) * kron(a1, a_31)
@@ -570,22 +662,22 @@ void Mesh::element_energy_force_regular(const std::vector<Matrix> &coordOneRingV
             //- sf(2, j) * kron(a2, a_31);
             da1.set_all(0.0);
             kron(a1, a_3, tmp_kron_prod);
-            tmp_kron_prod *= -sf(3,j);
+            tmp_kron_prod *= -sf3;
             da1 += tmp_kron_prod;
             kron(a11, a_3, tmp_kron_prod);
-            tmp_kron_prod *= -sf(1,j);
+            tmp_kron_prod *= -sf1;
             da1 += tmp_kron_prod;
             kron(a1, a_31, tmp_kron_prod);
-            tmp_kron_prod *= -sf(1,j);
+            tmp_kron_prod *= -sf1;
             da1 += tmp_kron_prod;
             kron(a2, a_3, tmp_kron_prod);
-            tmp_kron_prod *= -sf(6,j);
+            tmp_kron_prod *= -sf6;
             da1 += tmp_kron_prod;
             kron(a21, a_3, tmp_kron_prod);
-            tmp_kron_prod *= -sf(2,j);
+            tmp_kron_prod *= -sf2;
             da1 += tmp_kron_prod;
             kron(a2, a_31, tmp_kron_prod);
-            tmp_kron_prod *= -sf(2,j);
+            tmp_kron_prod *= -sf2;
             da1 += tmp_kron_prod;
 
 
@@ -599,22 +691,22 @@ void Mesh::element_energy_force_regular(const std::vector<Matrix> &coordOneRingV
             //- sf(2, j) * kron(a2, a_32);
             da2.set_all(0.0);// //cout << "EEFR 471" << endl;
             kron(a1, a_3, tmp_kron_prod);////cout << "EEFR 472" << endl;
-            tmp_kron_prod *= -sf(5,j);////cout << "EEFR 473" << endl;
+            tmp_kron_prod *= -sf5;////cout << "EEFR 473" << endl;
             da2 += tmp_kron_prod;////cout << "EEFR 474" << endl;
             kron(a12, a_3, tmp_kron_prod);////cout << "EEFR 475" << endl;
-            tmp_kron_prod *= -sf(1,j);////cout << "EEFR 476" << endl;
+            tmp_kron_prod *= -sf1;////cout << "EEFR 476" << endl;
             da2 += tmp_kron_prod;////cout << "EEFR 477" << endl;
             kron(a1, a_32, tmp_kron_prod);////cout << "EEFR 478" << endl;
-            tmp_kron_prod *= -sf(1,j);////cout << "EEFR 479" << endl;
+            tmp_kron_prod *= -sf1;////cout << "EEFR 479" << endl;
             da2 += tmp_kron_prod;////cout << "EEFR 480" << endl;
             kron(a2, a_3, tmp_kron_prod);////cout << "EEFR 481" << endl;
-            tmp_kron_prod *= -sf(4,j);////cout << "EEFR 482" << endl;
+            tmp_kron_prod *= -sf4;////cout << "EEFR 482" << endl;
             da2 += tmp_kron_prod;////cout << "EEFR 483" << endl;
             kron(a22, a_3, tmp_kron_prod);//cout << "EEFR 484" << endl;
-            tmp_kron_prod *= -sf(2,j);//cout << "EEFR 485" << endl;
+            tmp_kron_prod *= -sf2;//cout << "EEFR 485" << endl;
             da2 += tmp_kron_prod;////cout << "EEFR 486" << endl;
             kron(a2, a_32, tmp_kron_prod);////cout << "EEFR 487" << endl;
-            tmp_kron_prod *= -sf(2,j);////cout << "EEFR 488" << endl;
+            tmp_kron_prod *= -sf2;////cout << "EEFR 488" << endl;
             da2 += tmp_kron_prod;////cout << "EEFR 489" << endl;
 
 ////cout << "EEFR 438" << endl;
@@ -624,16 +716,16 @@ void Mesh::element_energy_force_regular(const std::vector<Matrix> &coordOneRingV
             tempf_be += tmp_f;
             colvec_matrix_multiplication(m2_be, da2, tmp_l);
             tempf_be += tmp_l;
-            const_multiplication(n1_be, sf(1, j), tmp_f);
-            const_multiplication(n2_be, sf(2, j), tmp_l);
+            const_multiplication(n1_be, sf1, tmp_f);
+            const_multiplication(n2_be, sf2, tmp_l);
             tempf_be += tmp_f;
             tempf_be += tmp_l;
             tempf_be *= -sqa;
             f_be.set_row_from_col(j, tempf_be, 0); // the Force is the negative derivative
 ////cout << "EEFR 445" << endl;
             //tempf_cons = n1_cons * sf(1, j) + n2_cons * sf(2, j);
-            const_multiplication(n1_cons, sf(1,j), tmp_f);
-            const_multiplication(n2_cons, sf(2,j), tmp_l);
+            const_multiplication(n1_cons, sf1, tmp_f);
+            const_multiplication(n2_cons, sf2, tmp_l);
             addition(tmp_f, tmp_l, tempf_cons);
             tempf_cons *= -sqa;
             f_cons.set_row_from_col(j, tempf_cons, 0); // the Force is the negative derivative
@@ -642,11 +734,11 @@ void Mesh::element_energy_force_regular(const std::vector<Matrix> &coordOneRingV
             //+ n2_conv * sf(2, j)
             //+ tmp_evol * sf(0, j) * a_3;
             tempf_conv.set_all(0.0);
-            const_multiplication(n1_conv, sf(1,j), tmp_f);
+            const_multiplication(n1_conv, sf1, tmp_f);
             tempf_conv += tmp_f;
-            const_multiplication(n2_conv, sf(2,j), tmp_l);
+            const_multiplication(n2_conv, sf2, tmp_l);
             tempf_conv += tmp_l;
-            const_multiplication(a_3, tmp_evol * sf(0,j), tmp_l);
+            const_multiplication(a_3, tmp_evol * sf0, tmp_l);
             tempf_conv += tmp_l;
             tempf_conv *= -sqa;
             f_conv.set_row_from_col(j, tempf_conv, 0);

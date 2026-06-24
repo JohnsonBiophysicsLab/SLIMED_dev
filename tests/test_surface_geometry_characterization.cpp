@@ -440,6 +440,23 @@ void expect_force_component_matches_row(const Matrix &component,
             << label << " row " << row << " axis " << axis;
     }
 }
+
+void expect_matrix_near(const Matrix &actual,
+                        const Matrix &expected,
+                        const double tolerance,
+                        const std::string &label)
+{
+    ASSERT_EQ(actual.nrow(), expected.nrow()) << label;
+    ASSERT_EQ(actual.ncol(), expected.ncol()) << label;
+    for (int row = 0; row < actual.nrow(); ++row)
+    {
+        for (int col = 0; col < actual.ncol(); ++col)
+        {
+            EXPECT_NEAR(actual.get(row, col), expected.get(row, col), tolerance)
+                << label << " row " << row << " col " << col;
+        }
+    }
+}
 } // namespace
 
 TEST(SurfaceShapeFunctionsCharacterization, PartitionOfUnityAndDerivativeSums)
@@ -774,6 +791,114 @@ TEST(SurfaceLimitSurfaceEvaluatorContract, RegularEnergyForceGeometryRowsMatchLe
         SCOPED_TRACE(::testing::Message() << "shape function baseline " << sample);
         expect_matrix_exactly_matches(shapeFunctionBaseline[sample],
                                       param.shapeFunctions[sample]);
+    }
+}
+
+TEST(SurfaceLimitSurfaceEvaluatorContract, WeightedRegularSampleRowsAreKeyedBySourceId)
+{
+    Param param;
+    param.VERBOSE_MODE = false;
+    Mesh mesh(param);
+    const SlimedLoopLimitSurfaceEvaluator evaluator;
+    const Matrix controlPoints = make_force_scatter_control_points();
+    const std::vector<int> sourceIds = {9, 2, 11, 0, 7, 4, 10, 1, 8, 3, 6, 5};
+
+    ASSERT_FALSE(param.shapeFunctions.empty());
+
+    for (int sample = 0; sample < static_cast<int>(param.shapeFunctions.size()); ++sample)
+    {
+        SCOPED_TRACE(::testing::Message() << "sample " << sample);
+        const Matrix &shapeFunction = param.shapeFunctions[sample];
+        const LimitSurfaceWeightedSample weightedSample =
+            evaluator.evaluate_weighted_shape_function(shapeFunction, controlPoints, sourceIds);
+
+        expect_evaluation_matches_rows(weightedSample.evaluation, shapeFunction * controlPoints);
+        for (int localControl = 0; localControl < static_cast<int>(sourceIds.size()); ++localControl)
+        {
+            SCOPED_TRACE(::testing::Message() << "local control " << localControl);
+            for (int row = 0; row < SlimedLoopLimitSurfaceEvaluator::kShapeFunctionRowCount; ++row)
+            {
+                EXPECT_DOUBLE_EQ(
+                    weightedSample.row_weight(static_cast<LimitSurfaceDerivativeRow>(row),
+                                              sourceIds[localControl]),
+                    shapeFunction.get(row, localControl));
+            }
+        }
+    }
+}
+
+TEST(SurfaceLimitSurfaceEvaluatorContract, RegularForceBackProjectionMatchesDirectShapeWeights)
+{
+    Param param;
+    param.VERBOSE_MODE = false;
+    param.boundaryCondition = BoundaryType::Periodic;
+    param.kCurv = 47.5;
+    param.uSurf = 130.0;
+    param.uVol = 65.0;
+    param.area0 = 2.75;
+    param.vol0 = 0.82;
+
+    const std::vector<int> naturalOrder = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11};
+    const std::vector<int> permutedSourceOrder = {9, 2, 11, 0, 7, 4, 10, 1, 8, 3, 6, 5};
+    const std::vector<Matrix> controlPointFixtures =
+        make_regular_energy_force_control_point_fixtures();
+
+    for (int fixture = 0; fixture < static_cast<int>(controlPointFixtures.size()); ++fixture)
+    {
+        for (const std::vector<int> &oneRingOrder : {naturalOrder, permutedSourceOrder})
+        {
+            SCOPED_TRACE(::testing::Message() << "fixture " << fixture);
+            Mesh mesh(param);
+            populate_regular_force_scatter_mesh(mesh,
+                                                controlPointFixtures[fixture],
+                                                oneRingOrder);
+            mesh.calculate_element_area_volume();
+            mesh.sum_membrane_area_and_volume(mesh.param.area, mesh.param.vol);
+
+            Face &face = mesh.faces.front();
+            double directMeanCurv = 0.0;
+            double directEBend = 0.0;
+            Matrix directNormVector = mat_calloc(3, 1);
+            Matrix directFBend = mat_calloc(12, 3);
+            Matrix directFArea = mat_calloc(12, 3);
+            Matrix directFVolume = mat_calloc(12, 3);
+
+            double backProjectedMeanCurv = 0.0;
+            double backProjectedEBend = 0.0;
+            Matrix backProjectedNormVector = mat_calloc(3, 1);
+            Matrix backProjectedFBend = mat_calloc(12, 3);
+            Matrix backProjectedFArea = mat_calloc(12, 3);
+            Matrix backProjectedFVolume = mat_calloc(12, 3);
+
+            const std::vector<Matrix> coordinateColumns =
+                control_point_rows_to_columns(controlPointFixtures[fixture]);
+            mesh.element_energy_force_regular(coordinateColumns,
+                                              face,
+                                              face.spontCurvature,
+                                              directMeanCurv,
+                                              directNormVector,
+                                              directEBend,
+                                              directFBend,
+                                              directFArea,
+                                              directFVolume);
+            mesh.element_energy_force_regular(coordinateColumns,
+                                              face,
+                                              face.spontCurvature,
+                                              backProjectedMeanCurv,
+                                              backProjectedNormVector,
+                                              backProjectedEBend,
+                                              backProjectedFBend,
+                                              backProjectedFArea,
+                                              backProjectedFVolume,
+                                              true);
+
+            EXPECT_NEAR(backProjectedEBend, directEBend, 1.0e-12);
+            EXPECT_NEAR(backProjectedMeanCurv, directMeanCurv, 1.0e-12);
+            expect_matrix_near(backProjectedNormVector, directNormVector, 1.0e-12, "normal");
+            expect_matrix_near(backProjectedFBend, directFBend, 1.0e-10, "curvature force");
+            expect_matrix_near(backProjectedFArea, directFArea, 1.0e-10, "area force");
+            expect_matrix_near(backProjectedFVolume, directFVolume, 1.0e-10, "volume force");
+        }
     }
 }
 

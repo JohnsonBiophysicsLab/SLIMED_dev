@@ -1,5 +1,6 @@
 #include "mesh/Limit_surface_evaluator.hpp"
 
+#include <cstddef>
 #include <stdexcept>
 #include <string>
 
@@ -30,6 +31,21 @@ Matrix shape_row_to_column(const Matrix &shapeDotControlPoints,
     return column;
 }
 } // namespace
+
+double LimitSurfaceWeightedSample::row_weight(const LimitSurfaceDerivativeRow row,
+                                              const int sourceId) const
+{
+    const int rowIndex = static_cast<int>(row);
+    double weight = 0.0;
+    for (int sourceIndex = 0; sourceIndex < static_cast<int>(sourceIds.size()); ++sourceIndex)
+    {
+        if (sourceIds[sourceIndex] == sourceId)
+        {
+            weight += rowWeights.get(rowIndex, sourceIndex);
+        }
+    }
+    return weight;
+}
 
 int SlimedLoopLimitSurfaceEvaluator::regular_patch_control_point_count() const
 {
@@ -85,4 +101,29 @@ LimitSurfaceEvaluation SlimedLoopLimitSurfaceEvaluator::evaluate_shape_function(
     evaluation.mixedDerivativeWV = shape_row_to_column(shapeDotControlPoints,
                                                        LimitSurfaceDerivativeRow::MixedDerivativeWV);
     return evaluation;
+}
+
+LimitSurfaceWeightedSample SlimedLoopLimitSurfaceEvaluator::evaluate_weighted_shape_function(
+    const Matrix &shapeFunction,
+    const Matrix &controlPoints,
+    const std::vector<int> &sourceIds) const
+{
+    validate_matrix_dimensions(shapeFunction,
+                               kShapeFunctionRowCount,
+                               kRegularPatchControlPointCount,
+                               "shapeFunction");
+    validate_matrix_dimensions(controlPoints,
+                               kRegularPatchControlPointCount,
+                               kSpatialDimension,
+                               "controlPoints");
+    if (sourceIds.size() != static_cast<std::size_t>(kRegularPatchControlPointCount))
+    {
+        throw std::invalid_argument("sourceIds has incompatible dimensions");
+    }
+
+    LimitSurfaceWeightedSample sample;
+    sample.evaluation = evaluate_shape_function(shapeFunction, controlPoints);
+    sample.sourceIds = sourceIds;
+    sample.rowWeights = shapeFunction;
+    return sample;
 }
