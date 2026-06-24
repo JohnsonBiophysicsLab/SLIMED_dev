@@ -1,9 +1,8 @@
 # Irregular Patch Fixture Requirements
 
 This note characterizes what can be tested safely for the current
-11-neighbor irregular-patch backlog without changing production C++ behavior.
-It is a fixture map, not an approval to route production energy/force through a
-new irregular backend.
+11-neighbor irregular-patch backlog. It is a fixture and guard map, not an
+approval to route production energy/force through a new irregular backend.
 
 ## Current Status
 
@@ -13,8 +12,9 @@ Area/volume and energy/force disagree for 11-control faces:
   `face.oneRingVertices.size() == 11`, repeatedly applies the existing
   irregular subdivision matrices, accumulates three regular child patches per
   subdivision depth, and carries the fourth irregular child forward.
-- `Mesh::Compute_Energy_And_Force()` also recognizes the 11-control case, but
-  the branch still contains `//@todo energy force irregular` and then calls
+- `Mesh::Compute_Energy_And_Force()` does not implement an 11-control force
+  law. A serial preflight rejects non-boundary 11-control faces before the
+  membrane OpenMP face loop so the route cannot silently fall back into
   `element_energy_force_regular(...)`.
 - `SlimedLoopLimitSurfaceEvaluator` intentionally rejects an 11-control
   regular-patch evaluation. It is a regular 12-control backend only.
@@ -41,6 +41,10 @@ This is mechanical coverage for the current geometry route only. It makes no
 scientific claim about the selected coordinates, the ideal subdivision depth,
 or a correct irregular force law.
 
+`SurfaceSubdivisionCharacterization.SyntheticIrregularPatchEnergyForceFailsBeforeRegularFallback`
+uses the same fixture to verify that `Compute_Energy_And_Force()` reports the
+unsupported 11-control force route before the old regular fallback can run.
+
 ## Fixture Requirements
 
 A robust 11-neighbor fixture needs these inputs to be explicit:
@@ -59,21 +63,22 @@ A robust 11-neighbor fixture needs these inputs to be explicit:
 
 ## Energy/Force Gap
 
-No default energy/force test is added for the irregular route in this lane.
-The existing production branch is known wrong, and a robust non-brittle test
-would require at least one of these decisions:
+No default energy/force success test is added for the irregular route in this
+lane. The existing production force law is undefined for 11 controls, and a
+robust non-brittle implementation test would require at least one of these
+decisions:
 
 - an approved `element_energy_force_irregular(...)` contract;
 - a force back-projection contract from subdivided regular child patches to the
   original 11 one-ring vertices;
 - a tolerance and baseline policy for serial and OpenMP force accumulation; or
-- a production diagnostic/hook that reports route selection without changing
-  formulas or force scatter.
+- a reviewed production diagnostic/hook that reports route selection without
+  changing formulas or force scatter.
 
-Source-text assertions against the TODO or the regular call are too brittle for
-the default test suite. Death tests around the current 11-control force route
-would characterize GSL/BLAS dimension-mismatch handling rather than membrane
-semantics, so they are intentionally avoided.
+Source-text assertions against the former TODO or regular call are too brittle
+for the default test suite. The committed guard test checks the production
+diagnostic message instead of characterizing GSL/BLAS dimension-mismatch
+handling.
 
 ## Recommended Next Prompt
 

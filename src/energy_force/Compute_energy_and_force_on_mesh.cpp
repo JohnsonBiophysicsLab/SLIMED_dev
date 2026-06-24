@@ -1,6 +1,10 @@
 #include "mesh/Mesh.hpp"
 
 #include "mesh/Limit_surface_evaluator.hpp"
+
+#include <sstream>
+#include <stdexcept>
+
 #pragma omp declare reduction(vector_plus                                                                                             \
                               : std::vector <Force>                                                                                   \
                               : std::transform(omp_out.begin(), omp_out.end(), omp_in.begin(), omp_out.begin(), std::plus <Force>())) \
@@ -47,6 +51,27 @@ double regular_force_row_weight(const LimitSurfaceWeightedSample &sample,
     return shapeFunction(static_cast<int>(row), localControlIndex);
 }
 
+void assert_supported_membrane_force_routing(const Mesh &mesh)
+{
+    for (const Face &face : mesh.faces)
+    {
+        if (face.isBoundary)
+        {
+            continue;
+        }
+
+        if (face.oneRingVertices.size() == 11)
+        {
+            std::ostringstream message;
+            message << "Unsupported irregular membrane energy/force routing for face "
+                    << face.index
+                    << ": 11-control one-ring patches are not implemented; "
+                    << "the regular 12-control force fallback is disabled.";
+            throw std::runtime_error(message.str());
+        }
+    }
+}
+
 void refresh_energy_force_geometry(Mesh &mesh)
 {
     mesh.calculate_element_area_volume();
@@ -55,6 +80,8 @@ void refresh_energy_force_geometry(Mesh &mesh)
 
 void accumulate_membrane_face_energy_and_forces(Mesh &mesh)
 {
+    assert_supported_membrane_force_routing(mesh);
+
     const int nVertices = static_cast<int>(mesh.vertices.size());
 #ifdef OMP
     const int nThreads = omp_get_max_threads();
@@ -115,21 +142,6 @@ void accumulate_membrane_face_energy_and_forces(Mesh &mesh)
                                               fVol,
                                               true);
 
-            // irregular patch
-        }
-        else if (nOneRingVertices == 11)
-        {
-            //@todo energy force irregular
-            // element_energy_force_irregular(coordOneRingVertices, param, spontCurv, meanCurv, normVector, eBend, fBend, fArea, fVol, GaussQuadratureCoeff, ShapeFunctions, subMatrix);
-            mesh.element_energy_force_regular(coordOneRingVertices,
-                                              face,
-                                              spontCurv,
-                                              meanCurv,
-                                              face.normVector,
-                                              eBend,
-                                              fBend,
-                                              fArea,
-                                              fVol);
         }
         face.energy.energyCurvature = eBend; ///< store curvature energy in face object
 
