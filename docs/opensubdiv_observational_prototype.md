@@ -454,6 +454,23 @@ python3 scripts/probe_opensubdiv_feasibility.py \
   --json --require-opensubdiv --force-transpose-report
 ```
 
+Example opt-in 11-control transpose proof-map report:
+
+```bash
+OPENSUBDIV_ROOT=/path/to/opensubdiv \
+python3 scripts/probe_opensubdiv_feasibility.py \
+  --json --require-opensubdiv --irregular-transpose-proof-map-report
+```
+
+The proof-map report is summarized in
+`docs/irregular_subdivision_transpose_proof_map.md`. It stacks the same
+SLIMED-compatible toy transpose identity across every ptex face and the
+documented sample grid for the 11-control fixture variants. It is still
+observational evidence only: the orientation-normalized fixture can expose all
+11 local source ids at aggregate level, but production must still approve the
+face-level sample plan, formula transpose, scatter order, and fallback policy
+before 11-control force routing.
+
 ## Feasibility Questions
 
 1. Can a Loop-scheme OpenSubdiv Far topology be built from SLIMED-style
@@ -514,6 +531,18 @@ python3 scripts/probe_opensubdiv_feasibility.py \
    Aggregating over all ptex faces and the documented sample grid reports ids
    `0..10` for value, first-derivative, and second-derivative weights,
    including the previously missing ids `8` and `10`.
+
+7. Can the aggregate 11-control source weights be transposed as a local
+   proof-map shape?
+
+   Proven observationally for a toy stacked linear functional only. The
+   `--irregular-transpose-proof-map-report` mode checks
+   `sum_samples g dot (W_sample p) == p dot sum_samples (W_sample^T g)` over
+   all ptex faces and the documented sample grid. For the
+   orientation-normalized fixture, the useful evidence is that the aggregate
+   toy back-projection covers local ids `0..10`. This still does not choose a
+   production face-level sample plan, route irregular forces, or prove bending,
+   area, and volume formula equivalence.
 
 ## Next Review Gate
 

@@ -57,6 +57,10 @@ using namespace OpenSubdiv;
 #define SLIMED_FORCE_TRANSPOSE_REPORT 0
 #endif
 
+#ifndef SLIMED_IRREGULAR_TRANSPOSE_PROOF_MAP_REPORT
+#define SLIMED_IRREGULAR_TRANSPOSE_PROOF_MAP_REPORT 0
+#endif
+
 struct Point {
     float x;
     float y;
@@ -954,7 +958,7 @@ static void print_regular_equivalence_sample(
 }
 #endif
 
-#if SLIMED_FORCE_TRANSPOSE_REPORT
+#if SLIMED_FORCE_TRANSPOSE_REPORT || SLIMED_IRREGULAR_TRANSPOSE_PROOF_MAP_REPORT
 static constexpr double kTransposeTolerance = 1.0e-5;
 
 static double deterministic_gradient(int row, int axis) {
@@ -1025,7 +1029,9 @@ static double max_abs_control_value(std::vector<double> const &values) {
     }
     return result;
 }
+#endif
 
+#if SLIMED_FORCE_TRANSPOSE_REPORT
 static bool print_force_transpose_report(MeshCase const &mesh,
                                          Far::LimitStencil const &stencil) {
     std::vector<float const *> opensubdivRows = {
@@ -1110,6 +1116,163 @@ static bool print_force_transpose_report(MeshCase const &mesh,
 }
 #endif
 
+#if SLIMED_IRREGULAR_TRANSPOSE_PROOF_MAP_REPORT
+static void merge_limit_row_ids(std::set<int> &dest,
+                                Far::LimitStencil const &stencil,
+                                float const *weights) {
+    merge_ids(dest, limit_weight_source_ids(stencil, weights));
+}
+
+static bool print_irregular_transpose_proof_map(
+    MeshCase const &mesh,
+    Far::TopologyRefiner const &refiner,
+    Far::PatchTable const *patchTable,
+    Far::StencilTable const *cvStencils) {
+    std::cout << ",\"irregular_transpose_proof_map\":{";
+    if (mesh.expectedLocalControlIds.empty()) {
+        std::cout << "\"available\":false,\"reason\":\"regular_case_has_no_"
+                     "11_control_fixture_ids\"}";
+        return true;
+    }
+    if (!patchTable || !cvStencils) {
+        std::cout << "\"available\":false,\"reason\":\"patch_table_or_control_"
+                     "vertex_stencils_unavailable\"}";
+        return false;
+    }
+
+    std::vector<AggregateSampleLocation> sampleLocations =
+        aggregate_sample_locations();
+    const int ptexFaceCount = patchTable->GetNumPtexFaces();
+    std::vector<std::vector<float>> sValues(ptexFaceCount);
+    std::vector<std::vector<float>> tValues(ptexFaceCount);
+    Far::LimitStencilTableFactory::LocationArrayVec locations;
+    locations.reserve(ptexFaceCount);
+
+    for (int ptexFace = 0; ptexFace < ptexFaceCount; ++ptexFace) {
+        sValues[ptexFace].reserve(sampleLocations.size());
+        tValues[ptexFace].reserve(sampleLocations.size());
+        for (AggregateSampleLocation const &sample : sampleLocations) {
+            sValues[ptexFace].push_back(sample.v);
+            tValues[ptexFace].push_back(sample.w);
+        }
+
+        Far::LimitStencilTableFactory::LocationArray location;
+        location.ptexIdx = ptexFace;
+        location.numLocations = static_cast<int>(sampleLocations.size());
+        location.s = sValues[ptexFace].data();
+        location.t = tValues[ptexFace].data();
+        locations.push_back(location);
+    }
+
+    Far::LimitStencilTableFactory::Options stencilOptions;
+    stencilOptions.generate1stDerivatives = true;
+    stencilOptions.generate2ndDerivatives = true;
+    Far::LimitStencilTable const *stencils =
+        Far::LimitStencilTableFactory::Create(
+            refiner, locations, cvStencils, patchTable, stencilOptions);
+    if (!stencils) {
+        std::cout << "\"available\":false,\"reason\":\"limit_stencil_"
+                     "creation_failed\"}";
+        return false;
+    }
+
+    std::set<int> valueIds;
+    std::set<int> firstIds;
+    std::set<int> secondIds;
+    std::set<int> transposeIds;
+    std::vector<double> backProjection(mesh.numVertices * 3, 0.0);
+    double sampleDot = 0.0;
+
+    for (int stencilIndex = 0; stencilIndex < stencils->GetNumStencils();
+         ++stencilIndex) {
+        Far::LimitStencil stencil = stencils->GetLimitStencil(stencilIndex);
+        std::vector<float const *> slimedRows = {
+            stencil.GetWeights(),
+            stencil.GetDuWeights(),
+            stencil.GetDvWeights(),
+            stencil.GetDuuWeights(),
+            stencil.GetDvvWeights(),
+            stencil.GetDuvWeights(),
+            stencil.GetDuvWeights(),
+        };
+
+        merge_limit_row_ids(valueIds, stencil, stencil.GetWeights());
+        merge_limit_row_ids(firstIds, stencil, stencil.GetDuWeights());
+        merge_limit_row_ids(firstIds, stencil, stencil.GetDvWeights());
+        merge_limit_row_ids(secondIds, stencil, stencil.GetDuuWeights());
+        merge_limit_row_ids(secondIds, stencil, stencil.GetDuvWeights());
+        merge_limit_row_ids(secondIds, stencil, stencil.GetDvvWeights());
+        for (float const *rowWeights : slimedRows) {
+            merge_limit_row_ids(transposeIds, stencil, rowWeights);
+        }
+
+        sampleDot +=
+            sample_linear_functional(mesh.points.data(), stencil, slimedRows);
+        for (int row = 0; row < static_cast<int>(slimedRows.size()); ++row) {
+            add_transpose_row(stencil, slimedRows[row], row, backProjection);
+        }
+    }
+
+    double const controlDot = dot_controls(mesh.points.data(), backProjection);
+    double const absDifference = std::abs(sampleDot - controlDot);
+    std::vector<int> missing = missing_expected_ids(
+        transposeIds, mesh.expectedLocalControlIds);
+    bool const identityPassed = absDifference <= kTransposeTolerance;
+    bool const fixtureCoveragePassed = missing.empty();
+    bool const proofMapPassed = identityPassed && fixtureCoveragePassed;
+
+    std::cout << "\"available\":true";
+    std::cout << ",\"kind\":\"observational_all_ptex_grid_toy_transpose\"";
+    std::cout << ",\"not_production_force_formula\":true";
+    std::cout << ",\"not_production_irregular_routing\":true";
+    std::cout << ",\"strategy\":\"all_ptex_faces_x_sample_grid\"";
+    std::cout << ",\"derivative_mapping\":\"du=d/dv,dv=d/dw,duu=d2/dv2,"
+                 "dvv=d2/dw2,duv=d2/dvdw=d2/dwdv\"";
+    std::cout << ",\"transpose_identity\":\"sum_samples g dot (W p) == "
+                 "p dot sum_samples (W^T g)\"";
+    std::cout << ",\"scatter_contract_observation\":\"backprojected source "
+                 "ids are original control ids; production must still map "
+                 "approved fixture ids through Face::oneRingVertices order\"";
+    std::cout << ",\"ptex_face_count\":" << ptexFaceCount;
+    std::cout << ",\"sample_location_count_per_face\":"
+              << sampleLocations.size();
+    std::cout << ",\"evaluated_sample_count\":"
+              << stencils->GetNumStencils();
+    std::cout << ",\"slimed_compatible_rows\":\"position,d/dv,d/dw,"
+                 "d2/dv2,d2/dw2,d2/dvdw,d2/dwdv\"";
+    std::cout << ",\"slimed_compatible_sample_gradient_component_count\":21";
+    print_coverage_summary("value", valueIds, mesh.expectedLocalControlIds);
+    print_coverage_summary("first_derivative",
+                           firstIds,
+                           mesh.expectedLocalControlIds);
+    print_coverage_summary("second_derivative",
+                           secondIds,
+                           mesh.expectedLocalControlIds);
+    print_coverage_summary("transpose_backprojection",
+                           transposeIds,
+                           mesh.expectedLocalControlIds);
+    std::cout << ",\"expected_local_control_component_count\":"
+              << mesh.expectedLocalControlIds.size() * 3;
+    std::cout << ",\"transpose_backprojection_component_count\":"
+              << transposeIds.size() * 3;
+    std::cout << ",\"sample_dot\":" << sampleDot;
+    std::cout << ",\"control_dot\":" << controlDot;
+    std::cout << ",\"abs_difference\":" << absDifference;
+    std::cout << ",\"max_abs_backprojected_component\":"
+              << max_abs_control_value(backProjection);
+    std::cout << ",\"tolerance\":" << kTransposeTolerance;
+    std::cout << ",\"toy_transpose_passed\":"
+              << (identityPassed ? "true" : "false");
+    std::cout << ",\"fixture_source_coverage_passed\":"
+              << (fixtureCoveragePassed ? "true" : "false");
+    std::cout << ",\"passed\":" << (proofMapPassed ? "true" : "false");
+    std::cout << "}";
+
+    delete stencils;
+    return identityPassed;
+}
+#endif
+
 static int run_case(MeshCase const &mesh) {
     Far::TopologyRefiner *refiner = create_refiner(mesh);
     if (!refiner) {
@@ -1120,7 +1283,7 @@ static int run_case(MeshCase const &mesh) {
     Far::PatchTable *patchTable = 0;
     Far::StencilTable const *cvStencils = 0;
 
-#if SLIMED_BACKPROJECTION_REPORT || SLIMED_AGGREGATE_SOURCE_COVERAGE_REPORT
+#if SLIMED_BACKPROJECTION_REPORT || SLIMED_AGGREGATE_SOURCE_COVERAGE_REPORT || SLIMED_IRREGULAR_TRANSPOSE_PROOF_MAP_REPORT
     Far::PatchTableFactory::Options patchOptions(5);
     refiner->RefineAdaptive(patchOptions.GetRefineAdaptiveOptions());
     patchTable = Far::PatchTableFactory::Create(*refiner, patchOptions);
@@ -1186,6 +1349,9 @@ static int run_case(MeshCase const &mesh) {
 #endif
 #if SLIMED_FORCE_TRANSPOSE_REPORT
     bool forceTransposePassed = true;
+#endif
+#if SLIMED_IRREGULAR_TRANSPOSE_PROOF_MAP_REPORT
+    bool irregularTransposeProofMapPassed = true;
 #endif
 
     for (int sample = 0; sample < stencils->GetNumStencils(); ++sample) {
@@ -1337,6 +1503,11 @@ static int run_case(MeshCase const &mesh) {
 #if SLIMED_AGGREGATE_SOURCE_COVERAGE_REPORT
     print_aggregate_source_coverage(mesh, *refiner, patchTable, cvStencils);
 #endif
+#if SLIMED_IRREGULAR_TRANSPOSE_PROOF_MAP_REPORT
+    irregularTransposeProofMapPassed =
+        print_irregular_transpose_proof_map(mesh, *refiner, patchTable,
+                                            cvStencils);
+#endif
     std::cout << "}" << std::endl;
 
     delete stencils;
@@ -1355,6 +1526,11 @@ static int run_case(MeshCase const &mesh) {
         return 7;
     }
 #endif
+#if SLIMED_IRREGULAR_TRANSPOSE_PROOF_MAP_REPORT
+    if (!irregularTransposeProofMapPassed) {
+        return 8;
+    }
+#endif
     return 0;
 }
 
@@ -1367,7 +1543,7 @@ int main() {
     if (status != 0) {
         return status;
     }
-#if SLIMED_BACKPROJECTION_REPORT || SLIMED_AGGREGATE_SOURCE_COVERAGE_REPORT || SLIMED_FORCE_TRANSPOSE_REPORT
+#if SLIMED_BACKPROJECTION_REPORT || SLIMED_AGGREGATE_SOURCE_COVERAGE_REPORT || SLIMED_FORCE_TRANSPOSE_REPORT || SLIMED_IRREGULAR_TRANSPOSE_PROOF_MAP_REPORT
     status = run_case(make_oriented_irregular_fixture_case());
     if (status != 0) {
         return status;
@@ -1436,6 +1612,14 @@ def parse_args() -> argparse.Namespace:
         help=(
             "Opt into a toy linear-functional transpose check for OpenSubdiv "
             "value and derivative rows without using production force formulas."
+        ),
+    )
+    parser.add_argument(
+        "--irregular-transpose-proof-map-report",
+        action="store_true",
+        help=(
+            "Opt into an all-ptex/sample-grid 11-control fixture proof map "
+            "for observational source coverage and toy transpose shape."
         ),
     )
     parser.add_argument(
@@ -1551,6 +1735,8 @@ def main() -> int:
             command.append("-DSLIMED_REGULAR_EQUIVALENCE_REPORT=1")
         if args.force_transpose_report:
             command.append("-DSLIMED_FORCE_TRANSPOSE_REPORT=1")
+        if args.irregular_transpose_proof_map_report:
+            command.append("-DSLIMED_IRREGULAR_TRANSPOSE_PROOF_MAP_REPORT=1")
         command.extend(shlex.split(os.environ.get("OPENSUBDIV_CXXFLAGS", "")))
         command.extend(
             [

@@ -148,6 +148,7 @@ gates are green or explicitly review-waived:
 | Serial/OpenMP equality policy | The production force lane either proves serial/OpenMP outputs unchanged for the accepted fixtures or documents exact tolerated floating-point deltas with reviewer approval. It must preserve thread-local buffer shape and reduction order unless explicitly approved otherwise. |
 | Accepted-step smokes | The committed accepted-step smoke remains passing if the force lane touches code that can affect accepted-step state, output-visible forces, energies, area, volume, normals, or checkpoints. |
 | Irregular fixture coverage | The 11-control fixture source coverage and derivative completeness remain documented, including that aggregate OpenSubdiv coverage is not yet a face-level production scatter contract. |
+| Irregular transpose proof map | `docs/irregular_subdivision_transpose_proof_map.md` and the opt-in `--irregular-transpose-proof-map-report` distinguish aggregate 11-control toy transpose/source coverage from production irregular force support. |
 | Dependency/build isolation | The force lane does not make OpenSubdiv required for default builds. If it needs OpenSubdiv to run, it uses a separate experimental target or a user-provided install path. |
 
 The previous irregular `nOneRingVertices == 11` force fallback into
@@ -165,20 +166,22 @@ Create the production force back-projection proof for an OpenSubdiv-compatible
 backend seam without enabling production irregular routing. Keep default builds
 and production routing unchanged unless the PR is explicitly review-gated for
 an opt-in experimental target. Starting from
-docs/opensubdiv_backend_interface_policy.md and
-docs/force_formula_scatter_equivalence.md, define a backend-neutral weighted
-sample-row contract that can express the current seven SLIMED rows by original
-SLIMED vertex id. Prove on regular fixtures that transposing backend value and
-derivative weights through the actual bending, area, and volume force formulas
-produces the same local force rows and `Face::oneRingVertices` scatter as the
-current `element_energy_force_regular(...)` path. Preserve quadrature order,
-mixed-derivative convention, local force row order, thread-local force buffer
-shape, reduction order, serial/OpenMP behavior, boundary/ghost/periodic policy,
-legacy volume semantics, checkpoint/output behavior, RNG behavior, optimizer
-timing, and accepted-step timing. Include regular row/integrand equivalence,
-toy transpose, production formula/scatter inventory, serial/OpenMP comparison,
-and accepted-step smoke validation. Do not route production irregular faces
-through OpenSubdiv in this PR.
+docs/opensubdiv_backend_interface_policy.md,
+docs/force_formula_scatter_equivalence.md, and
+docs/irregular_subdivision_transpose_proof_map.md, define a backend-neutral
+weighted sample-row contract that can express the current seven SLIMED rows by
+original SLIMED vertex id. Prove on regular fixtures that transposing backend
+value and derivative weights through the actual bending, area, and volume force
+formulas produces the same local force rows and `Face::oneRingVertices`
+scatter as the current `element_energy_force_regular(...)` path. Preserve
+quadrature order, derivative convention, mixed-derivative convention, local
+force row order, thread-local force buffer shape, reduction order,
+serial/OpenMP behavior, boundary/ghost/periodic policy, legacy volume
+semantics, checkpoint/output behavior, RNG behavior, optimizer timing, and
+accepted-step timing. Include regular row/integrand equivalence, toy
+transpose, irregular aggregate proof-map context, production formula/scatter
+inventory, serial/OpenMP comparison, and accepted-step smoke validation. Do not
+route production irregular faces through OpenSubdiv in this PR.
 ```
 
 ## Postponed To Production Irregular Routing
