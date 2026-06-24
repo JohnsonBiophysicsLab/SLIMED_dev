@@ -1,5 +1,6 @@
 #include <array>
 #include <cmath>
+#include <string>
 #include <stdexcept>
 #include <vector>
 
@@ -366,6 +367,79 @@ void populate_synthetic_irregular_patch_mesh(Mesh &mesh)
     face.adjacentVertices = {2, 5, 6};
     face.oneRingVertices = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10};
 }
+
+Matrix make_force_scatter_control_points()
+{
+    Matrix controlPoints(12, 3, true);
+    for (int control = 0; control < controlPoints.nrow(); ++control)
+    {
+        const double index = static_cast<double>(control);
+        controlPoints.set(control, 0, -1.2 + 0.37 * index + 0.02 * index * index);
+        controlPoints.set(control, 1, 0.8 + 0.11 * index * index - 0.003 * index * index * index);
+        controlPoints.set(control, 2, 0.15 * std::sin(0.45 * index) +
+                                      0.07 * std::cos(0.25 * index));
+    }
+    return controlPoints;
+}
+
+std::vector<Matrix> control_point_rows_to_columns(const Matrix &controlPoints)
+{
+    std::vector<Matrix> coordinates(controlPoints.nrow());
+    for (int row = 0; row < controlPoints.nrow(); ++row)
+    {
+        coordinates[row] = Matrix(3, 1, true);
+        for (int axis = 0; axis < controlPoints.ncol(); ++axis)
+        {
+            coordinates[row].set(axis, 0, controlPoints.get(row, axis));
+        }
+    }
+    return coordinates;
+}
+
+void populate_regular_force_scatter_mesh(Mesh &mesh,
+                                         const Matrix &controlPoints,
+                                         const std::vector<int> &oneRingOrder)
+{
+    mesh.vertices.clear();
+    mesh.vertices.resize(oneRingOrder.size());
+    for (int row = 0; row < static_cast<int>(oneRingOrder.size()); ++row)
+    {
+        const int vertexIndex = oneRingOrder[row];
+        Vertex &vertex = mesh.vertices[vertexIndex];
+        vertex.index = vertexIndex;
+        vertex.coordRef = Matrix(3, 1, true);
+        for (int axis = 0; axis < controlPoints.ncol(); ++axis)
+        {
+            vertex.coord.set(axis, 0, controlPoints.get(row, axis));
+            vertex.coordRef.set(axis, 0, controlPoints.get(row, axis));
+        }
+    }
+
+    mesh.faces.clear();
+    mesh.faces.resize(1);
+    Face &face = mesh.faces.front();
+    face.index = 0;
+    face.isBoundary = false;
+    face.isGhost = false;
+    face.adjacentVertices = {oneRingOrder[3], oneRingOrder[6], oneRingOrder[7]};
+    face.oneRingVertices = oneRingOrder;
+    face.spontCurvature = 0.18;
+}
+
+void expect_force_component_matches_row(const Matrix &component,
+                                        const Matrix &localRows,
+                                        const int row,
+                                        const std::string &label)
+{
+    ASSERT_EQ(component.nrow(), 3);
+    ASSERT_EQ(component.ncol(), 1);
+    ASSERT_EQ(localRows.ncol(), 3);
+    for (int axis = 0; axis < 3; ++axis)
+    {
+        EXPECT_NEAR(component.get(axis, 0), localRows.get(row, axis), 1.0e-10)
+            << label << " row " << row << " axis " << axis;
+    }
+}
 } // namespace
 
 TEST(SurfaceShapeFunctionsCharacterization, PartitionOfUnityAndDerivativeSums)
@@ -700,6 +774,83 @@ TEST(SurfaceLimitSurfaceEvaluatorContract, RegularEnergyForceGeometryRowsMatchLe
         SCOPED_TRACE(::testing::Message() << "shape function baseline " << sample);
         expect_matrix_exactly_matches(shapeFunctionBaseline[sample],
                                       param.shapeFunctions[sample]);
+    }
+}
+
+TEST(SurfaceLimitSurfaceEvaluatorContract, RegularForceRowsScatterInOneRingOrder)
+{
+    Param param;
+    param.VERBOSE_MODE = false;
+    param.boundaryCondition = BoundaryType::Periodic;
+    param.kCurv = 47.5;
+    param.uSurf = 130.0;
+    param.uVol = 65.0;
+    param.area0 = 2.75;
+    param.vol0 = 0.82;
+
+    Mesh localMesh(param);
+    const Matrix controlPoints = make_force_scatter_control_points();
+    const std::vector<int> oneRingOrder = {9, 2, 11, 0, 7, 4, 10, 1, 8, 3, 6, 5};
+    populate_regular_force_scatter_mesh(localMesh, controlPoints, oneRingOrder);
+    localMesh.calculate_element_area_volume();
+    localMesh.sum_membrane_area_and_volume(localMesh.param.area, localMesh.param.vol);
+
+    Face &localFace = localMesh.faces.front();
+    double meanCurv = 0.0;
+    double eBend = 0.0;
+    Matrix normVector = mat_calloc(3, 1);
+    Matrix fBend = mat_calloc(12, 3);
+    Matrix fArea = mat_calloc(12, 3);
+    Matrix fVolume = mat_calloc(12, 3);
+
+    localMesh.element_energy_force_regular(control_point_rows_to_columns(controlPoints),
+                                           localFace,
+                                           localFace.spontCurvature,
+                                           meanCurv,
+                                           normVector,
+                                           eBend,
+                                           fBend,
+                                           fArea,
+                                           fVolume);
+
+    ASSERT_TRUE(std::isfinite(eBend));
+    ASSERT_TRUE(std::isfinite(meanCurv));
+    ASSERT_GT(std::abs(eBend), 1.0e-12);
+    ASSERT_GT(normVector.calculate_norm(), 0.0);
+    for (int row = 0; row < 12; ++row)
+    {
+        bool hasNonzeroForce = false;
+        for (int axis = 0; axis < 3; ++axis)
+        {
+            hasNonzeroForce = hasNonzeroForce ||
+                              std::abs(fBend.get(row, axis)) > 1.0e-12 ||
+                              std::abs(fArea.get(row, axis)) > 1.0e-12 ||
+                              std::abs(fVolume.get(row, axis)) > 1.0e-12;
+        }
+        EXPECT_TRUE(hasNonzeroForce) << "local force row " << row;
+    }
+
+    Mesh scatteredMesh(param);
+    populate_regular_force_scatter_mesh(scatteredMesh, controlPoints, oneRingOrder);
+    scatteredMesh.Compute_Energy_And_Force();
+
+    EXPECT_NEAR(scatteredMesh.faces.front().energy.energyCurvature, eBend, 1.0e-10);
+    EXPECT_NEAR(scatteredMesh.faces.front().meanCurvature, meanCurv, 1.0e-12);
+    for (int axis = 0; axis < 3; ++axis)
+    {
+        EXPECT_NEAR(scatteredMesh.faces.front().normVector.get(axis, 0),
+                    normVector.get(axis, 0),
+                    1.0e-12)
+            << "normal axis " << axis;
+    }
+
+    for (int row = 0; row < static_cast<int>(oneRingOrder.size()); ++row)
+    {
+        const int vertexIndex = oneRingOrder[row];
+        const Force &force = scatteredMesh.vertices[vertexIndex].force;
+        expect_force_component_matches_row(force.forceCurvature, fBend, row, "curvature");
+        expect_force_component_matches_row(force.forceArea, fArea, row, "area");
+        expect_force_component_matches_row(force.forceVolume, fVolume, row, "volume");
     }
 }
 
