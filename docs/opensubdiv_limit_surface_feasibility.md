@@ -135,11 +135,13 @@ name the mathematical quantities:
   conventions. The adapter must either evaluate only non-ghost physical faces
   using an already-expanded SLIMED topology, or own an explicit topology
   expansion/mirroring layer whose results are proven equivalent.
-- Irregular handling is intentionally incomplete today: area/volume have an
-  11-control subdivision approximation, while energy/force rejects
-  non-boundary 11-control faces before the membrane force loop. Any OpenSubdiv
-  irregular path must first define a reviewed force contract before replacing
-  that guard.
+- Irregular handling is intentionally narrow today: area/volume have an
+  11-control subdivision approximation, and membrane energy/force supports the
+  documented positive-depth 11-control `4+3+4` case through existing
+  subdivision matrices and transpose back-projection. Zero-depth and
+  unsupported irregular topologies still fail before the membrane force loop.
+  Any OpenSubdiv irregular path must define a reviewed force contract before
+  replacing or broadening that in-repo route.
 - OpenSubdiv does not replace membrane energies, force accumulation, global
   constraints, scaffolding coupling, optimizer state, random thermal moves,
   output/checkpoint formats, or dynamics projection timing.
@@ -237,9 +239,11 @@ Deferred production adoption categories:
   boundary needs a separate numerical-baseline PR covering floating-point
   summation order, OpenMP reductions, and force component ordering.
 - Irregular `11 x 3` area/volume still uses subdivision matrices and direct
-  regular child-patch evaluation. Irregular energy/force currently fails with
-  an unsupported-route diagnostic and remains a scientific-review topic before
-  backend migration.
+  regular child-patch evaluation. The documented positive-depth `11 = 4+3+4`
+  membrane energy/force route uses the same subdivision contract and
+  transpose back-projection through regular child-patch force rows. Zero-depth
+  or unsupported irregular topologies still fail with an unsupported-route
+  diagnostic and remain scientific-review topics before backend migration.
 - Boundary, ghost, periodic, and dynamics projection behavior must stay
   separate from evaluator adoption because they encode application policy, not
   only surface evaluation.
@@ -336,9 +340,10 @@ proven and reviewed.
 4. Done: characterize the regular energy/force geometry-extraction subset with
    multiple deterministic `12 x 3` fixtures and cached quadrature rows, without
    changing production behavior.
-5. Done for geometry-only fixture readiness: characterize an explicit
-   11-control irregular area/volume patch and document why the current
-   energy/force route remains a known gap. See
+5. Done for geometry and narrow force-route fixture readiness: characterize an
+   explicit 11-control irregular area/volume patch, add a positive-depth
+   subdivision-transpose energy/force fixture, and keep zero-depth/unsupported
+   irregular diagnostics explicit. See
    `docs/irregular_patch_fixture_requirements.md`.
 6. Decide whether regular energy/force geometry extraction should migrate only
    after a force/energy numerical-baseline PR, because production code there is

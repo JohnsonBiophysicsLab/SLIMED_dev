@@ -47,8 +47,8 @@ or a correct irregular force law.
 
 `SurfaceSubdivisionCharacterization.SyntheticIrregularPatchEnergyForceRequiresSubdivisionDepth`
 uses the same fixture with `Param::subDivideTimes = 0` to verify that
-`Compute_Energy_And_Force()` reports the unsupported 11-control force route
-before the old regular fallback can run.
+`Compute_Energy_And_Force()` reports the unsupported zero-depth 11-control
+force route before the old regular fallback can run.
 
 `SurfaceSubdivisionCharacterization.SyntheticIrregularPatchEnergyForceBackProjectsChildRegularForces`
 uses the fixture with `Param::subDivideTimes = 2` to verify that the production

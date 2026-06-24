@@ -7,18 +7,19 @@ membrane face-loop force-reduction extraction slices have been implemented. It
 is kept as a decision aid for future cleanup.
 
 Irregular-patch energy/force routing is tracked as a separate numerical
-geometry backlog, not as an evaluator-phase extraction. Non-boundary
-`nOneRingVertices == 11` faces now fail before the membrane force loop instead
-of falling through to `element_energy_force_regular(...)`; future work should
-first decide whether a unified backend such as OpenSubdiv is preferable to
-expanding local case-by-case matrix code, and only then make a focused
-production routing implementation.
+geometry boundary, not as an evaluator-phase extraction. The documented
+positive-depth `nOneRingVertices == 11` `4+3+4` case now routes through
+subdivision-transpose back-projection instead of falling through to
+`element_energy_force_regular(...)`; zero-depth 11-control requests and
+unsupported topologies still fail before the membrane force loop. Future work
+should decide whether a unified backend such as OpenSubdiv is preferable before
+broadening support beyond this focused in-repo matrix route.
 
 The current characterization map is
 `docs/irregular_patch_fixture_requirements.md`. It adds 11-control
-area/volume fixture coverage plus an unsupported energy/force guard test, and
-records why a successful irregular force route remains a known gap until the
-force back-projection contract is approved.
+area/volume fixture coverage, a positive-depth subdivision-transpose force
+route, and unsupported-route guard coverage. Broader irregular support remains
+a known gap until a wider backend/valence contract is approved.
 
 Regenerate the source call-site and helper inventory with:
 

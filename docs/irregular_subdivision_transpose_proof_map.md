@@ -136,7 +136,7 @@ artifact case.
 Before replacing or broadening the current subdivision-matrix irregular force
 support, a production PR needs explicit evidence for each item below:
 
-| Gate | Required evidence before routing 11-control force |
+| Gate | Required evidence before replacing or broadening 11-control force routing |
 | --- | --- |
 | Derivative convention | Approved `s,t` to SLIMED `v,w,u` mapping, including sign/order and mixed-row convention. |
 | Source-id coverage | Fixture-level source ids prove the exact controls needed by the selected production sample plan, not only aggregate all-ptex visibility. |
@@ -157,8 +157,8 @@ behavior on representative fixtures while preserving quadrature order,
 derivative convention, mixed-row policy, scatter order, thread-local force
 buffer shape, reduction order, boundary/ghost/periodic policy, legacy volume
 semantics, outputs, checkpoints, RNG behavior, propagation timing, optimizer
-timing, and accepted-step behavior. Do not route production 11-control faces
-through OpenSubdiv in this PR.
+timing, and accepted-step behavior. Do not replace the current production
+11-control subdivision-matrix route with OpenSubdiv in this PR.
 ```
 
 After that proof is accepted, a separate backend prompt can choose an

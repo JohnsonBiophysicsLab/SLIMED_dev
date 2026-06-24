@@ -150,15 +150,17 @@ gates are green or explicitly review-waived:
 | Production formula/scatter characterization | `docs/force_formula_scatter_equivalence.md` and `scripts/inventory_force_formula_scatter_contract.py --check` still locate the current bending/area/volume formula inputs, 12-row local outputs, `Face::oneRingVertices` scatter, component buffer layout, and thread reduction order. |
 | Serial/OpenMP equality policy | The production force lane either proves serial/OpenMP outputs unchanged for the accepted fixtures or documents exact tolerated floating-point deltas with reviewer approval. It must preserve thread-local buffer shape and reduction order unless explicitly approved otherwise. |
 | Accepted-step smokes | The committed accepted-step smoke remains passing if the force lane touches code that can affect accepted-step state, output-visible forces, energies, area, volume, normals, or checkpoints. |
-| Irregular fixture coverage | The 11-control fixture source coverage and derivative completeness remain documented, including that aggregate OpenSubdiv coverage is not yet a face-level production scatter contract. |
-| Irregular transpose proof map | `docs/irregular_subdivision_transpose_proof_map.md` and the opt-in `--irregular-transpose-proof-map-report` distinguish aggregate 11-control toy transpose/source coverage from production irregular force support. |
+| Irregular fixture coverage | The 11-control fixture source coverage and derivative completeness remain documented, including that aggregate OpenSubdiv coverage is not itself a face-level production scatter contract. |
+| Irregular transpose proof map | `docs/irregular_subdivision_transpose_proof_map.md` and the opt-in `--irregular-transpose-proof-map-report` distinguish aggregate 11-control toy transpose/source coverage from the in-repo subdivision-matrix production route. |
 | Dependency/build isolation | The force lane does not make OpenSubdiv required for default builds. If it needs OpenSubdiv to run, it uses a separate experimental target or a user-provided install path. |
 
 The previous irregular `nOneRingVertices == 11` force fallback into
 `element_energy_force_regular(...)` was not compatibility behavior. The current
-production route rejects 11-control membrane force requests until an irregular
-force contract is approved, and the former fallback must not be used as a
-baseline for approving new irregular physics.
+production route supports the documented positive-depth 11-control `4+3+4`
+case through existing subdivision matrices and transpose back-projection. It
+still rejects zero-depth 11-control requests and unsupported topologies, and the
+former regular fallback must not be used as a baseline for approving broader
+irregular physics.
 
 ## Next PR Prompt: Production Force Back-Projection
 
