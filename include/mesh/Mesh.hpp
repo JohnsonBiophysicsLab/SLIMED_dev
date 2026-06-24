@@ -442,6 +442,21 @@ public:
                                       bool useRegularBackProjection = false);
 
     /**
+     * @brief Calculates energy and forces for the documented 11-control
+     * irregular patch by subdividing into regular child patches and
+     * back-projecting child force rows through the subdivision matrices.
+     */
+    void element_energy_force_irregular_11(const std::vector<Matrix> &coordOneRingVertices,
+                                           Face& face,
+                                           const double spontCurv,
+                                           double &meanCurv,
+                                           Matrix &normVector,
+                                           double &eBend,
+                                           Matrix &fBend,
+                                           Matrix &fArea,
+                                           Matrix &fVolume);
+
+    /**
      * @brief Calculates the regularization energy and force for each face
      *
      * This function calculates the regularization energy and force

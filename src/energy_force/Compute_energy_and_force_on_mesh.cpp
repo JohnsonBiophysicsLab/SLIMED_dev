@@ -2,6 +2,7 @@
 
 #include "mesh/Limit_surface_evaluator.hpp"
 
+#include <array>
 #include <sstream>
 #include <stdexcept>
 
@@ -20,6 +21,28 @@ void copy_column_vector(const Matrix &source, Matrix &destination)
     {
         destination.set(row, 0, source(row, 0));
     }
+}
+
+std::vector<Matrix> control_point_rows_to_columns(const Matrix &controlPoints)
+{
+    std::vector<Matrix> coordinates(controlPoints.nrow());
+    for (int row = 0; row < controlPoints.nrow(); ++row)
+    {
+        coordinates[row] = Matrix(3, 1, true);
+        for (int axis = 0; axis < controlPoints.ncol(); ++axis)
+        {
+            coordinates[row].set(axis, 0, controlPoints.get(row, axis));
+        }
+    }
+    return coordinates;
+}
+
+void add_back_projected_child_force(const Matrix &childToOriginal,
+                                    const Matrix &childForce,
+                                    Matrix &originalForce)
+{
+    Matrix originalContribution = childToOriginal.get_transposed() * childForce;
+    originalForce += originalContribution;
 }
 
 std::vector<int> regular_force_source_ids(const Face &face, const int controlPointCount)
@@ -60,13 +83,13 @@ void assert_supported_membrane_force_routing(const Mesh &mesh)
             continue;
         }
 
-        if (face.oneRingVertices.size() == 11)
+        if (face.oneRingVertices.size() == 11 && mesh.param.subDivideTimes <= 0)
         {
             std::ostringstream message;
             message << "Unsupported irregular membrane energy/force routing for face "
                     << face.index
-                    << ": 11-control one-ring patches are not implemented; "
-                    << "the regular 12-control force fallback is disabled.";
+                    << ": 11-control one-ring patches require Param::subDivideTimes > 0; "
+                    << "the regular 12-control force fallback remains disabled.";
             throw std::runtime_error(message.str());
         }
     }
@@ -142,6 +165,18 @@ void accumulate_membrane_face_energy_and_forces(Mesh &mesh)
                                               fVol,
                                               true);
 
+        }
+        else if (nOneRingVertices == 11)
+        {
+            mesh.element_energy_force_irregular_11(coordOneRingVertices,
+                                                   face,
+                                                   spontCurv,
+                                                   meanCurv,
+                                                   face.normVector,
+                                                   eBend,
+                                                   fBend,
+                                                   fArea,
+                                                   fVol);
         }
         face.energy.energyCurvature = eBend; ///< store curvature energy in face object
 
@@ -763,6 +798,98 @@ void Mesh::element_energy_force_regular(const std::vector<Matrix> &coordOneRingV
         fVolume += halfGaussQuadratureCoeff * f_conv;
         normVector += halfGaussQuadratureCoeff * a_3;
     }
+    get_unit_vector(normVector);
+}
+
+void Mesh::element_energy_force_irregular_11(const std::vector<Matrix> &coordOneRingVertices,
+                                             Face& face,
+                                             const double spontCurv,
+                                             double &meanCurv,
+                                             Matrix &normVector,
+                                             double &eBend,
+                                             Matrix &fBend,
+                                             Matrix &fArea,
+                                             Matrix &fVolume)
+{
+    if (coordOneRingVertices.size() != 11)
+    {
+        throw std::invalid_argument("element_energy_force_irregular_11 requires 11 control points");
+    }
+    if (param.subDivideTimes <= 0)
+    {
+        std::ostringstream message;
+        message << "Unsupported irregular membrane energy/force routing for face "
+                << face.index
+                << ": 11-control one-ring patches require Param::subDivideTimes > 0; "
+                << "the regular 12-control force fallback remains disabled.";
+        throw std::runtime_error(message.str());
+    }
+
+    eBend = 0.0;
+    meanCurv = 0.0;
+    normVector.set_all(0.0);
+
+    Matrix originalControlPoints(11, 3, true);
+    for (int row = 0; row < static_cast<int>(coordOneRingVertices.size()); ++row)
+    {
+        for (int axis = 0; axis < 3; ++axis)
+        {
+            originalControlPoints.set(row, axis, coordOneRingVertices[row].get(axis, 0));
+        }
+    }
+
+    Matrix carriedIrregularPatch = originalControlPoints;
+    Matrix carriedToOriginal(11, 11, true);
+    carriedToOriginal.set_identity();
+
+    const Matrix &subdivision = param.subMatrix.irregM;
+    const std::array<const Matrix *, 3> regularChildSelectors = {
+        &param.subMatrix.irregM1,
+        &param.subMatrix.irregM2,
+        &param.subMatrix.irregM3,
+    };
+    const Matrix &irregularChildSelector = param.subMatrix.irregM4;
+
+    for (int depth = 0; depth < param.subDivideTimes; ++depth)
+    {
+        Matrix subdividedNodes = subdivision * carriedIrregularPatch;
+        Matrix subdividedNodesToOriginal = subdivision * carriedToOriginal;
+
+        for (const Matrix *regularChildSelector : regularChildSelectors)
+        {
+            Matrix childControlPoints = (*regularChildSelector) * subdividedNodes;
+            Matrix childToOriginal = (*regularChildSelector) * subdividedNodesToOriginal;
+
+            double childMeanCurv = 0.0;
+            double childEBend = 0.0;
+            Matrix childNormVector = mat_calloc(3, 1);
+            Matrix childFBend = mat_calloc(12, 3);
+            Matrix childFArea = mat_calloc(12, 3);
+            Matrix childFVolume = mat_calloc(12, 3);
+
+            element_energy_force_regular(control_point_rows_to_columns(childControlPoints),
+                                         face,
+                                         spontCurv,
+                                         childMeanCurv,
+                                         childNormVector,
+                                         childEBend,
+                                         childFBend,
+                                         childFArea,
+                                         childFVolume,
+                                         false);
+
+            eBend += childEBend;
+            meanCurv += childMeanCurv;
+            normVector += childNormVector;
+            add_back_projected_child_force(childToOriginal, childFBend, fBend);
+            add_back_projected_child_force(childToOriginal, childFArea, fArea);
+            add_back_projected_child_force(childToOriginal, childFVolume, fVolume);
+        }
+
+        carriedIrregularPatch = irregularChildSelector * subdividedNodes;
+        carriedToOriginal = irregularChildSelector * subdividedNodesToOriginal;
+    }
+
     get_unit_vector(normVector);
 }
 

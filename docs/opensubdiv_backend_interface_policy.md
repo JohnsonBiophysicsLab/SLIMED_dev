@@ -3,12 +3,14 @@
 Date: 2026-06-24.
 Baseline: `origin/main` at `9ddabd2880364297351a8e1893dddec298266ed5`.
 
-This is a docs-only policy record for the approved OpenSubdiv sequence:
+This began as a docs-only policy record for the approved OpenSubdiv sequence:
 backend interface/dependency policy, then production force back-projection,
-then production irregular routing. It does not change production C++ behavior,
-default builds, `LimitSurfaceEvaluator`, formulas, scatter order, OpenMP
-accumulation, boundary/ghost/periodic policy, volume semantics, RNG,
-checkpoint/output behavior, optimizer timing, or OpenSubdiv dependency shape.
+then production irregular routing. The current production code now includes a
+narrow dependency-free 11-control subdivision/back-projection route for the
+documented `11 = 4+3+4` case when `Param::subDivideTimes > 0`. The OpenSubdiv
+policy remains unchanged: default builds stay OpenSubdiv-free, and any
+OpenSubdiv-backed replacement still needs a separate backend/sample-plan
+review.
 
 ## Recommendation
 
@@ -24,9 +26,10 @@ integration or production routing in this lane.
 4. Add a separate experimental target only after this policy is approved. That
    target may use `OPENSUBDIV_ROOT`, but it must be absent from default
    `make serial`, `make omp`, `make dyna`, `make dyna_omp`, and `make test`.
-5. Gate production force back-projection before any production irregular
-   routing. Irregular routing remains postponed until the force transpose and
-   scatter contract is reviewed against the actual production formulas.
+5. Keep OpenSubdiv-backed routing gated behind production force
+   back-projection and sample-plan review. The current dependency-free
+   11-control route uses existing subdivision matrices and does not approve
+   production OpenSubdiv routing.
 
 ## Minimal Backend Seam
 
@@ -184,21 +187,22 @@ inventory, serial/OpenMP comparison, and accepted-step smoke validation. Do not
 route production irregular faces through OpenSubdiv in this PR.
 ```
 
-## Postponed To Production Irregular Routing
+## Postponed To Backend Or Broader Irregular Routing
 
 The following work remains outside the force back-projection lane:
 
 - Selecting the exact ptex faces/sample locations that represent one SLIMED
-  irregular face.
-- Routing production `11`-control faces through OpenSubdiv or any other
-  irregular backend.
+  irregular face for an OpenSubdiv backend.
+- Routing production `11`-control faces through OpenSubdiv or any backend other
+  than the existing subdivision-matrix route.
 - Changing boundary, ghost, periodic, or unsupported-topology policy.
 - Broad extraordinary-valence support beyond characterized fixtures.
-- Replacing the current unsupported irregular force guard with production
-  behavior.
+- Replacing the zero-depth unsupported irregular force guard or broadening the
+  current subdivision-matrix route.
 - Changing formulas, scatter order, OpenMP scheduling/reductions, volume
   semantics, propagation timing, optimizer timing, RNG behavior, checkpoint
   files, output files, or scaffold timing.
 
-Production irregular routing should be its own review-gated PR after the
-backend row-weight transpose contract is accepted.
+OpenSubdiv-backed or broader irregular routing should be its own review-gated
+PR after the backend row-weight transpose and sample-plan contracts are
+accepted.

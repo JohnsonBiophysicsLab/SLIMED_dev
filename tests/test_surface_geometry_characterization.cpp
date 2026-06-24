@@ -354,9 +354,13 @@ void populate_synthetic_irregular_patch_mesh(Mesh &mesh)
     {
         Vertex &vertex = mesh.vertices[vertexIndex];
         vertex.index = vertexIndex;
+        vertex.coordRef = Matrix(3, 1, true);
         vertex.coord.set(0, 0, coordinates[vertexIndex][0]);
         vertex.coord.set(1, 0, coordinates[vertexIndex][1]);
         vertex.coord.set(2, 0, coordinates[vertexIndex][2]);
+        vertex.coordRef.set(0, 0, coordinates[vertexIndex][0]);
+        vertex.coordRef.set(1, 0, coordinates[vertexIndex][1]);
+        vertex.coordRef.set(2, 0, coordinates[vertexIndex][2]);
     }
 
     mesh.faces.clear();
@@ -456,6 +460,81 @@ void expect_matrix_near(const Matrix &actual,
                 << label << " row " << row << " col " << col;
         }
     }
+}
+
+struct IrregularForceRouteResult
+{
+    double meanCurv = 0.0;
+    double eBend = 0.0;
+    Matrix normVector = mat_calloc(3, 1);
+    Matrix fBend = mat_calloc(11, 3);
+    Matrix fArea = mat_calloc(11, 3);
+    Matrix fVolume = mat_calloc(11, 3);
+};
+
+void add_back_projected_force_rows(const Matrix &childToOriginal,
+                                   const Matrix &childForce,
+                                   Matrix &originalForce)
+{
+    Matrix originalContribution = childToOriginal.get_transposed() * childForce;
+    originalForce += originalContribution;
+}
+
+IrregularForceRouteResult direct_irregular_patch_energy_force(Mesh &mesh,
+                                                              Face &face)
+{
+    IrregularForceRouteResult result;
+    Matrix carriedPatch = make_one_ring_control_points(mesh, face);
+    Matrix carriedToOriginal(11, 11, true);
+    carriedToOriginal.set_identity();
+
+    const std::array<const Matrix *, 3> regularChildSelectors = {
+        &mesh.param.subMatrix.irregM1,
+        &mesh.param.subMatrix.irregM2,
+        &mesh.param.subMatrix.irregM3,
+    };
+
+    for (int depth = 0; depth < mesh.param.subDivideTimes; ++depth)
+    {
+        Matrix subdividedNodes = mesh.param.subMatrix.irregM * carriedPatch;
+        Matrix subdividedNodesToOriginal = mesh.param.subMatrix.irregM * carriedToOriginal;
+
+        for (const Matrix *regularChildSelector : regularChildSelectors)
+        {
+            Matrix childControlPoints = (*regularChildSelector) * subdividedNodes;
+            Matrix childToOriginal = (*regularChildSelector) * subdividedNodesToOriginal;
+
+            double childMeanCurv = 0.0;
+            double childEBend = 0.0;
+            Matrix childNormVector = mat_calloc(3, 1);
+            Matrix childFBend = mat_calloc(12, 3);
+            Matrix childFArea = mat_calloc(12, 3);
+            Matrix childFVolume = mat_calloc(12, 3);
+
+            mesh.element_energy_force_regular(control_point_rows_to_columns(childControlPoints),
+                                              face,
+                                              face.spontCurvature,
+                                              childMeanCurv,
+                                              childNormVector,
+                                              childEBend,
+                                              childFBend,
+                                              childFArea,
+                                              childFVolume);
+
+            result.eBend += childEBend;
+            result.meanCurv += childMeanCurv;
+            result.normVector += childNormVector;
+            add_back_projected_force_rows(childToOriginal, childFBend, result.fBend);
+            add_back_projected_force_rows(childToOriginal, childFArea, result.fArea);
+            add_back_projected_force_rows(childToOriginal, childFVolume, result.fVolume);
+        }
+
+        carriedPatch = mesh.param.subMatrix.irregM4 * subdividedNodes;
+        carriedToOriginal = mesh.param.subMatrix.irregM4 * subdividedNodesToOriginal;
+    }
+
+    get_unit_vector(result.normVector);
+    return result;
 }
 } // namespace
 
@@ -1098,11 +1177,11 @@ TEST(SurfaceSubdivisionCharacterization, SyntheticIrregularPatchAreaVolumeUsesSu
     EXPECT_NEAR(volume, expected.volume, 1.0e-12);
 }
 
-TEST(SurfaceSubdivisionCharacterization, SyntheticIrregularPatchEnergyForceFailsBeforeRegularFallback)
+TEST(SurfaceSubdivisionCharacterization, SyntheticIrregularPatchEnergyForceRequiresSubdivisionDepth)
 {
     Param param;
     param.VERBOSE_MODE = false;
-    param.subDivideTimes = 2;
+    param.subDivideTimes = 0;
     Mesh mesh(param);
     populate_synthetic_irregular_patch_mesh(mesh);
 
@@ -1118,10 +1197,77 @@ TEST(SurfaceSubdivisionCharacterization, SyntheticIrregularPatchEnergyForceFails
         const std::string message = error.what();
         EXPECT_NE(message.find("Unsupported irregular membrane energy/force routing"),
                   std::string::npos);
-        EXPECT_NE(message.find("11-control one-ring patches are not implemented"),
+        EXPECT_NE(message.find("11-control one-ring patches require Param::subDivideTimes > 0"),
                   std::string::npos);
-        EXPECT_NE(message.find("regular 12-control force fallback is disabled"),
+        EXPECT_NE(message.find("regular 12-control force fallback remains disabled"),
                   std::string::npos);
+    }
+}
+
+TEST(SurfaceSubdivisionCharacterization, SyntheticIrregularPatchEnergyForceBackProjectsChildRegularForces)
+{
+    Param param;
+    param.VERBOSE_MODE = false;
+    param.subDivideTimes = 2;
+    param.kCurv = 47.5;
+    param.uSurf = 130.0;
+    param.uVol = 65.0;
+    param.area0 = 2.75;
+    param.vol0 = 0.82;
+
+    Mesh mesh(param);
+    populate_synthetic_irregular_patch_mesh(mesh);
+    Face &face = mesh.faces.front();
+
+    ASSERT_EQ(face.oneRingVertices.size(), 11);
+    ASSERT_GT(param.subDivideTimes, 0);
+
+    mesh.calculate_element_area_volume();
+    mesh.sum_membrane_area_and_volume(mesh.param.area, mesh.param.vol);
+    const IrregularForceRouteResult expected =
+        direct_irregular_patch_energy_force(mesh, face);
+
+    ASSERT_TRUE(std::isfinite(expected.eBend));
+    ASSERT_TRUE(std::isfinite(expected.meanCurv));
+    ASSERT_GT(expected.normVector.calculate_norm(), 0.0);
+    for (int row = 0; row < 11; ++row)
+    {
+        bool hasNonzeroForce = false;
+        for (int axis = 0; axis < 3; ++axis)
+        {
+            hasNonzeroForce = hasNonzeroForce ||
+                              std::abs(expected.fBend.get(row, axis)) > 1.0e-12 ||
+                              std::abs(expected.fArea.get(row, axis)) > 1.0e-12 ||
+                              std::abs(expected.fVolume.get(row, axis)) > 1.0e-12;
+        }
+        EXPECT_TRUE(hasNonzeroForce) << "original irregular force row " << row;
+    }
+
+    mesh.Compute_Energy_And_Force();
+
+    EXPECT_NEAR(mesh.faces.front().energy.energyCurvature, expected.eBend, 1.0e-10);
+    EXPECT_NEAR(mesh.faces.front().meanCurvature, expected.meanCurv, 1.0e-12);
+    expect_matrix_near(mesh.faces.front().normVector,
+                       expected.normVector,
+                       1.0e-12,
+                       "irregular normal");
+
+    for (int row = 0; row < static_cast<int>(face.oneRingVertices.size()); ++row)
+    {
+        const int vertexIndex = face.oneRingVertices[row];
+        const Force &force = mesh.vertices[vertexIndex].force;
+        expect_force_component_matches_row(force.forceCurvature,
+                                           expected.fBend,
+                                           row,
+                                           "irregular curvature");
+        expect_force_component_matches_row(force.forceArea,
+                                           expected.fArea,
+                                           row,
+                                           "irregular area");
+        expect_force_component_matches_row(force.forceVolume,
+                                           expected.fVolume,
+                                           row,
+                                           "irregular volume");
     }
 }
 
