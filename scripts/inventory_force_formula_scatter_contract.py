@@ -96,6 +96,18 @@ ANCHORS: tuple[Anchor, ...] = (
         "The evaluator path is used exactly for the regular 12-control local matrix shape.",
     ),
     Anchor(
+        "regular back-projection opt-in",
+        IMPLEMENTATION_PATH,
+        "const bool useBackProjectedWeights = useRegularBackProjection && useLimitSurfaceEvaluator;",
+        "The production regular slice can opt into source-id row-weight lookup only after the regular 12-control guard passes.",
+    ),
+    Anchor(
+        "regular source-id row weight lookup",
+        IMPLEMENTATION_PATH,
+        "return sample.row_weight(row, sourceId);",
+        "Back-projected regular force rows request row weights by SLIMED source id instead of assuming backend stencil order.",
+    ),
+    Anchor(
         "position row copy",
         IMPLEMENTATION_PATH,
         "copy_column_vector(evaluation.position, x);",
@@ -166,6 +178,12 @@ ANCHORS: tuple[Anchor, ...] = (
         EVALUATOR_PATH,
         "enum class LimitSurfaceDerivativeRow",
         "The evaluator contract names the seven row semantics used by the production force formula.",
+    ),
+    Anchor(
+        "limit-surface weighted sample",
+        EVALUATOR_PATH,
+        "struct LimitSurfaceWeightedSample",
+        "The evaluator contract carries evaluated rows plus row weights keyed by SLIMED source ids.",
     ),
 )
 

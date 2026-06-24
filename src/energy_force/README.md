@@ -9,7 +9,10 @@ evaluated in `Mesh::element_energy_force_regular()`.
 ## Limit-Surface Evaluator Path
 
 For regular energy/force patches, the default geometry extraction path now uses
-`SlimedLoopLimitSurfaceEvaluator`.
+`SlimedLoopLimitSurfaceEvaluator`. The production 12-control force path also
+requests a `LimitSurfaceWeightedSample` so the per-control force terms read the
+same shape-row weights by source id instead of directly indexing
+`sf(row, j)`.
 
 In `element_energy_force_regular()`, the local guard
 `useLimitSurfaceEvaluator` is `true` when the one-ring control matrix has the
@@ -22,7 +25,9 @@ matOneRingVertices.nrow() == limitSurfaceEvaluator.regular_patch_control_point_c
 That is the regular `12 x 3` case. In this case the code asks
 `SlimedLoopLimitSurfaceEvaluator` to evaluate the cached `Param::shapeFunctions`
 matrix against the current one-ring coordinates and returns the seven geometry
-rows used by the existing force formulas.
+rows used by the existing force formulas. With regular back-projection enabled,
+the same sample also stores the seven shape rows as row weights keyed by the
+current `Face::oneRingVertices` source ids.
 
 The old direct multiplication path is intentionally preserved:
 
@@ -31,9 +36,11 @@ multiplication(sf, matOneRingVertices, sfDotOneRingV)
 ```
 
 It remains the compatibility/fallback path for non-regular call-throughs, such
-as the existing `11 x 3` irregular path. This keeps the PR conservative: only
-regular geometry row extraction changes, while the force formulas, raw
-`sf(row, j)` usage, loop order, scatter order, OpenMP behavior, checkpoint and
+as the existing `11 x 3` irregular path. The regular direct path is also kept as
+the test/control comparator for force equivalence. This keeps the production
+change conservative: regular force weight lookup changes from direct local
+column indexing to source-id lookup over the identical shape rows, while the
+force formulas, loop order, scatter order, OpenMP behavior, checkpoint and
 output behavior, and volume semantics remain unchanged.
 
 There is no user-facing parameter named `useLimitSurfaceEvaluator`; it is an
@@ -92,8 +99,10 @@ sets:
   `a_11`, `a_22`, `a_12`, and `a_21`.
 - Later force terms derive `a_3`, `a_31`, `a_32`, `a1`, `a2`, `a11`, `a12`,
   `a21`, and `a22`.
-- The per-control-point force loop still uses the original cached shape rows
-  through `sf(row, j)`.
+- The production regular per-control-point force loop reads the same cached
+  shape row values through `LimitSurfaceWeightedSample::row_weight(...)` keyed
+  by the local source id. The legacy direct path still uses `sf(row, j)` as the
+  equivalence/control route.
 
 In smooth theory the two mixed derivatives should agree, but SLIMED keeps
 `a_12` and `a_21` as separate rows because the legacy cached shape-function

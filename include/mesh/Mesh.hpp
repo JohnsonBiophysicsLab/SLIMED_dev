@@ -427,6 +427,8 @@ public:
      * @param fBend a non-constant matrix reference representing the bending force of the element.
      * @param fArea a non-constant matrix reference representing the area constraint force of the element.
      * @param fVolume a non-constant matrix reference representing the volume constraint force of the element.
+     * @param useRegularBackProjection when true for 12-control regular patches,
+     * uses the evaluator row/source-id weight abstraction for force rows.
      */
     void element_energy_force_regular(const std::vector<Matrix> &coordOneRingVertices,
                                       Face& face,
@@ -436,7 +438,8 @@ public:
                                       double &eBend,
                                       Matrix &fBend,
                                       Matrix &fArea,
-                                      Matrix &fVolume);
+                                      Matrix &fVolume,
+                                      bool useRegularBackProjection = false);
 
     /**
      * @brief Calculates the regularization energy and force for each face

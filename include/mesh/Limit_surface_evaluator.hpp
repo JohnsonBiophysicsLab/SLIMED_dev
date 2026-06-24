@@ -5,6 +5,8 @@
 
 #pragma once
 
+#include <vector>
+
 #include "linalg/Linear_algebra.hpp"
 
 /**
@@ -40,6 +42,23 @@ struct LimitSurfaceEvaluation
     Matrix secondDerivativeWW = Matrix(3, 1, true);
     Matrix mixedDerivativeVW = Matrix(3, 1, true);
     Matrix mixedDerivativeWV = Matrix(3, 1, true);
+};
+
+/**
+ * @brief Evaluated sample plus row weights keyed by SLIMED source ids.
+ *
+ * The current regular backend uses the 12 local Face::oneRingVertices entries
+ * as source ids and stores the existing seven SLIMED shape rows as rowWeights.
+ * Future backends can provide the same row semantics with a different internal
+ * stencil order while the force formula asks for weights by source id.
+ */
+struct LimitSurfaceWeightedSample
+{
+    LimitSurfaceEvaluation evaluation;
+    std::vector<int> sourceIds;
+    Matrix rowWeights;
+
+    double row_weight(LimitSurfaceDerivativeRow row, int sourceId) const;
 };
 
 /**
@@ -83,4 +102,9 @@ public:
 
     LimitSurfaceEvaluation evaluate_shape_function(const Matrix &shapeFunction,
                                                    const Matrix &controlPoints) const;
+
+    LimitSurfaceWeightedSample evaluate_weighted_shape_function(
+        const Matrix &shapeFunction,
+        const Matrix &controlPoints,
+        const std::vector<int> &sourceIds) const;
 };
