@@ -1,3 +1,4 @@
+#include <array>
 #include <cmath>
 #include <stdexcept>
 #include <vector>
@@ -184,6 +185,53 @@ void expect_evaluation_matches_rows(const LimitSurfaceEvaluation &evaluation,
     expect_column_matches_row(evaluation.mixedDerivativeWV,
                               directRows,
                               static_cast<int>(LimitSurfaceDerivativeRow::MixedDerivativeWV));
+}
+
+void expect_column_near_values(const Matrix &column,
+                               const std::array<double, 3> &expected,
+                               const double tolerance)
+{
+    ASSERT_EQ(column.nrow(), 3);
+    ASSERT_EQ(column.ncol(), 1);
+    for (int axis = 0; axis < 3; ++axis)
+    {
+        EXPECT_NEAR(column.get(axis, 0), expected[axis], tolerance)
+            << "axis " << axis;
+    }
+}
+
+Matrix make_regular_lattice_probe_control_points()
+{
+    constexpr int n = 6;
+    const auto vertex_id = [](const int i, const int j) {
+        return j * 7 + i;
+    };
+    const std::vector<int> oneRing = {
+        vertex_id(2, 1),
+        vertex_id(1, 2),
+        vertex_id(3, 1),
+        vertex_id(2, 2),
+        vertex_id(1, 3),
+        vertex_id(4, 1),
+        vertex_id(3, 2),
+        vertex_id(2, 3),
+        vertex_id(1, 4),
+        vertex_id(4, 2),
+        vertex_id(3, 3),
+        vertex_id(2, 4),
+    };
+
+    Matrix controlPoints(12, 3, true);
+    for (int row = 0; row < static_cast<int>(oneRing.size()); ++row)
+    {
+        const int vertex = oneRing[row];
+        const int i = vertex % (n + 1);
+        const int j = vertex / (n + 1);
+        controlPoints.set(row, 0, static_cast<double>(i) + 0.5 * static_cast<double>(j));
+        controlPoints.set(row, 1, std::sqrt(3.0) / 2.0 * static_cast<double>(j));
+        controlPoints.set(row, 2, 0.03 * std::sin(0.7 * static_cast<double>(i + j)));
+    }
+    return controlPoints;
 }
 
 struct AreaVolume
@@ -431,6 +479,62 @@ TEST(SurfaceLimitSurfaceEvaluatorContract, SlimedLoopEvaluationMatchesDirectShap
         expect_column_matches_row(cachedEvaluation.mixedDerivativeWV,
                                   directRows,
                                   static_cast<int>(LimitSurfaceDerivativeRow::MixedDerivativeWV));
+    }
+}
+
+TEST(SurfaceLimitSurfaceEvaluatorContract, RegularLatticeProbeFrozenOutputsMatchCurrentEvaluator)
+{
+    const std::vector<std::vector<double>> barycentricSamples = {
+        {1.0 / 3.0, 1.0 / 3.0, 1.0 / 3.0},
+        {0.20, 0.30, 0.50},
+        {0.05, 0.85, 0.10},
+    };
+    const std::array<std::array<std::array<double, 3>, 7>, 3> expected = {{
+        {{
+            {{3.4999999999999982, 2.0207259421636894, -0.003450545921933364}},
+            {{0.99999999999999978, -3.6236828367093433e-17, -0.019210698845634439}},
+            {{0.50000000000000022, 0.86602540378443882, -0.019210698845634439}},
+            {{3.3306690738754696e-16, 3.4587734865006226e-17, 0.0017240750489055767}},
+            {{-1.1102230246251565e-16, -1.1674737245020074e-16, 0.0017240750489055771}},
+            {{-5.5511151231257827e-17, -1.9572029680632367e-16, 0.0017240750489055834}},
+            {{-5.5511151231257827e-17, -1.9572029680632367e-16, 0.0017240750489055834}},
+        }},
+        {{
+            {{3.3500000000000001, 1.9918584287042085, -0.0002322832431500952}},
+            {{0.99999999999999978, -1.2002033867471152e-16, -0.019363657606087825}},
+            {{0.50000000000000033, 0.86602540378443882, -0.019363657606087818}},
+            {{2.7755575615628914e-16, 4.1296024847155701e-16, 0.00011143007653501233}},
+            {{1.1102230246251565e-16, 1.1399713609118315e-16, 0.0001114300765350122}},
+            {{5.5511151231257827e-17, -2.6556107582143733e-16, 0.0001114300765350114}},
+            {{5.5511151231257827e-17, -2.6556107582143733e-16, 0.0001114300765350114}},
+        }},
+        {{
+            {{3.4750000000000001, 2.4681724007856505, -0.007865622601230705}},
+            {{0.99999999999999978, -2.5312096407330787e-16, -0.018545015988735949}},
+            {{0.50000000000000022, 0.86602540378443882, -0.018545015988735942}},
+            {{-2.7755575615628914e-16, -5.2999475976476768e-16, 0.0039817780102243674}},
+            {{-4.4408920985006262e-16, -8.1361688734307423e-16, 0.0039817780102243709}},
+            {{2.2204460492503131e-16, 2.0460560118955678e-16, 0.0039817780102243657}},
+            {{2.2204460492503131e-16, 2.0460560118955678e-16, 0.0039817780102243657}},
+        }},
+    }};
+
+    const Matrix controlPoints = make_regular_lattice_probe_control_points();
+    const SlimedLoopLimitSurfaceEvaluator evaluator;
+
+    for (int sample = 0; sample < static_cast<int>(barycentricSamples.size()); ++sample)
+    {
+        SCOPED_TRACE(::testing::Message() << "sample " << sample);
+        const LimitSurfaceEvaluation evaluation =
+            evaluator.evaluate(Matrix({barycentricSamples[sample]}), controlPoints);
+
+        expect_column_near_values(evaluation.position, expected[sample][0], 1.0e-14);
+        expect_column_near_values(evaluation.firstDerivativeV, expected[sample][1], 1.0e-14);
+        expect_column_near_values(evaluation.firstDerivativeW, expected[sample][2], 1.0e-14);
+        expect_column_near_values(evaluation.secondDerivativeVV, expected[sample][3], 1.0e-14);
+        expect_column_near_values(evaluation.secondDerivativeWW, expected[sample][4], 1.0e-14);
+        expect_column_near_values(evaluation.mixedDerivativeVW, expected[sample][5], 1.0e-14);
+        expect_column_near_values(evaluation.mixedDerivativeWV, expected[sample][6], 1.0e-14);
     }
 }
 
