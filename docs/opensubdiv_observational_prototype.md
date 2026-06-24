@@ -250,6 +250,108 @@ not define force transpose semantics, force scatter or accumulation order,
 boundary/ghost/periodic policy, irregular routing, dependency policy, or
 default build integration.
 
+## Force Transpose Contract Follow-Up
+
+The follow-up `--force-transpose-report` mode remains opt-in and inert without
+`OPENSUBDIV_ROOT`. It does not call SLIMED production force code, implement
+force back-projection, change scatter ordering, or evaluate bending, area, or
+volume force formulas. Instead, it checks the linear algebra contract that any
+future force backend would rely on:
+
+```text
+g dot (W p) == (W^T g) dot p
+```
+
+Here `W` is the OpenSubdiv value/derivative weight map from original control
+points to one sample's evaluated rows, `p` is the original control-point
+coordinate vector, and `g` is a deterministic toy sample-space gradient. The
+check proves only that OpenSubdiv's reported value and derivative weights can
+be transposed as a linear map for a toy scalar functional.
+
+The scratch OpenSubdiv `v3_7_0` build at `/tmp/slimed-opensubdiv-install` was
+run with:
+
+```bash
+OPENSUBDIV_ROOT=/tmp/slimed-opensubdiv-install \
+OPENSUBDIV_CXXFLAGS='-arch arm64' \
+python3 scripts/probe_opensubdiv_feasibility.py \
+  --json --require-opensubdiv --force-transpose-report
+```
+
+Observed regular transpose shape:
+
+| Case | Samples | Source ids per sample | Local control components | OpenSubdiv sample gradient components | SLIMED-compatible sample gradient components | Max transpose difference |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| regular triangular lattice | 3 | 12 | 36 | 18 | 21 | `1.11022302e-15` |
+
+The OpenSubdiv row contract is `value, du, dv, duu, duv, dvv`. Under the
+observed regular mapping, `du=d/dv`, `dv=d/dw`, `duu=d2/dv2`, and
+`dvv=d2/dw2`. For the SLIMED-compatible 21-component toy gradient,
+OpenSubdiv's single `duv` row is used for both current SLIMED mixed rows
+`d2/dvdw` and `d2/dwdv`. This is a transpose-shape observation only; a
+production adapter would still need a reviewed mixed-derivative convention.
+
+The regular samples back-project to the same 12 original source ids already
+matched by the regular equivalence reports:
+
+```text
+[9,10,11,15,16,17,18,22,23,24,29,30]
+```
+
+This means the regular case can express a sample-space gradient over the
+matched OpenSubdiv value/derivative rows as contributions on the same 12 local
+controls used by SLIMED's current regular one-ring evaluator.
+
+Observed irregular fixture transpose shape:
+
+| Case | Samples | Source ids per sampled face | Interpretation |
+| --- | ---: | ---: | --- |
+| compact 11-control fixture | 3 | 3 | The original unoriented compact topology still collapses the sampled face to three source ids; this remains a topology artifact and is not a force contract. |
+| oriented 11-control fixture | 3 | 9 | A single sampled face transposes to nine original controls, not all 11 fixture controls. |
+| oriented 11-control fixture with outer annulus | 3 | 9 | Padding the local boundary does not change the single sampled face support. |
+
+These irregular results are consistent with the aggregate source-coverage
+follow-up: all 11 original fixture controls appear only when aggregating across
+adjacent ptex faces/sample locations. They do not prove a SLIMED face-level
+force scatter contract for irregular patches.
+
+Current SLIMED regular force contract observed in
+`src/energy_force/Compute_energy_and_force_on_mesh.cpp`:
+
+- `element_energy_force_regular(...)` evaluates seven local shape rows:
+  position, `d/dv`, `d/dw`, `d2/dv2`, `d2/dw2`, `d2/dvdw`, and `d2/dwdv`.
+- Per sample, bending uses first and second derivative rows through the current
+  `da1`/`da2` formulas and writes local `fBend(j,:)` for each regular local
+  control column.
+- Area uses the first derivative rows and writes local `fArea(j,:)`.
+- Volume uses position plus first derivative rows and writes local
+  `fVol(j,:)`.
+- The face loop scatters local rows in `Face::oneRingVertices[j]` order into
+  per-thread vertex force component buffers, then reduces thread buffers into
+  `Vertex::force.forceCurvature`, `forceArea`, and `forceVolume`.
+
+What this follow-up proves:
+
+- OpenSubdiv's regular value, first-derivative, and second-derivative weights
+  can be transposed for a toy scalar functional at the same three regular
+  samples used by the existing equivalence report.
+- The regular transpose shape is compatible with 12 local controls and 36
+  local control components.
+- The current SLIMED seven-row mixed-derivative shape can be represented in a
+  toy check by duplicating OpenSubdiv's single `duv` row into the two SLIMED
+  mixed rows.
+
+What remains unproven before backend work:
+
+- Production bending, area, and volume force formula equivalence.
+- Production force back-projection through the actual SLIMED force formulas.
+- Scatter and floating-point accumulation ordering, including serial/OpenMP
+  behavior.
+- Irregular face-level force support over the 11-control fixture.
+- Boundary, ghost, and periodic policy.
+- Dependency, licensing, and default build policy for OpenSubdiv.
+- Scientific review of any force-routing or backend-interface decision.
+
 ## Added Probe
 
 `scripts/probe_opensubdiv_feasibility.py` checks for an explicitly supplied or
@@ -321,6 +423,14 @@ python3 scripts/probe_opensubdiv_feasibility.py \
   --json --require-opensubdiv --regular-equivalence-report
 ```
 
+Example opt-in force transpose contract report:
+
+```bash
+OPENSUBDIV_ROOT=/path/to/opensubdiv \
+python3 scripts/probe_opensubdiv_feasibility.py \
+  --json --require-opensubdiv --force-transpose-report
+```
+
 ## Feasibility Questions
 
 1. Can a Loop-scheme OpenSubdiv Far topology be built from SLIMED-style
@@ -359,7 +469,19 @@ python3 scripts/probe_opensubdiv_feasibility.py \
    with max absolute and relative differences of `3.87430191e-7` against a
    `5e-6` tolerance. The observed coordinate mapping is `s=v, t=w`.
 
-5. Can the PR #45 11-control irregular fixture be represented at least as
+5. Can a toy sample-space gradient be transposed back to the same 12 regular
+   local controls used by SLIMED?
+
+   Proven observationally for a toy linear functional only. The
+   `--force-transpose-report` mode checks `g dot (W p) == (W^T g) dot p`
+   for OpenSubdiv's regular value/derivative rows and for a
+   SLIMED-compatible seven-row shape that duplicates OpenSubdiv's `duv` row
+   into both mixed derivative slots. The regular lattice samples report 12
+   source ids, 36 local control components, 21 SLIMED-compatible sample
+   gradient components, and a max transpose difference of `1.11022302e-15`.
+   This does not prove production force formulas or scatter ordering.
+
+6. Can the PR #45 11-control irregular fixture be represented at least as
    topology/source-id mapping?
 
    Proven for aggregate observational source coverage. The installed run
@@ -375,13 +497,13 @@ python3 scripts/probe_opensubdiv_feasibility.py \
 The next useful lane is review-gated:
 
 ```text
-With an approved local OpenSubdiv install path, extend the observational
-prototype to compare regular-sample normals, area integrand, and legacy volume
-integrand. Then define a reviewable force transpose/back-projection
-contract that explains exactly which ptex faces/sample locations contribute to
-one SLIMED face, how derivative rows map to SLIMED's `v,w,u` convention, and
-how contributions scatter back to original vertex ids without changing serial
-or OpenMP accumulation order. Do not change production routing, force scatter,
-default Makefile targets, vendoring policy, or dependency requirements in that
-lane.
+With an approved local OpenSubdiv install path, decide the next review gate
+before backend work: either design a production force-formula equivalence and
+scatter-order proof, or define the backend interface and dependency policy in
+a separate non-default build lane. That decision must explain exactly which
+ptex faces/sample locations contribute to one SLIMED face, how derivative rows
+map to SLIMED's `v,w,u` convention, and how contributions scatter back to
+original vertex ids without changing serial or OpenMP accumulation order. Do
+not change production routing, force scatter, default Makefile targets,
+vendoring policy, or dependency requirements in that lane.
 ```
