@@ -243,6 +243,11 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Exit nonzero when an expected contract anchor is not found.",
     )
+    parser.add_argument(
+        "--check",
+        action="store_true",
+        help="Alias for --fail-on-missing.",
+    )
     return parser.parse_args()
 
 
@@ -253,7 +258,7 @@ def main() -> int:
         print(json.dumps(as_dicts(located, missing), indent=2, sort_keys=True))
     else:
         print_text(located, missing)
-    return 1 if missing and args.fail_on_missing else 0
+    return 1 if missing and (args.fail_on_missing or args.check) else 0
 
 
 if __name__ == "__main__":
