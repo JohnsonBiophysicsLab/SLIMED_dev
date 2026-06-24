@@ -352,6 +352,29 @@ What remains unproven before backend work:
 - Dependency, licensing, and default build policy for OpenSubdiv.
 - Scientific review of any force-routing or backend-interface decision.
 
+## Production Force Formula And Scatter Characterization Follow-Up
+
+The follow-up `docs/force_formula_scatter_equivalence.md` records the
+production-side contract that remains after the PR #54 toy transpose proof. It
+maps the current seven regular evaluator rows to the bending, area, and volume
+force terms, records how the 12 local force rows scatter through
+`Face::oneRingVertices`, and describes the serial/OpenMP thread-local force
+buffer reduction shape.
+
+This follow-up adds no OpenSubdiv dependency and changes no production routing.
+The source-anchor inventory can be regenerated with:
+
+```bash
+python3 scripts/inventory_force_formula_scatter_contract.py --fail-on-missing
+```
+
+The focused default test
+`SurfaceLimitSurfaceEvaluatorContract.RegularForceRowsScatterInOneRingOrder`
+checks a permuted regular one-ring fixture by comparing direct
+`element_energy_force_regular(...)` local force rows against the production
+`Compute_Energy_And_Force()` scatter into `Vertex::force.forceCurvature`,
+`forceArea`, and `forceVolume`.
+
 ## Added Probe
 
 `scripts/probe_opensubdiv_feasibility.py` checks for an explicitly supplied or

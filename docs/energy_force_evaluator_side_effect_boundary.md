@@ -31,6 +31,12 @@ Regenerate the coarse post-PR41 phase map with:
 python3 scripts/inventory_energy_force_side_effects.py --phase-map
 ```
 
+Regenerate the regular force formula/scatter contract inventory with:
+
+```console
+python3 scripts/inventory_force_formula_scatter_contract.py --fail-on-missing
+```
+
 ## Current Call Boundary
 
 Production energy/force refreshes route through:
@@ -240,6 +246,10 @@ Evidence gaps before a production term extraction:
 - Existing geometry tests protect the regular limit-surface row path, but they
   do not approve changing irregular subdivision semantics or adding an
   OpenSubdiv backend.
+- `SurfaceLimitSurfaceEvaluatorContract.RegularForceRowsScatterInOneRingOrder`
+  protects the current regular local force-row scatter into vertex
+  curvature/area/volume buffers for a permuted one-ring fixture; it does not
+  approve changing formulas, OpenMP accumulation shape, or backend routing.
 - A future production extraction should start from a fresh numerical baseline
   and should keep formulas, force scatter, boundary handling, and scaffold
   timing byte-for-byte equivalent unless a domain reviewer explicitly approves
