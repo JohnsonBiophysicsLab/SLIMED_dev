@@ -53,6 +53,10 @@ using namespace OpenSubdiv;
 #define SLIMED_REGULAR_EQUIVALENCE_REPORT 0
 #endif
 
+#ifndef SLIMED_FORCE_TRANSPOSE_REPORT
+#define SLIMED_FORCE_TRANSPOSE_REPORT 0
+#endif
+
 struct Point {
     float x;
     float y;
@@ -950,6 +954,162 @@ static void print_regular_equivalence_sample(
 }
 #endif
 
+#if SLIMED_FORCE_TRANSPOSE_REPORT
+static constexpr double kTransposeTolerance = 1.0e-5;
+
+static double deterministic_gradient(int row, int axis) {
+    return 0.125 * static_cast<double>(row + 1) -
+           0.03125 * static_cast<double>(axis + 2) +
+           0.0078125 * static_cast<double>((row + 1) * (axis + 1));
+}
+
+static double weighted_component(Point const *points,
+                                 Far::LimitStencil const &stencil,
+                                 float const *weights,
+                                 int axis) {
+    double result = 0.0;
+    Far::Index const *indices = stencil.GetVertexIndices();
+    for (int i = 0; i < stencil.GetSize(); ++i) {
+        Point const &point = points[indices[i]];
+        double component = axis == 0 ? point.x : (axis == 1 ? point.y : point.z);
+        result += static_cast<double>(weights[i]) * component;
+    }
+    return result;
+}
+
+static void add_transpose_row(Far::LimitStencil const &stencil,
+                              float const *weights,
+                              int row,
+                              std::vector<double> &backProjection) {
+    Far::Index const *indices = stencil.GetVertexIndices();
+    for (int i = 0; i < stencil.GetSize(); ++i) {
+        int const vertex = indices[i];
+        for (int axis = 0; axis < 3; ++axis) {
+            backProjection[3 * vertex + axis] +=
+                static_cast<double>(weights[i]) *
+                deterministic_gradient(row, axis);
+        }
+    }
+}
+
+static double dot_controls(Point const *points,
+                           std::vector<double> const &backProjection) {
+    double result = 0.0;
+    for (int vertex = 0; vertex < static_cast<int>(backProjection.size() / 3);
+         ++vertex) {
+        Point const &point = points[vertex];
+        result += static_cast<double>(point.x) * backProjection[3 * vertex];
+        result += static_cast<double>(point.y) * backProjection[3 * vertex + 1];
+        result += static_cast<double>(point.z) * backProjection[3 * vertex + 2];
+    }
+    return result;
+}
+
+static double sample_linear_functional(Point const *points,
+                                       Far::LimitStencil const &stencil,
+                                       std::vector<float const *> const &rows) {
+    double result = 0.0;
+    for (int row = 0; row < static_cast<int>(rows.size()); ++row) {
+        for (int axis = 0; axis < 3; ++axis) {
+            result += deterministic_gradient(row, axis) *
+                      weighted_component(points, stencil, rows[row], axis);
+        }
+    }
+    return result;
+}
+
+static double max_abs_control_value(std::vector<double> const &values) {
+    double result = 0.0;
+    for (double value : values) {
+        result = std::max(result, std::abs(value));
+    }
+    return result;
+}
+
+static bool print_force_transpose_report(MeshCase const &mesh,
+                                         Far::LimitStencil const &stencil) {
+    std::vector<float const *> opensubdivRows = {
+        stencil.GetWeights(),
+        stencil.GetDuWeights(),
+        stencil.GetDvWeights(),
+        stencil.GetDuuWeights(),
+        stencil.GetDuvWeights(),
+        stencil.GetDvvWeights(),
+    };
+    std::vector<float const *> slimedRows = {
+        stencil.GetWeights(),
+        stencil.GetDuWeights(),
+        stencil.GetDvWeights(),
+        stencil.GetDuuWeights(),
+        stencil.GetDvvWeights(),
+        stencil.GetDuvWeights(),
+        stencil.GetDuvWeights(),
+    };
+
+    std::vector<double> opensubdivBackProjection(mesh.numVertices * 3, 0.0);
+    for (int row = 0; row < static_cast<int>(opensubdivRows.size()); ++row) {
+        add_transpose_row(stencil, opensubdivRows[row], row,
+                          opensubdivBackProjection);
+    }
+    double const opensubdivSampleDot =
+        sample_linear_functional(mesh.points.data(), stencil, opensubdivRows);
+    double const opensubdivControlDot =
+        dot_controls(mesh.points.data(), opensubdivBackProjection);
+    double const opensubdivAbsDifference =
+        std::abs(opensubdivSampleDot - opensubdivControlDot);
+
+    std::vector<double> slimedBackProjection(mesh.numVertices * 3, 0.0);
+    for (int row = 0; row < static_cast<int>(slimedRows.size()); ++row) {
+        add_transpose_row(stencil, slimedRows[row], row, slimedBackProjection);
+    }
+    double const slimedSampleDot =
+        sample_linear_functional(mesh.points.data(), stencil, slimedRows);
+    double const slimedControlDot =
+        dot_controls(mesh.points.data(), slimedBackProjection);
+    double const slimedAbsDifference =
+        std::abs(slimedSampleDot - slimedControlDot);
+
+    std::set<int> sourceIds;
+    Far::Index const *indices = stencil.GetVertexIndices();
+    for (int i = 0; i < stencil.GetSize(); ++i) {
+        sourceIds.insert(indices[i]);
+    }
+
+    bool const passed = opensubdivAbsDifference <= kTransposeTolerance &&
+                        slimedAbsDifference <= kTransposeTolerance;
+    std::cout << ",\"force_transpose_contract\":{";
+    std::cout << "\"kind\":\"toy_linear_functional_only\"";
+    std::cout << ",\"not_production_force_formula\":true";
+    std::cout << ",\"source_ids\":";
+    print_int_set(sourceIds);
+    std::cout << ",\"source_id_count\":" << sourceIds.size();
+    std::cout << ",\"local_control_component_count\":"
+              << sourceIds.size() * 3;
+    std::cout << ",\"opensubdiv_sample_gradient_component_count\":18";
+    std::cout << ",\"slimed_compatible_sample_gradient_component_count\":21";
+    std::cout << ",\"opensubdiv_rows\":\"value,du,dv,duu,duv,dvv\"";
+    std::cout << ",\"slimed_compatible_rows\":\"position,d/dv,d/dw,"
+                 "d2/dv2,d2/dw2,d2/dvdw,d2/dwdv\"";
+    std::cout << ",\"mixed_derivative_policy\":\"OpenSubdiv duv is used for "
+                 "both SLIMED mixed rows in this toy transpose check\"";
+    std::cout << ",\"transpose_identity\":\"g dot (W p) == (W^T g) dot p\"";
+    std::cout << ",\"opensubdiv_sample_dot\":" << opensubdivSampleDot;
+    std::cout << ",\"opensubdiv_control_dot\":" << opensubdivControlDot;
+    std::cout << ",\"opensubdiv_abs_difference\":"
+              << opensubdivAbsDifference;
+    std::cout << ",\"slimed_compatible_sample_dot\":" << slimedSampleDot;
+    std::cout << ",\"slimed_compatible_control_dot\":" << slimedControlDot;
+    std::cout << ",\"slimed_compatible_abs_difference\":"
+              << slimedAbsDifference;
+    std::cout << ",\"max_abs_backprojected_component\":"
+              << max_abs_control_value(slimedBackProjection);
+    std::cout << ",\"tolerance\":" << kTransposeTolerance;
+    std::cout << ",\"passed\":" << (passed ? "true" : "false");
+    std::cout << "}";
+    return passed;
+}
+#endif
+
 static int run_case(MeshCase const &mesh) {
     Far::TopologyRefiner *refiner = create_refiner(mesh);
     if (!refiner) {
@@ -1023,6 +1183,9 @@ static int run_case(MeshCase const &mesh) {
 #if SLIMED_REGULAR_EQUIVALENCE_REPORT
     DifferenceSummary regularEquivalenceSummary;
     DifferenceSummary regularDerivedEquivalenceSummary;
+#endif
+#if SLIMED_FORCE_TRANSPOSE_REPORT
+    bool forceTransposePassed = true;
 #endif
 
     for (int sample = 0; sample < stencils->GetNumStencils(); ++sample) {
@@ -1131,6 +1294,10 @@ static int run_case(MeshCase const &mesh) {
                                              regularDerivedEquivalenceSummary);
         }
 #endif
+#if SLIMED_FORCE_TRANSPOSE_REPORT
+        forceTransposePassed =
+            print_force_transpose_report(mesh, stencil) && forceTransposePassed;
+#endif
 #if SLIMED_BACKPROJECTION_REPORT
         print_patch_table_report(patchTable,
                                  cvStencils,
@@ -1183,6 +1350,11 @@ static int run_case(MeshCase const &mesh) {
         return 6;
     }
 #endif
+#if SLIMED_FORCE_TRANSPOSE_REPORT
+    if (!forceTransposePassed) {
+        return 7;
+    }
+#endif
     return 0;
 }
 
@@ -1195,7 +1367,7 @@ int main() {
     if (status != 0) {
         return status;
     }
-#if SLIMED_BACKPROJECTION_REPORT || SLIMED_AGGREGATE_SOURCE_COVERAGE_REPORT
+#if SLIMED_BACKPROJECTION_REPORT || SLIMED_AGGREGATE_SOURCE_COVERAGE_REPORT || SLIMED_FORCE_TRANSPOSE_REPORT
     status = run_case(make_oriented_irregular_fixture_case());
     if (status != 0) {
         return status;
@@ -1256,6 +1428,14 @@ def parse_args() -> argparse.Namespace:
         help=(
             "Opt into a regular-face comparison against frozen SLIMED "
             "regular evaluator values."
+        ),
+    )
+    parser.add_argument(
+        "--force-transpose-report",
+        action="store_true",
+        help=(
+            "Opt into a toy linear-functional transpose check for OpenSubdiv "
+            "value and derivative rows without using production force formulas."
         ),
     )
     parser.add_argument(
@@ -1369,6 +1549,8 @@ def main() -> int:
             command.append("-DSLIMED_AGGREGATE_SOURCE_COVERAGE_REPORT=1")
         if args.regular_equivalence_report:
             command.append("-DSLIMED_REGULAR_EQUIVALENCE_REPORT=1")
+        if args.force_transpose_report:
+            command.append("-DSLIMED_FORCE_TRANSPOSE_REPORT=1")
         command.extend(shlex.split(os.environ.get("OPENSUBDIV_CXXFLAGS", "")))
         command.extend(
             [
