@@ -712,6 +712,29 @@ static void print_vec3(char const *name, float const values[3]) {
               << values[0] << "," << values[1] << "," << values[2] << "]";
 }
 
+static void cross3(float const lhs[3], float const rhs[3], float out[3]) {
+    out[0] = lhs[1] * rhs[2] - lhs[2] * rhs[1];
+    out[1] = lhs[2] * rhs[0] - lhs[0] * rhs[2];
+    out[2] = lhs[0] * rhs[1] - lhs[1] * rhs[0];
+}
+
+static double norm3(float const values[3]) {
+    return std::sqrt(static_cast<double>(values[0]) * values[0] +
+                     static_cast<double>(values[1]) * values[1] +
+                     static_cast<double>(values[2]) * values[2]);
+}
+
+static void normalize3(float const values[3], float out[3]) {
+    double length = norm3(values);
+    if (length == 0.0) {
+        out[0] = out[1] = out[2] = 0.0f;
+        return;
+    }
+    out[0] = static_cast<float>(values[0] / length);
+    out[1] = static_cast<float>(values[1] / length);
+    out[2] = static_cast<float>(values[2] / length);
+}
+
 #if SLIMED_REGULAR_EQUIVALENCE_REPORT
 static constexpr double kRegularEquivalenceAbsTolerance = 5.0e-6;
 static constexpr double kRegularEquivalenceRelTolerance = 5.0e-6;
@@ -746,6 +769,36 @@ static void compare_vec3(DifferenceSummary &sampleSummary,
         update_summary(sampleSummary, actual[axis], expected[axis]);
         update_summary(aggregateSummary, actual[axis], expected[axis]);
     }
+}
+
+static void compare_scalar(DifferenceSummary &sampleSummary,
+                           DifferenceSummary &aggregateSummary,
+                           double actual,
+                           double expected) {
+    update_summary(sampleSummary, actual, expected);
+    update_summary(aggregateSummary, actual, expected);
+}
+
+static void cross3(double const lhs[3], double const rhs[3], double out[3]) {
+    out[0] = lhs[1] * rhs[2] - lhs[2] * rhs[1];
+    out[1] = lhs[2] * rhs[0] - lhs[0] * rhs[2];
+    out[2] = lhs[0] * rhs[1] - lhs[1] * rhs[0];
+}
+
+static double norm3(double const values[3]) {
+    return std::sqrt(values[0] * values[0] + values[1] * values[1] +
+                     values[2] * values[2]);
+}
+
+static void normalize3(double const values[3], double out[3]) {
+    double length = norm3(values);
+    if (length == 0.0) {
+        out[0] = out[1] = out[2] = 0.0;
+        return;
+    }
+    out[0] = values[0] / length;
+    out[1] = values[1] / length;
+    out[2] = values[2] / length;
 }
 
 static constexpr double kSlimedRegularExpected[3][7][3] = {
@@ -804,8 +857,14 @@ static void print_regular_equivalence_sample(
     float const duu[3],
     float const duv[3],
     float const dvv[3],
-    DifferenceSummary &aggregateSummary) {
+    float const tangentCross[3],
+    float const unitNormal[3],
+    double areaIntegrand,
+    double legacyVolumeIntegrand,
+    DifferenceSummary &aggregateSummary,
+    DifferenceSummary &derivedAggregateSummary) {
     DifferenceSummary sampleSummary;
+    DifferenceSummary derivedSummary;
     compare_vec3(sampleSummary,
                  aggregateSummary,
                  position,
@@ -835,15 +894,58 @@ static void print_regular_equivalence_sample(
                  duv,
                  kSlimedRegularExpected[sample][6]);
 
+    double expectedCross[3];
+    double expectedUnitNormal[3];
+    cross3(kSlimedRegularExpected[sample][1],
+           kSlimedRegularExpected[sample][2],
+           expectedCross);
+    normalize3(expectedCross, expectedUnitNormal);
+    double expectedAreaIntegrand = norm3(expectedCross);
+    double expectedLegacyVolumeIntegrand =
+        kSlimedRegularExpected[sample][0][0] * expectedCross[0];
+
+    compare_vec3(derivedSummary,
+                 derivedAggregateSummary,
+                 tangentCross,
+                 expectedCross);
+    compare_vec3(derivedSummary,
+                 derivedAggregateSummary,
+                 unitNormal,
+                 expectedUnitNormal);
+    compare_scalar(derivedSummary,
+                   derivedAggregateSummary,
+                   areaIntegrand,
+                   expectedAreaIntegrand);
+    compare_scalar(derivedSummary,
+                   derivedAggregateSummary,
+                   legacyVolumeIntegrand,
+                   expectedLegacyVolumeIntegrand);
+
     std::cout << ",\"regular_equivalence\":{\"reference\":\"frozen "
                  "SlimedLoopLimitSurfaceEvaluator output for the same "
                  "regular one-ring controls\"";
     std::cout << ",\"derivative_mapping\":\"du=d/dv,dv=d/dw,duu=d2/dv2,"
                  "dvv=d2/dw2,duv=d2/dvdw=d2/dwdv\"";
+    std::cout << ",\"normal_mapping\":\"cross(du,dv)=cross(d/dv,d/dw)\"";
+    std::cout << ",\"area_integrand\":\"norm(cross(du,dv))\"";
+    std::cout << ",\"legacy_volume_integrand\":\"position.x*cross(du,dv).x\"";
     std::cout << ",\"sample_max_abs_difference\":" << sampleSummary.maxAbs;
     std::cout << ",\"sample_max_relative_difference\":"
               << sampleSummary.maxRel;
+    std::cout << ",\"derived_sample_max_abs_difference\":"
+              << derivedSummary.maxAbs;
+    std::cout << ",\"derived_sample_max_relative_difference\":"
+              << derivedSummary.maxRel;
     std::cout << ",\"passed\":" << (sampleSummary.passed() ? "true" : "false")
+              << ",\"derived_passed\":"
+              << (derivedSummary.passed() ? "true" : "false")
+              << ",\"slimed_reference\":{\"tangent_cross_product\":["
+              << expectedCross[0] << "," << expectedCross[1] << ","
+              << expectedCross[2] << "],\"unit_normal\":["
+              << expectedUnitNormal[0] << "," << expectedUnitNormal[1] << ","
+              << expectedUnitNormal[2] << "],\"area_integrand\":"
+              << expectedAreaIntegrand << ",\"legacy_volume_integrand\":"
+              << expectedLegacyVolumeIntegrand << "}"
               << "}";
 }
 #endif
@@ -920,6 +1022,7 @@ static int run_case(MeshCase const &mesh) {
 
 #if SLIMED_REGULAR_EQUIVALENCE_REPORT
     DifferenceSummary regularEquivalenceSummary;
+    DifferenceSummary regularDerivedEquivalenceSummary;
 #endif
 
     for (int sample = 0; sample < stencils->GetNumStencils(); ++sample) {
@@ -953,6 +1056,13 @@ static int run_case(MeshCase const &mesh) {
             delete refiner;
             return 5;
         }
+        float tangentCross[3];
+        float unitNormal[3];
+        cross3(du, dv, tangentCross);
+        normalize3(tangentCross, unitNormal);
+        double areaIntegrand = norm3(tangentCross);
+        double legacyVolumeIntegrand =
+            static_cast<double>(position[0]) * tangentCross[0];
 
         std::set<int> sourceIdSet;
         for (int i = 0; i < stencil.GetSize(); ++i) {
@@ -999,6 +1109,11 @@ static int run_case(MeshCase const &mesh) {
         print_vec3("duu", duu);
         print_vec3("duv", duv);
         print_vec3("dvv", dvv);
+        print_vec3("tangent_cross_product", tangentCross);
+        print_vec3("unit_normal", unitNormal);
+        std::cout << ",\"area_integrand\":" << areaIntegrand;
+        std::cout << ",\"legacy_volume_integrand\":"
+                  << legacyVolumeIntegrand;
 #if SLIMED_REGULAR_EQUIVALENCE_REPORT
         if (mesh.name == "regular_triangular_lattice") {
             print_regular_equivalence_sample(sample,
@@ -1008,7 +1123,12 @@ static int run_case(MeshCase const &mesh) {
                                              duu,
                                              duv,
                                              dvv,
-                                             regularEquivalenceSummary);
+                                             tangentCross,
+                                             unitNormal,
+                                             areaIntegrand,
+                                             legacyVolumeIntegrand,
+                                             regularEquivalenceSummary,
+                                             regularDerivedEquivalenceSummary);
         }
 #endif
 #if SLIMED_BACKPROJECTION_REPORT
@@ -1035,8 +1155,15 @@ static int run_case(MeshCase const &mesh) {
                   << regularEquivalenceSummary.maxAbs;
         std::cout << ",\"max_relative_difference\":"
                   << regularEquivalenceSummary.maxRel;
+        std::cout << ",\"derived_max_abs_difference\":"
+                  << regularDerivedEquivalenceSummary.maxAbs;
+        std::cout << ",\"derived_max_relative_difference\":"
+                  << regularDerivedEquivalenceSummary.maxRel;
         std::cout << ",\"passed\":"
-                  << (regularEquivalenceSummary.passed() ? "true" : "false")
+                  << (regularEquivalenceSummary.passed() &&
+                              regularDerivedEquivalenceSummary.passed()
+                          ? "true"
+                          : "false")
                   << "}";
     }
 #endif
@@ -1051,7 +1178,8 @@ static int run_case(MeshCase const &mesh) {
     delete refiner;
 #if SLIMED_REGULAR_EQUIVALENCE_REPORT
     if (mesh.name == "regular_triangular_lattice" &&
-        !regularEquivalenceSummary.passed()) {
+        (!regularEquivalenceSummary.passed() ||
+         !regularDerivedEquivalenceSummary.passed())) {
         return 6;
     }
 #endif

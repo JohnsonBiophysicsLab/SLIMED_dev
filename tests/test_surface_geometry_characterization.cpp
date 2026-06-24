@@ -200,6 +200,34 @@ void expect_column_near_values(const Matrix &column,
     }
 }
 
+std::array<double, 3> column_to_array(const Matrix &column)
+{
+    return {column.get(0, 0), column.get(1, 0), column.get(2, 0)};
+}
+
+std::array<double, 3> cross_array(const std::array<double, 3> &lhs,
+                                  const std::array<double, 3> &rhs)
+{
+    return {
+        lhs[1] * rhs[2] - lhs[2] * rhs[1],
+        lhs[2] * rhs[0] - lhs[0] * rhs[2],
+        lhs[0] * rhs[1] - lhs[1] * rhs[0],
+    };
+}
+
+double norm_array(const std::array<double, 3> &values)
+{
+    return std::sqrt(values[0] * values[0] +
+                     values[1] * values[1] +
+                     values[2] * values[2]);
+}
+
+std::array<double, 3> normalized_array(const std::array<double, 3> &values)
+{
+    const double norm = norm_array(values);
+    return {values[0] / norm, values[1] / norm, values[2] / norm};
+}
+
 Matrix make_regular_lattice_probe_control_points()
 {
     constexpr int n = 6;
@@ -535,6 +563,65 @@ TEST(SurfaceLimitSurfaceEvaluatorContract, RegularLatticeProbeFrozenOutputsMatch
         expect_column_near_values(evaluation.secondDerivativeWW, expected[sample][4], 1.0e-14);
         expect_column_near_values(evaluation.mixedDerivativeVW, expected[sample][5], 1.0e-14);
         expect_column_near_values(evaluation.mixedDerivativeWV, expected[sample][6], 1.0e-14);
+    }
+}
+
+TEST(SurfaceLimitSurfaceEvaluatorContract, RegularLatticeProbeFrozenIntegrandsMatchCurrentEvaluator)
+{
+    const std::vector<std::vector<double>> barycentricSamples = {
+        {1.0 / 3.0, 1.0 / 3.0, 1.0 / 3.0},
+        {0.20, 0.30, 0.50},
+        {0.05, 0.85, 0.10},
+    };
+    const std::array<std::array<double, 3>, 3> expectedCross = {{
+        {{0.016636953224771819, 0.0096053494228172127, 0.8660254037844386}},
+        {{0.016769419397055833, 0.0096818288030438952, 0.86602540378443871}},
+        {{0.016060454959833926, 0.0092725079943679605, 0.86602540378443871}},
+    }};
+    const std::array<std::array<double, 3>, 3> expectedUnitNormal = {{
+        {{0.019205974104791867, 0.011088574319450555, 0.9997540567950941}},
+        {{0.019358819135302421, 0.011176819438960107, 0.99975012619599879}},
+        {{0.018540765478688707, 0.010704515940102625, 0.99977080041075028}},
+    }};
+    const std::array<double, 3> expectedAreaIntegrand = {{
+        0.8662384492448586,
+        0.86624185493191563,
+        0.86622394195613328,
+    }};
+    const std::array<double, 3> expectedLegacyVolumeIntegrand = {{
+        0.058229336286701336,
+        0.056177554980137046,
+        0.055810080985422894,
+    }};
+
+    const Matrix controlPoints = make_regular_lattice_probe_control_points();
+    const SlimedLoopLimitSurfaceEvaluator evaluator;
+
+    for (int sample = 0; sample < static_cast<int>(barycentricSamples.size()); ++sample)
+    {
+        SCOPED_TRACE(::testing::Message() << "sample " << sample);
+        const LimitSurfaceEvaluation evaluation =
+            evaluator.evaluate(Matrix({barycentricSamples[sample]}), controlPoints);
+
+        const std::array<double, 3> tangentCross =
+            cross_array(column_to_array(evaluation.firstDerivativeV),
+                        column_to_array(evaluation.firstDerivativeW));
+        const std::array<double, 3> unitNormal = normalized_array(tangentCross);
+        const double areaIntegrand = norm_array(tangentCross);
+        const double legacyVolumeIntegrand =
+            evaluation.position.get(0, 0) * tangentCross[0];
+
+        for (int axis = 0; axis < 3; ++axis)
+        {
+            EXPECT_NEAR(tangentCross[axis], expectedCross[sample][axis], 1.0e-14)
+                << "cross axis " << axis;
+            EXPECT_NEAR(unitNormal[axis], expectedUnitNormal[sample][axis], 1.0e-14)
+                << "unit normal axis " << axis;
+        }
+        EXPECT_NEAR(areaIntegrand, expectedAreaIntegrand[sample], 1.0e-14);
+        EXPECT_NEAR(legacyVolumeIntegrand,
+                    expectedLegacyVolumeIntegrand[sample],
+                    1.0e-14);
     }
 }
 

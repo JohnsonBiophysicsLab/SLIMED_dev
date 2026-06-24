@@ -201,6 +201,55 @@ does not define force transpose semantics, force scatter or accumulation order,
 boundary/ghost/periodic policy, irregular routing, dependency policy, or
 default build integration.
 
+## Regular Integrand Equivalence Follow-Up
+
+The follow-up integrand extension keeps the same
+`--regular-equivalence-report` mode and remains inert without
+`OPENSUBDIV_ROOT`. It derives regular tangents, the unnormalized normal, unit
+normal, area integrand, and legacy volume integrand from the already matched
+OpenSubdiv value/derivative rows and compares them with frozen SLIMED regular
+evaluator values.
+
+The convention is intentionally the current SLIMED convention, not a revised
+formula:
+
+- OpenSubdiv `du` maps to SLIMED `d/dv`, and OpenSubdiv `dv` maps to SLIMED
+  `d/dw`.
+- The unnormalized normal is `cross(du, dv)`, equivalent to
+  `cross(d/dv, d/dw)` under the observed `s=v,t=w` mapping.
+- The area integrand is `norm(cross(du, dv))`.
+- The legacy volume integrand is `position.x * cross(du, dv).x`, matching the
+  current regular `LimitSurfaceEvaluator` compatibility path in
+  `Mesh::enumerate_regular_patch_area_volume_with_limit_surface_evaluator()`.
+
+The scratch OpenSubdiv `v3_7_0` build at `/tmp/slimed-opensubdiv-install` was
+run with:
+
+```bash
+OPENSUBDIV_ROOT=/tmp/slimed-opensubdiv-install \
+OPENSUBDIV_CXXFLAGS='-arch arm64' \
+python3 scripts/probe_opensubdiv_feasibility.py \
+  --json --require-opensubdiv --regular-equivalence-report
+```
+
+Observed regular comparison:
+
+| Case | Samples | Compared quantities | Coordinate mapping | Tolerance | Max raw row difference | Max derived integrand difference |
+| --- | ---: | --- | --- | ---: | ---: | ---: |
+| regular triangular lattice | 3 | value, `d/dv`, `d/dw`, `d2/dv2`, `d2/dw2`, mixed derivative rows, `cross(d/dv,d/dw)`, unit normal, area integrand, and legacy volume integrand | `s=v, t=w` | `5e-6` | `3.87430191e-7` | `2.82479599e-7` |
+
+The default test suite still does not require OpenSubdiv. The SLIMED-side
+frozen normal, area-integrand, and legacy-volume-integrand values are covered
+by
+`SurfaceLimitSurfaceEvaluatorContract.RegularLatticeProbeFrozenIntegrandsMatchCurrentEvaluator`
+in `tests/test_surface_geometry_characterization.cpp`.
+
+This proves regular integrand equivalence only for the selected regular
+lattice samples and the current legacy SLIMED volume convention. It still does
+not define force transpose semantics, force scatter or accumulation order,
+boundary/ghost/periodic policy, irregular routing, dependency policy, or
+default build integration.
+
 ## Added Probe
 
 `scripts/probe_opensubdiv_feasibility.py` checks for an explicitly supplied or
@@ -220,8 +269,9 @@ probe. The generated probe:
   weights;
 - emits source control-vertex ids, derivative weight counts, and derivative
   vectors for each sample; and
-- evaluates finite position, first derivative, and second derivative vectors
-  from the stencil weights.
+- evaluates finite position, first derivative, second derivative,
+  tangent-cross, unit-normal, area-integrand, and legacy-volume-integrand
+  values from the stencil weights.
 
 The probe reports the observed regular SLIMED-to-OpenSubdiv coordinate mapping
 of `s=v, t=w`.
