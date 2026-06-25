@@ -10,7 +10,7 @@ behavior, scatter order, or broader valence support.
 | Route | Current behavior | Current evidence | Remaining gap |
 | --- | --- | --- | --- |
 | Regular 12-control membrane force | Supported. | Regular evaluator, force formula, and scatter characterization tests. | Preserve serial/OpenMP baselines if a future backend changes row weights or force scatter. |
-| 11-control `4+3+4` membrane force with `Param::subDivideTimes > 0` | Supported narrowly through existing subdivision matrices and transpose back-projection. | Synthetic 11-control area/volume and energy/force tests compare production output against independent test-side subdivision/back-projection. | Representative physical fixtures, serial/OpenMP tolerances, and production-data discovery. |
+| 11-control `4+3+4` membrane force with `Param::subDivideTimes > 0` | Supported narrowly through existing subdivision matrices and transpose back-projection. | Synthetic 11-control area/volume and energy/force tests compare production output against independent test-side subdivision/back-projection. The serial/OpenMP tolerance lane now replays the documented thread-buffer reduction shape on deterministic synthetic route outputs. | Representative physical fixtures and executable-level serial/OpenMP baselines remain open until a stable production fixture exists. |
 | 11-control membrane force with `Param::subDivideTimes <= 0` | Guarded unsupported. | Zero-depth diagnostic test verifies the route fails before regular fallback. | None for the current guard; changing this policy needs production review. |
 | Other irregular force topologies | Unsupported. | Documentation explicitly limits support to the existing `11 = 4+3+4` matrix contract. | Backend or valence policy, fixtures, expected outputs, and review criteria. |
 | OpenSubdiv-backed irregular replacement | Not production. | Existing OpenSubdiv docs/probe remain observational only. | Dependency/build policy, sample selection, source-id mapping, and force-formula equivalence. |
@@ -26,6 +26,13 @@ snapshot in `docs/irregular_fixture_discovery_report.md`. It inventories
 checked-in face/vertex CSV meshes and a generated closed-valence-5 topology
 probe without executing production C++.
 
+The serial/OpenMP tolerance companion check is
+`scripts/inventory_irregular_serial_omp_tolerance.py --check`, with the
+narrative snapshot in
+`docs/irregular_serial_omp_tolerance_characterization.md`. It records the
+current synthetic split-reduction tolerance envelope without changing
+production OpenMP behavior.
+
 ## Evidence Gaps Worth Filling Next
 
 1. Representative irregular fixtures beyond the synthetic 11-control patch.
@@ -36,10 +43,12 @@ probe without executing production C++.
    11-control fixture with explicit ghost status.
 
 2. Serial/OpenMP tolerance policy for supported 11-control outputs. The
-   evidence should compare area, volume, face curvature energy, normals, mean
-   curvature, per-vertex force components, total energy, and force reductions
-   under a stated tolerance instead of relying on the synthetic exact route
-   comparison alone.
+   synthetic reduction-order lane now compares area, volume,
+   curvature-energy sums, and per-vertex curvature/area/volume force
+   components under a stated tolerance. Face-local normals and mean curvature
+   are still covered by the existing single-face route comparison; executable
+   serial/OpenMP baselines remain blocked on a stable production irregular
+   fixture.
 
 3. Unsupported-route inventory. Zero-depth 11-control requests are already
    guarded. Broader valence cases need a documented matrix of expected
@@ -55,8 +64,9 @@ probe without executing production C++.
 - Docs/scripts-only fixture discovery: add an inert inventory command that
   scans checked-in or generated mesh fixtures and reports physical face
   one-ring sizes, ghost/boundary status, and candidate irregular faces.
-- Tests-only tolerance characterization: add focused serial/OpenMP checks for
-  the existing 11-control route using stable fixtures and explicit tolerances.
+- Tests-only tolerance characterization: extend the synthetic
+  serial/OpenMP-compatible reduction checks only after a stable fixture or
+  explicit scientific fixture decision exists.
 - Docs-only backend criteria: refine the OpenSubdiv replacement checklist after
   a dependency policy decision, without adding build files or production
   routing.
