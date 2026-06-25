@@ -134,19 +134,30 @@ artifact case.
 ## Production-Readiness Checklist
 
 Before replacing or broadening the current subdivision-matrix irregular force
-support, a production PR needs explicit evidence for each item below:
+support, a production PR needs explicit evidence for each item below. The
+complete OpenSubdiv replacement criteria live in
+`docs/opensubdiv_backend_interface_policy.md`; this local checklist records
+the transpose-proof pieces most directly connected to the current
+subdivision-matrix route.
 
 | Gate | Required evidence before replacing or broadening 11-control force routing |
 | --- | --- |
+| Physical fixture status | Representative physical irregular fixture availability, or an explicit scientific waiver for a narrower synthetic claim. |
 | Derivative convention | Approved `s,t` to SLIMED `v,w,u` mapping, including sign/order and mixed-row convention. |
 | Source-id coverage | Fixture-level source ids prove the exact controls needed by the selected production sample plan, not only aggregate all-ptex visibility. |
 | Transpose/back-projection shape | Current subdivision-matrix route transposes regular child-patch forces through child-to-original weights; any backend replacement must transpose through original SLIMED vertex ids or an approved child-patch local-id map. |
 | Production force formulas | Bending, area, and volume formula outputs match the current regular path on regular fixtures before irregular routing is added. |
 | Scatter order | Local force components scatter through `Face::oneRingVertices` in the reviewed order, or a reviewed irregular replacement order is documented and tested. |
 | Quadrature/sample selection | The ptex faces, child patches, sample coordinates, and quadrature weights representing one SLIMED irregular face are fixed and tested. |
-| Equivalence tolerance | Serial and OpenMP force, energy, normal, area, and volume tolerances are stated with fixtures and comparison commands. |
+| Equivalence tolerance | Regular row/integrand equivalence and serial/OpenMP force, energy, normal, area, and volume tolerances are stated with fixtures and comparison commands. |
 | Fallback/guard policy | Unsupported irregular, boundary, ghost, periodic, and dependency-absent routes fail or fall back only through reviewed diagnostics. |
-| Dependency policy | Default builds remain OpenSubdiv-free until an approved opt-in or production dependency lane changes that policy. |
+| Dependency policy | Default builds remain OpenSubdiv-free until an approved opt-in or production dependency lane changes that policy; vendoring, submodules, generated artifacts, and package-manager assumptions need separate review. |
+| Interface and signoff ownership | Backend-owned row/source mapping stays behind a SLIMED interface, while formula/scatter/reduction ownership remains with force code; reviewer and scientific signoff are required before claiming physical readiness. |
+
+Passing this table would still be mechanical readiness unless the approved
+fixtures include representative physical evidence. The current synthetic
+11-control route tests and OpenSubdiv proof-map reports must not be described
+as physics validation by themselves.
 
 ## Next Gated Production Prompt
 

@@ -31,6 +31,44 @@ integration or production routing in this lane.
    11-control route uses existing subdivision matrices and does not approve
    production OpenSubdiv routing.
 
+## Current Production Route Versus Future Backend Criteria
+
+As of the PR #64 baseline, SLIMED has one supported irregular production
+route: positive-depth 11-control membrane-force patches matching the documented
+`11 = 4+3+4` split. That route is dependency-free. It reuses the existing
+irregular subdivision matrices, evaluates regular child patches, and
+transposes child bending/area/volume force rows back through those matrices to
+the original 11 `Face::oneRingVertices` entries.
+
+That support does not make OpenSubdiv production-ready. It also does not
+broaden SLIMED's irregular contract. These cases remain guarded or unsupported
+until a separate reviewed PR changes them:
+
+- 11-control membrane-force requests with `Param::subDivideTimes <= 0`;
+- irregular neighborhoods outside the documented `11 = 4+3+4` matrix shape;
+- OpenSubdiv-backed replacement of the current subdivision-matrix route;
+- broader extraordinary-valence force, area, or volume support; and
+- dependency-present behavior that differs from dependency-absent behavior.
+
+Any future OpenSubdiv backend replacement must pass every criterion below, or
+record an explicit reviewer-approved waiver. Observational probe output is
+useful evidence for these gates, but it is not physics validation unless a
+representative physical fixture exists and has reviewed expectations.
+
+| Gate | Required evidence before OpenSubdiv can replace or broaden production routing |
+| --- | --- |
+| Physical fixture availability | A representative non-ghost physical irregular fixture, or a documented scientific decision that a synthetic fixture is sufficient for the specific claim. Fixture discovery alone is not validation. |
+| Derivative and coordinate conventions | Approved mapping from OpenSubdiv `s,t`/`du,dv,duu,duv,dvv` to SLIMED `v,w,u` rows, including orientation, sign, row order, and the current duplicated mixed-row convention. |
+| Ptex/sample coverage plan | Exact ptex faces, child patches, sample coordinates, and quadrature weights that represent one SLIMED face. Aggregate all-ptex source visibility is not enough by itself. |
+| Source-id mapping | Row weights keyed by original SLIMED vertex ids, with tests proving the selected plan covers the exact controls expected by the SLIMED face and preserves the reviewed local ordering or documents a replacement ordering. |
+| Transpose/back-projection shape | A reviewed map from sample-space bending, area, and volume gradients through backend row weights to SLIMED force rows. The shape must be compared against the existing subdivision-matrix transpose route where that route applies. |
+| Regular equivalence tolerance | Frozen regular fixtures comparing value rows, first derivatives, pure and mixed second derivatives, tangent cross product, unit normal, area integrand, and legacy volume integrand against `SlimedLoopLimitSurfaceEvaluator` with stated tolerances. |
+| Serial/OpenMP comparison tolerance | Serial and OpenMP comparisons on the approved fixtures, with stated tolerances for energies, forces, normals, area, and volume. The evidence must preserve or explicitly review thread-local buffer shape, scheduling assumptions, and reduction order. |
+| Dependency/build/install/vendoring policy | A reviewed install/discovery policy such as `OPENSUBDIV_ROOT` or a non-default target. Default builds must remain OpenSubdiv-free until a dedicated dependency lane changes that policy. No vendored source, submodule, generated dependency artifact, or package-manager assumption may appear without license and maintenance review. |
+| Backend interface ownership | OpenSubdiv types stay behind a backend-neutral SLIMED interface. The backend owns topology preparation, sample row weights, source-id mapping, and unsupported-topology diagnostics; force code owns formulas, scatter, reduction, and output-visible state. |
+| Reviewer and scientific signoff | Reviewer approval for the backend interface and dependency policy, plus scientific signoff for any claim that irregular forces are physically validated. Evidence language must distinguish mechanical equivalence from physics validation. |
+| Rollback/fallback behavior | Dependency-absent, unsupported topology, unsupported boundary/ghost/periodic, and failed-equivalence cases must fail loudly or fall back to the existing reviewed route only through explicit diagnostics. Silent fallback to the regular 12-control helper remains forbidden. |
+
 ## Minimal Backend Seam
 
 The current production interface in `include/mesh/Limit_surface_evaluator.hpp`

@@ -29,6 +29,17 @@ Do not expand local case-by-case irregular force code first unless the prototype
 shows OpenSubdiv cannot supply a reviewable stencil/patch path for SLIMED's
 Loop triangular meshes.
 
+Post-PR64 refinement: SLIMED now has a narrow supported production route for
+positive-depth 11-control `4+3+4` membrane-force patches through existing
+subdivision matrices and transpose back-projection. That route is separate from
+OpenSubdiv backend readiness. OpenSubdiv remains a future replacement candidate
+only after the criteria in
+`docs/opensubdiv_backend_interface_policy.md` are satisfied, including
+physical-fixture availability, derivative/coordinate conventions,
+ptex/sample coverage, source-id mapping, force transpose shape, regular and
+serial/OpenMP tolerances, dependency policy, interface ownership,
+reviewer/scientific signoff, and rollback/fallback behavior.
+
 ## Current SLIMED Facts
 
 The existing regular limit-surface contract is explicit:
@@ -56,6 +67,11 @@ PR #45 added a deterministic 11-control geometry fixture and matrix-contract
 checks. Later force-routing work adds the narrow subdivision-transpose
 production path for that documented fixture shape, while broader valence and
 OpenSubdiv-backed routing remain separate decisions.
+
+The synthetic 11-control evidence is mechanical route evidence. It is not a
+claim of physical validation for irregular membranes until a representative
+non-ghost physical fixture exists, has reviewed expectations, and passes the
+approved comparison plan.
 
 ## OpenSubdiv Evidence
 
@@ -233,3 +249,8 @@ After the prototype, decide one of:
   support only through separate review-gated PRs.
 - Reject unsupported irregular energy/force cases loudly until one of the
   broader paths has numerical evidence.
+
+For any OpenSubdiv replacement decision, use the consolidated production
+criteria in `docs/opensubdiv_backend_interface_policy.md` rather than treating
+regular equivalence, aggregate source coverage, or toy transpose reports as
+standalone approval.
