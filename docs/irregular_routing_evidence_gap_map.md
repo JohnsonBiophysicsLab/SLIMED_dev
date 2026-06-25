@@ -20,12 +20,20 @@ The machine-readable companion check is
 current support/guard/evidence anchors without parsing or executing production
 C++.
 
+The fixture-discovery companion check is
+`scripts/inventory_irregular_fixture_candidates.py --check`, with the narrative
+snapshot in `docs/irregular_fixture_discovery_report.md`. It inventories
+checked-in face/vertex CSV meshes and a generated closed-valence-5 topology
+probe without executing production C++.
+
 ## Evidence Gaps Worth Filling Next
 
 1. Representative irregular fixtures beyond the synthetic 11-control patch.
    The next useful evidence is a fixture-discovery report or fixture generator
    that finds real non-ghost irregular faces in production-like meshes without
-   changing setup behavior.
+   changing setup behavior. The current discovery report adds the inert
+   command and shows that checked-in mesh CSVs do not yet serialize a physical
+   11-control fixture with explicit ghost status.
 
 2. Serial/OpenMP tolerance policy for supported 11-control outputs. The
    evidence should compare area, volume, face curvature energy, normals, mean
