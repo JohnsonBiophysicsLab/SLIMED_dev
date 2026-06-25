@@ -1,4 +1,5 @@
 #include <array>
+#include <algorithm>
 #include <cmath>
 #include <string>
 #include <stdexcept>
@@ -472,6 +473,13 @@ struct IrregularForceRouteResult
     Matrix fVolume = mat_calloc(11, 3);
 };
 
+struct IrregularPatchOutput
+{
+    double area = 0.0;
+    double volume = 0.0;
+    IrregularForceRouteResult force;
+};
+
 void add_back_projected_force_rows(const Matrix &childToOriginal,
                                    const Matrix &childForce,
                                    Matrix &originalForce)
@@ -535,6 +543,99 @@ IrregularForceRouteResult direct_irregular_patch_energy_force(Mesh &mesh,
 
     get_unit_vector(result.normVector);
     return result;
+}
+
+void perturb_synthetic_irregular_patch(Mesh &mesh, const int variant)
+{
+    for (Vertex &vertex : mesh.vertices)
+    {
+        const double row = static_cast<double>(vertex.index + 1);
+        const double variantScale = static_cast<double>(variant + 1);
+        vertex.coord.set(0, 0, vertex.coord(0, 0) + 0.035 * variantScale * std::sin(0.31 * row));
+        vertex.coord.set(1, 0, vertex.coord(1, 0) - 0.025 * variantScale * std::cos(0.27 * row));
+        vertex.coord.set(2, 0, vertex.coord(2, 0) + 0.018 * variantScale * std::sin(0.43 * row));
+        for (int axis = 0; axis < 3; ++axis)
+        {
+            vertex.coordRef.set(axis, 0, vertex.coord(axis, 0));
+        }
+    }
+}
+
+IrregularPatchOutput compute_synthetic_irregular_patch_output(const int variant)
+{
+    Param param;
+    param.VERBOSE_MODE = false;
+    param.subDivideTimes = 2;
+    param.kCurv = 47.5;
+    param.uSurf = 130.0;
+    param.uVol = 65.0;
+    param.area0 = 2.75;
+    param.vol0 = 0.82;
+
+    Mesh mesh(param);
+    populate_synthetic_irregular_patch_mesh(mesh);
+    perturb_synthetic_irregular_patch(mesh, variant);
+
+    mesh.calculate_element_area_volume();
+    mesh.sum_membrane_area_and_volume(mesh.param.area, mesh.param.vol);
+
+    IrregularPatchOutput output;
+    output.area = mesh.param.area;
+    output.volume = mesh.param.vol;
+    output.force = direct_irregular_patch_energy_force(mesh, mesh.faces.front());
+    return output;
+}
+
+void scatter_irregular_force_rows(const IrregularForceRouteResult &force,
+                                  const std::vector<int> &targetVertices,
+                                  std::vector<double> &components)
+{
+    ASSERT_EQ(targetVertices.size(), 11);
+    for (int row = 0; row < static_cast<int>(targetVertices.size()); ++row)
+    {
+        const int base = targetVertices[row] * 9;
+        for (int axis = 0; axis < 3; ++axis)
+        {
+            components[base + axis] += force.fBend.get(row, axis);
+            components[base + 3 + axis] += force.fArea.get(row, axis);
+            components[base + 6 + axis] += force.fVolume.get(row, axis);
+        }
+    }
+}
+
+std::vector<double> reduce_thread_buffers(const std::vector<std::vector<double>> &threadBuffers)
+{
+    if (threadBuffers.empty())
+    {
+        return {};
+    }
+    std::vector<double> reduced(threadBuffers.front().size(), 0.0);
+    for (const std::vector<double> &threadBuffer : threadBuffers)
+    {
+        if (threadBuffer.size() != reduced.size())
+        {
+            return {};
+        }
+        for (int component = 0; component < static_cast<int>(reduced.size()); ++component)
+        {
+            reduced[component] += threadBuffer[component];
+        }
+    }
+    return reduced;
+}
+
+double max_abs_delta(const std::vector<double> &lhs, const std::vector<double> &rhs)
+{
+    if (lhs.size() != rhs.size())
+    {
+        return std::numeric_limits<double>::infinity();
+    }
+    double maxDelta = 0.0;
+    for (int component = 0; component < static_cast<int>(lhs.size()); ++component)
+    {
+        maxDelta = std::max(maxDelta, std::abs(lhs[component] - rhs[component]));
+    }
+    return maxDelta;
 }
 } // namespace
 
@@ -1269,6 +1370,73 @@ TEST(SurfaceSubdivisionCharacterization, SyntheticIrregularPatchEnergyForceBackP
                                            row,
                                            "irregular volume");
     }
+}
+
+TEST(SurfaceSubdivisionCharacterization, SyntheticIrregularPatchSerialOpenMpReductionToleranceEnvelope)
+{
+    constexpr int nVertices = 18;
+    constexpr int nThreads = 3;
+    constexpr double forceTolerance = 1.0e-10;
+    constexpr double scalarTolerance = 1.0e-10;
+    const std::vector<std::vector<int>> targetVertexRows = {
+        {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10},
+        {2, 11, 12, 3, 13, 14, 4, 15, 5, 16, 6},
+        {1, 12, 17, 2, 11, 15, 3, 13, 7, 14, 8},
+        {4, 16, 10, 5, 17, 12, 6, 11, 9, 15, 0},
+    };
+    const std::vector<int> openMpCompatibleThreadAssignment = {1, 0, 2, 1};
+
+    std::vector<IrregularPatchOutput> outputs;
+    for (int variant = 0; variant < static_cast<int>(targetVertexRows.size()); ++variant)
+    {
+        outputs.push_back(compute_synthetic_irregular_patch_output(variant));
+    }
+
+    std::vector<double> serialComponents(nVertices * 9, 0.0);
+    double serialArea = 0.0;
+    double serialVolume = 0.0;
+    double serialCurvatureEnergy = 0.0;
+    for (int face = 0; face < static_cast<int>(outputs.size()); ++face)
+    {
+        ASSERT_EQ(targetVertexRows[face].size(), 11);
+        scatter_irregular_force_rows(outputs[face].force, targetVertexRows[face], serialComponents);
+        serialArea += outputs[face].area;
+        serialVolume += outputs[face].volume;
+        serialCurvatureEnergy += outputs[face].force.eBend;
+    }
+
+    std::vector<std::vector<double>> threadForceComponents(
+        nThreads, std::vector<double>(nVertices * 9, 0.0));
+    std::vector<double> threadAreas(nThreads, 0.0);
+    std::vector<double> threadVolumes(nThreads, 0.0);
+    std::vector<double> threadCurvatureEnergies(nThreads, 0.0);
+    for (int face = 0; face < static_cast<int>(outputs.size()); ++face)
+    {
+        const int thread = openMpCompatibleThreadAssignment[face];
+        ASSERT_GE(thread, 0);
+        ASSERT_LT(thread, nThreads);
+        scatter_irregular_force_rows(outputs[face].force,
+                                     targetVertexRows[face],
+                                     threadForceComponents[thread]);
+        threadAreas[thread] += outputs[face].area;
+        threadVolumes[thread] += outputs[face].volume;
+        threadCurvatureEnergies[thread] += outputs[face].force.eBend;
+    }
+
+    const std::vector<double> openMpCompatibleComponents =
+        reduce_thread_buffers(threadForceComponents);
+    const double openMpCompatibleArea =
+        threadAreas[0] + threadAreas[1] + threadAreas[2];
+    const double openMpCompatibleVolume =
+        threadVolumes[0] + threadVolumes[1] + threadVolumes[2];
+    const double openMpCompatibleCurvatureEnergy =
+        threadCurvatureEnergies[0] + threadCurvatureEnergies[1] + threadCurvatureEnergies[2];
+
+    EXPECT_GT(std::abs(serialCurvatureEnergy), 1.0e-12);
+    EXPECT_LE(max_abs_delta(serialComponents, openMpCompatibleComponents), forceTolerance);
+    EXPECT_NEAR(openMpCompatibleArea, serialArea, scalarTolerance);
+    EXPECT_NEAR(openMpCompatibleVolume, serialVolume, scalarTolerance);
+    EXPECT_NEAR(openMpCompatibleCurvatureEnergy, serialCurvatureEnergy, scalarTolerance);
 }
 
 TEST(SurfaceFlatMeshCharacterization, PeriodicFlatMeshKeepsInteriorRegularAndPlanar)
