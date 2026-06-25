@@ -9,6 +9,14 @@ behavior, default Makefile targets, dependency policy, energy/force routing,
 force scatter, checkpoint/output formats, OpenMP behavior, boundary/ghost
 policy, or the current `LimitSurfaceEvaluator` implementation.
 
+Post-PR64 refinement: the prototype evidence remains observational even though
+SLIMED now supports the documented positive-depth 11-control `4+3+4`
+production route through existing subdivision matrices and transpose
+back-projection. The current supported route is not OpenSubdiv-backed. The
+prototype reports below can inform future backend criteria, but they do not
+replace the production gates in
+`docs/opensubdiv_backend_interface_policy.md`.
+
 ## Local Dependency Result
 
 OpenSubdiv is not available in this worktree environment:
@@ -151,6 +159,8 @@ This proves only aggregate source coverage for the observational topology and
 sample grid. It does not prove that a single SLIMED face-level force contract
 should gather from every adjacent ptex face or that force contributions can be
 transposed into SLIMED's current scatter order without a separate review.
+It also does not prove physical validity for irregular force routing without a
+representative physical fixture and reviewed expectations.
 
 Before production adoption, SLIMED still needs:
 
@@ -249,6 +259,9 @@ lattice samples and the current legacy SLIMED volume convention. It still does
 not define force transpose semantics, force scatter or accumulation order,
 boundary/ghost/periodic policy, irregular routing, dependency policy, or
 default build integration.
+
+The regular tolerance is therefore a necessary backend criterion, not a
+sufficient production approval.
 
 ## Force Transpose Contract Follow-Up
 
@@ -520,6 +533,14 @@ before 11-control force routing.
    source ids, 36 local control components, 21 SLIMED-compatible sample
    gradient components, and a max transpose difference of `1.11022302e-15`.
    This does not prove production force formulas or scatter ordering.
+
+   Future replacement work must still provide the full criteria set from
+   `docs/opensubdiv_backend_interface_policy.md`: physical fixture status,
+   derivative/coordinate convention, ptex/sample plan, source-id mapping,
+   transpose/back-projection shape, regular equivalence tolerance,
+   serial/OpenMP comparison tolerance,
+   dependency/build/install/vendoring policy, backend interface ownership,
+   reviewer/scientific signoff, and rollback/fallback behavior.
 
 6. Can the PR #45 11-control irregular fixture be represented at least as
    topology/source-id mapping?

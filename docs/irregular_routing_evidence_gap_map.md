@@ -15,6 +15,12 @@ behavior, scatter order, or broader valence support.
 | Other irregular force topologies | Unsupported. | Documentation explicitly limits support to the existing `11 = 4+3+4` matrix contract. | Backend or valence policy, fixtures, expected outputs, and review criteria. |
 | OpenSubdiv-backed irregular replacement | Not production. | Existing OpenSubdiv docs/probe remain observational only. | Dependency/build policy, sample selection, source-id mapping, and force-formula equivalence. |
 
+The supported positive-depth 11-control route and a future OpenSubdiv backend
+replacement are intentionally separate rows. The supported route uses existing
+subdivision matrices and transpose back-projection; it does not add a
+dependency, change build/install policy, broaden valence support, or validate
+OpenSubdiv routing.
+
 The machine-readable companion check is
 `scripts/inventory_irregular_routing_evidence.py --check`. It records the
 current support/guard/evidence anchors without parsing or executing production
@@ -54,10 +60,21 @@ production OpenMP behavior.
    guarded. Broader valence cases need a documented matrix of expected
    diagnostics before any route is broadened.
 
-4. OpenSubdiv replacement criteria. Any backend lane should first define the
-   derivative convention, ptex/sample plan, source-id map, back-projection
-   shape, dependency policy, and regular equivalence tolerance. It should not
-   be mixed with the representative-fixture evidence lane.
+4. OpenSubdiv replacement criteria. Any backend lane should first satisfy the
+   consolidated criteria in
+   `docs/opensubdiv_backend_interface_policy.md`: physical fixture
+   availability, derivative and coordinate conventions, ptex/sample coverage
+   plan, source-id mapping, transpose/back-projection shape, regular
+   equivalence tolerance, serial/OpenMP comparison tolerance,
+   dependency/build/install/vendoring policy, backend interface ownership,
+   reviewer and scientific signoff, and rollback/fallback behavior. It should
+   not be mixed with the representative-fixture evidence lane.
+
+The evidence standard should stay cautious. Synthetic route checks,
+regular-equivalence reports, aggregate OpenSubdiv source coverage, and toy
+transpose identities are mechanical evidence. They are not physics validation
+unless a representative physical fixture exists and passes a reviewed
+comparison plan.
 
 ## Safe Follow-Up PR Shapes
 
