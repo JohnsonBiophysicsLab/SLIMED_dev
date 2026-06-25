@@ -61,6 +61,10 @@ using namespace OpenSubdiv;
 #define SLIMED_IRREGULAR_TRANSPOSE_PROOF_MAP_REPORT 0
 #endif
 
+#ifndef SLIMED_BROADER_VALENCE_COVERAGE_REPORT
+#define SLIMED_BROADER_VALENCE_COVERAGE_REPORT 0
+#endif
+
 struct Point {
     float x;
     float y;
@@ -75,6 +79,7 @@ struct MeshCase {
     std::vector<Point> points;
     std::vector<int> expectedLocalControlIds;
     int sampleFace = 0;
+    int extraordinaryValence = 0;
 };
 
 static void append_face(MeshCase &mesh, int a, int b, int c) {
@@ -250,6 +255,52 @@ static MeshCase make_padded_irregular_fixture_case() {
         int outerB = outerIds[next];
         append_face(mesh, a, b, outerB);
         append_face(mesh, a, outerB, outerA);
+    }
+
+    return mesh;
+}
+
+static MeshCase make_extraordinary_valence_fan_case(int valence) {
+    MeshCase mesh;
+    mesh.name = "synthetic_extraordinary_valence_" + std::to_string(valence) +
+                "_fan";
+    mesh.sampleFace = 0;
+    mesh.extraordinaryValence = valence;
+
+    mesh.points.push_back(Point{0.0f, 0.0f, 0.06f});
+    const float pi = 3.14159265358979323846f;
+    for (int i = 0; i < valence; ++i) {
+        float angle = 2.0f * pi * static_cast<float>(i) /
+                      static_cast<float>(valence);
+        mesh.points.push_back(Point{
+            std::cos(angle),
+            std::sin(angle),
+            0.04f * std::sin(1.7f * angle)});
+    }
+    for (int i = 0; i < valence; ++i) {
+        float angle = 2.0f * pi * (static_cast<float>(i) + 0.35f) /
+                      static_cast<float>(valence);
+        mesh.points.push_back(Point{
+            1.85f * std::cos(angle),
+            1.85f * std::sin(angle),
+            0.02f * std::cos(1.3f * angle)});
+    }
+
+    mesh.numVertices = static_cast<int>(mesh.points.size());
+    for (int id = 0; id < mesh.numVertices; ++id) {
+        mesh.expectedLocalControlIds.push_back(id);
+    }
+
+    for (int i = 0; i < valence; ++i) {
+        int next = (i + 1) % valence;
+        int innerA = 1 + i;
+        int innerB = 1 + next;
+        int outerA = 1 + valence + i;
+        int outerB = 1 + valence + next;
+
+        append_face(mesh, 0, innerA, innerB);
+        append_face(mesh, innerA, outerA, outerB);
+        append_face(mesh, innerA, outerB, innerB);
     }
 
     return mesh;
@@ -1283,7 +1334,7 @@ static int run_case(MeshCase const &mesh) {
     Far::PatchTable *patchTable = 0;
     Far::StencilTable const *cvStencils = 0;
 
-#if SLIMED_BACKPROJECTION_REPORT || SLIMED_AGGREGATE_SOURCE_COVERAGE_REPORT || SLIMED_IRREGULAR_TRANSPOSE_PROOF_MAP_REPORT
+#if SLIMED_BACKPROJECTION_REPORT || SLIMED_AGGREGATE_SOURCE_COVERAGE_REPORT || SLIMED_IRREGULAR_TRANSPOSE_PROOF_MAP_REPORT || SLIMED_BROADER_VALENCE_COVERAGE_REPORT
     Far::PatchTableFactory::Options patchOptions(5);
     refiner->RefineAdaptive(patchOptions.GetRefineAdaptiveOptions());
     patchTable = Far::PatchTableFactory::Create(*refiner, patchOptions);
@@ -1338,6 +1389,13 @@ static int run_case(MeshCase const &mesh) {
     std::cout << "\"face_count\":" << mesh.vertsPerFace.size() << ",";
     std::cout << "\"sample_face\":" << mesh.sampleFace << ",";
     std::cout << "\"slimed_to_opensubdiv_uv\":\"s=v,t=w\",";
+    if (mesh.extraordinaryValence > 0) {
+        std::cout << "\"observational_case_class\":\"broader_extraordinary_"
+                     "valence\",";
+        std::cout << "\"extraordinary_valence\":"
+                  << mesh.extraordinaryValence << ",";
+        std::cout << "\"not_production_support\":true,";
+    }
     std::cout << "\"expected_local_control_ids\":";
     print_int_array(mesh.expectedLocalControlIds);
     std::cout << ",";
@@ -1503,6 +1561,11 @@ static int run_case(MeshCase const &mesh) {
 #if SLIMED_AGGREGATE_SOURCE_COVERAGE_REPORT
     print_aggregate_source_coverage(mesh, *refiner, patchTable, cvStencils);
 #endif
+#if SLIMED_BROADER_VALENCE_COVERAGE_REPORT && !SLIMED_AGGREGATE_SOURCE_COVERAGE_REPORT
+    if (mesh.extraordinaryValence > 0) {
+        print_aggregate_source_coverage(mesh, *refiner, patchTable, cvStencils);
+    }
+#endif
 #if SLIMED_IRREGULAR_TRANSPOSE_PROOF_MAP_REPORT
     irregularTransposeProofMapPassed =
         print_irregular_transpose_proof_map(mesh, *refiner, patchTable,
@@ -1549,6 +1612,24 @@ int main() {
         return status;
     }
     status = run_case(make_padded_irregular_fixture_case());
+    if (status != 0) {
+        return status;
+    }
+#endif
+#if SLIMED_BROADER_VALENCE_COVERAGE_REPORT
+    status = run_case(make_extraordinary_valence_fan_case(3));
+    if (status != 0) {
+        return status;
+    }
+    status = run_case(make_extraordinary_valence_fan_case(5));
+    if (status != 0) {
+        return status;
+    }
+    status = run_case(make_extraordinary_valence_fan_case(7));
+    if (status != 0) {
+        return status;
+    }
+    status = run_case(make_extraordinary_valence_fan_case(9));
     if (status != 0) {
         return status;
     }
@@ -1620,6 +1701,15 @@ def parse_args() -> argparse.Namespace:
         help=(
             "Opt into an all-ptex/sample-grid 11-control fixture proof map "
             "for observational source coverage and toy transpose shape."
+        ),
+    )
+    parser.add_argument(
+        "--broader-valence-coverage-report",
+        action="store_true",
+        help=(
+            "Opt into report-only aggregate source coverage for synthetic "
+            "extraordinary-valence fan topologies beyond SLIMED's current "
+            "supported irregular route."
         ),
     )
     parser.add_argument(
@@ -1737,6 +1827,8 @@ def main() -> int:
             command.append("-DSLIMED_FORCE_TRANSPOSE_REPORT=1")
         if args.irregular_transpose_proof_map_report:
             command.append("-DSLIMED_IRREGULAR_TRANSPOSE_PROOF_MAP_REPORT=1")
+        if args.broader_valence_coverage_report:
+            command.append("-DSLIMED_BROADER_VALENCE_COVERAGE_REPORT=1")
         command.extend(shlex.split(os.environ.get("OPENSUBDIV_CXXFLAGS", "")))
         command.extend(
             [

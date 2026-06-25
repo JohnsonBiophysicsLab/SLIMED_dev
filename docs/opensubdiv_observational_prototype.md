@@ -484,6 +484,49 @@ observational evidence only: the orientation-normalized fixture can expose all
 face-level sample plan, formula transpose, scatter order, and fallback policy
 before 11-control force routing.
 
+Example opt-in broader-valence source-coverage report:
+
+```bash
+OPENSUBDIV_ROOT=/path/to/opensubdiv \
+python3 scripts/probe_opensubdiv_feasibility.py \
+  --json --require-opensubdiv --broader-valence-coverage-report
+```
+
+This report adds synthetic triangular fan topologies with extraordinary center
+valences `3`, `5`, `7`, and `9`. Each case uses a center vertex, an inner fan,
+and an outer annulus, then aggregates value, first-derivative, and
+second-derivative source ids across every ptex face and the same documented
+nine-point sample grid used by the 11-control aggregate report. The expected
+local source ids are the synthetic fan's original control ids, so the report
+answers a narrow visibility question: whether OpenSubdiv can expose original
+source ids for representative broader valence classes in a way that a future
+backend could inspect.
+
+This is not physics validation and not production support. The current SLIMED
+production contract remains unchanged: regular 12-control faces and the
+positive-depth documented 11-control `4+3+4` route through existing
+subdivision matrices are the supported paths, while zero-depth 11-control
+requests and unsupported broader topologies remain guarded. Any future
+broader-valence backend still needs the approved ptex/sample plan,
+source-ordering policy, formula transpose proof, scatter/reduction comparison,
+dependency policy, and scientific review from
+`docs/opensubdiv_backend_interface_policy.md`.
+
+Observed broader-valence coverage with the scratch OpenSubdiv `v3_7_0` install
+at `/tmp/slimed-opensubdiv-install`:
+
+| Case | Ptex faces | Samples | Expected original ids | Single sampled face ids | Aggregate value/first/second ids | Interpretation |
+| --- | ---: | ---: | ---: | ---: | --- | --- |
+| valence-3 fan | 9 | 81 | 7 | 7 of 7 | all 7 | A single sampled face and the aggregate grid both expose every synthetic source id. |
+| valence-5 fan | 15 | 135 | 11 | 9 of 11 | all 11 | Aggregate coverage recovers the full fan/annulus source set; a single sampled face does not. |
+| valence-7 fan | 21 | 189 | 15 | 11 of 15 | all 15 | Broader valence increases the face-local/aggregate distinction. |
+| valence-9 fan | 27 | 243 | 19 | 13 of 19 | all 19 | Aggregate source visibility remains derivative-complete for this synthetic topology. |
+
+The useful observation is the pattern, not the synthetic numbers themselves:
+source visibility for broader valence can depend on the selected ptex/sample
+plan. A production backend would need to justify exactly which ptex faces and
+sample locations represent one SLIMED face before any force scatter claim.
+
 ## Feasibility Questions
 
 1. Can a Loop-scheme OpenSubdiv Far topology be built from SLIMED-style
@@ -564,6 +607,20 @@ before 11-control force routing.
    toy back-projection covers local ids `0..10`. This still does not choose a
    production face-level sample plan, route irregular forces, or prove bending,
    area, and volume formula equivalence.
+
+8. What evidence would be needed before broader extraordinary valences could be
+   considered?
+
+   The new `--broader-valence-coverage-report` mode characterizes source-id
+   visibility for synthetic extraordinary-valence fan topologies only when an
+   OpenSubdiv install is explicitly supplied. It is intended to show what a
+   future backend would need to report for valence classes outside the current
+   `11 = 4+3+4` route: derivative-complete source ids keyed to original SLIMED
+   controls, explicit ptex/sample coverage, and enough metadata to compare a
+   proposed face-level sample plan against SLIMED's scatter contract. Passing
+   this report would still be necessary-but-insufficient evidence; it would not
+   approve production formulas, volume semantics, force back-projection,
+   boundary/ghost behavior, or OpenMP reduction behavior.
 
 ## Next Review Gate
 

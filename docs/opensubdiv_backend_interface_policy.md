@@ -189,6 +189,7 @@ gates are green or explicitly review-waived:
 | Serial/OpenMP equality policy | The production force lane either proves serial/OpenMP outputs unchanged for the accepted fixtures or documents exact tolerated floating-point deltas with reviewer approval. It must preserve thread-local buffer shape and reduction order unless explicitly approved otherwise. |
 | Accepted-step smokes | The committed accepted-step smoke remains passing if the force lane touches code that can affect accepted-step state, output-visible forces, energies, area, volume, normals, or checkpoints. |
 | Irregular fixture coverage | The 11-control fixture source coverage and derivative completeness remain documented, including that aggregate OpenSubdiv coverage is not itself a face-level production scatter contract. |
+| Broader-valence coverage | Representative synthetic extraordinary-valence classes report derivative-complete source-id visibility through an opt-in OpenSubdiv probe. This is evidence for future backend planning only; production broader-valence support still needs a physical fixture/sample plan, force transpose proof, scatter-order comparison, and scientific signoff. |
 | Irregular transpose proof map | `docs/irregular_subdivision_transpose_proof_map.md` and the opt-in `--irregular-transpose-proof-map-report` distinguish aggregate 11-control toy transpose/source coverage from the in-repo subdivision-matrix production route. |
 | Dependency/build isolation | The force lane does not make OpenSubdiv required for default builds. If it needs OpenSubdiv to run, it uses a separate experimental target or a user-provided install path. |
 
@@ -235,8 +236,11 @@ The following work remains outside the force back-projection lane:
   irregular face for an OpenSubdiv backend.
 - Routing production `11`-control faces through OpenSubdiv or any backend other
   than the existing subdivision-matrix route.
+- Broader extraordinary-valence production support beyond the current
+  positive-depth 11-control `4+3+4` route. Opt-in synthetic source-coverage
+  reports can inform this decision, but they are not validation or routing
+  approval.
 - Changing boundary, ghost, periodic, or unsupported-topology policy.
-- Broad extraordinary-valence support beyond characterized fixtures.
 - Replacing the zero-depth unsupported irregular force guard or broadening the
   current subdivision-matrix route.
 - Changing formulas, scatter order, OpenMP scheduling/reductions, volume
