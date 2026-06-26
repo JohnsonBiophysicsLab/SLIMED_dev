@@ -57,6 +57,10 @@ using namespace OpenSubdiv;
 #define SLIMED_FORCE_TRANSPOSE_REPORT 0
 #endif
 
+#ifndef SLIMED_REGULAR_ACTUAL_FORCE_REPORT
+#define SLIMED_REGULAR_ACTUAL_FORCE_REPORT 0
+#endif
+
 #ifndef SLIMED_IRREGULAR_TRANSPOSE_PROOF_MAP_REPORT
 #define SLIMED_IRREGULAR_TRANSPOSE_PROOF_MAP_REPORT 0
 #endif
@@ -1167,6 +1171,472 @@ static bool print_force_transpose_report(MeshCase const &mesh,
 }
 #endif
 
+#if SLIMED_REGULAR_ACTUAL_FORCE_REPORT
+static constexpr double kActualForceTolerance = 1.0e-8;
+
+struct Vec3d {
+    double x = 0.0;
+    double y = 0.0;
+    double z = 0.0;
+};
+
+struct Mat3d {
+    double v[3][3] = {{0.0, 0.0, 0.0},
+                      {0.0, 0.0, 0.0},
+                      {0.0, 0.0, 0.0}};
+};
+
+struct ActualForceParams {
+    double kCurv = 47.5;
+    double spontCurv = 0.18;
+    double uSurf = 130.0;
+    double area0 = 2.75;
+    double area = 0.0;
+    double uVol = 65.0;
+    double vol0 = 0.82;
+    double vol = 0.0;
+};
+
+struct ActualForceResult {
+    double meanCurv = 0.0;
+    double eBend = 0.0;
+    Vec3d normVector;
+    std::vector<double> fBend;
+    std::vector<double> fArea;
+    std::vector<double> fVolume;
+};
+
+static Vec3d make_vec(double x, double y, double z) {
+    Vec3d out;
+    out.x = x;
+    out.y = y;
+    out.z = z;
+    return out;
+}
+
+static double get_axis(Vec3d const &value, int axis) {
+    if (axis == 0) {
+        return value.x;
+    }
+    return axis == 1 ? value.y : value.z;
+}
+
+static void set_axis(Vec3d &value, int axis, double component) {
+    if (axis == 0) {
+        value.x = component;
+    } else if (axis == 1) {
+        value.y = component;
+    } else {
+        value.z = component;
+    }
+}
+
+static Vec3d operator+(Vec3d const &lhs, Vec3d const &rhs) {
+    return make_vec(lhs.x + rhs.x, lhs.y + rhs.y, lhs.z + rhs.z);
+}
+
+static Vec3d operator-(Vec3d const &lhs, Vec3d const &rhs) {
+    return make_vec(lhs.x - rhs.x, lhs.y - rhs.y, lhs.z - rhs.z);
+}
+
+static Vec3d operator*(Vec3d const &value, double scale) {
+    return make_vec(value.x * scale, value.y * scale, value.z * scale);
+}
+
+static Vec3d operator*(double scale, Vec3d const &value) {
+    return value * scale;
+}
+
+static Vec3d &operator+=(Vec3d &lhs, Vec3d const &rhs) {
+    lhs.x += rhs.x;
+    lhs.y += rhs.y;
+    lhs.z += rhs.z;
+    return lhs;
+}
+
+static double dot(Vec3d const &lhs, Vec3d const &rhs) {
+    return lhs.x * rhs.x + lhs.y * rhs.y + lhs.z * rhs.z;
+}
+
+static Vec3d cross(Vec3d const &lhs, Vec3d const &rhs) {
+    return make_vec(lhs.y * rhs.z - lhs.z * rhs.y,
+                    lhs.z * rhs.x - lhs.x * rhs.z,
+                    lhs.x * rhs.y - lhs.y * rhs.x);
+}
+
+static double norm(Vec3d const &value) {
+    return std::sqrt(dot(value, value));
+}
+
+static Vec3d normalized(Vec3d const &value) {
+    double const length = norm(value);
+    if (length == 0.0) {
+        return Vec3d();
+    }
+    return value * (1.0 / length);
+}
+
+static Mat3d kron(Vec3d const &lhs, Vec3d const &rhs) {
+    Mat3d out;
+    for (int row = 0; row < 3; ++row) {
+        for (int col = 0; col < 3; ++col) {
+            out.v[row][col] = get_axis(lhs, row) * get_axis(rhs, col);
+        }
+    }
+    return out;
+}
+
+static Mat3d operator+(Mat3d const &lhs, Mat3d const &rhs) {
+    Mat3d out;
+    for (int row = 0; row < 3; ++row) {
+        for (int col = 0; col < 3; ++col) {
+            out.v[row][col] = lhs.v[row][col] + rhs.v[row][col];
+        }
+    }
+    return out;
+}
+
+static Mat3d &operator+=(Mat3d &lhs, Mat3d const &rhs) {
+    for (int row = 0; row < 3; ++row) {
+        for (int col = 0; col < 3; ++col) {
+            lhs.v[row][col] += rhs.v[row][col];
+        }
+    }
+    return lhs;
+}
+
+static Mat3d operator*(Mat3d const &value, double scale) {
+    Mat3d out;
+    for (int row = 0; row < 3; ++row) {
+        for (int col = 0; col < 3; ++col) {
+            out.v[row][col] = value.v[row][col] * scale;
+        }
+    }
+    return out;
+}
+
+static Vec3d row_vec_times_matrix(Vec3d const &row, Mat3d const &matrix) {
+    Vec3d out;
+    for (int col = 0; col < 3; ++col) {
+        double value = 0.0;
+        for (int axis = 0; axis < 3; ++axis) {
+            value += get_axis(row, axis) * matrix.v[axis][col];
+        }
+        set_axis(out, col, value);
+    }
+    return out;
+}
+
+static Vec3d weighted_vec3(MeshCase const &mesh,
+                           Far::LimitStencil const &stencil,
+                           float const *weights) {
+    Vec3d out;
+    Far::Index const *indices = stencil.GetVertexIndices();
+    for (int i = 0; i < stencil.GetSize(); ++i) {
+        Point const &point = mesh.points[indices[i]];
+        out.x += static_cast<double>(weights[i]) * point.x;
+        out.y += static_cast<double>(weights[i]) * point.y;
+        out.z += static_cast<double>(weights[i]) * point.z;
+    }
+    return out;
+}
+
+static bool finite_vec(Vec3d const &value) {
+    return std::isfinite(value.x) && std::isfinite(value.y) &&
+           std::isfinite(value.z);
+}
+
+static void add_force(std::vector<double> &target,
+                      int vertex,
+                      Vec3d const &force,
+                      double scale) {
+    target[3 * vertex] += scale * force.x;
+    target[3 * vertex + 1] += scale * force.y;
+    target[3 * vertex + 2] += scale * force.z;
+}
+
+static double max_abs_component(std::vector<double> const &values) {
+    double out = 0.0;
+    for (double value : values) {
+        out = std::max(out, std::abs(value));
+    }
+    return out;
+}
+
+static double l1_component_sum(std::vector<double> const &values) {
+    double out = 0.0;
+    for (double value : values) {
+        out += std::abs(value);
+    }
+    return out;
+}
+
+static bool all_finite(std::vector<double> const &values) {
+    for (double value : values) {
+        if (!std::isfinite(value)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static void accumulate_area_volume(MeshCase const &mesh,
+                                   Far::LimitStencil const &stencil,
+                                   double quadratureCoeff,
+                                   ActualForceParams &params) {
+    Vec3d const x = weighted_vec3(mesh, stencil, stencil.GetWeights());
+    Vec3d const a1 = weighted_vec3(mesh, stencil, stencil.GetDuWeights());
+    Vec3d const a2 = weighted_vec3(mesh, stencil, stencil.GetDvWeights());
+    Vec3d const xa = cross(a1, a2);
+    double const sqa = norm(xa);
+    params.area += 0.5 * quadratureCoeff * sqa;
+    params.vol += (1.0 / 6.0) * quadratureCoeff * dot(x, xa);
+}
+
+static bool accumulate_actual_force_sample(MeshCase const &mesh,
+                                           Far::LimitStencil const &stencil,
+                                           double quadratureCoeff,
+                                           ActualForceParams const &params,
+                                           ActualForceResult &result,
+                                           std::set<int> &forceSourceIds) {
+    Vec3d const x = weighted_vec3(mesh, stencil, stencil.GetWeights());
+    Vec3d const a_1 = weighted_vec3(mesh, stencil, stencil.GetDuWeights());
+    Vec3d const a_2 = weighted_vec3(mesh, stencil, stencil.GetDvWeights());
+    Vec3d const a_11 = weighted_vec3(mesh, stencil, stencil.GetDuuWeights());
+    Vec3d const a_22 = weighted_vec3(mesh, stencil, stencil.GetDvvWeights());
+    Vec3d const a_12 = weighted_vec3(mesh, stencil, stencil.GetDuvWeights());
+    Vec3d const a_21 = a_12;
+
+    Vec3d const xa = cross(a_1, a_2);
+    double const sqa = norm(xa);
+    if (sqa == 0.0) {
+        return false;
+    }
+    double const tmp_sqa_sqrinv = 1.0 / sqa / sqa;
+
+    Vec3d const xa_1 = cross(a_11, a_2) + cross(a_1, a_21);
+    Vec3d const xa_2 = cross(a_12, a_2) + cross(a_1, a_22);
+    double const sqa_1 = dot(xa, xa_1) / sqa;
+    double const sqa_2 = dot(xa, xa_2) / sqa;
+    Vec3d const a_3 = xa * (1.0 / sqa);
+    Vec3d const a_31 = (xa_1 * sqa - xa * sqa_1) * tmp_sqa_sqrinv;
+    Vec3d const a_32 = (xa_2 * sqa - xa * sqa_2) * tmp_sqa_sqrinv;
+
+    Vec3d const tmp_a2x3 = cross(a_2, a_3);
+    Vec3d const tmp_a3x1 = cross(a_3, a_1);
+    Vec3d const a1 = tmp_a2x3 * (1.0 / sqa);
+    Vec3d const a2 = tmp_a3x1 * (1.0 / sqa);
+    Vec3d const a11 =
+        ((cross(a_21, a_3) + cross(a_2, a_31)) * sqa -
+         tmp_a2x3 * sqa_1) *
+        tmp_sqa_sqrinv;
+    Vec3d const a12 =
+        ((cross(a_22, a_3) + cross(a_2, a_32)) * sqa -
+         tmp_a2x3 * sqa_2) *
+        tmp_sqa_sqrinv;
+    Vec3d const a21 =
+        ((cross(a_31, a_1) + cross(a_3, a_11)) * sqa -
+         tmp_a3x1 * sqa_1) *
+        tmp_sqa_sqrinv;
+    Vec3d const a22 =
+        ((cross(a_32, a_1) + cross(a_3, a_12)) * sqa -
+         tmp_a3x1 * sqa_2) *
+        tmp_sqa_sqrinv;
+
+    double const H_curv = 0.5 * (dot(a1, a_31) + dot(a2, a_32));
+    double const tmp_const_f =
+        -params.kCurv * (2.0 * H_curv - params.spontCurv);
+    double const tmp_const_l =
+        params.kCurv * 0.5 * std::pow(2.0 * H_curv - params.spontCurv, 2.0);
+    Vec3d const n1_be =
+        (a_31 * dot(a1, a1) + a_32 * dot(a1, a2)) * tmp_const_f +
+        a1 * tmp_const_l;
+    Vec3d const n2_be =
+        (a_31 * dot(a2, a1) + a_32 * dot(a2, a2)) * tmp_const_f +
+        a2 * tmp_const_l;
+    Vec3d const m1_be = a1 * (-tmp_const_f);
+    Vec3d const m2_be = a2 * (-tmp_const_f);
+
+    double const areaScale =
+        (params.uSurf == 0.0 || params.area0 == 0.0)
+            ? 0.0
+            : (params.uSurf / params.area0) * (params.area - params.area0);
+    Vec3d const n1_cons = a1 * areaScale;
+    Vec3d const n2_cons = a2 * areaScale;
+
+    double const tmp_evol =
+        (params.uVol == 0.0 || params.vol0 == 0.0)
+            ? 0.0
+            : (params.uVol / params.vol0) * (params.vol - params.vol0) / 3.0;
+    Vec3d const n1_conv =
+        (a1 * dot(x, a_3) - a_3 * dot(x, a1)) * tmp_evol;
+    Vec3d const n2_conv =
+        (a2 * dot(x, a_3) - a_3 * dot(x, a2)) * tmp_evol;
+
+    double const eBendTmp =
+        0.5 * params.kCurv * sqa *
+        std::pow(2.0 * H_curv - params.spontCurv, 2.0);
+    double const halfCoeff = 0.5 * quadratureCoeff;
+
+    Far::Index const *indices = stencil.GetVertexIndices();
+    float const *sf0Weights = stencil.GetWeights();
+    float const *sf1Weights = stencil.GetDuWeights();
+    float const *sf2Weights = stencil.GetDvWeights();
+    float const *sf3Weights = stencil.GetDuuWeights();
+    float const *sf4Weights = stencil.GetDvvWeights();
+    float const *sf5Weights = stencil.GetDuvWeights();
+    float const *sf6Weights = stencil.GetDuvWeights();
+
+    for (int i = 0; i < stencil.GetSize(); ++i) {
+        int const vertex = indices[i];
+        forceSourceIds.insert(vertex);
+        double const sf0 = sf0Weights[i];
+        double const sf1 = sf1Weights[i];
+        double const sf2 = sf2Weights[i];
+        double const sf3 = sf3Weights[i];
+        double const sf4 = sf4Weights[i];
+        double const sf5 = sf5Weights[i];
+        double const sf6 = sf6Weights[i];
+
+        Mat3d da1;
+        da1 += kron(a1, a_3) * -sf3;
+        da1 += kron(a11, a_3) * -sf1;
+        da1 += kron(a1, a_31) * -sf1;
+        da1 += kron(a2, a_3) * -sf6;
+        da1 += kron(a21, a_3) * -sf2;
+        da1 += kron(a2, a_31) * -sf2;
+
+        Mat3d da2;
+        da2 += kron(a1, a_3) * -sf5;
+        da2 += kron(a12, a_3) * -sf1;
+        da2 += kron(a1, a_32) * -sf1;
+        da2 += kron(a2, a_3) * -sf4;
+        da2 += kron(a22, a_3) * -sf2;
+        da2 += kron(a2, a_32) * -sf2;
+
+        Vec3d tempf_be = row_vec_times_matrix(m1_be, da1) +
+                         row_vec_times_matrix(m2_be, da2) +
+                         n1_be * sf1 + n2_be * sf2;
+        tempf_be = tempf_be * -sqa;
+
+        Vec3d tempf_cons = (n1_cons * sf1 + n2_cons * sf2) * -sqa;
+        Vec3d tempf_conv =
+            (n1_conv * sf1 + n2_conv * sf2 + a_3 * (tmp_evol * sf0)) *
+            -sqa;
+
+        add_force(result.fBend, vertex, tempf_be, halfCoeff);
+        add_force(result.fArea, vertex, tempf_cons, halfCoeff);
+        add_force(result.fVolume, vertex, tempf_conv, halfCoeff);
+    }
+
+    result.meanCurv += halfCoeff * H_curv;
+    result.eBend += halfCoeff * eBendTmp;
+    result.normVector += a_3 * halfCoeff;
+    return finite_vec(x) && finite_vec(a_1) && finite_vec(a_2) &&
+           finite_vec(a_11) && finite_vec(a_22) && finite_vec(a_12);
+}
+
+static bool print_regular_actual_force_report(MeshCase const &mesh,
+                                              Far::TopologyRefiner const &refiner) {
+    std::cout << ",\"regular_actual_force_formula\":{";
+    if (mesh.name != "regular_triangular_lattice") {
+        std::cout << "\"available\":false,\"reason\":\"regular_lattice_only\"}";
+        return true;
+    }
+
+    float s[3] = {1.0f / 6.0f, 1.0f / 6.0f, 4.0f / 6.0f};
+    float t[3] = {1.0f / 6.0f, 4.0f / 6.0f, 1.0f / 6.0f};
+    double coeff[3] = {1.0 / 3.0, 1.0 / 3.0, 1.0 / 3.0};
+
+    Far::LimitStencilTableFactory::LocationArray location;
+    location.ptexIdx = mesh.sampleFace;
+    location.numLocations = 3;
+    location.s = s;
+    location.t = t;
+    Far::LimitStencilTableFactory::LocationArrayVec locations;
+    locations.push_back(location);
+
+    Far::LimitStencilTableFactory::Options stencilOptions;
+    stencilOptions.generate1stDerivatives = true;
+    stencilOptions.generate2ndDerivatives = true;
+    Far::LimitStencilTable const *stencils =
+        Far::LimitStencilTableFactory::Create(refiner, locations, 0, 0,
+                                              stencilOptions);
+    if (!stencils) {
+        std::cout << "\"available\":false,\"reason\":\"limit_stencil_creation_failed\"}";
+        return false;
+    }
+
+    ActualForceParams params;
+    for (int sample = 0; sample < stencils->GetNumStencils(); ++sample) {
+        accumulate_area_volume(mesh, stencils->GetLimitStencil(sample),
+                               coeff[sample], params);
+    }
+
+    ActualForceResult result;
+    result.fBend.assign(mesh.numVertices * 3, 0.0);
+    result.fArea.assign(mesh.numVertices * 3, 0.0);
+    result.fVolume.assign(mesh.numVertices * 3, 0.0);
+    std::set<int> forceSourceIds;
+    bool finite = true;
+    for (int sample = 0; sample < stencils->GetNumStencils(); ++sample) {
+        finite = accumulate_actual_force_sample(
+                     mesh, stencils->GetLimitStencil(sample), coeff[sample],
+                     params, result, forceSourceIds) &&
+                 finite;
+    }
+    result.normVector = normalized(result.normVector);
+
+    bool const forcesFinite = all_finite(result.fBend) &&
+                              all_finite(result.fArea) &&
+                              all_finite(result.fVolume) &&
+                              std::isfinite(result.eBend) &&
+                              std::isfinite(result.meanCurv) &&
+                              finite_vec(result.normVector);
+    double const bendMax = max_abs_component(result.fBend);
+    double const areaMax = max_abs_component(result.fArea);
+    double const volumeMax = max_abs_component(result.fVolume);
+    bool const nonzeroActualForce = bendMax > kActualForceTolerance &&
+                                    areaMax > kActualForceTolerance &&
+                                    volumeMax > kActualForceTolerance;
+    bool const passed = finite && forcesFinite && nonzeroActualForce;
+
+    std::cout << "\"available\":true";
+    std::cout << ",\"kind\":\"opensubdiv_regular_rows_actual_formula_evidence\"";
+    std::cout << ",\"not_production_routing\":true";
+    std::cout << ",\"not_irregular_evidence\":true";
+    std::cout << ",\"sample_set\":\"SLIMED second-order triangular quadrature\"";
+    std::cout << ",\"derivative_mapping\":\"du=d/dv,dv=d/dw,duu=d2/dv2,"
+                 "dvv=d2/dw2,duv=d2/dvdw=d2/dwdv\"";
+    std::cout << ",\"formula_scope\":\"local copy of current bending, area, "
+                 "and volume force sample algebra using OpenSubdiv row weights\"";
+    std::cout << ",\"sample_count\":" << stencils->GetNumStencils();
+    std::cout << ",\"force_source_ids\":";
+    print_int_set(forceSourceIds);
+    std::cout << ",\"force_source_count\":" << forceSourceIds.size();
+    std::cout << ",\"area\":" << params.area;
+    std::cout << ",\"volume\":" << params.vol;
+    std::cout << ",\"e_bend\":" << result.eBend;
+    std::cout << ",\"mean_curvature\":" << result.meanCurv;
+    std::cout << ",\"normal\":[" << result.normVector.x << ","
+              << result.normVector.y << "," << result.normVector.z << "]";
+    std::cout << ",\"max_abs_f_bend\":" << bendMax;
+    std::cout << ",\"max_abs_f_area\":" << areaMax;
+    std::cout << ",\"max_abs_f_volume\":" << volumeMax;
+    std::cout << ",\"l1_f_bend\":" << l1_component_sum(result.fBend);
+    std::cout << ",\"l1_f_area\":" << l1_component_sum(result.fArea);
+    std::cout << ",\"l1_f_volume\":" << l1_component_sum(result.fVolume);
+    std::cout << ",\"finite\":" << (forcesFinite ? "true" : "false");
+    std::cout << ",\"nonzero_actual_force\":"
+              << (nonzeroActualForce ? "true" : "false");
+    std::cout << ",\"passed\":" << (passed ? "true" : "false");
+    std::cout << "}";
+
+    delete stencils;
+    return passed;
+}
+#endif
+
 #if SLIMED_IRREGULAR_TRANSPOSE_PROOF_MAP_REPORT
 static void merge_limit_row_ids(std::set<int> &dest,
                                 Far::LimitStencil const &stencil,
@@ -1408,6 +1878,9 @@ static int run_case(MeshCase const &mesh) {
 #if SLIMED_FORCE_TRANSPOSE_REPORT
     bool forceTransposePassed = true;
 #endif
+#if SLIMED_REGULAR_ACTUAL_FORCE_REPORT
+    bool regularActualForcePassed = true;
+#endif
 #if SLIMED_IRREGULAR_TRANSPOSE_PROOF_MAP_REPORT
     bool irregularTransposeProofMapPassed = true;
 #endif
@@ -1561,6 +2034,10 @@ static int run_case(MeshCase const &mesh) {
 #if SLIMED_AGGREGATE_SOURCE_COVERAGE_REPORT
     print_aggregate_source_coverage(mesh, *refiner, patchTable, cvStencils);
 #endif
+#if SLIMED_REGULAR_ACTUAL_FORCE_REPORT
+    regularActualForcePassed =
+        print_regular_actual_force_report(mesh, *refiner);
+#endif
 #if SLIMED_BROADER_VALENCE_COVERAGE_REPORT && !SLIMED_AGGREGATE_SOURCE_COVERAGE_REPORT
     if (mesh.extraordinaryValence > 0) {
         print_aggregate_source_coverage(mesh, *refiner, patchTable, cvStencils);
@@ -1587,6 +2064,11 @@ static int run_case(MeshCase const &mesh) {
 #if SLIMED_FORCE_TRANSPOSE_REPORT
     if (!forceTransposePassed) {
         return 7;
+    }
+#endif
+#if SLIMED_REGULAR_ACTUAL_FORCE_REPORT
+    if (!regularActualForcePassed) {
+        return 9;
     }
 #endif
 #if SLIMED_IRREGULAR_TRANSPOSE_PROOF_MAP_REPORT
@@ -1693,6 +2175,15 @@ def parse_args() -> argparse.Namespace:
         help=(
             "Opt into a toy linear-functional transpose check for OpenSubdiv "
             "value and derivative rows without using production force formulas."
+        ),
+    )
+    parser.add_argument(
+        "--regular-actual-force-report",
+        action="store_true",
+        help=(
+            "Opt into an OpenSubdiv regular-row smoke that runs a local copy "
+            "of the current bending/area/volume force sample algebra without "
+            "changing production routing."
         ),
     )
     parser.add_argument(
@@ -1825,6 +2316,8 @@ def main() -> int:
             command.append("-DSLIMED_REGULAR_EQUIVALENCE_REPORT=1")
         if args.force_transpose_report:
             command.append("-DSLIMED_FORCE_TRANSPOSE_REPORT=1")
+        if args.regular_actual_force_report:
+            command.append("-DSLIMED_REGULAR_ACTUAL_FORCE_REPORT=1")
         if args.irregular_transpose_proof_map_report:
             command.append("-DSLIMED_IRREGULAR_TRANSPOSE_PROOF_MAP_REPORT=1")
         if args.broader_valence_coverage_report:
