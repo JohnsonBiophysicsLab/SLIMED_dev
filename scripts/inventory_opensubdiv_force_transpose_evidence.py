@@ -4,8 +4,9 @@
 This helper is intentionally source-text based. It does not parse C++, run
 OpenSubdiv, or execute production force code. It records where the repo
 distinguishes toy-linear transpose evidence from actual bending/area/volume
-force-transpose evidence that is still missing before production OpenSubdiv
-routing can be claimed correct.
+force-transpose evidence through the current regular evaluator seam from the
+OpenSubdiv-backed evidence still required before production OpenSubdiv routing
+can be claimed correct.
 """
 
 from __future__ import annotations
@@ -59,9 +60,9 @@ EVIDENCE_MATRIX: tuple[dict[str, str], ...] = (
     },
     {
         "claim": "production regular formula/scatter shape",
-        "current_status": "in-tree characterization",
-        "anchor": "force formula/scatter docs and focused tests",
-        "remaining_gap": "not OpenSubdiv-backed actual formula transpose",
+        "current_status": "in-tree actual formula characterization",
+        "anchor": "RegularActualForceBackProjectionMatchesDirectFormulaRows",
+        "remaining_gap": "not OpenSubdiv-backed and does not enable production OpenSubdiv routing",
     },
     {
         "claim": "positive-depth 11-control force transpose",
@@ -121,11 +122,11 @@ ANCHORS: tuple[Anchor, ...] = (
     ),
     Anchor(
         "evidence map",
-        "actual formula blocker",
+        "OpenSubdiv actual formula blocker",
         EVIDENCE_DOC_PATH,
-        "Regular actual-force transpose through the production bending, area, and",
-        "remaining blocker",
-        "The map names the missing actual bending/area/volume formula proof.",
+        "OpenSubdiv-backed regular actual-force transpose through the production",
+        "remaining OpenSubdiv blocker",
+        "The map names the missing OpenSubdiv-backed bending/area/volume formula proof.",
     ),
     Anchor(
         "evidence map",
@@ -177,17 +178,17 @@ ANCHORS: tuple[Anchor, ...] = (
     ),
     Anchor(
         "force/scatter contract",
-        "actual production formulas caveat",
+        "OpenSubdiv actual production formulas caveat",
         FORCE_DOC_PATH,
-        "formulas, not just a toy gradient",
-        "remaining blocker",
-        "The force/scatter contract names the missing actual formula transpose evidence.",
+        "OpenSubdiv-backed force transpose/back-projection equivalence",
+        "remaining OpenSubdiv blocker",
+        "The force/scatter contract keeps OpenSubdiv-backed formula transpose evidence separate.",
     ),
     Anchor(
         "force/scatter contract",
         "regular formula test",
         FORCE_DOC_PATH,
-        "RegularForceBackProjectionMatchesDirectShapeWeights",
+        "RegularActualForceBackProjectionMatchesDirectFormulaRows",
         "production characterization",
         "Focused tests characterize current formula/scatter behavior through the in-tree seam.",
     ),
@@ -227,7 +228,7 @@ ANCHORS: tuple[Anchor, ...] = (
         "production test",
         "regular formula back-projection test",
         SURFACE_TEST_PATH,
-        "RegularForceBackProjectionMatchesDirectShapeWeights",
+        "RegularActualForceBackProjectionMatchesDirectFormulaRows",
         "production characterization",
         "Regular formula/scatter behavior is covered for the current evaluator seam.",
     ),
