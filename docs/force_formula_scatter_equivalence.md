@@ -46,10 +46,13 @@ the face normal use the same quadrature order.
 ## Regular Back-Projection Slice
 
 The approved production slice adds a backend-neutral row/source-id abstraction
-without changing regular formula semantics. For 12-control production faces,
-`accumulate_membrane_face_energy_and_forces(...)` calls
-`element_energy_force_regular(...)` with regular back-projection enabled. The
-helper builds a `LimitSurfaceWeightedSample` from the current cached
+without changing regular formula semantics. The public evaluator interface now
+exposes `evaluate_weighted(...)` for backends that produce weighted samples
+from SLIMED sample coordinates. The current 12-control production path still
+uses the cached-shape-function helper so quadrature and formula behavior stay
+unchanged: `accumulate_membrane_face_energy_and_forces(...)` calls
+`element_energy_force_regular(...)` with regular back-projection enabled, and
+the helper builds a `LimitSurfaceWeightedSample` from the current cached
 `Param::shapeFunctions[i]`, current `12 x 3` control matrix, and current
 `Face::oneRingVertices` ids.
 

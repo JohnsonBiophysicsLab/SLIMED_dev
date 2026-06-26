@@ -8,6 +8,8 @@
 
 namespace
 {
+constexpr int kLimitSurfaceDerivativeRowCount = 7;
+
 void validate_matrix_dimensions(const Matrix &matrix,
                                 const int expectedRows,
                                 const int expectedCols,
@@ -36,6 +38,15 @@ double LimitSurfaceWeightedSample::row_weight(const LimitSurfaceDerivativeRow ro
                                               const int sourceId) const
 {
     const int rowIndex = static_cast<int>(row);
+    if (rowIndex < 0 || rowIndex >= kLimitSurfaceDerivativeRowCount)
+    {
+        throw std::invalid_argument("row is outside the limit-surface derivative row range");
+    }
+    validate_matrix_dimensions(rowWeights,
+                               kLimitSurfaceDerivativeRowCount,
+                               static_cast<int>(sourceIds.size()),
+                               "rowWeights");
+
     double weight = 0.0;
     for (int sourceIndex = 0; sourceIndex < static_cast<int>(sourceIds.size()); ++sourceIndex)
     {
@@ -68,6 +79,16 @@ LimitSurfaceEvaluation SlimedLoopLimitSurfaceEvaluator::evaluate(
     const Matrix &controlPoints) const
 {
     return evaluate_shape_function(shape_function(vwu), controlPoints);
+}
+
+LimitSurfaceWeightedSample SlimedLoopLimitSurfaceEvaluator::evaluate_weighted(
+    const Matrix &vwu,
+    const Matrix &controlPoints,
+    const std::vector<int> &sourceIds) const
+{
+    return evaluate_weighted_shape_function(shape_function(vwu),
+                                            controlPoints,
+                                            sourceIds);
 }
 
 LimitSurfaceEvaluation SlimedLoopLimitSurfaceEvaluator::evaluate_shape_function(

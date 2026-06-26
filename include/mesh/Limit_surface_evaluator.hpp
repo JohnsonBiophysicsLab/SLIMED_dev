@@ -78,6 +78,11 @@ public:
 
     virtual LimitSurfaceEvaluation evaluate(const Matrix &vwu,
                                             const Matrix &controlPoints) const = 0;
+
+    virtual LimitSurfaceWeightedSample evaluate_weighted(
+        const Matrix &vwu,
+        const Matrix &controlPoints,
+        const std::vector<int> &sourceIds) const = 0;
 };
 
 /**
@@ -99,6 +104,11 @@ public:
 
     LimitSurfaceEvaluation evaluate(const Matrix &vwu,
                                     const Matrix &controlPoints) const override;
+
+    LimitSurfaceWeightedSample evaluate_weighted(
+        const Matrix &vwu,
+        const Matrix &controlPoints,
+        const std::vector<int> &sourceIds) const override;
 
     LimitSurfaceEvaluation evaluate_shape_function(const Matrix &shapeFunction,
                                                    const Matrix &controlPoints) const;
