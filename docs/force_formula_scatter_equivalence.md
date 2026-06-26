@@ -105,9 +105,11 @@ that every vertex force component equals the local force row addressed by
 `face.oneRingVertices[j]`. Because production regular faces now opt into
 row/source-id back-projection, this test also compares direct shape-row force
 outputs against the back-projected production scatter. The focused
-`RegularForceBackProjectionMatchesDirectShapeWeights` test compares the full
-local bending, area, volume, energy, mean-curvature, and normal outputs for
-deterministic fixtures under natural and permuted source-id order.
+`RegularActualForceBackProjectionMatchesDirectFormulaRows` test compares the
+full local bending, area, volume, energy, mean-curvature, and normal outputs
+for deterministic fixtures under natural and permuted source-id order. That
+comparison runs the actual quadrature-accumulated formulas, not a toy
+gradient.
 
 For the documented 11-control route,
 `SurfaceSubdivisionCharacterization.SyntheticIrregularPatchEnergyForceBackProjectsChildRegularForces`
@@ -176,10 +178,11 @@ linear algebra shape:
 g dot (W p) == (W^T g) dot p
 ```
 
-This lane characterizes the remaining production-side gate: which evaluated
-rows feed bending, area, and volume force terms; how local 12-control force
-rows map back to `Face::oneRingVertices`; and how serial/OpenMP accumulation
-currently writes mesh force buffers.
+This lane characterizes the production-side gate for the current in-tree
+regular evaluator seam: which evaluated rows feed bending, area, and volume
+force terms; how local 12-control force rows map back to
+`Face::oneRingVertices`; and how serial/OpenMP accumulation currently writes
+mesh force buffers.
 
 The focused evidence map in
 `docs/opensubdiv_force_transpose_evidence.md` keeps this production-side
@@ -194,7 +197,7 @@ What remains before backend replacement or broader irregular work:
 - the sample/source-id/back-projection mapping contract in
   `docs/opensubdiv_mapping_contract.md`, including the exact ptex/sample plan
   for one SLIMED face and original-SLIMED-id row weights;
-- production force transpose/back-projection equivalence for the actual
+- OpenSubdiv-backed force transpose/back-projection equivalence for the actual
   bending, area, and volume formulas, not just a toy gradient;
 - explicit preservation or review-approved replacement of scatter order,
   thread-local accumulation shape, and reduction order;

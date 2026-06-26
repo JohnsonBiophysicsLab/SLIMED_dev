@@ -1,8 +1,8 @@
 # OpenSubdiv Force Transpose Evidence Map
 
 Date: 2026-06-26.
-Baseline: `origin/main` at `653bb409e3abb7595a164e43fda71bcbfb2ed66a`
-after PR #69.
+Baseline: `origin/main` at `cd9d9e3e365dfdbc225881f469b7837f9c49322b`
+after PR #70.
 
 This is a docs/scripts-only evidence lane. It does not change production C++
 behavior, default build policy, OpenSubdiv dependency policy, force formulas,
@@ -29,11 +29,11 @@ neither of those proves OpenSubdiv-backed actual force transpose correctness.
 | --- | --- | --- | --- |
 | Regular OpenSubdiv row/integrand equivalence | `scripts/probe_opensubdiv_feasibility.py --regular-equivalence-report` | Observed regular OpenSubdiv value, derivative, tangent, normal, area-integrand, and legacy-volume-integrand values can match frozen SLIMED regular values under the documented `s=v,t=w` mapping. | It does not pass sample gradients through bending, area, or volume force formulas. |
 | Regular OpenSubdiv toy transpose | `scripts/probe_opensubdiv_feasibility.py --force-transpose-report` emits `kind: toy_linear_functional_only`. | A deterministic toy gradient satisfies `g dot (W p) == (W^T g) dot p` for OpenSubdiv regular row weights and a SLIMED-compatible seven-row shape. | It does not compute `fBend`, `fArea`, `fVol`, per-control formula terms, quadrature accumulation, or production scatter. |
-| Production regular formula/scatter characterization | `docs/force_formula_scatter_equivalence.md`, `scripts/inventory_force_formula_scatter_contract.py`, and the focused regular tests. | Current bending, area, and volume formulas consume seven SLIMED rows, produce local force matrices, and scatter them through `Face::oneRingVertices` into the thread-local force buffer. | It uses the in-tree SLIMED evaluator/source-id seam; it is not evidence that OpenSubdiv row weights have been routed through those actual formulas. |
+| Production regular formula/scatter characterization | `SurfaceLimitSurfaceEvaluatorContract.RegularActualForceBackProjectionMatchesDirectFormulaRows`, `RegularForceRowsScatterInOneRingOrder`, `docs/force_formula_scatter_equivalence.md`, and `scripts/inventory_force_formula_scatter_contract.py`. | Current bending, area, and volume formulas consume seven SLIMED rows, quadrature-accumulate local force matrices, match direct local shape rows against source-id row-weight lookup for natural and permuted 12-control orders, and scatter through `Face::oneRingVertices` into the thread-local force buffer. | It uses the in-tree SLIMED evaluator/source-id seam; it is not evidence that OpenSubdiv row weights have been routed through those actual formulas or that production OpenSubdiv routing is enabled. |
 | Positive-depth 11-control production route | `SurfaceSubdivisionCharacterization.SyntheticIrregularPatchEnergyForceBackProjectsChildRegularForces` and `scripts/inventory_irregular_routing_evidence.py`. | The dependency-free `11 = 4+3+4` route transposes child regular bending, area, and volume force rows through existing subdivision matrices back to the 11 original rows. | It is not OpenSubdiv-backed and does not approve broader irregular topologies, zero-depth 11-control requests, or dependency-present behavior. |
 | Irregular OpenSubdiv observational proof map | `scripts/probe_opensubdiv_feasibility.py --irregular-transpose-proof-map-report` emits `kind: observational_all_ptex_grid_toy_transpose`. | Aggregate all-ptex/sample-grid source visibility and toy transpose shape can be inspected for the 11-control fixture variants. | It does not select a ptex/sample plan for one SLIMED face and does not run actual force formulas or production scatter. |
 
-## Missing Actual Force Transpose Evidence
+## Remaining OpenSubdiv Force Transpose Evidence
 
 Before production OpenSubdiv backend routing can claim actual SLIMED force
 transpose correctness, a later lane must provide all of the following evidence
@@ -45,10 +45,11 @@ or record explicit reviewer-approved waivers:
    not transient OpenSubdiv control ids.
 3. A reviewed derivative convention from OpenSubdiv rows to SLIMED's seven rows,
    including the current duplicated mixed-row convention.
-4. Regular actual-force transpose through the production bending, area, and
-   volume formulas, producing the same local `fBend`, `fArea`, `fVol`, energy,
-   normal, area, and volume results as the current regular path within stated
-   tolerances.
+4. OpenSubdiv-backed regular actual-force transpose through the production
+   bending, area, and volume formulas. The in-tree regular evaluator/source-id
+   seam is characterized for natural and permuted 12-control orders, but an
+   OpenSubdiv backend must still prove that its row weights feed the same
+   formula path without changing production routing.
 5. Scatter evidence that transposed OpenSubdiv-derived local force rows land on
    `Face::oneRingVertices[j]` in the reviewed order, or a documented and tested
    replacement order.

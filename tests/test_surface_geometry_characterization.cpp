@@ -446,6 +446,41 @@ void expect_force_component_matches_row(const Matrix &component,
     }
 }
 
+void expect_regular_weighted_samples_preserve_source_id_rows(
+    const std::vector<Matrix> &shapeFunctions,
+    const Matrix &controlPoints,
+    const std::vector<int> &sourceIds)
+{
+    const SlimedLoopLimitSurfaceEvaluator evaluator;
+    ASSERT_EQ(controlPoints.nrow(), evaluator.regular_patch_control_point_count());
+    ASSERT_EQ(sourceIds.size(), static_cast<std::size_t>(controlPoints.nrow()));
+
+    for (int sample = 0; sample < static_cast<int>(shapeFunctions.size()); ++sample)
+    {
+        SCOPED_TRACE(::testing::Message() << "sample " << sample);
+        const Matrix &shapeFunction = shapeFunctions[sample];
+        const LimitSurfaceWeightedSample weightedSample =
+            evaluator.evaluate_weighted_shape_function(shapeFunction,
+                                                       controlPoints,
+                                                       sourceIds);
+
+        expect_evaluation_matches_rows(weightedSample.evaluation,
+                                       shapeFunction * controlPoints);
+        for (int localControl = 0; localControl < controlPoints.nrow(); ++localControl)
+        {
+            SCOPED_TRACE(::testing::Message() << "local control " << localControl);
+            const int sourceId = sourceIds[localControl];
+            for (int row = 0; row < SlimedLoopLimitSurfaceEvaluator::kShapeFunctionRowCount; ++row)
+            {
+                EXPECT_DOUBLE_EQ(
+                    weightedSample.row_weight(static_cast<LimitSurfaceDerivativeRow>(row),
+                                              sourceId),
+                    shapeFunction.get(row, localControl));
+            }
+        }
+    }
+}
+
 void expect_matrix_near(const Matrix &actual,
                         const Matrix &expected,
                         const double tolerance,
@@ -1036,7 +1071,8 @@ TEST(SurfaceLimitSurfaceEvaluatorContract, WeightedSampleAggregatesDuplicateSour
     }
 }
 
-TEST(SurfaceLimitSurfaceEvaluatorContract, RegularForceBackProjectionMatchesDirectShapeWeights)
+TEST(SurfaceLimitSurfaceEvaluatorContract,
+     RegularActualForceBackProjectionMatchesDirectFormulaRows)
 {
     Param param;
     param.VERBOSE_MODE = false;
@@ -1056,7 +1092,8 @@ TEST(SurfaceLimitSurfaceEvaluatorContract, RegularForceBackProjectionMatchesDire
     {
         for (const std::vector<int> &oneRingOrder : {naturalOrder, permutedSourceOrder})
         {
-            SCOPED_TRACE(::testing::Message() << "fixture " << fixture);
+            SCOPED_TRACE(::testing::Message() << "fixture " << fixture
+                                              << " first source id " << oneRingOrder.front());
             Mesh mesh(param);
             populate_regular_force_scatter_mesh(mesh,
                                                 controlPointFixtures[fixture],
@@ -1065,6 +1102,10 @@ TEST(SurfaceLimitSurfaceEvaluatorContract, RegularForceBackProjectionMatchesDire
             mesh.sum_membrane_area_and_volume(mesh.param.area, mesh.param.vol);
 
             Face &face = mesh.faces.front();
+            EXPECT_EQ(face.oneRingVertices, oneRingOrder);
+            expect_regular_weighted_samples_preserve_source_id_rows(param.shapeFunctions,
+                                                                    controlPointFixtures[fixture],
+                                                                    face.oneRingVertices);
             double directMeanCurv = 0.0;
             double directEBend = 0.0;
             Matrix directNormVector = mat_calloc(3, 1);
@@ -1107,6 +1148,20 @@ TEST(SurfaceLimitSurfaceEvaluatorContract, RegularForceBackProjectionMatchesDire
             expect_matrix_near(backProjectedFBend, directFBend, 1.0e-10, "curvature force");
             expect_matrix_near(backProjectedFArea, directFArea, 1.0e-10, "area force");
             expect_matrix_near(backProjectedFVolume, directFVolume, 1.0e-10, "volume force");
+
+            bool observedActualForceContribution = false;
+            for (int row = 0; row < 12; ++row)
+            {
+                for (int axis = 0; axis < 3; ++axis)
+                {
+                    observedActualForceContribution =
+                        observedActualForceContribution ||
+                        std::abs(backProjectedFBend.get(row, axis)) > 1.0e-12 ||
+                        std::abs(backProjectedFArea.get(row, axis)) > 1.0e-12 ||
+                        std::abs(backProjectedFVolume.get(row, axis)) > 1.0e-12;
+                }
+            }
+            EXPECT_TRUE(observedActualForceContribution);
         }
     }
 }
