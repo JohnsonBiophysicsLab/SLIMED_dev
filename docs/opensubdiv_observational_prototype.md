@@ -32,6 +32,18 @@ Because dependency installation, source cloning, vendoring, and production
 build integration all require a separate dependency-policy review, the probe
 remains inert and opt-in by default.
 
+The policy-approved smoke wrapper for this lane is:
+
+```bash
+scripts/run_opensubdiv_probe.sh --json
+```
+
+When `OPENSUBDIV_ROOT` is unset, it returns `status: skipped` with exit code
+`0`. This is expected for default builds/tests and should not fail PR-ready
+verification. To run against a user-provided install, set
+`OPENSUBDIV_ROOT=/path/to/opensubdiv-install`; optional local compiler/linker
+overrides are `OPENSUBDIV_CXXFLAGS`, `OPENSUBDIV_LDFLAGS`, and `CXX`.
+
 ## Present-Dependency Result
 
 A scratch OpenSubdiv build outside the repo was able to compile and run the
@@ -52,8 +64,7 @@ committed probe:
 - probe command:
   `OPENSUBDIV_ROOT=/tmp/slimed-opensubdiv-install
   OPENSUBDIV_CXXFLAGS='-arch arm64'
-  python3 scripts/probe_opensubdiv_feasibility.py --json
-  --require-opensubdiv`
+  scripts/run_opensubdiv_probe.sh --json --require-opensubdiv`
 
 The explicit `-arch arm64` flag was needed in this Codex environment because
 the temporary OpenSubdiv library was built as arm64 while the first probe link
@@ -417,24 +428,26 @@ of `s=v, t=w`.
 Example absent-dependency command:
 
 ```bash
-python3 scripts/probe_opensubdiv_feasibility.py --json
+scripts/run_opensubdiv_probe.sh --json
 ```
 
-The documented spelling is `--json`; legacy checklists that invoke
-`--mode check` receive the same JSON status for compatibility.
+This wrapper requires `OPENSUBDIV_ROOT` for present-dependency probes. Without
+that variable it returns `status: skipped` with exit code `0`. The documented
+JSON spelling is `--json`; legacy checklists that invoke `--mode check`
+receive the same JSON status for compatibility.
 
 Example opt-in command:
 
 ```bash
 OPENSUBDIV_ROOT=/path/to/opensubdiv \
-python3 scripts/probe_opensubdiv_feasibility.py --json --require-opensubdiv
+scripts/run_opensubdiv_probe.sh --json --require-opensubdiv
 ```
 
 Example opt-in force back-projection report:
 
 ```bash
 OPENSUBDIV_ROOT=/path/to/opensubdiv \
-python3 scripts/probe_opensubdiv_feasibility.py \
+scripts/run_opensubdiv_probe.sh \
   --json --require-opensubdiv --backprojection-report
 ```
 
@@ -442,7 +455,7 @@ Example opt-in aggregate source-coverage report:
 
 ```bash
 OPENSUBDIV_ROOT=/path/to/opensubdiv \
-python3 scripts/probe_opensubdiv_feasibility.py \
+scripts/run_opensubdiv_probe.sh \
   --json --require-opensubdiv --aggregate-source-coverage-report
 ```
 
@@ -455,7 +468,7 @@ Example opt-in regular-equivalence report:
 
 ```bash
 OPENSUBDIV_ROOT=/path/to/opensubdiv \
-python3 scripts/probe_opensubdiv_feasibility.py \
+scripts/run_opensubdiv_probe.sh \
   --json --require-opensubdiv --regular-equivalence-report
 ```
 
@@ -463,7 +476,7 @@ Example opt-in force transpose contract report:
 
 ```bash
 OPENSUBDIV_ROOT=/path/to/opensubdiv \
-python3 scripts/probe_opensubdiv_feasibility.py \
+scripts/run_opensubdiv_probe.sh \
   --json --require-opensubdiv --force-transpose-report
 ```
 
@@ -471,7 +484,7 @@ Example opt-in 11-control transpose proof-map report:
 
 ```bash
 OPENSUBDIV_ROOT=/path/to/opensubdiv \
-python3 scripts/probe_opensubdiv_feasibility.py \
+scripts/run_opensubdiv_probe.sh \
   --json --require-opensubdiv --irregular-transpose-proof-map-report
 ```
 
@@ -488,7 +501,7 @@ Example opt-in broader-valence source-coverage report:
 
 ```bash
 OPENSUBDIV_ROOT=/path/to/opensubdiv \
-python3 scripts/probe_opensubdiv_feasibility.py \
+scripts/run_opensubdiv_probe.sh \
   --json --require-opensubdiv --broader-valence-coverage-report
 ```
 

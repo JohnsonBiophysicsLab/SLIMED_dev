@@ -10,7 +10,9 @@ narrow dependency-free 11-control subdivision/back-projection route for the
 documented `11 = 4+3+4` case when `Param::subDivideTimes > 0`. The OpenSubdiv
 policy remains unchanged: default builds stay OpenSubdiv-free, and any
 OpenSubdiv-backed replacement still needs a separate backend/sample-plan
-review.
+review. The only build-policy hook added here is a non-default script wrapper
+for the existing observational probe; it requires the caller to set
+`OPENSUBDIV_ROOT` and is not used by `make` targets or PR-ready verification.
 
 ## Recommendation
 
@@ -23,9 +25,9 @@ integration or production routing in this lane.
    ids, not around OpenSubdiv patch-table or stencil types.
 3. Continue using `scripts/probe_opensubdiv_feasibility.py` as the runtime
    observational probe for user-provided installs.
-4. Add a separate experimental target only after this policy is approved. That
-   target may use `OPENSUBDIV_ROOT`, but it must be absent from default
-   `make serial`, `make omp`, `make dyna`, `make dyna_omp`, and `make test`.
+4. Use `scripts/run_opensubdiv_probe.sh` as the current explicit opt-in smoke
+   for user-provided OpenSubdiv installs. Add a Makefile target or production
+   build integration only in a later reviewed lane.
 5. Keep OpenSubdiv-backed routing gated behind production force
    back-projection and sample-plan review. The current dependency-free
    11-control route uses existing subdivision matrices and does not approve
@@ -138,7 +140,7 @@ OpenSubdiv should not become a default dependency now. The safe staging is:
 
 | Stage | Policy | Allowed work | Forbidden work |
 | --- | --- | --- | --- |
-| 0: docs/scripts probe | Current lane. No production build integration. | Docs, source inventories, opt-in probe runs, absent-dependency checks. | Build-file changes, C++ routing, vendoring, default dependency requirements. |
+| 0: docs/scripts probe | Current lane. No production build integration. | Docs, source inventories, opt-in probe runs, absent-dependency checks, and a non-default script wrapper requiring `OPENSUBDIV_ROOT`. | Build-file changes, C++ routing, vendoring, default dependency requirements. |
 | 1: separate experimental target | First implementation lane after approval. | A non-default `opensubdiv_*` target or test binary using `OPENSUBDIV_ROOT`; no production object/link changes. | Default `make`/test dependency changes, production evaluator routing, package-manager assumptions. |
 | 2: optional compile-time backend | After target and force-contract gates pass. | `USE_OPENSUBDIV=1`-style opt-in build path, hidden behind backend-neutral interfaces. | Making OpenSubdiv required for default builds or CI. |
 | 3: reviewed production selection | Only after force back-projection is proven. | Explicit production routing for approved face classes with fallback diagnostics. | Silent irregular fallback, unreviewed boundary/ghost/periodic changes. |
@@ -174,6 +176,51 @@ The safe dependency policy today is user-provided install prefix first:
 A source submodule is a later maintenance decision, not the first safe step.
 It would need license review, update ownership, CI build-time policy, and a
 rule that generated third-party artifacts are never committed.
+
+## Opt-In Probe Smoke
+
+The standardized OpenSubdiv smoke is a non-default script command:
+
+```bash
+OPENSUBDIV_ROOT=/path/to/opensubdiv-install \
+OPENSUBDIV_CXXFLAGS='-arch arm64' \
+scripts/run_opensubdiv_probe.sh \
+  --json --require-opensubdiv \
+  --regular-equivalence-report \
+  --aggregate-source-coverage-report \
+  --force-transpose-report \
+  --irregular-transpose-proof-map-report \
+  --broader-valence-coverage-report
+```
+
+`OPENSUBDIV_CXXFLAGS` is optional and should only be used for local compiler or
+architecture requirements. `OPENSUBDIV_LDFLAGS` and `CXX` may also be supplied
+for local linker/compiler selection. The wrapper passes those variables through
+to `scripts/probe_opensubdiv_feasibility.py`.
+
+Expected absent-dependency behavior:
+
+```bash
+scripts/run_opensubdiv_probe.sh --json
+```
+
+returns `status: skipped` with exit code `0` when `OPENSUBDIV_ROOT` is unset.
+This is the expected behavior in default developer and CI environments.
+
+Expected present-dependency behavior is `status: passed` from the probe when
+`OPENSUBDIV_ROOT` points at an install containing `include/opensubdiv/...` and
+`lib/libosdCPU.*` or `lib64/libosdCPU.*`. `--require-opensubdiv` is appropriate
+only for an explicitly OpenSubdiv-present smoke; it must not be used in default
+build/test gates.
+
+The direct Python probe remains available for manual diagnostics and legacy
+notes, but the wrapper is the policy-approved command for this lane because it
+does not auto-discover ambient system installs. Neither command vendors,
+downloads, configures, or installs OpenSubdiv.
+
+OpenSubdiv is licensed under the Tomorrow Open Source Technology License 1.0.
+Do not describe it as MIT. Before distributing linked binaries, vendored
+source, or submodules, perform a separate license and trademark-notice review.
 
 ## Gates Before Production Force Back-Projection
 
