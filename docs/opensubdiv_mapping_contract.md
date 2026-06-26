@@ -148,4 +148,3 @@ python3 scripts/inventory_opensubdiv_mapping_contract.py --fail-on-missing
 The script is intentionally source-text based. Missing anchors mean the docs
 have drifted enough that this contract needs human review before it is used as
 a gate for production OpenSubdiv routing.
-
