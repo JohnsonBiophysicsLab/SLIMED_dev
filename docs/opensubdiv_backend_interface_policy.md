@@ -21,8 +21,10 @@ integration or production routing in this lane.
 
 1. Keep default SLIMED builds dependency-free and keep
    `SlimedLoopLimitSurfaceEvaluator` as the only production backend.
-2. Define the future backend seam around SLIMED row semantics and SLIMED vertex
-   ids, not around OpenSubdiv patch-table or stencil types.
+2. Keep the backend seam around SLIMED row semantics and SLIMED vertex ids,
+   not around OpenSubdiv patch-table or stencil types. The public seam now
+   includes evaluated rows plus row weights keyed by caller-provided SLIMED
+   source ids.
 3. Continue using `scripts/probe_opensubdiv_feasibility.py` as the runtime
    observational probe for user-provided installs.
 4. Use `scripts/run_opensubdiv_probe.sh` as the current explicit opt-in smoke
@@ -75,12 +77,14 @@ representative physical fixture exists and has reviewed expectations.
 
 The current production interface in `include/mesh/Limit_surface_evaluator.hpp`
 is intentionally narrow: it evaluates one regular `12 x 3` control patch and
-returns seven geometry rows. That remains the production contract until a
-reviewed implementation PR changes it.
+returns seven geometry rows. This lane adds the backend-neutral weighted
+sample seam beside that geometry path: `LimitSurfaceEvaluator::evaluate_weighted(...)`
+returns the same seven evaluated SLIMED rows plus row weights keyed by original
+SLIMED source ids supplied by the caller. It does not add OpenSubdiv types,
+OpenSubdiv build integration, or OpenSubdiv production routing.
 
-The minimal future seam should extend the existing concepts with a weighted
-sample contract. It should be backend-neutral and should not expose OpenSubdiv
-types in public SLIMED call sites:
+Future backends should implement that same weighted sample contract without
+exposing OpenSubdiv types in public SLIMED call sites:
 
 ```text
 LimitSurfaceBackend

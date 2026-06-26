@@ -976,21 +976,24 @@ TEST(SurfaceLimitSurfaceEvaluatorContract, RegularEnergyForceGeometryRowsMatchLe
 
 TEST(SurfaceLimitSurfaceEvaluatorContract, WeightedRegularSampleRowsAreKeyedBySourceId)
 {
-    Param param;
-    param.VERBOSE_MODE = false;
-    Mesh mesh(param);
     const SlimedLoopLimitSurfaceEvaluator evaluator;
+    const LimitSurfaceEvaluator &backend = evaluator;
     const Matrix controlPoints = make_force_scatter_control_points();
     const std::vector<int> sourceIds = {9, 2, 11, 0, 7, 4, 10, 1, 8, 3, 6, 5};
+    const std::vector<std::vector<double>> barycentricSamples = {
+        {1.0 / 3.0, 1.0 / 3.0, 1.0 / 3.0},
+        {0.20, 0.30, 0.50},
+        {0.05, 0.85, 0.10},
+    };
 
-    ASSERT_FALSE(param.shapeFunctions.empty());
-
-    for (int sample = 0; sample < static_cast<int>(param.shapeFunctions.size()); ++sample)
+    for (const auto &sample : barycentricSamples)
     {
-        SCOPED_TRACE(::testing::Message() << "sample " << sample);
-        const Matrix &shapeFunction = param.shapeFunctions[sample];
+        SCOPED_TRACE(::testing::Message()
+                     << "v=" << sample[0] << ", w=" << sample[1] << ", u=" << sample[2]);
+        Matrix vwu({sample});
+        const Matrix shapeFunction = evaluator.shape_function(vwu);
         const LimitSurfaceWeightedSample weightedSample =
-            evaluator.evaluate_weighted_shape_function(shapeFunction, controlPoints, sourceIds);
+            backend.evaluate_weighted(vwu, controlPoints, sourceIds);
 
         expect_evaluation_matches_rows(weightedSample.evaluation, shapeFunction * controlPoints);
         for (int localControl = 0; localControl < static_cast<int>(sourceIds.size()); ++localControl)
@@ -1004,6 +1007,32 @@ TEST(SurfaceLimitSurfaceEvaluatorContract, WeightedRegularSampleRowsAreKeyedBySo
                     shapeFunction.get(row, localControl));
             }
         }
+    }
+}
+
+TEST(SurfaceLimitSurfaceEvaluatorContract, WeightedSampleAggregatesDuplicateSourceIds)
+{
+    const SlimedLoopLimitSurfaceEvaluator evaluator;
+    const LimitSurfaceEvaluator &backend = evaluator;
+    const Matrix controlPoints = make_force_scatter_control_points();
+    const Matrix vwu({{0.25, 0.25, 0.50}});
+    const Matrix shapeFunction = evaluator.shape_function(vwu);
+    std::vector<int> duplicateSourceIds = {4, 4, 9, 9, 9, 1, 3, 5, 7, 11, 13, 15};
+
+    const LimitSurfaceWeightedSample weightedSample =
+        backend.evaluate_weighted(vwu, controlPoints, duplicateSourceIds);
+
+    for (int row = 0; row < SlimedLoopLimitSurfaceEvaluator::kShapeFunctionRowCount; ++row)
+    {
+        EXPECT_DOUBLE_EQ(
+            weightedSample.row_weight(static_cast<LimitSurfaceDerivativeRow>(row), 4),
+            shapeFunction.get(row, 0) + shapeFunction.get(row, 1));
+        EXPECT_DOUBLE_EQ(
+            weightedSample.row_weight(static_cast<LimitSurfaceDerivativeRow>(row), 9),
+            shapeFunction.get(row, 2) + shapeFunction.get(row, 3) + shapeFunction.get(row, 4));
+        EXPECT_DOUBLE_EQ(
+            weightedSample.row_weight(static_cast<LimitSurfaceDerivativeRow>(row), 42),
+            0.0);
     }
 }
 
