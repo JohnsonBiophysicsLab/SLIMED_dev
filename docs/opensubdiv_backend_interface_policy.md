@@ -68,6 +68,14 @@ with:
 python3 scripts/inventory_opensubdiv_mapping_contract.py --fail-on-missing
 ```
 
+The focused evidence boundary for toy-linear transpose versus actual
+bending/area/volume force transpose lives in
+`docs/opensubdiv_force_transpose_evidence.md`. Regenerate its inventory with:
+
+```bash
+python3 scripts/inventory_opensubdiv_force_transpose_evidence.py --fail-on-missing
+```
+
 | Gate | Required evidence before OpenSubdiv can replace or broaden production routing |
 | --- | --- |
 | Physical fixture availability | A representative non-ghost physical irregular fixture, or a documented scientific decision that a synthetic fixture is sufficient for the specific claim. Fixture discovery alone is not validation. |

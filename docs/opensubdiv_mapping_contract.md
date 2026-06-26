@@ -120,6 +120,11 @@ The required evidence before routing is:
 - dependency-absent and unsupported-topology diagnostics that do not silently
   route through an unapproved fallback.
 
+The focused evidence map in
+`docs/opensubdiv_force_transpose_evidence.md` records which of these anchors
+are current toy-linear, production-side characterization, or still missing
+actual force-transpose evidence.
+
 ## Current Irregular Boundary
 
 The current production route is still the dependency-free positive-depth
