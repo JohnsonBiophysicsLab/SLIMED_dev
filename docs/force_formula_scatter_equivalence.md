@@ -185,6 +185,9 @@ What remains before backend replacement or broader irregular work:
 
 - a reviewed backend interface that can expose the needed row weights and
   source vertex ids without changing production behavior;
+- the sample/source-id/back-projection mapping contract in
+  `docs/opensubdiv_mapping_contract.md`, including the exact ptex/sample plan
+  for one SLIMED face and original-SLIMED-id row weights;
 - production force transpose/back-projection equivalence for the actual
   bending, area, and volume formulas, not just a toy gradient;
 - explicit preservation or review-approved replacement of scatter order,
