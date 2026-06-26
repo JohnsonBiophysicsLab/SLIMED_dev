@@ -29,6 +29,11 @@ The useful future contract has three separate layers:
 | Regular transpose shape | `--force-transpose-report` checks `g dot (W p) == (W^T g) dot p` for OpenSubdiv's regular rows and a SLIMED-compatible seven-row toy shape. | Proven only for a toy scalar functional, not production force formulas. |
 | Irregular source coverage and transpose shape | The production 11-control route transposes regular child-patch force rows through existing subdivision matrices. `--aggregate-source-coverage-report` and `--irregular-transpose-proof-map-report` remain OpenSubdiv-only observational evidence. | Production-supported only for the existing subdivision-matrix 11-control path; OpenSubdiv evidence remains observational. |
 
+The focused sample/source-id/back-projection mapping contract is recorded in
+`docs/opensubdiv_mapping_contract.md`. It is the checklist for converting the
+observational ptex/source-coverage reports into a reviewed production sample
+plan, not an approval to route OpenSubdiv in production.
+
 ## Source-Id Transpose Shape
 
 For one OpenSubdiv sample, let `W` be the matrix of value and derivative row

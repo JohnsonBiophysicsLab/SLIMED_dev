@@ -59,6 +59,15 @@ record an explicit reviewer-approved waiver. Observational probe output is
 useful evidence for these gates, but it is not physics validation unless a
 representative physical fixture exists and has reviewed expectations.
 
+The focused mapping contract for sample plans, source ids, seven derivative
+rows, and force back-projection lives in
+`docs/opensubdiv_mapping_contract.md`. Regenerate its docs-anchor inventory
+with:
+
+```bash
+python3 scripts/inventory_opensubdiv_mapping_contract.py --fail-on-missing
+```
+
 | Gate | Required evidence before OpenSubdiv can replace or broaden production routing |
 | --- | --- |
 | Physical fixture availability | A representative non-ghost physical irregular fixture, or a documented scientific decision that a synthetic fixture is sufficient for the specific claim. Fixture discovery alone is not validation. |
