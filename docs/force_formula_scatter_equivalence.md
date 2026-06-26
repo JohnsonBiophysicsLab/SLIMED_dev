@@ -181,6 +181,12 @@ rows feed bending, area, and volume force terms; how local 12-control force
 rows map back to `Face::oneRingVertices`; and how serial/OpenMP accumulation
 currently writes mesh force buffers.
 
+The focused evidence map in
+`docs/opensubdiv_force_transpose_evidence.md` keeps this production-side
+formula/scatter characterization separate from OpenSubdiv toy-linear transpose
+evidence and from the still-missing actual OpenSubdiv bending/area/volume
+force-transpose proof.
+
 What remains before backend replacement or broader irregular work:
 
 - a reviewed backend interface that can expose the needed row weights and
