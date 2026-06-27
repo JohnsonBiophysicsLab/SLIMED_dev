@@ -964,6 +964,70 @@ TEST(SurfaceLimitSurfaceEvaluatorContract, RegularEnergyForceGeometryExtractionM
     }
 }
 
+TEST(SurfaceLimitSurfaceEvaluatorContract, RegularProductionSamplePlanMatchesFrozenDefaultQuadrature)
+{
+    Param param;
+    param.VERBOSE_MODE = false;
+    Mesh mesh(param);
+
+    ASSERT_EQ(param.gaussQuadratureN, 2);
+    ASSERT_EQ(param.VWU.nrow(), 3);
+    ASSERT_EQ(param.VWU.ncol(), 3);
+    ASSERT_EQ(param.gaussQuadratureCoeff.nrow(), 3);
+    ASSERT_EQ(param.gaussQuadratureCoeff.ncol(), 1);
+    ASSERT_EQ(param.shapeFunctions.size(), 3u);
+
+    const std::array<std::array<double, 3>, 3> expectedSamples = {{
+        {{1.0 / 6.0, 1.0 / 6.0, 4.0 / 6.0}},
+        {{1.0 / 6.0, 4.0 / 6.0, 1.0 / 6.0}},
+        {{4.0 / 6.0, 1.0 / 6.0, 1.0 / 6.0}},
+    }};
+
+    const SlimedLoopLimitSurfaceEvaluator evaluator;
+    const Matrix controlPoints = make_regular_lattice_probe_control_points();
+    const std::vector<int> sourceIds = {9, 2, 11, 0, 7, 4, 10, 1, 8, 3, 6, 5};
+
+    for (int sample = 0; sample < 3; ++sample)
+    {
+        SCOPED_TRACE(::testing::Message() << "sample " << sample);
+        for (int coord = 0; coord < 3; ++coord)
+        {
+            EXPECT_DOUBLE_EQ(param.VWU.get(sample, coord), expectedSamples[sample][coord]);
+        }
+        EXPECT_DOUBLE_EQ(param.gaussQuadratureCoeff(sample, 0), 1.0 / 3.0);
+        EXPECT_DOUBLE_EQ(0.5 * param.gaussQuadratureCoeff(sample, 0), 1.0 / 6.0);
+
+        const Matrix &shapeFunction = param.shapeFunctions[sample];
+        ASSERT_EQ(shapeFunction.nrow(), SlimedLoopLimitSurfaceEvaluator::kShapeFunctionRowCount);
+        ASSERT_EQ(shapeFunction.ncol(),
+                  SlimedLoopLimitSurfaceEvaluator::kRegularPatchControlPointCount);
+
+        Matrix vwu({{expectedSamples[sample][0],
+                     expectedSamples[sample][1],
+                     expectedSamples[sample][2]}});
+        const LimitSurfaceEvaluation evaluation =
+            evaluator.evaluate_shape_function(shapeFunction, controlPoints);
+        const LimitSurfaceWeightedSample weightedSample =
+            evaluator.evaluate_weighted(vwu, controlPoints, sourceIds);
+
+        expect_evaluation_matches_rows(evaluation, shapeFunction * controlPoints);
+        expect_evaluation_matches_rows(weightedSample.evaluation,
+                                       shapeFunction * controlPoints);
+        for (int row = 0; row < SlimedLoopLimitSurfaceEvaluator::kShapeFunctionRowCount; ++row)
+        {
+            EXPECT_DOUBLE_EQ(shapeFunction.get(row, 5),
+                             weightedSample.row_weight(
+                                 static_cast<LimitSurfaceDerivativeRow>(row),
+                                 sourceIds[5]));
+        }
+
+        const std::array<double, 3> tangentCross =
+            cross_array(column_to_array(evaluation.firstDerivativeV),
+                        column_to_array(evaluation.firstDerivativeW));
+        EXPECT_GT(norm_array(tangentCross), 0.0);
+    }
+}
+
 TEST(SurfaceLimitSurfaceEvaluatorContract, RegularEnergyForceGeometryRowsMatchLegacyMultiplicationForFixtures)
 {
     Param param;
