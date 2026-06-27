@@ -76,6 +76,15 @@ bending/area/volume force transpose lives in
 python3 scripts/inventory_opensubdiv_force_transpose_evidence.py --fail-on-missing
 ```
 
+The production-routing readiness map for converting that evidence into a
+reviewed regular route first, then future irregular or broader-valence routes,
+lives in `docs/opensubdiv_routing_readiness_map.md`. Regenerate its inventory
+with:
+
+```bash
+python3 scripts/inventory_opensubdiv_routing_readiness.py --check
+```
+
 | Gate | Required evidence before OpenSubdiv can replace or broaden production routing |
 | --- | --- |
 | Physical fixture availability | A representative non-ghost physical irregular fixture, or a documented scientific decision that a synthetic fixture is sufficient for the specific claim. Fixture discovery alone is not validation. |
