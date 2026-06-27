@@ -125,6 +125,11 @@ The focused evidence map in
 are current toy-linear, production-side characterization, or still missing
 actual force-transpose evidence.
 
+The exact regular 12-control quadrature rows, `s=v,t=w` convention,
+orientation, seven-row table, `Face::oneRingVertices` source-id order,
+duplicate aggregation rule, and pre-routing comparison boundary are frozen in
+`docs/opensubdiv_regular_sample_plan.md`.
+
 ## Current Irregular Boundary
 
 The current production route is still the dependency-free positive-depth

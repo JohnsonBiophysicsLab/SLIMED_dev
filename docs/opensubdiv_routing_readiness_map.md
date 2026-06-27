@@ -49,7 +49,7 @@ every criterion below must be green or explicitly review-waived.
 
 | Criterion | Current evidence | Remaining before production routing |
 | --- | --- | --- |
-| OpenSubdiv-derived sample identity | `--regular-equivalence-report` can compare regular value rows, derivative rows, tangent cross product, unit normal, area integrand, and legacy volume integrand against frozen SLIMED rows. | Freeze the exact production sample coordinates, orientation, and quadrature points that will be used by the routed backend path. |
+| OpenSubdiv-derived sample identity | `--regular-equivalence-report` can compare regular value rows, derivative rows, tangent cross product, unit normal, area integrand, and legacy volume integrand against frozen SLIMED rows. `docs/opensubdiv_regular_sample_plan.md` freezes the current regular `gaussQuadratureN=2` sample rows, half-weight factors, orientation, seven-row convention, source-id order, duplicate aggregation, and comparison boundary. | A routed backend path must prove OpenSubdiv-derived rows match that frozen sample plan, or carry an explicitly reviewed replacement plan. |
 | Seven-row derivative mapping | `docs/opensubdiv_mapping_contract.md` records the `s=v,t=w` mapping and seven SLIMED rows: position, `d/dv`, `d/dw`, `d2/dv2`, `d2/dw2`, `d2/dvdw`, and `d2/dwdv`. | Production code must carry explicit derivative convention metadata and preserve or review-replace the duplicated mixed-row convention. |
 | Source-id ordering | The backend-neutral seam exposes row weights keyed by original SLIMED source ids; current regular tests cover natural and permuted 12-control orders. | A routed backend must prove that OpenSubdiv-derived row weights address the same source ids as `Face::oneRingVertices[j]`, or document and test a reviewed replacement order. |
 | Duplicate aggregation | The regular source-id seam can aggregate repeated source-id contributions instead of assuming backend stencil order. | OpenSubdiv-derived duplicate source-id contributions must be summed deterministically before formula/scatter comparison. |
@@ -82,6 +82,10 @@ A future regular production-routing PR should provide, at minimum:
 
 The existing PR #72 regular actual-force probe can be cited as a prerequisite
 signal, but it cannot be cited as production routing proof.
+
+The exact regular 12-control sample plan is documented in
+`docs/opensubdiv_regular_sample_plan.md`. That document is a readiness anchor,
+not approval to route production faces through OpenSubdiv.
 
 ## Irregular And Broader-Valence Future Boundary
 
@@ -116,6 +120,12 @@ Run the readiness-anchor inventory with:
 
 ```console
 python3 scripts/inventory_opensubdiv_routing_readiness.py --check
+```
+
+Run the regular sample-plan inventory with:
+
+```console
+python3 scripts/inventory_opensubdiv_regular_sample_plan.py --check
 ```
 
 The inventory is source-text based. A missing anchor means the readiness map or

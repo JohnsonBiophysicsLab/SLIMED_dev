@@ -43,6 +43,8 @@ or record explicit reviewer-approved waivers:
 
 1. A backend sample plan for one SLIMED face, including ptex faces, child
    patches, sample coordinates, quadrature weights, orientation, and row order.
+   For the regular 12-control route, the current frozen sample plan is recorded
+   in `docs/opensubdiv_regular_sample_plan.md`.
 2. Row weights keyed by original SLIMED vertex ids for every selected sample,
    not transient OpenSubdiv control ids.
 3. A reviewed derivative convention from OpenSubdiv rows to SLIMED's seven rows,
