@@ -87,6 +87,13 @@ The exact regular 12-control sample plan is documented in
 `docs/opensubdiv_regular_sample_plan.md`. That document is a readiness anchor,
 not approval to route production faces through OpenSubdiv.
 
+The regular backend-adapter checklist in
+`docs/opensubdiv_regular_backend_adapter_readiness.md` ties the PR #68
+weighted-sample seam, PR #69 mapping contract, PR #72 regular actual-force
+evidence, this readiness map, and the PR #74 sample plan into a concrete
+pre-routing adapter boundary. It is also evidence/readiness only, not
+production routing approval.
+
 ## Irregular And Broader-Valence Future Boundary
 
 Irregular OpenSubdiv routing starts after regular production readiness, not
@@ -126,6 +133,12 @@ Run the regular sample-plan inventory with:
 
 ```console
 python3 scripts/inventory_opensubdiv_regular_sample_plan.py --check
+```
+
+Run the regular backend-adapter readiness inventory with:
+
+```console
+python3 scripts/inventory_opensubdiv_regular_adapter_readiness.py --check
 ```
 
 The inventory is source-text based. A missing anchor means the readiness map or

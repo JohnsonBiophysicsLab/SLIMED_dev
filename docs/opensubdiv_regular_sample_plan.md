@@ -136,6 +136,8 @@ OpenSubdiv.
   toy-transpose, and actual formula evidence.
 - `docs/force_formula_scatter_equivalence.md` records the current
   force/scatter formula contract.
+- `docs/opensubdiv_regular_backend_adapter_readiness.md` ties this frozen
+  sample plan to the regular backend-adapter pre-routing checklist.
 
 ## Inventory Check
 
