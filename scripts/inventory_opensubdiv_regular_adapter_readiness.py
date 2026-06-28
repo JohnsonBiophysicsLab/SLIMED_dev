@@ -1,0 +1,545 @@
+#!/usr/bin/env python3
+"""Inventory regular OpenSubdiv backend-adapter readiness anchors.
+
+This helper is intentionally source-text based. It does not parse C++, compile
+OpenSubdiv, or execute production force code. It records the inert checklist a
+future regular OpenSubdiv-backed adapter must satisfy before any production
+route can consume OpenSubdiv-derived samples or rows.
+"""
+
+from __future__ import annotations
+
+import argparse
+from dataclasses import dataclass
+import json
+from pathlib import Path
+from typing import Sequence
+
+
+ADAPTER_DOC_PATH = Path("docs/opensubdiv_regular_backend_adapter_readiness.md")
+SAMPLE_PLAN_DOC_PATH = Path("docs/opensubdiv_regular_sample_plan.md")
+READINESS_DOC_PATH = Path("docs/opensubdiv_routing_readiness_map.md")
+MAPPING_DOC_PATH = Path("docs/opensubdiv_mapping_contract.md")
+FORCE_EVIDENCE_DOC_PATH = Path("docs/opensubdiv_force_transpose_evidence.md")
+FORCE_SCATTER_DOC_PATH = Path("docs/force_formula_scatter_equivalence.md")
+POLICY_DOC_PATH = Path("docs/opensubdiv_backend_interface_policy.md")
+EVALUATOR_HEADER_PATH = Path("include/mesh/Limit_surface_evaluator.hpp")
+EVALUATOR_IMPL_PATH = Path("src/mesh/Limit_surface_evaluator.cpp")
+PROBE_PATH = Path("scripts/probe_opensubdiv_feasibility.py")
+WRAPPER_PATH = Path("scripts/run_opensubdiv_probe.sh")
+SURFACE_TEST_PATH = Path("tests/test_surface_geometry_characterization.cpp")
+
+
+@dataclass(frozen=True)
+class Anchor:
+    category: str
+    name: str
+    path: Path
+    needle: str
+    status: str
+    detail: str
+
+
+@dataclass(frozen=True)
+class LocatedAnchor:
+    anchor: Anchor
+    line_number: int
+    line: str
+
+
+EVIDENCE_LINEAGE: tuple[dict[str, str], ...] = (
+    {
+        "lane": "PR #68 weighted-sample seam",
+        "anchor": "LimitSurfaceEvaluator::evaluate_weighted(...)",
+        "adapter_meaning": "review adapter rows at a backend-neutral source-id boundary",
+    },
+    {
+        "lane": "PR #69 mapping contract",
+        "anchor": "docs/opensubdiv_mapping_contract.md",
+        "adapter_meaning": "state coordinate, row-order, source-id, and transpose boundaries",
+    },
+    {
+        "lane": "PR #72 regular actual-force evidence",
+        "anchor": "docs/opensubdiv_force_transpose_evidence.md",
+        "adapter_meaning": "treat probe smoke as prerequisite evidence, not routing",
+    },
+    {
+        "lane": "PR #73 routing readiness map",
+        "anchor": "docs/opensubdiv_routing_readiness_map.md",
+        "adapter_meaning": "keep regular production routing behind reviewer gates",
+    },
+    {
+        "lane": "PR #74 regular sample plan",
+        "anchor": "docs/opensubdiv_regular_sample_plan.md",
+        "adapter_meaning": "match the frozen regular sample plan or review-replace it",
+    },
+)
+
+
+ADAPTER_READINESS_CHECKLIST: tuple[dict[str, str], ...] = (
+    {
+        "gate": "regular sample coordinates and quadrature order",
+        "must_prove": "frozen sample rows, weights, and half-weight formula factors",
+        "current_status": "characterized, not routed",
+    },
+    {
+        "gate": "coordinate and derivative convention",
+        "must_prove": "s=v,t=w, orientation, seven rows, and duplicated mixed rows",
+        "current_status": "characterized, not routed",
+    },
+    {
+        "gate": "original source-id order",
+        "must_prove": "row weights keyed by original SLIMED ids in Face::oneRingVertices order",
+        "current_status": "in-tree seam characterized, not OpenSubdiv production routing",
+    },
+    {
+        "gate": "deterministic duplicate aggregation",
+        "must_prove": "duplicate original source ids are summed before comparison",
+        "current_status": "in-tree seam characterized, not OpenSubdiv production routing",
+    },
+    {
+        "gate": "actual force rows",
+        "must_prove": "OpenSubdiv-derived rows compare through fBend, fArea, and fVolume",
+        "current_status": "probe smoke exists; production adapter proof remains missing",
+    },
+    {
+        "gate": "output-visible state",
+        "must_prove": "energies, normals, mean curvature, area, and legacy volume at production timing",
+        "current_status": "required before routing",
+    },
+    {
+        "gate": "scatter and reduction",
+        "must_prove": "Face::oneRingVertices scatter and current serial/OpenMP accumulation shape",
+        "current_status": "required before routing",
+    },
+    {
+        "gate": "dependency-present behavior",
+        "must_prove": "OpenSubdiv-present evidence stays OPENSUBDIV_ROOT-gated and opt-in",
+        "current_status": "required boundary remains unchanged",
+    },
+    {
+        "gate": "dependency-absent behavior",
+        "must_prove": "missing OpenSubdiv skips probes and never changes production physics",
+        "current_status": "required boundary remains unchanged",
+    },
+    {
+        "gate": "non-production review gate",
+        "must_prove": "separate reviewed PR before production routing uses OpenSubdiv-derived rows",
+        "current_status": "explicit blocker for adapter routing",
+    },
+)
+
+
+ANCHORS: tuple[Anchor, ...] = (
+    Anchor(
+        "adapter checklist",
+        "dedicated checklist",
+        ADAPTER_DOC_PATH,
+        "OpenSubdiv Regular Backend Adapter Readiness Checklist",
+        "adapter readiness",
+        "The dedicated regular adapter-readiness checklist is present.",
+    ),
+    Anchor(
+        "adapter checklist",
+        "non-production boundary",
+        ADAPTER_DOC_PATH,
+        "This is a docs/scripts/tests-only adapter-readiness lane.",
+        "policy boundary",
+        "The checklist records that production behavior, backend interfaces, and build policy are unchanged.",
+    ),
+    Anchor(
+        "adapter checklist",
+        "no production route",
+        ADAPTER_DOC_PATH,
+        "No production route uses OpenSubdiv-derived rows",
+        "policy boundary",
+        "The checklist blocks production routing until a separate reviewed PR.",
+    ),
+    Anchor(
+        "adapter checklist",
+        "PR68 lineage",
+        ADAPTER_DOC_PATH,
+        "PR #68 weighted-sample seam",
+        "evidence lineage",
+        "The checklist ties the adapter boundary to the weighted-sample seam.",
+    ),
+    Anchor(
+        "adapter checklist",
+        "PR69 lineage",
+        ADAPTER_DOC_PATH,
+        "PR #69 mapping contract",
+        "evidence lineage",
+        "The checklist ties the adapter boundary to the mapping contract.",
+    ),
+    Anchor(
+        "adapter checklist",
+        "PR72 lineage",
+        ADAPTER_DOC_PATH,
+        "PR #72 regular actual-force evidence",
+        "evidence lineage",
+        "The checklist ties the adapter boundary to regular actual-force smoke evidence.",
+    ),
+    Anchor(
+        "adapter checklist",
+        "PR73 lineage",
+        ADAPTER_DOC_PATH,
+        "PR #73 routing readiness map",
+        "evidence lineage",
+        "The checklist ties the adapter boundary to the routing readiness map.",
+    ),
+    Anchor(
+        "adapter checklist",
+        "PR74 lineage",
+        ADAPTER_DOC_PATH,
+        "PR #74 regular sample plan",
+        "evidence lineage",
+        "The checklist ties the adapter boundary to the frozen regular sample plan.",
+    ),
+    Anchor(
+        "adapter checklist",
+        "weighted sample public result",
+        ADAPTER_DOC_PATH,
+        "public sample result is the existing seven-row",
+        "adapter boundary",
+        "The checklist keeps the adapter public surface in SLIMED weighted-sample terms.",
+    ),
+    Anchor(
+        "adapter checklist",
+        "source id boundary",
+        ADAPTER_DOC_PATH,
+        "row weights are keyed by original SLIMED source ids",
+        "adapter boundary",
+        "The checklist requires original SLIMED source ids at the adapter boundary.",
+    ),
+    Anchor(
+        "adapter checklist",
+        "sample coordinate boundary",
+        ADAPTER_DOC_PATH,
+        "sample coordinate: SLIMED v,w,u row",
+        "adapter boundary",
+        "The adapter boundary starts from the frozen SLIMED sample coordinates.",
+    ),
+    Anchor(
+        "adapter checklist",
+        "seven rows",
+        ADAPTER_DOC_PATH,
+        "d2/dv2, d2/dw2, d2/dvdw, d2/dwdv",
+        "row contract",
+        "The checklist requires all seven derivative rows.",
+    ),
+    Anchor(
+        "adapter checklist",
+        "one-ring source order",
+        ADAPTER_DOC_PATH,
+        "source order: Face::oneRingVertices[j]",
+        "source-id order",
+        "The checklist requires the regular one-ring order at the public boundary.",
+    ),
+    Anchor(
+        "adapter checklist",
+        "duplicate aggregation",
+        ADAPTER_DOC_PATH,
+        "Deterministic duplicate aggregation",
+        "source-id aggregation",
+        "The checklist requires deterministic duplicate source-id aggregation.",
+    ),
+    Anchor(
+        "adapter checklist",
+        "regular actual force rows",
+        ADAPTER_DOC_PATH,
+        "actual `fBend`, `fArea`, and `fVolume`",
+        "actual force evidence",
+        "The checklist requires actual force-row comparison before routing.",
+    ),
+    Anchor(
+        "adapter checklist",
+        "dependency present absent",
+        ADAPTER_DOC_PATH,
+        "Dependency-present behavior",
+        "dependency boundary",
+        "The checklist distinguishes OpenSubdiv-present behavior.",
+    ),
+    Anchor(
+        "adapter checklist",
+        "dependency absent",
+        ADAPTER_DOC_PATH,
+        "Dependency-absent behavior",
+        "dependency boundary",
+        "The checklist distinguishes OpenSubdiv-absent behavior.",
+    ),
+    Anchor(
+        "adapter checklist",
+        "prototype stop boundary",
+        ADAPTER_DOC_PATH,
+        "The next safe implementation step",
+        "prototype boundary",
+        "The checklist states that a future prototype remains inert unless separately reviewed.",
+    ),
+    Anchor(
+        "sample plan",
+        "dedicated sample plan",
+        SAMPLE_PLAN_DOC_PATH,
+        "OpenSubdiv Regular 12-Control Sample Plan",
+        "sample plan",
+        "The frozen regular sample-plan document exists.",
+    ),
+    Anchor(
+        "sample plan",
+        "s equals v t equals w",
+        SAMPLE_PLAN_DOC_PATH,
+        "The regular comparison convention is `s=v,t=w`.",
+        "derivative convention",
+        "The sample plan freezes the regular OpenSubdiv comparison convention.",
+    ),
+    Anchor(
+        "sample plan",
+        "duplicated mixed rows",
+        SAMPLE_PLAN_DOC_PATH,
+        "Rows 5 and 6 currently duplicate the mixed derivative",
+        "row contract",
+        "The sample plan freezes the duplicated mixed-row convention.",
+    ),
+    Anchor(
+        "routing readiness",
+        "dedicated readiness map",
+        READINESS_DOC_PATH,
+        "OpenSubdiv Production-Routing Readiness Map",
+        "readiness map",
+        "The regular adapter checklist links to the broader routing readiness map.",
+    ),
+    Anchor(
+        "routing readiness",
+        "regular not route ready",
+        READINESS_DOC_PATH,
+        "Not route-ready until OpenSubdiv-derived rows are compared through production routing/scatter",
+        "remaining gap",
+        "The routing map still blocks production routing by probe evidence alone.",
+    ),
+    Anchor(
+        "mapping contract",
+        "dedicated mapping contract",
+        MAPPING_DOC_PATH,
+        "OpenSubdiv Sample/Source-Id/Back-Projection Mapping Contract",
+        "mapping contract",
+        "The mapping contract exists as an upstream adapter boundary.",
+    ),
+    Anchor(
+        "mapping contract",
+        "row weight lookup",
+        MAPPING_DOC_PATH,
+        "row_weight(SLIMED derivative row, original SLIMED vertex id)",
+        "source-id contract",
+        "The mapping contract requires original-SLIMED-id row weights.",
+    ),
+    Anchor(
+        "force evidence",
+        "regular actual force smoke",
+        FORCE_EVIDENCE_DOC_PATH,
+        "kind: opensubdiv_regular_rows_actual_formula_evidence",
+        "opt-in evidence",
+        "The force evidence map records regular actual-force probe smoke.",
+    ),
+    Anchor(
+        "force evidence",
+        "non-production caveat",
+        FORCE_EVIDENCE_DOC_PATH,
+        "not production C++ routing",
+        "policy boundary",
+        "The regular actual-force evidence remains non-production.",
+    ),
+    Anchor(
+        "force/scatter contract",
+        "one-ring scatter",
+        FORCE_SCATTER_DOC_PATH,
+        "face.oneRingVertices[j]",
+        "scatter contract",
+        "The force/scatter contract records the reviewed scatter order.",
+    ),
+    Anchor(
+        "backend policy",
+        "default dependency isolation",
+        POLICY_DOC_PATH,
+        "default builds stay OpenSubdiv-free",
+        "dependency boundary",
+        "The backend policy keeps default builds OpenSubdiv-free.",
+    ),
+    Anchor(
+        "interface anchor",
+        "weighted sample struct",
+        EVALUATOR_HEADER_PATH,
+        "struct LimitSurfaceWeightedSample",
+        "weighted seam",
+        "The public weighted-sample seam exists.",
+    ),
+    Anchor(
+        "interface anchor",
+        "source id storage",
+        EVALUATOR_HEADER_PATH,
+        "std::vector<int> sourceIds;",
+        "source-id seam",
+        "The weighted-sample seam stores source ids.",
+    ),
+    Anchor(
+        "interface anchor",
+        "weighted evaluator method",
+        EVALUATOR_HEADER_PATH,
+        "virtual LimitSurfaceWeightedSample evaluate_weighted(",
+        "weighted seam",
+        "The evaluator can return weighted samples through a backend-neutral method.",
+    ),
+    Anchor(
+        "implementation anchor",
+        "duplicate aggregation implementation",
+        EVALUATOR_IMPL_PATH,
+        "weight += rowWeights.get(rowIndex, sourceIndex);",
+        "source-id aggregation",
+        "The current row-weight lookup aggregates duplicate source ids.",
+    ),
+    Anchor(
+        "probe",
+        "regular equivalence option",
+        PROBE_PATH,
+        "--regular-equivalence-report",
+        "opt-in OpenSubdiv evidence",
+        "The probe can emit regular row/integrand equivalence evidence.",
+    ),
+    Anchor(
+        "probe",
+        "regular actual force option",
+        PROBE_PATH,
+        "--regular-actual-force-report",
+        "opt-in OpenSubdiv evidence",
+        "The probe can emit regular actual-force smoke evidence.",
+    ),
+    Anchor(
+        "probe wrapper",
+        "absent dependency skip",
+        WRAPPER_PATH,
+        '"status": "skipped"',
+        "dependency boundary",
+        "The wrapper skips cleanly when OPENSUBDIV_ROOT is absent.",
+    ),
+    Anchor(
+        "production tests",
+        "regular source id coverage",
+        SURFACE_TEST_PATH,
+        "WeightedSampleAggregatesDuplicateSourceIds",
+        "source-id aggregation",
+        "Focused tests characterize duplicate aggregation through the in-tree seam.",
+    ),
+)
+
+
+def repo_root() -> Path:
+    return Path(__file__).resolve().parents[1]
+
+
+def locate_anchor(root: Path, anchor: Anchor) -> LocatedAnchor | None:
+    path = root / anchor.path
+    if not path.is_file():
+        return None
+    for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+        if anchor.needle in line:
+            return LocatedAnchor(anchor=anchor, line_number=line_number, line=line.strip())
+    return None
+
+
+def collect_anchors(root: Path) -> tuple[list[LocatedAnchor], list[Anchor]]:
+    located: list[LocatedAnchor] = []
+    missing: list[Anchor] = []
+    for anchor in ANCHORS:
+        match = locate_anchor(root, anchor)
+        if match is None:
+            missing.append(anchor)
+        else:
+            located.append(match)
+    return located, missing
+
+
+def as_dicts(located: Sequence[LocatedAnchor], missing: Sequence[Anchor]) -> dict[str, object]:
+    return {
+        "status": "passed" if not missing else "failed",
+        "evidence_lineage": list(EVIDENCE_LINEAGE),
+        "adapter_readiness_checklist": list(ADAPTER_READINESS_CHECKLIST),
+        "located": [
+            {
+                "category": item.anchor.category,
+                "name": item.anchor.name,
+                "path": item.anchor.path.as_posix(),
+                "line": item.line_number,
+                "source": item.line,
+                "status": item.anchor.status,
+                "detail": item.anchor.detail,
+            }
+            for item in located
+        ],
+        "missing": [
+            {
+                "category": item.category,
+                "name": item.name,
+                "path": item.path.as_posix(),
+                "needle": item.needle,
+                "status": item.status,
+                "detail": item.detail,
+            }
+            for item in missing
+        ],
+    }
+
+
+def print_text(located: Sequence[LocatedAnchor], missing: Sequence[Anchor]) -> None:
+    print("# OpenSubdiv Regular Backend Adapter Readiness Inventory")
+    print()
+    print("## Evidence lineage")
+    for row in EVIDENCE_LINEAGE:
+        print(f"- {row['lane']}")
+        print(f"  anchor: {row['anchor']}")
+        print(f"  adapter_meaning: {row['adapter_meaning']}")
+    print()
+    print("## Adapter readiness checklist")
+    for row in ADAPTER_READINESS_CHECKLIST:
+        print(f"- {row['gate']}")
+        print(f"  must_prove: {row['must_prove']}")
+        print(f"  current_status: {row['current_status']}")
+    print()
+    print("## Located anchors")
+    for item in located:
+        print(f"- [{item.anchor.category}] {item.anchor.name}")
+        print(f"  source: {item.anchor.path}:{item.line_number} `{item.line}`")
+        print(f"  status: {item.anchor.status}")
+        print(f"  detail: {item.anchor.detail}")
+    if missing:
+        print()
+        print("## Missing anchors")
+        for item in missing:
+            print(f"- [{item.category}] {item.name}: {item.path} missing `{item.needle}`")
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--json", action="store_true", help="Emit machine-readable JSON.")
+    parser.add_argument(
+        "--fail-on-missing",
+        action="store_true",
+        help="Exit nonzero when an expected adapter-readiness anchor is not found.",
+    )
+    parser.add_argument(
+        "--check",
+        action="store_true",
+        help="Alias for --fail-on-missing.",
+    )
+    return parser.parse_args()
+
+
+def main() -> int:
+    args = parse_args()
+    located, missing = collect_anchors(repo_root())
+    if args.json:
+        print(json.dumps(as_dicts(located, missing), indent=2, sort_keys=True))
+    else:
+        print_text(located, missing)
+    return 1 if missing and (args.fail_on_missing or args.check) else 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
