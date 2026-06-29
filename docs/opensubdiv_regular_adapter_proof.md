@@ -31,6 +31,31 @@ OpenSubdiv probe program. It emits `kind:
 test_only_regular_opensubdiv_adapter_proof` and remains inert unless
 `OPENSUBDIV_ROOT` is supplied by the caller.
 
+## Experimental C++ Harness
+
+This lane also adds a standalone experimental C++ proof harness:
+
+```console
+OPENSUBDIV_ROOT=/tmp/slimed-opensubdiv-install \
+OPENSUBDIV_CXXFLAGS='-arch arm64' \
+scripts/run_opensubdiv_regular_cpp_adapter_proof.sh \
+  --json --require-opensubdiv
+```
+
+The harness lives in
+`experiments/opensubdiv_regular_cpp_adapter_proof.cpp`, is compiled only by the
+explicit wrapper, and emits `kind:
+test_only_regular_opensubdiv_cpp_adapter_proof`. It maps OpenSubdiv regular
+limit stencils into a proof-local `LimitSurfaceWeightedSample`-style shape:
+seven rows, original SLIMED source ids, frozen regular sample coordinates,
+`s=v,t=w`, duplicated mixed rows, and deterministic duplicate aggregation.
+
+This C++ harness does not add a Makefile target, default dependency,
+production route, production include, public SLIMED signature, or OpenSubdiv
+type at any production call site. It is evidence that the regular rows can be
+adapted into the existing weighted-sample contract, not approval to route
+production faces through OpenSubdiv.
+
 ## Proof Boundary
 
 For the regular lattice fixture, the report remaps OpenSubdiv stencil rows into
