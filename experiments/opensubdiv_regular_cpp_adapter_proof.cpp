@@ -8,6 +8,8 @@
 #include <opensubdiv/far/topologyDescriptor.h>
 #include <opensubdiv/far/topologyRefinerFactory.h>
 
+#include "mesh/Mesh.hpp"
+
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -117,6 +119,20 @@ struct ActualForceResult
     std::vector<double> fBend;
     std::vector<double> fArea;
     std::vector<double> fVolume;
+};
+
+struct ProductionDryRunResult
+{
+    double meanCurv = 0.0;
+    double eBend = 0.0;
+    Vec3d normVector;
+    std::vector<double> fBend;
+    std::vector<double> fArea;
+    std::vector<double> fVolume;
+    double maxForceRowDifference = 0.0;
+    double maxScalarDifference = 0.0;
+    bool finite = false;
+    bool matchesProofLocalRows = false;
 };
 
 void append_face(MeshCase &mesh, int a, int b, int c)
@@ -359,6 +375,11 @@ double max_abs_component_delta(const std::vector<double> &lhs,
     return out;
 }
 
+double max_abs_scalar_delta(double lhs, double rhs)
+{
+    return std::abs(lhs - rhs);
+}
+
 bool all_finite(const std::vector<double> &values)
 {
     for (double value : values)
@@ -369,6 +390,53 @@ bool all_finite(const std::vector<double> &values)
         }
     }
     return true;
+}
+
+Matrix make_shape_function_matrix(const WeightedSampleProof &proof)
+{
+    Matrix shapeFunction(kProductionDerivativeRowCount,
+                         kProductionRegularControlPointCount,
+                         true);
+    for (int row = 0; row < kProductionDerivativeRowCount; ++row)
+    {
+        for (int col = 0; col < kProductionRegularControlPointCount; ++col)
+        {
+            shapeFunction.set(row, col, proof.rowWeights[row][col]);
+        }
+    }
+    return shapeFunction;
+}
+
+std::vector<Matrix> make_production_coordinate_columns(
+    const MeshCase &mesh,
+    const std::vector<int> &sourceIds)
+{
+    std::vector<Matrix> coordinates(sourceIds.size());
+    for (int row = 0; row < static_cast<int>(sourceIds.size()); ++row)
+    {
+        const Point &point = mesh.points[sourceIds[row]];
+        coordinates[row] = Matrix(3, 1, true);
+        coordinates[row].set(0, 0, point.x);
+        coordinates[row].set(1, 0, point.y);
+        coordinates[row].set(2, 0, point.z);
+    }
+    return coordinates;
+}
+
+void append_matrix_rows(const Matrix &matrix, std::vector<double> &target)
+{
+    for (int row = 0; row < matrix.nrow(); ++row)
+    {
+        for (int axis = 0; axis < matrix.ncol(); ++axis)
+        {
+            target.push_back(matrix.get(row, axis));
+        }
+    }
+}
+
+Vec3d make_vec_from_column(const Matrix &matrix)
+{
+    return make_vec(matrix.get(0, 0), matrix.get(1, 0), matrix.get(2, 0));
 }
 
 std::array<RegularSample, 3> frozen_regular_samples()
@@ -728,6 +796,122 @@ double max_production_scatter_delta(const std::vector<double> &productionBuffer,
     return out;
 }
 
+ProductionDryRunResult run_regular_production_helper_dry_run(
+    const MeshCase &mesh,
+    const std::vector<int> &faceOneRing,
+    const std::vector<WeightedSampleProof> &proofs,
+    const std::array<RegularSample, 3> &samples,
+    const ActualForceParams &forceParams,
+    const ActualForceResult &proofLocalResult)
+{
+    Param param;
+    param.VERBOSE_MODE = false;
+    param.boundaryCondition = BoundaryType::Periodic;
+    param.kCurv = forceParams.kCurv;
+    param.uSurf = forceParams.uSurf;
+    param.uVol = forceParams.uVol;
+    param.area0 = forceParams.area0;
+    param.vol0 = forceParams.vol0;
+
+    Mesh productionMesh(param);
+    productionMesh.param.shapeFunctions.clear();
+    productionMesh.param.shapeFunctions.reserve(proofs.size());
+    productionMesh.param.gaussQuadratureCoeff =
+        Matrix(static_cast<int>(samples.size()), 1, true);
+    for (int sampleIndex = 0; sampleIndex < static_cast<int>(proofs.size());
+         ++sampleIndex)
+    {
+        productionMesh.param.shapeFunctions.push_back(
+            make_shape_function_matrix(proofs[sampleIndex]));
+        productionMesh.param.gaussQuadratureCoeff.set(sampleIndex,
+                                                      0,
+                                                      samples[sampleIndex].weight);
+    }
+    productionMesh.param.area = forceParams.area;
+    productionMesh.param.vol = forceParams.vol;
+
+    Face face;
+    face.index = mesh.sampleFace;
+    face.oneRingVertices = faceOneRing;
+    face.spontCurvature = forceParams.spontCurv;
+
+    Matrix normVector = mat_calloc(3, 1);
+    Matrix fBend = mat_calloc(kProductionRegularControlPointCount,
+                              kProductionSpatialDimension);
+    Matrix fArea = mat_calloc(kProductionRegularControlPointCount,
+                              kProductionSpatialDimension);
+    Matrix fVolume = mat_calloc(kProductionRegularControlPointCount,
+                                kProductionSpatialDimension);
+
+    ProductionDryRunResult result;
+    productionMesh.element_energy_force_regular(
+        make_production_coordinate_columns(mesh, faceOneRing),
+        face,
+        face.spontCurvature,
+        result.meanCurv,
+        normVector,
+        result.eBend,
+        fBend,
+        fArea,
+        fVolume,
+        false);
+
+    append_matrix_rows(fBend, result.fBend);
+    append_matrix_rows(fArea, result.fArea);
+    append_matrix_rows(fVolume, result.fVolume);
+    result.normVector = make_vec_from_column(normVector);
+
+    std::vector<double> proofLocalBendRows;
+    std::vector<double> proofLocalAreaRows;
+    std::vector<double> proofLocalVolumeRows;
+    proofLocalBendRows.reserve(result.fBend.size());
+    proofLocalAreaRows.reserve(result.fArea.size());
+    proofLocalVolumeRows.reserve(result.fVolume.size());
+    for (int row = 0; row < static_cast<int>(faceOneRing.size()); ++row)
+    {
+        const int sourceId = faceOneRing[row];
+        for (int axis = 0; axis < kProductionSpatialDimension; ++axis)
+        {
+            proofLocalBendRows.push_back(
+                proofLocalResult.fBend[3 * sourceId + axis]);
+            proofLocalAreaRows.push_back(
+                proofLocalResult.fArea[3 * sourceId + axis]);
+            proofLocalVolumeRows.push_back(
+                proofLocalResult.fVolume[3 * sourceId + axis]);
+        }
+    }
+
+    result.maxForceRowDifference =
+        std::max(max_abs_component_delta(result.fBend, proofLocalBendRows),
+                 std::max(max_abs_component_delta(result.fArea,
+                                                  proofLocalAreaRows),
+                          max_abs_component_delta(result.fVolume,
+                                                  proofLocalVolumeRows)));
+    const std::array<double, 3> productionNormal = {
+        result.normVector.x,
+        result.normVector.y,
+        result.normVector.z};
+    const std::array<double, 3> proofLocalNormal = {
+        proofLocalResult.normVector.x,
+        proofLocalResult.normVector.y,
+        proofLocalResult.normVector.z};
+    result.maxScalarDifference =
+        std::max(max_abs_scalar_delta(result.meanCurv,
+                                      proofLocalResult.meanCurv),
+                 std::max(max_abs_scalar_delta(result.eBend,
+                                               proofLocalResult.eBend),
+                          max_abs_delta(productionNormal, proofLocalNormal)));
+    result.finite =
+        all_finite(result.fBend) && all_finite(result.fArea) &&
+        all_finite(result.fVolume) && std::isfinite(result.meanCurv) &&
+        std::isfinite(result.eBend) && finite_vec(result.normVector);
+    result.matchesProofLocalRows =
+        result.finite &&
+        result.maxForceRowDifference <= kTolerance &&
+        result.maxScalarDifference <= kTolerance;
+    return result;
+}
+
 int run_proof()
 {
     const MeshCase mesh = make_regular_lattice_case();
@@ -916,6 +1100,14 @@ int run_proof()
     const bool forceSourcesMatchFaceOneRing =
         same_set(forceSourceIds, faceOneRing);
 
+    const ProductionDryRunResult productionDryRun =
+        run_regular_production_helper_dry_run(mesh,
+                                              faceOneRing,
+                                              proofs,
+                                              samples,
+                                              forceParams,
+                                              forceResult);
+
     std::vector<double> proofLocalBendRows(faceOneRing.size() * kProductionSpatialDimension, 0.0);
     std::vector<double> proofLocalAreaRows(faceOneRing.size() * kProductionSpatialDimension, 0.0);
     std::vector<double> proofLocalVolumeRows(faceOneRing.size() * kProductionSpatialDimension, 0.0);
@@ -976,7 +1168,8 @@ int run_proof()
         finiteForceRows && forceComponentsFinite && nonzeroActualForce &&
         forceSourcesMatchFaceOneRing && scatterDifference <= kTolerance;
     const bool passed =
-        adapterRowsPassed && actualForceRowsPassed && productionCallShadowPassed;
+        adapterRowsPassed && actualForceRowsPassed && productionCallShadowPassed &&
+        productionDryRun.matchesProofLocalRows;
 
     std::cout << "]";
     std::cout << ",\"summary\":{";
@@ -1017,6 +1210,32 @@ int run_proof()
               << productionShadowScatterDifference;
     std::cout << ",\"matches_current_regular_production_call_shape\":"
               << (productionCallShadowPassed ? "true" : "false");
+    std::cout << "}";
+    std::cout << ",\"production_helper_dry_run\":{";
+    std::cout << "\"scope\":\"proof-local call to current Mesh::element_energy_force_regular with OpenSubdiv-derived regular rows installed only on a local Param\"";
+    std::cout << ",\"not_production_routing\":true";
+    std::cout << ",\"production_api\":\"Mesh::element_energy_force_regular\"";
+    std::cout << ",\"open_subdiv_rows_used_as_local_shape_functions\":true";
+    std::cout << ",\"default_build_dependency_added\":false";
+    std::cout << ",\"route_installed_in_production\":false";
+    std::cout << ",\"regular_control_point_count\":"
+              << kProductionRegularControlPointCount;
+    std::cout << ",\"sample_count\":" << proofs.size();
+    std::cout << ",\"gauss_coefficients_source\":\"frozen OpenSubdiv regular sample plan weights\"";
+    std::cout << ",\"spontaneous_curvature\":" << forceParams.spontCurv;
+    std::cout << ",\"area\":" << forceParams.area;
+    std::cout << ",\"volume\":" << forceParams.vol;
+    std::cout << ",\"mean_curvature\":" << productionDryRun.meanCurv;
+    std::cout << ",\"e_bend\":" << productionDryRun.eBend;
+    std::cout << ",\"normal\":";
+    print_vec3(productionDryRun.normVector);
+    std::cout << ",\"max_force_row_difference_vs_proof_local_formula\":"
+              << productionDryRun.maxForceRowDifference;
+    std::cout << ",\"max_scalar_difference_vs_proof_local_formula\":"
+              << productionDryRun.maxScalarDifference;
+    std::cout << ",\"finite\":" << (productionDryRun.finite ? "true" : "false");
+    std::cout << ",\"matches_proof_local_formula_rows\":"
+              << (productionDryRun.matchesProofLocalRows ? "true" : "false");
     std::cout << "}";
     std::cout << ",\"actual_force_rows\":{";
     std::cout << "\"available\":true";

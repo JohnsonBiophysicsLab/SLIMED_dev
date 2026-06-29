@@ -40,6 +40,12 @@ class OpenSubdivRegularCppAdapterProofInventoryTest(unittest.TestCase):
         self.assertIn("production coordinate input order", invariants)
         self.assertIn("production force buffer layout", invariants)
         self.assertIn("production shadow pass flag", invariants)
+        self.assertIn("production helper dry run", invariants)
+        self.assertIn("production helper API", invariants)
+        self.assertIn("OpenSubdiv rows installed locally", invariants)
+        self.assertIn("default dependency unchanged", invariants)
+        self.assertIn("no production route installed", invariants)
+        self.assertIn("production helper dry-run pass flag", invariants)
         self.assertIn("not production routing", invariants)
         for needle in invariants.values():
             self.assertIn(needle, source)
@@ -56,12 +62,27 @@ class OpenSubdivRegularCppAdapterProofInventoryTest(unittest.TestCase):
         self.assertIn("row j -> Face::oneRingVertices[j]", source)
         self.assertIn("productionCallShadowPassed", source)
 
+    def test_cpp_proof_covers_regular_production_helper_dry_run(self):
+        source = (inventory.repo_root() / inventory.CPP_PROOF_PATH).read_text(encoding="utf-8")
+
+        self.assertIn('\\"production_helper_dry_run\\":{', source)
+        self.assertIn("run_regular_production_helper_dry_run", source)
+        self.assertIn("Mesh::element_energy_force_regular", source)
+        self.assertIn("productionMesh.param.shapeFunctions.clear()", source)
+        self.assertIn("make_shape_function_matrix", source)
+        self.assertIn("open_subdiv_rows_used_as_local_shape_functions", source)
+        self.assertIn("default_build_dependency_added", source)
+        self.assertIn("route_installed_in_production", source)
+        self.assertIn("max_force_row_difference_vs_proof_local_formula", source)
+        self.assertIn("matches_proof_local_formula_rows", source)
+
     def test_wrapper_is_explicit_opensubdiv_root_only(self):
         source = (inventory.repo_root() / inventory.WRAPPER_PATH).read_text(encoding="utf-8")
 
         self.assertIn("OPENSUBDIV_ROOT is not set", source)
         self.assertIn("--require-opensubdiv", source)
         self.assertIn("experiments/opensubdiv_regular_cpp_adapter_proof.cpp", source)
+        self.assertIn("repo_sources", source)
         self.assertIn("-losdCPU", source)
         self.assertNotIn("make ", source)
 
