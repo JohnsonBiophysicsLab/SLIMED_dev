@@ -76,12 +76,41 @@ cleanup() {
 }
 trap cleanup EXIT
 
+if ! command -v gsl-config >/dev/null 2>&1; then
+    echo "gsl-config is required to compile the experimental production-helper dry-run." >&2
+    exit 3
+fi
+
+repo_sources=()
+while IFS= read -r source; do
+    repo_sources+=("${source}")
+done < <(find src -name '*.cpp' \
+    ! -name 'Run_flat.cpp' \
+    ! -name 'Run_dynamics_flat.cpp' \
+    | sort)
+
 cxx="${CXX:-c++}"
 binary="${tmp_dir}/opensubdiv_regular_cpp_adapter_proof"
+libomp_prefix="${LIBOMP_PREFIX:-}"
+if [[ -z "${libomp_prefix}" ]] && command -v brew >/dev/null 2>&1; then
+    libomp_prefix="$(brew --prefix libomp 2>/dev/null || true)"
+fi
 command=(
     "${cxx}"
     -std=c++17
+    -I include
+    -I include/energy_force
+    -I include/linalg
+    -I include/mesh
+    -I include/model
+    -I include/parameters
 )
+for flag in $(gsl-config --cflags); do
+    command+=("${flag}")
+done
+if [[ -n "${libomp_prefix}" && -f "${libomp_prefix}/include/omp.h" ]]; then
+    command+=("-I${libomp_prefix}/include")
+fi
 if [[ -n "${OPENSUBDIV_CXXFLAGS:-}" ]]; then
     # shellcheck disable=SC2206
     extra_cxxflags=(${OPENSUBDIV_CXXFLAGS})
@@ -89,6 +118,7 @@ if [[ -n "${OPENSUBDIV_CXXFLAGS:-}" ]]; then
 fi
 command+=(
     experiments/opensubdiv_regular_cpp_adapter_proof.cpp
+    "${repo_sources[@]}"
     -I "${include_dir}"
     -L "${lib_dir}"
     "-Wl,-rpath,${lib_dir}"
@@ -100,6 +130,11 @@ if [[ -n "${OPENSUBDIV_LDFLAGS:-}" ]]; then
 fi
 command+=(
     -losdCPU
+)
+for flag in $(gsl-config --libs); do
+    command+=("${flag}")
+done
+command+=(
     -o "${binary}"
 )
 

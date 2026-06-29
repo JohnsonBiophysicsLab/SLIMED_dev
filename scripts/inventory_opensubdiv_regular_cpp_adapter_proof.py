@@ -65,6 +65,12 @@ CPP_PROOF_INVARIANTS: tuple[dict[str, str], ...] = (
     {"invariant": "production coordinate input order", "needle": "coordOneRingVertices[j] copied from Face::oneRingVertices[j]"},
     {"invariant": "production force buffer layout", "needle": "fBend offsets 0..2, fArea offsets 3..5, fVolume offsets 6..8"},
     {"invariant": "production shadow pass flag", "needle": '\\"matches_current_regular_production_call_shape\\":'},
+    {"invariant": "production helper dry run", "needle": '\\"production_helper_dry_run\\":{'},
+    {"invariant": "production helper API", "needle": "Mesh::element_energy_force_regular"},
+    {"invariant": "OpenSubdiv rows installed locally", "needle": '\\"open_subdiv_rows_used_as_local_shape_functions\\":true'},
+    {"invariant": "default dependency unchanged", "needle": '\\"default_build_dependency_added\\":false'},
+    {"invariant": "no production route installed", "needle": '\\"route_installed_in_production\\":false'},
+    {"invariant": "production helper dry-run pass flag", "needle": '\\"matches_proof_local_formula_rows\\":'},
     {"invariant": "not production routing", "needle": '\\"not_production_routing\\":true'},
 )
 
@@ -190,6 +196,34 @@ ANCHORS: tuple[Anchor, ...] = (
         "The emitted report fails if the proof-local production-call shadow does not match.",
     ),
     Anchor(
+        "c++ proof",
+        "production helper dry run",
+        CPP_PROOF_PATH,
+        '\\"production_helper_dry_run\\":{',
+        "The C++ proof emits proof-local parity evidence against Mesh::element_energy_force_regular.",
+    ),
+    Anchor(
+        "c++ proof",
+        "production helper dry-run API",
+        CPP_PROOF_PATH,
+        "Mesh::element_energy_force_regular",
+        "The dry-run comparison names the current regular production helper.",
+    ),
+    Anchor(
+        "c++ proof",
+        "OpenSubdiv rows installed locally",
+        CPP_PROOF_PATH,
+        '\\"open_subdiv_rows_used_as_local_shape_functions\\":true',
+        "OpenSubdiv-derived rows are installed only on a local Param for the proof call.",
+    ),
+    Anchor(
+        "c++ proof",
+        "production helper dry-run pass flag",
+        CPP_PROOF_PATH,
+        '\\"matches_proof_local_formula_rows\\":',
+        "The emitted report fails if the production helper dry run diverges from the proof rows.",
+    ),
+    Anchor(
         "wrapper",
         "explicit root gate",
         WRAPPER_PATH,
@@ -201,7 +235,14 @@ ANCHORS: tuple[Anchor, ...] = (
         "non-default compile",
         WRAPPER_PATH,
         "experiments/opensubdiv_regular_cpp_adapter_proof.cpp",
-        "The wrapper compiles only the standalone experimental C++ proof.",
+        "The wrapper compiles the experimental proof binary only on explicit invocation.",
+    ),
+    Anchor(
+        "wrapper",
+        "production sources linked only in wrapper",
+        WRAPPER_PATH,
+        "repo_sources",
+        "Production sources are linked only into the opt-in temporary proof binary.",
     ),
     Anchor(
         "wrapper",
@@ -230,6 +271,13 @@ ANCHORS: tuple[Anchor, ...] = (
         DOC_PATH,
         "Production-Call Shadow Evidence",
         "The doc records that this lane compares against production call shape without routing production through OpenSubdiv.",
+    ),
+    Anchor(
+        "docs",
+        "production helper dry run documented",
+        DOC_PATH,
+        "Production-Helper Dry-Run Evidence",
+        "The doc records the proof-local production helper dry-run boundary.",
     ),
 )
 

@@ -81,8 +81,8 @@ EVIDENCE_LINEAGE: tuple[dict[str, str], ...] = (
     },
     {
         "lane": "current regular adapter proof",
-        "anchor": "--regular-adapter-proof-report",
-        "adapter_meaning": "emit test-only regular adapter evidence through original SLIMED source ids",
+        "anchor": "--regular-adapter-proof-report and run_opensubdiv_regular_cpp_adapter_proof.sh",
+        "adapter_meaning": "emit test-only regular adapter and production-helper dry-run evidence through original SLIMED source ids",
     },
 )
 
@@ -112,6 +112,11 @@ ADAPTER_READINESS_CHECKLIST: tuple[dict[str, str], ...] = (
         "gate": "actual force rows",
         "must_prove": "OpenSubdiv-derived rows compare through fBend, fArea, and fVolume",
         "current_status": "test-only adapter proof exists; production routing remains missing",
+    },
+    {
+        "gate": "regular production helper dry run",
+        "must_prove": "OpenSubdiv-derived rows compare against Mesh::element_energy_force_regular without installing a production route",
+        "current_status": "proof-local dry-run evidence exists; routed production timing remains missing",
     },
     {
         "gate": "output-visible state",
@@ -279,6 +284,14 @@ ANCHORS: tuple[Anchor, ...] = (
         "The checklist requires actual force-row comparison before routing.",
     ),
     Anchor(
+        "adapter checklist",
+        "regular production helper dry run",
+        ADAPTER_DOC_PATH,
+        "Regular production helper dry run",
+        "production helper evidence",
+        "The checklist records the proof-local dry-run comparison against the current regular production helper.",
+    ),
+    Anchor(
         "adapter proof",
         "dedicated proof doc",
         PROOF_DOC_PATH,
@@ -290,9 +303,17 @@ ANCHORS: tuple[Anchor, ...] = (
         "adapter proof",
         "non-production boundary",
         PROOF_DOC_PATH,
-        "scripts/docs/tests-only proof lane",
+        "docs/scripts/tests/experiments-only proof lane",
         "policy boundary",
         "The proof document records that production behavior and default build policy are unchanged.",
+    ),
+    Anchor(
+        "adapter proof",
+        "production helper dry-run evidence",
+        PROOF_DOC_PATH,
+        "Production-Helper Dry-Run Evidence",
+        "production helper evidence",
+        "The proof document records the proof-local production helper dry-run boundary.",
     ),
     Anchor(
         "adapter proof",

@@ -1,12 +1,12 @@
 # OpenSubdiv Regular Adapter Proof
 
 Date: 2026-06-29.
-Baseline: PR #77 merge commit
-`5abeedfe2caa6080b9d418989dba092d03912e6d`.
+Baseline: PR #79 merge commit
+`a84c25284e843c14b0bc2e98b9e85dd0c2b9596f`.
 
-This is a scripts/docs/tests-only proof lane. It does not change production C++
-behavior, default `make` or test behavior, OpenSubdiv dependency policy,
-force formulas, quadrature, row order, mixed-row duplication,
+This is a docs/scripts/tests/experiments-only proof lane. It does not change
+production C++ behavior, default `make` or test behavior, OpenSubdiv dependency
+policy, force formulas, quadrature, row order, mixed-row duplication,
 `Face::oneRingVertices` scatter, OpenMP buffer/reduction behavior,
 checkpoint/output, propagation, optimizer/RNG, boundary/ghost/periodic
 behavior, or production OpenSubdiv routing.
@@ -57,7 +57,12 @@ that compares the proof-local OpenSubdiv-derived rows against the current
 regular production call shape: 12 one-ring coordinate columns in
 `Face::oneRingVertices[j]` order, seven derivative rows, 12x3 local
 `fBend`/`fArea`/`fVolume` force matrices, and the current 9-component
-per-vertex scatter layout.
+per-vertex scatter layout. After PR #79, the report also emits
+`production_helper_dry_run`: a proof-local call to the current
+`Mesh::element_energy_force_regular` helper with the OpenSubdiv-derived regular
+rows installed only on a local `Param::shapeFunctions` instance. That dry-run
+compares the live helper output against the proof-local force algebra rows and
+reports the maximum force-row and scalar differences.
 
 This C++ harness does not add a Makefile target, default dependency,
 production route, production include, public SLIMED signature, or OpenSubdiv
@@ -78,6 +83,29 @@ force rows with the current 12x3 matrix shape, and that row `j` scatters to
 This is shadow evidence only. It does not call the production helper with
 OpenSubdiv data, does not alter the regular helper, and does not change default
 serial or OpenMP accumulation behavior.
+
+## Production-Helper Dry-Run Evidence
+
+The C++ report emits `production_helper_dry_run` as prerequisite evidence
+against the current regular production helper semantics. The harness constructs
+a local `Param`, replaces only that local instance's `shapeFunctions` and
+quadrature coefficients with the OpenSubdiv-derived regular rows from the
+frozen sample plan, sets the same proof-local area/volume totals, and calls
+`Mesh::element_energy_force_regular` in the temporary proof binary. The emitted
+JSON states:
+
+- `not_production_routing:true`;
+- `production_api:"Mesh::element_energy_force_regular"`;
+- `open_subdiv_rows_used_as_local_shape_functions:true`;
+- `default_build_dependency_added:false`;
+- `route_installed_in_production:false`;
+- the regular 12-control and three-sample dimensions; and
+- max force-row/scalar differences versus the proof-local formula rows.
+
+This is still not production routing readiness by itself. It does not route a
+real production face through OpenSubdiv, does not alter the helper signature,
+and does not establish serial/OpenMP routed accumulation or output-visible
+state parity.
 
 ## Proof Boundary
 
@@ -109,9 +137,13 @@ The report records all of the following as machine-readable JSON:
 - deterministic duplicate source-id aggregation;
 - actual finite, nonzero `fBend`, `fArea`, and `fVolume` row evidence from the
   local copy of the current force algebra; and
-- `Face::oneRingVertices` scatter identity for those actual force rows; and
+- `Face::oneRingVertices` scatter identity for those actual force rows;
 - proof-local production-call shadow evidence for the 12-column input,
-  seven-row weighted sample, 12x3 force matrix, and 9-component scatter shape.
+  seven-row weighted sample, 12x3 force matrix, and 9-component scatter shape;
+  and
+- proof-local production-helper dry-run parity against
+  `Mesh::element_energy_force_regular` using OpenSubdiv-derived regular rows in
+  a local `Param`.
 
 This proves an experimental adapter boundary can produce the reviewable
 weighted-sample contract for the regular fixture. It does not approve any
@@ -120,6 +152,6 @@ production route to consume OpenSubdiv-derived rows.
 ## Remaining Gate
 
 Before production routing can change, a later reviewed PR must still compare
-OpenSubdiv-derived rows against production call timing and scatter in the real
-C++ route, including output-visible state and serial/OpenMP accumulation
-behavior. This proof is prerequisite evidence only.
+OpenSubdiv-derived rows against routed production call timing and scatter in
+the real C++ route, including output-visible state and serial/OpenMP
+accumulation behavior. This proof is prerequisite evidence only.
