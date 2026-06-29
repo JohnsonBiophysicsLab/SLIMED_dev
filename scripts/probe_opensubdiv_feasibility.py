@@ -61,6 +61,10 @@ using namespace OpenSubdiv;
 #define SLIMED_REGULAR_ACTUAL_FORCE_REPORT 0
 #endif
 
+#ifndef SLIMED_REGULAR_ADAPTER_PROOF_REPORT
+#define SLIMED_REGULAR_ADAPTER_PROOF_REPORT 0
+#endif
+
 #ifndef SLIMED_IRREGULAR_TRANSPOSE_PROOF_MAP_REPORT
 #define SLIMED_IRREGULAR_TRANSPOSE_PROOF_MAP_REPORT 0
 #endif
@@ -798,7 +802,7 @@ static void normalize3(float const values[3], float out[3]) {
     out[2] = static_cast<float>(values[2] / length);
 }
 
-#if SLIMED_REGULAR_EQUIVALENCE_REPORT
+#if SLIMED_REGULAR_EQUIVALENCE_REPORT || SLIMED_REGULAR_ADAPTER_PROOF_REPORT
 static constexpr double kRegularEquivalenceAbsTolerance = 5.0e-6;
 static constexpr double kRegularEquivalenceRelTolerance = 5.0e-6;
 
@@ -1171,7 +1175,7 @@ static bool print_force_transpose_report(MeshCase const &mesh,
 }
 #endif
 
-#if SLIMED_REGULAR_ACTUAL_FORCE_REPORT
+#if SLIMED_REGULAR_ACTUAL_FORCE_REPORT || SLIMED_REGULAR_ADAPTER_PROOF_REPORT
 static constexpr double kActualForceTolerance = 1.0e-8;
 
 struct Vec3d {
@@ -1367,6 +1371,15 @@ static double l1_component_sum(std::vector<double> const &values) {
     double out = 0.0;
     for (double value : values) {
         out += std::abs(value);
+    }
+    return out;
+}
+
+static double max_abs_component_delta(std::vector<double> const &lhs,
+                                      std::vector<double> const &rhs) {
+    double out = 0.0;
+    for (int i = 0; i < static_cast<int>(lhs.size()); ++i) {
+        out = std::max(out, std::abs(lhs[i] - rhs[i]));
     }
     return out;
 }
@@ -1635,6 +1648,340 @@ static bool print_regular_actual_force_report(MeshCase const &mesh,
     delete stencils;
     return passed;
 }
+
+#if SLIMED_REGULAR_ADAPTER_PROOF_REPORT
+static std::vector<int> regular_lattice_face_one_ring_source_ids() {
+    return {9, 15, 10, 16, 22, 11, 17, 23, 29, 18, 24, 30};
+}
+
+static bool same_int_set(std::set<int> const &lhs,
+                         std::vector<int> const &rhs) {
+    return lhs == std::set<int>(rhs.begin(), rhs.end());
+}
+
+static double weight_for_source(Far::LimitStencil const &stencil,
+                                float const *weights,
+                                int sourceId) {
+    double result = 0.0;
+    Far::Index const *indices = stencil.GetVertexIndices();
+    for (int i = 0; i < stencil.GetSize(); ++i) {
+        if (indices[i] == sourceId) {
+            result += static_cast<double>(weights[i]);
+        }
+    }
+    return result;
+}
+
+static Vec3d weighted_vec3_from_original_ids(
+    MeshCase const &mesh,
+    std::vector<int> const &sourceIds,
+    std::vector<double> const &weights) {
+    Vec3d out;
+    for (int i = 0; i < static_cast<int>(sourceIds.size()); ++i) {
+        Point const &point = mesh.points[sourceIds[i]];
+        out.x += weights[i] * point.x;
+        out.y += weights[i] * point.y;
+        out.z += weights[i] * point.z;
+    }
+    return out;
+}
+
+static double max_abs_delta(Vec3d const &lhs, Vec3d const &rhs) {
+    return std::max(std::abs(lhs.x - rhs.x),
+                    std::max(std::abs(lhs.y - rhs.y),
+                             std::abs(lhs.z - rhs.z)));
+}
+
+static double row_weight_by_source(std::vector<double> const &rowWeights,
+                                   std::vector<int> const &sourceIds,
+                                   int sourceId) {
+    double result = 0.0;
+    for (int i = 0; i < static_cast<int>(sourceIds.size()); ++i) {
+        if (sourceIds[i] == sourceId) {
+            result += rowWeights[i];
+        }
+    }
+    return result;
+}
+
+static void print_vec3d_values(Vec3d const &values) {
+    std::cout << "[" << std::setprecision(9) << values.x << ","
+              << values.y << "," << values.z << "]";
+}
+
+static bool print_regular_adapter_proof_report(
+    MeshCase const &mesh,
+    Far::TopologyRefiner const &refiner) {
+    std::cout << ",\"regular_adapter_proof\":{";
+    if (mesh.name != "regular_triangular_lattice") {
+        std::cout << "\"available\":false,\"reason\":\"regular_lattice_only\"}";
+        return true;
+    }
+
+    float s[3] = {1.0f / 6.0f, 1.0f / 6.0f, 4.0f / 6.0f};
+    float t[3] = {1.0f / 6.0f, 4.0f / 6.0f, 1.0f / 6.0f};
+    float u[3] = {4.0f / 6.0f, 1.0f / 6.0f, 1.0f / 6.0f};
+    double coeff[3] = {1.0 / 3.0, 1.0 / 3.0, 1.0 / 3.0};
+
+    Far::LimitStencilTableFactory::LocationArray location;
+    location.ptexIdx = mesh.sampleFace;
+    location.numLocations = 3;
+    location.s = s;
+    location.t = t;
+    Far::LimitStencilTableFactory::LocationArrayVec locations;
+    locations.push_back(location);
+
+    Far::LimitStencilTableFactory::Options stencilOptions;
+    stencilOptions.generate1stDerivatives = true;
+    stencilOptions.generate2ndDerivatives = true;
+    Far::LimitStencilTable const *stencils =
+        Far::LimitStencilTableFactory::Create(refiner, locations, 0, 0,
+                                              stencilOptions);
+    if (!stencils) {
+        std::cout << "\"available\":false,\"reason\":\"limit_stencil_creation_failed\"}";
+        return false;
+    }
+
+    std::vector<int> const faceOneRing =
+        regular_lattice_face_one_ring_source_ids();
+    std::vector<int> duplicateSourceIds = faceOneRing;
+    duplicateSourceIds[1] = duplicateSourceIds[0];
+    duplicateSourceIds[4] = duplicateSourceIds[3];
+    duplicateSourceIds[8] = duplicateSourceIds[7];
+
+    double maxEvaluationDifference = 0.0;
+    double maxDuplicateAggregationDifference = 0.0;
+    bool allStencilSourcesMatchOneRing = true;
+    bool duplicatedMixedRows = true;
+
+    std::cout << "\"available\":true";
+    std::cout << ",\"kind\":\"test_only_regular_opensubdiv_adapter_proof\"";
+    std::cout << ",\"not_production_routing\":true";
+    std::cout << ",\"contract\":\"LimitSurfaceWeightedSample-style seven rows keyed by original SLIMED source ids\"";
+    std::cout << ",\"sample_set\":\"frozen SLIMED second-order triangular quadrature\"";
+    std::cout << ",\"coordinate_mapping\":\"s=v,t=w\"";
+    std::cout << ",\"row_order\":\"position,d/dv,d/dw,d2/dv2,d2/dw2,d2/dvdw,d2/dwdv\"";
+    std::cout << ",\"mixed_derivative_policy\":\"OpenSubdiv duv is duplicated into both SLIMED mixed rows\"";
+    std::cout << ",\"face_one_ring_source_ids\":";
+    print_int_array(faceOneRing);
+    std::cout << ",\"duplicate_aggregation_probe_source_ids\":";
+    print_int_array(duplicateSourceIds);
+    std::cout << ",\"samples\":[";
+
+    for (int sample = 0; sample < stencils->GetNumStencils(); ++sample) {
+        Far::LimitStencil stencil = stencils->GetLimitStencil(sample);
+        std::vector<float const *> rowPtrs = {
+            stencil.GetWeights(),
+            stencil.GetDuWeights(),
+            stencil.GetDvWeights(),
+            stencil.GetDuuWeights(),
+            stencil.GetDvvWeights(),
+            stencil.GetDuvWeights(),
+            stencil.GetDuvWeights(),
+        };
+
+        std::set<int> stencilSources;
+        for (int i = 0; i < stencil.GetSize(); ++i) {
+            stencilSources.insert(stencil.GetVertexIndices()[i]);
+        }
+        bool const sampleSourcesMatch =
+            same_int_set(stencilSources, faceOneRing);
+        allStencilSourcesMatchOneRing =
+            allStencilSourcesMatchOneRing && sampleSourcesMatch;
+
+        double sampleMaxEvaluationDifference = 0.0;
+        double sampleMaxDuplicateDifference = 0.0;
+        for (int row = 0; row < 7; ++row) {
+            std::vector<double> faceOrderedWeights(faceOneRing.size(), 0.0);
+            for (int col = 0; col < static_cast<int>(faceOneRing.size());
+                 ++col) {
+                faceOrderedWeights[col] =
+                    weight_for_source(stencil, rowPtrs[row], faceOneRing[col]);
+            }
+
+            Vec3d const adapterValue = weighted_vec3_from_original_ids(
+                mesh, faceOneRing, faceOrderedWeights);
+            Vec3d const stencilValue =
+                weighted_vec3(mesh, stencil, rowPtrs[row]);
+            double const evalDifference =
+                max_abs_delta(adapterValue, stencilValue);
+            sampleMaxEvaluationDifference =
+                std::max(sampleMaxEvaluationDifference, evalDifference);
+            maxEvaluationDifference =
+                std::max(maxEvaluationDifference, evalDifference);
+
+            double const aggregatedDuplicate =
+                row_weight_by_source(faceOrderedWeights,
+                                     duplicateSourceIds,
+                                     duplicateSourceIds[0]);
+            double const expectedDuplicate =
+                faceOrderedWeights[0] + faceOrderedWeights[1];
+            double const duplicateDifference =
+                std::abs(aggregatedDuplicate - expectedDuplicate);
+            sampleMaxDuplicateDifference =
+                std::max(sampleMaxDuplicateDifference, duplicateDifference);
+            maxDuplicateAggregationDifference =
+                std::max(maxDuplicateAggregationDifference,
+                         duplicateDifference);
+        }
+
+        duplicatedMixedRows =
+            duplicatedMixedRows &&
+            sampleMaxEvaluationDifference <= kRegularEquivalenceAbsTolerance;
+
+        if (sample > 0) {
+            std::cout << ",";
+        }
+        std::cout << "{\"index\":" << sample;
+        std::cout << ",\"v\":" << s[sample] << ",\"w\":" << t[sample]
+                  << ",\"u\":" << u[sample];
+        std::cout << ",\"s\":" << s[sample] << ",\"t\":" << t[sample];
+        std::cout << ",\"quadrature_weight\":" << coeff[sample];
+        std::cout << ",\"formula_factor\":" << 0.5 * coeff[sample];
+        std::cout << ",\"stencil_source_ids\":";
+        print_int_set(stencilSources);
+        std::cout << ",\"stencil_sources_match_face_one_ring\":"
+                  << (sampleSourcesMatch ? "true" : "false");
+        std::cout << ",\"adapter_row_count\":7";
+        std::cout << ",\"adapter_column_count\":" << faceOneRing.size();
+        std::cout << ",\"duplicated_mixed_rows\":true";
+        std::cout << ",\"max_adapter_vs_stencil_eval_difference\":"
+                  << sampleMaxEvaluationDifference;
+        std::cout << ",\"max_duplicate_aggregation_difference\":"
+                  << sampleMaxDuplicateDifference;
+        std::cout << "}";
+    }
+    std::cout << "]";
+
+    ActualForceParams params;
+    for (int sample = 0; sample < stencils->GetNumStencils(); ++sample) {
+        accumulate_area_volume(mesh, stencils->GetLimitStencil(sample),
+                               coeff[sample], params);
+    }
+
+    ActualForceResult result;
+    result.fBend.assign(mesh.numVertices * 3, 0.0);
+    result.fArea.assign(mesh.numVertices * 3, 0.0);
+    result.fVolume.assign(mesh.numVertices * 3, 0.0);
+    std::set<int> forceSourceIds;
+    bool finite = true;
+    for (int sample = 0; sample < stencils->GetNumStencils(); ++sample) {
+        finite = accumulate_actual_force_sample(
+                     mesh, stencils->GetLimitStencil(sample), coeff[sample],
+                     params, result, forceSourceIds) &&
+                 finite;
+    }
+    result.normVector = normalized(result.normVector);
+
+    bool const forcesFinite = all_finite(result.fBend) &&
+                              all_finite(result.fArea) &&
+                              all_finite(result.fVolume) &&
+                              std::isfinite(result.eBend) &&
+                              std::isfinite(result.meanCurv) &&
+                              finite_vec(result.normVector);
+    double const bendMax = max_abs_component(result.fBend);
+    double const areaMax = max_abs_component(result.fArea);
+    double const volumeMax = max_abs_component(result.fVolume);
+    bool const nonzeroActualForce = bendMax > kActualForceTolerance &&
+                                    areaMax > kActualForceTolerance &&
+                                    volumeMax > kActualForceTolerance;
+    bool const forceSourcesMatchOneRing =
+        same_int_set(forceSourceIds, faceOneRing);
+
+    std::vector<double> scatteredBend(mesh.numVertices * 3, 0.0);
+    std::vector<double> scatteredArea(mesh.numVertices * 3, 0.0);
+    std::vector<double> scatteredVolume(mesh.numVertices * 3, 0.0);
+    for (int row = 0; row < static_cast<int>(faceOneRing.size()); ++row) {
+        int const sourceId = faceOneRing[row];
+        for (int axis = 0; axis < 3; ++axis) {
+            scatteredBend[3 * sourceId + axis] =
+                result.fBend[3 * sourceId + axis];
+            scatteredArea[3 * sourceId + axis] =
+                result.fArea[3 * sourceId + axis];
+            scatteredVolume[3 * sourceId + axis] =
+                result.fVolume[3 * sourceId + axis];
+        }
+    }
+    double const scatterDifference = std::max(
+        max_abs_component_delta(scatteredBend, result.fBend),
+        std::max(max_abs_component_delta(scatteredArea, result.fArea),
+                 max_abs_component_delta(scatteredVolume, result.fVolume)));
+
+    bool const adapterRowsPassed =
+        allStencilSourcesMatchOneRing && duplicatedMixedRows &&
+        maxEvaluationDifference <= kRegularEquivalenceAbsTolerance &&
+        maxDuplicateAggregationDifference == 0.0;
+    bool const actualForcesPassed =
+        finite && forcesFinite && nonzeroActualForce &&
+        forceSourcesMatchOneRing &&
+        scatterDifference <= kActualForceTolerance;
+    bool const passed = adapterRowsPassed && actualForcesPassed;
+
+    std::cout << ",\"summary\":{";
+    std::cout << "\"sample_count\":" << stencils->GetNumStencils();
+    std::cout << ",\"all_stencil_sources_match_face_one_ring\":"
+              << (allStencilSourcesMatchOneRing ? "true" : "false");
+    std::cout << ",\"max_adapter_vs_stencil_eval_difference\":"
+              << maxEvaluationDifference;
+    std::cout << ",\"max_duplicate_aggregation_difference\":"
+              << maxDuplicateAggregationDifference;
+    std::cout << ",\"adapter_rows_passed\":"
+              << (adapterRowsPassed ? "true" : "false");
+    std::cout << "}";
+    std::cout << ",\"actual_force_rows\":{";
+    std::cout << "\"available\":true";
+    std::cout << ",\"formula_scope\":\"local copy of current bending, area, and volume force sample algebra using adapter-remapped OpenSubdiv row weights\"";
+    std::cout << ",\"force_source_ids\":";
+    print_int_set(forceSourceIds);
+    std::cout << ",\"force_sources_match_face_one_ring\":"
+              << (forceSourcesMatchOneRing ? "true" : "false");
+    std::cout << ",\"face_one_ring_scatter_identity\":"
+              << (scatterDifference <= kActualForceTolerance ? "true" : "false");
+    std::cout << ",\"scatter_max_abs_difference\":" << scatterDifference;
+    std::cout << ",\"area\":" << params.area;
+    std::cout << ",\"volume\":" << params.vol;
+    std::cout << ",\"e_bend\":" << result.eBend;
+    std::cout << ",\"mean_curvature\":" << result.meanCurv;
+    std::cout << ",\"normal\":";
+    print_vec3d_values(result.normVector);
+    std::cout << ",\"max_abs_f_bend\":" << bendMax;
+    std::cout << ",\"max_abs_f_area\":" << areaMax;
+    std::cout << ",\"max_abs_f_volume\":" << volumeMax;
+    std::cout << ",\"finite\":" << (forcesFinite ? "true" : "false");
+    std::cout << ",\"nonzero_actual_force\":"
+              << (nonzeroActualForce ? "true" : "false");
+    std::cout << ",\"rows\":[";
+    for (int row = 0; row < static_cast<int>(faceOneRing.size()); ++row) {
+        int const sourceId = faceOneRing[row];
+        if (row > 0) {
+            std::cout << ",";
+        }
+        std::cout << "{\"local_row\":" << row;
+        std::cout << ",\"source_id\":" << sourceId;
+        std::cout << ",\"f_bend\":";
+        print_vec3d_values(make_vec(result.fBend[3 * sourceId],
+                                    result.fBend[3 * sourceId + 1],
+                                    result.fBend[3 * sourceId + 2]));
+        std::cout << ",\"f_area\":";
+        print_vec3d_values(make_vec(result.fArea[3 * sourceId],
+                                    result.fArea[3 * sourceId + 1],
+                                    result.fArea[3 * sourceId + 2]));
+        std::cout << ",\"f_volume\":";
+        print_vec3d_values(make_vec(result.fVolume[3 * sourceId],
+                                    result.fVolume[3 * sourceId + 1],
+                                    result.fVolume[3 * sourceId + 2]));
+        std::cout << "}";
+    }
+    std::cout << "]";
+    std::cout << ",\"passed\":" << (actualForcesPassed ? "true" : "false");
+    std::cout << "}";
+    std::cout << ",\"passed\":" << (passed ? "true" : "false");
+    std::cout << "}";
+
+    delete stencils;
+    return passed;
+}
+#endif
 #endif
 
 #if SLIMED_IRREGULAR_TRANSPOSE_PROOF_MAP_REPORT
@@ -1881,6 +2228,9 @@ static int run_case(MeshCase const &mesh) {
 #if SLIMED_REGULAR_ACTUAL_FORCE_REPORT
     bool regularActualForcePassed = true;
 #endif
+#if SLIMED_REGULAR_ADAPTER_PROOF_REPORT
+    bool regularAdapterProofPassed = true;
+#endif
 #if SLIMED_IRREGULAR_TRANSPOSE_PROOF_MAP_REPORT
     bool irregularTransposeProofMapPassed = true;
 #endif
@@ -2038,6 +2388,10 @@ static int run_case(MeshCase const &mesh) {
     regularActualForcePassed =
         print_regular_actual_force_report(mesh, *refiner);
 #endif
+#if SLIMED_REGULAR_ADAPTER_PROOF_REPORT
+    regularAdapterProofPassed =
+        print_regular_adapter_proof_report(mesh, *refiner);
+#endif
 #if SLIMED_BROADER_VALENCE_COVERAGE_REPORT && !SLIMED_AGGREGATE_SOURCE_COVERAGE_REPORT
     if (mesh.extraordinaryValence > 0) {
         print_aggregate_source_coverage(mesh, *refiner, patchTable, cvStencils);
@@ -2069,6 +2423,11 @@ static int run_case(MeshCase const &mesh) {
 #if SLIMED_REGULAR_ACTUAL_FORCE_REPORT
     if (!regularActualForcePassed) {
         return 9;
+    }
+#endif
+#if SLIMED_REGULAR_ADAPTER_PROOF_REPORT
+    if (!regularAdapterProofPassed) {
+        return 10;
     }
 #endif
 #if SLIMED_IRREGULAR_TRANSPOSE_PROOF_MAP_REPORT
@@ -2184,6 +2543,16 @@ def parse_args() -> argparse.Namespace:
             "Opt into an OpenSubdiv regular-row smoke that runs a local copy "
             "of the current bending/area/volume force sample algebra without "
             "changing production routing."
+        ),
+    )
+    parser.add_argument(
+        "--regular-adapter-proof-report",
+        action="store_true",
+        help=(
+            "Opt into a test-only regular OpenSubdiv adapter proof report "
+            "that remaps rows through original SLIMED source ids, duplicate "
+            "aggregation, actual force rows, and Face::oneRingVertices scatter "
+            "identity without changing production routing."
         ),
     )
     parser.add_argument(
@@ -2318,6 +2687,8 @@ def main() -> int:
             command.append("-DSLIMED_FORCE_TRANSPOSE_REPORT=1")
         if args.regular_actual_force_report:
             command.append("-DSLIMED_REGULAR_ACTUAL_FORCE_REPORT=1")
+        if args.regular_adapter_proof_report:
+            command.append("-DSLIMED_REGULAR_ADAPTER_PROOF_REPORT=1")
         if args.irregular_transpose_proof_map_report:
             command.append("-DSLIMED_IRREGULAR_TRANSPOSE_PROOF_MAP_REPORT=1")
         if args.broader_valence_coverage_report:

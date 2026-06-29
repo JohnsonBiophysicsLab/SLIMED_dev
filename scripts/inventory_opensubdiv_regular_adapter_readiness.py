@@ -17,6 +17,7 @@ from typing import Sequence
 
 
 ADAPTER_DOC_PATH = Path("docs/opensubdiv_regular_backend_adapter_readiness.md")
+PROOF_DOC_PATH = Path("docs/opensubdiv_regular_adapter_proof.md")
 SAMPLE_PLAN_DOC_PATH = Path("docs/opensubdiv_regular_sample_plan.md")
 READINESS_DOC_PATH = Path("docs/opensubdiv_routing_readiness_map.md")
 MAPPING_DOC_PATH = Path("docs/opensubdiv_mapping_contract.md")
@@ -73,6 +74,16 @@ EVIDENCE_LINEAGE: tuple[dict[str, str], ...] = (
         "anchor": "docs/opensubdiv_regular_sample_plan.md",
         "adapter_meaning": "match the frozen regular sample plan or review-replace it",
     },
+    {
+        "lane": "PR #75 regular backend readiness",
+        "anchor": "docs/opensubdiv_regular_backend_adapter_readiness.md",
+        "adapter_meaning": "keep regular adapter proof work review-gated and non-production",
+    },
+    {
+        "lane": "current regular adapter proof",
+        "anchor": "--regular-adapter-proof-report",
+        "adapter_meaning": "emit test-only regular adapter evidence through original SLIMED source ids",
+    },
 )
 
 
@@ -100,7 +111,7 @@ ADAPTER_READINESS_CHECKLIST: tuple[dict[str, str], ...] = (
     {
         "gate": "actual force rows",
         "must_prove": "OpenSubdiv-derived rows compare through fBend, fArea, and fVolume",
-        "current_status": "probe smoke exists; production adapter proof remains missing",
+        "current_status": "test-only adapter proof exists; production routing remains missing",
     },
     {
         "gate": "output-visible state",
@@ -110,7 +121,7 @@ ADAPTER_READINESS_CHECKLIST: tuple[dict[str, str], ...] = (
     {
         "gate": "scatter and reduction",
         "must_prove": "Face::oneRingVertices scatter and current serial/OpenMP accumulation shape",
-        "current_status": "required before routing",
+        "current_status": "test-only scatter identity exists; production serial/OpenMP evidence remains required",
     },
     {
         "gate": "dependency-present behavior",
@@ -197,6 +208,22 @@ ANCHORS: tuple[Anchor, ...] = (
     ),
     Anchor(
         "adapter checklist",
+        "PR75 lineage",
+        ADAPTER_DOC_PATH,
+        "PR #75 regular backend readiness",
+        "evidence lineage",
+        "The checklist ties the proof lane to the regular adapter-readiness gate.",
+    ),
+    Anchor(
+        "adapter checklist",
+        "current proof lineage",
+        ADAPTER_DOC_PATH,
+        "Current proof lane",
+        "evidence lineage",
+        "The checklist ties the proof lane to the opt-in regular adapter proof report.",
+    ),
+    Anchor(
+        "adapter checklist",
         "weighted sample public result",
         ADAPTER_DOC_PATH,
         "public sample result is the existing seven-row",
@@ -250,6 +277,62 @@ ANCHORS: tuple[Anchor, ...] = (
         "actual `fBend`, `fArea`, and `fVolume`",
         "actual force evidence",
         "The checklist requires actual force-row comparison before routing.",
+    ),
+    Anchor(
+        "adapter proof",
+        "dedicated proof doc",
+        PROOF_DOC_PATH,
+        "OpenSubdiv Regular Adapter Proof",
+        "test-only proof",
+        "The dedicated regular adapter-proof document is present.",
+    ),
+    Anchor(
+        "adapter proof",
+        "non-production boundary",
+        PROOF_DOC_PATH,
+        "scripts/docs/tests-only proof lane",
+        "policy boundary",
+        "The proof document records that production behavior and default build policy are unchanged.",
+    ),
+    Anchor(
+        "adapter proof",
+        "proof kind",
+        PROOF_DOC_PATH,
+        "test_only_regular_opensubdiv_adapter_proof",
+        "test-only proof",
+        "The proof document records the machine-readable report kind.",
+    ),
+    Anchor(
+        "adapter proof",
+        "original source ids",
+        PROOF_DOC_PATH,
+        "original SLIMED vertex ids",
+        "source-id contract",
+        "The proof document requires original SLIMED ids at the report boundary.",
+    ),
+    Anchor(
+        "adapter proof",
+        "duplicate aggregation",
+        PROOF_DOC_PATH,
+        "deterministic duplicate source-id aggregation",
+        "source-id aggregation",
+        "The proof document records duplicate aggregation evidence.",
+    ),
+    Anchor(
+        "adapter proof",
+        "actual force rows",
+        PROOF_DOC_PATH,
+        "`fBend`, `fArea`, and `fVolume` row evidence",
+        "actual force evidence",
+        "The proof document records actual force-row evidence.",
+    ),
+    Anchor(
+        "adapter proof",
+        "one-ring scatter identity",
+        PROOF_DOC_PATH,
+        "`Face::oneRingVertices` scatter identity",
+        "scatter contract",
+        "The proof document records one-ring scatter identity evidence.",
     ),
     Anchor(
         "adapter checklist",
@@ -410,6 +493,30 @@ ANCHORS: tuple[Anchor, ...] = (
         "--regular-actual-force-report",
         "opt-in OpenSubdiv evidence",
         "The probe can emit regular actual-force smoke evidence.",
+    ),
+    Anchor(
+        "probe",
+        "regular adapter proof option",
+        PROBE_PATH,
+        "--regular-adapter-proof-report",
+        "opt-in OpenSubdiv evidence",
+        "The probe can emit regular adapter proof evidence.",
+    ),
+    Anchor(
+        "probe",
+        "regular adapter proof kind",
+        PROBE_PATH,
+        "test_only_regular_opensubdiv_adapter_proof",
+        "test-only proof",
+        "The probe labels the regular adapter proof as test-only.",
+    ),
+    Anchor(
+        "probe",
+        "one-ring source ids",
+        PROBE_PATH,
+        "regular_lattice_face_one_ring_source_ids",
+        "source-id order",
+        "The probe remaps regular OpenSubdiv rows into Face::oneRingVertices order.",
     ),
     Anchor(
         "probe wrapper",

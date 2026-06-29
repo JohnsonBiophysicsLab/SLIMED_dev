@@ -1,8 +1,8 @@
 # OpenSubdiv Regular Backend Adapter Readiness Checklist
 
-Date: 2026-06-28.
-Baseline: PR #74 merge commit
-`92375abed3b81f1062af2ff51d867fde2e692ed4`.
+Date: 2026-06-29.
+Baseline: PR #75 merge commit
+`0a495ef0e3ef6370f5e73892b987e356d9bc4f46`.
 
 This is a docs/scripts/tests-only adapter-readiness lane. It does not change
 production C++ behavior, C++ backend interfaces, default build policy,
@@ -38,6 +38,8 @@ must remain reviewable in SLIMED terms:
 | PR #72 regular actual-force evidence | `docs/opensubdiv_force_transpose_evidence.md` separates row/integrand evidence, toy transpose evidence, and regular actual-force probe smoke. | The probe is prerequisite evidence, not production C++ routing or an adapter integration. |
 | PR #73 routing readiness map | `docs/opensubdiv_routing_readiness_map.md` records regular-first readiness gates and keeps irregular/broader-valence routing future-only. | The regular adapter is still not route-ready until production comparison and reviewer/user gates are satisfied. |
 | PR #74 regular sample plan | `docs/opensubdiv_regular_sample_plan.md` freezes quadrature rows, `s=v,t=w`, seven rows, source order, duplicate aggregation, and comparison boundaries. | The adapter must match the frozen regular sample plan or carry an explicitly reviewed replacement. |
+| PR #75 regular backend readiness | `docs/opensubdiv_regular_backend_adapter_readiness.md` and its inventory keep adapter evidence review-gated. | The proof lane may add opt-in report evidence, but production routing remains blocked. |
+| Current proof lane | `docs/opensubdiv_regular_adapter_proof.md` and `scripts/probe_opensubdiv_feasibility.py --regular-adapter-proof-report` emit a test-only regular adapter proof. | OpenSubdiv rows can be remapped into the weighted-sample contract for the regular fixture without changing production routing. |
 
 ## Adapter Boundary
 
@@ -66,9 +68,9 @@ changes production behavior.
 | Coordinate and derivative convention | The adapter records `s=v,t=w`, tangent orientation `firstDerivativeV x firstDerivativeW`, and all seven derivative rows including duplicated mixed row convention. | `docs/opensubdiv_mapping_contract.md` and the regular sample-plan inventory | Characterized, not routed. |
 | Original source-id order | Row weights are keyed by original SLIMED ids and match `Face::oneRingVertices[j]` for the regular 12-control support. | Weighted-sample seam, mapping contract, and force/scatter contract | Characterized through the in-tree seam, not OpenSubdiv production routing. |
 | Deterministic duplicate aggregation | Duplicate original source ids are summed deterministically before formula comparison or scatter comparison. | `LimitSurfaceWeightedSample::row_weight(...)` and regular source-id tests | Characterized through the in-tree seam, not OpenSubdiv production routing. |
-| Actual force rows | OpenSubdiv-derived rows compare through actual `fBend`, `fArea`, and `fVolume` formula rows, not only row/integrand or toy-transpose probes. | `docs/opensubdiv_force_transpose_evidence.md` and `--regular-actual-force-report` | Probe smoke exists; production adapter proof remains missing. |
+| Actual force rows | OpenSubdiv-derived rows compare through actual `fBend`, `fArea`, and `fVolume` formula rows, not only row/integrand or toy-transpose probes. | `docs/opensubdiv_force_transpose_evidence.md`, `--regular-actual-force-report`, and `--regular-adapter-proof-report` | Test-only adapter proof exists; production routing remains missing. |
 | Output-visible state | Energies, normals, mean curvature, area, and legacy volume compare at production call timing. | Routing readiness map and force/scatter contract | Required before routing; not satisfied by this checklist. |
-| Scatter and reduction | Local OpenSubdiv-derived regular rows scatter through `Face::oneRingVertices` while preserving the current serial/OpenMP thread-local buffer shape and reduction order, or a reviewed replacement. | `docs/force_formula_scatter_equivalence.md` and routing readiness map | Required before routing; not satisfied by this checklist. |
+| Scatter and reduction | Local OpenSubdiv-derived regular rows scatter through `Face::oneRingVertices` while preserving the current serial/OpenMP thread-local buffer shape and reduction order, or a reviewed replacement. | `docs/force_formula_scatter_equivalence.md`, routing readiness map, and `--regular-adapter-proof-report` | Test-only scatter identity exists; production serial/OpenMP routing evidence remains required. |
 | Dependency-present behavior | OpenSubdiv-present evidence is opt-in through `OPENSUBDIV_ROOT`; default builds, tests, and Makefile targets remain OpenSubdiv-free. | Backend interface policy and `scripts/run_opensubdiv_probe.sh` | Required boundary remains unchanged. |
 | Dependency-absent behavior | Missing OpenSubdiv skips probes cleanly and never changes production physics or routing. | `scripts/run_opensubdiv_probe.sh --json` absent-wrapper behavior | Required boundary remains unchanged. |
 | Non-production review gate | No production route uses OpenSubdiv-derived rows until a separate reviewed PR proves the checklist against production routing and scatter. | Routing readiness map and this checklist | Explicit blocker for adapter routing. |
@@ -90,6 +92,15 @@ changing any production call site. That prototype must stop before adding:
 
 If any of those decisions are needed, the correct result is a blocker report
 and a new prompt for an explicitly reviewed implementation lane.
+
+The current proof-lane implementation follows that boundary through
+`scripts/probe_opensubdiv_feasibility.py --regular-adapter-proof-report`. It is
+`OPENSUBDIV_ROOT`-gated, compiles only a temporary probe, emits `kind:
+test_only_regular_opensubdiv_adapter_proof`, remaps OpenSubdiv rows by original
+SLIMED source id into the seven-row weighted-sample contract, checks
+deterministic duplicate aggregation, emits actual `fBend`/`fArea`/`fVolume`
+rows, and verifies `Face::oneRingVertices` scatter identity. It is still not
+production routing.
 
 ## Required Future Adapter Evidence Package
 
