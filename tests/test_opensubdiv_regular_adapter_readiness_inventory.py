@@ -16,7 +16,7 @@ SPEC.loader.exec_module(inventory)
 
 
 class OpenSubdivRegularAdapterReadinessInventoryTest(unittest.TestCase):
-    def test_evidence_lineage_tracks_pr68_through_pr74(self):
+    def test_evidence_lineage_tracks_pr68_through_current_proof(self):
         lanes = {row["lane"] for row in inventory.EVIDENCE_LINEAGE}
 
         self.assertEqual(len(lanes), len(inventory.EVIDENCE_LINEAGE))
@@ -25,6 +25,8 @@ class OpenSubdivRegularAdapterReadinessInventoryTest(unittest.TestCase):
         self.assertIn("PR #72 regular actual-force evidence", lanes)
         self.assertIn("PR #73 routing readiness map", lanes)
         self.assertIn("PR #74 regular sample plan", lanes)
+        self.assertIn("PR #75 regular backend readiness", lanes)
+        self.assertIn("current regular adapter proof", lanes)
 
     def test_adapter_checklist_covers_regular_backend_gates(self):
         gates = {row["gate"]: row for row in inventory.ADAPTER_READINESS_CHECKLIST}
@@ -42,6 +44,7 @@ class OpenSubdivRegularAdapterReadinessInventoryTest(unittest.TestCase):
         self.assertIn("fBend", gates["actual force rows"]["must_prove"])
         self.assertIn("Face::oneRingVertices", gates["scatter and reduction"]["must_prove"])
         self.assertIn("OpenSubdiv-derived rows", gates["non-production review gate"]["must_prove"])
+        self.assertIn("test-only adapter proof", gates["actual force rows"]["current_status"])
 
     def test_inventory_anchors_are_present(self):
         located, missing = inventory.collect_anchors(inventory.repo_root())
