@@ -36,9 +36,25 @@ class OpenSubdivRegularCppAdapterProofInventoryTest(unittest.TestCase):
         self.assertIn("fVolume evidence", invariants)
         self.assertIn("proof-only force algebra", invariants)
         self.assertIn("one-ring scatter identity", invariants)
+        self.assertIn("production-call shadow", invariants)
+        self.assertIn("production coordinate input order", invariants)
+        self.assertIn("production force buffer layout", invariants)
+        self.assertIn("production shadow pass flag", invariants)
         self.assertIn("not production routing", invariants)
         for needle in invariants.values():
             self.assertIn(needle, source)
+
+    def test_cpp_proof_covers_regular_production_call_shadow_shape(self):
+        source = (inventory.repo_root() / inventory.CPP_PROOF_PATH).read_text(encoding="utf-8")
+
+        self.assertIn('\\"production_call_shadow\\":{', source)
+        self.assertIn("kProductionRegularControlPointCount = 12", source)
+        self.assertIn("kProductionDerivativeRowCount = 7", source)
+        self.assertIn("kProductionSpatialDimension = 3", source)
+        self.assertIn("kProductionForceComponentsPerVertex = 9", source)
+        self.assertIn("coordOneRingVertices[j] copied from Face::oneRingVertices[j]", source)
+        self.assertIn("row j -> Face::oneRingVertices[j]", source)
+        self.assertIn("productionCallShadowPassed", source)
 
     def test_wrapper_is_explicit_opensubdiv_root_only(self):
         source = (inventory.repo_root() / inventory.WRAPPER_PATH).read_text(encoding="utf-8")

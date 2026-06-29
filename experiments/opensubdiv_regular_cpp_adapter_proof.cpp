@@ -22,6 +22,10 @@ using namespace OpenSubdiv;
 namespace
 {
 constexpr double kTolerance = 5.0e-6;
+constexpr int kProductionRegularControlPointCount = 12;
+constexpr int kProductionDerivativeRowCount = 7;
+constexpr int kProductionSpatialDimension = 3;
+constexpr int kProductionForceComponentsPerVertex = 9;
 
 enum class WeightedRow
 {
@@ -699,6 +703,31 @@ void print_vec3(const Vec3d &values)
     std::cout << "[" << values.x << "," << values.y << "," << values.z << "]";
 }
 
+double max_production_scatter_delta(const std::vector<double> &productionBuffer,
+                                    const std::vector<double> &fBend,
+                                    const std::vector<double> &fArea,
+                                    const std::vector<double> &fVolume)
+{
+    double out = 0.0;
+    const int vertexCount = static_cast<int>(fBend.size() / kProductionSpatialDimension);
+    for (int vertex = 0; vertex < vertexCount; ++vertex)
+    {
+        for (int axis = 0; axis < kProductionSpatialDimension; ++axis)
+        {
+            out = std::max(out,
+                           std::abs(productionBuffer[kProductionForceComponentsPerVertex * vertex + axis] -
+                                    fBend[kProductionSpatialDimension * vertex + axis]));
+            out = std::max(out,
+                           std::abs(productionBuffer[kProductionForceComponentsPerVertex * vertex + 3 + axis] -
+                                    fArea[kProductionSpatialDimension * vertex + axis]));
+            out = std::max(out,
+                           std::abs(productionBuffer[kProductionForceComponentsPerVertex * vertex + 6 + axis] -
+                                    fVolume[kProductionSpatialDimension * vertex + axis]));
+        }
+    }
+    return out;
+}
+
 int run_proof()
 {
     const MeshCase mesh = make_regular_lattice_case();
@@ -748,6 +777,7 @@ int run_proof()
     double maxDuplicateAggregation = 0.0;
     bool allSourcesMatchFaceOneRing = true;
     bool allMixedRowsDuplicated = true;
+    bool allProofSourceOrdersMatchFaceOneRing = true;
     ActualForceParams forceParams;
     std::vector<WeightedSampleProof> proofs;
     proofs.reserve(stencils->GetNumStencils());
@@ -776,6 +806,9 @@ int run_proof()
         WeightedSampleProof proof =
             adapt_regular_sample(mesh, stencil, faceOneRing);
         proofs.push_back(proof);
+        allProofSourceOrdersMatchFaceOneRing =
+            allProofSourceOrdersMatchFaceOneRing &&
+            (proof.sourceIds == faceOneRing);
         accumulate_area_volume(proof, samples[sampleIndex].weight, forceParams);
 
         const std::array<const float *, 7> rowPtrs = {
@@ -883,20 +916,38 @@ int run_proof()
     const bool forceSourcesMatchFaceOneRing =
         same_set(forceSourceIds, faceOneRing);
 
+    std::vector<double> proofLocalBendRows(faceOneRing.size() * kProductionSpatialDimension, 0.0);
+    std::vector<double> proofLocalAreaRows(faceOneRing.size() * kProductionSpatialDimension, 0.0);
+    std::vector<double> proofLocalVolumeRows(faceOneRing.size() * kProductionSpatialDimension, 0.0);
     std::vector<double> scatteredBend(mesh.numVertices * 3, 0.0);
     std::vector<double> scatteredArea(mesh.numVertices * 3, 0.0);
     std::vector<double> scatteredVolume(mesh.numVertices * 3, 0.0);
+    std::vector<double> productionCallShadowBuffer(
+        mesh.numVertices * kProductionForceComponentsPerVertex, 0.0);
     for (int row = 0; row < static_cast<int>(faceOneRing.size()); ++row)
     {
         const int sourceId = faceOneRing[row];
         for (int axis = 0; axis < 3; ++axis)
         {
+            proofLocalBendRows[kProductionSpatialDimension * row + axis] =
+                forceResult.fBend[3 * sourceId + axis];
+            proofLocalAreaRows[kProductionSpatialDimension * row + axis] =
+                forceResult.fArea[3 * sourceId + axis];
+            proofLocalVolumeRows[kProductionSpatialDimension * row + axis] =
+                forceResult.fVolume[3 * sourceId + axis];
             scatteredBend[3 * sourceId + axis] =
                 forceResult.fBend[3 * sourceId + axis];
             scatteredArea[3 * sourceId + axis] =
                 forceResult.fArea[3 * sourceId + axis];
             scatteredVolume[3 * sourceId + axis] =
                 forceResult.fVolume[3 * sourceId + axis];
+            const int baseIndex = sourceId * kProductionForceComponentsPerVertex;
+            productionCallShadowBuffer[baseIndex + axis] +=
+                proofLocalBendRows[kProductionSpatialDimension * row + axis];
+            productionCallShadowBuffer[baseIndex + 3 + axis] +=
+                proofLocalAreaRows[kProductionSpatialDimension * row + axis];
+            productionCallShadowBuffer[baseIndex + 6 + axis] +=
+                proofLocalVolumeRows[kProductionSpatialDimension * row + axis];
         }
     }
     const double scatterDifference =
@@ -905,6 +956,18 @@ int run_proof()
                                                   forceResult.fArea),
                           max_abs_component_delta(scatteredVolume,
                                                   forceResult.fVolume)));
+    const double productionShadowScatterDifference =
+        max_production_scatter_delta(productionCallShadowBuffer,
+                                     forceResult.fBend,
+                                     forceResult.fArea,
+                                     forceResult.fVolume);
+    const bool productionCallShadowPassed =
+        allProofSourceOrdersMatchFaceOneRing &&
+        faceOneRing.size() == kProductionRegularControlPointCount &&
+        kProductionDerivativeRowCount == 7 &&
+        kProductionSpatialDimension == 3 &&
+        kProductionForceComponentsPerVertex == 9 &&
+        productionShadowScatterDifference <= kTolerance;
 
     const bool adapterRowsPassed =
         allSourcesMatchFaceOneRing && allMixedRowsDuplicated &&
@@ -912,7 +975,8 @@ int run_proof()
     const bool actualForceRowsPassed =
         finiteForceRows && forceComponentsFinite && nonzeroActualForce &&
         forceSourcesMatchFaceOneRing && scatterDifference <= kTolerance;
-    const bool passed = adapterRowsPassed && actualForceRowsPassed;
+    const bool passed =
+        adapterRowsPassed && actualForceRowsPassed && productionCallShadowPassed;
 
     std::cout << "]";
     std::cout << ",\"summary\":{";
@@ -928,6 +992,31 @@ int run_proof()
     std::cout << ",\"tolerance\":" << kTolerance;
     std::cout << ",\"passed\":"
               << (adapterRowsPassed ? "true" : "false");
+    std::cout << "}";
+    std::cout << ",\"production_call_shadow\":{";
+    std::cout << "\"scope\":\"proof-local shadow of the current regular production call shape; no production route invokes OpenSubdiv\"";
+    std::cout << ",\"not_production_routing\":true";
+    std::cout << ",\"regular_control_point_count\":"
+              << kProductionRegularControlPointCount;
+    std::cout << ",\"input_coordinate_columns\":\"coordOneRingVertices[j] copied from Face::oneRingVertices[j]\"";
+    std::cout << ",\"input_source_ids\":";
+    print_int_vector(faceOneRing);
+    std::cout << ",\"weighted_sample_source_order_matches_input\":"
+              << (allProofSourceOrdersMatchFaceOneRing ? "true" : "false");
+    std::cout << ",\"derivative_row_count\":"
+              << kProductionDerivativeRowCount;
+    std::cout << ",\"local_force_matrix_rows\":"
+              << faceOneRing.size();
+    std::cout << ",\"local_force_matrix_columns\":"
+              << kProductionSpatialDimension;
+    std::cout << ",\"force_components_per_vertex\":"
+              << kProductionForceComponentsPerVertex;
+    std::cout << ",\"scatter_layout\":\"fBend offsets 0..2, fArea offsets 3..5, fVolume offsets 6..8\"";
+    std::cout << ",\"local_row_to_vertex_scatter\":\"row j -> Face::oneRingVertices[j]\"";
+    std::cout << ",\"shadow_scatter_max_abs_difference\":"
+              << productionShadowScatterDifference;
+    std::cout << ",\"matches_current_regular_production_call_shape\":"
+              << (productionCallShadowPassed ? "true" : "false");
     std::cout << "}";
     std::cout << ",\"actual_force_rows\":{";
     std::cout << "\"available\":true";

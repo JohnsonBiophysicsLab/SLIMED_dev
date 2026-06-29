@@ -25,6 +25,8 @@ PRODUCTION_PATHS = (
     Path("src"),
     Path("EXEs"),
     MAKEFILE_PATH,
+    Path(".github"),
+    Path("scripts/verify_pr_ready.sh"),
 )
 
 
@@ -59,6 +61,10 @@ CPP_PROOF_INVARIANTS: tuple[dict[str, str], ...] = (
     {"invariant": "fVolume evidence", "needle": '\\"max_abs_f_volume\\":'},
     {"invariant": "proof-only force algebra", "needle": "proof-only local copy of current bending, area, and volume force sample algebra"},
     {"invariant": "one-ring scatter identity", "needle": '\\"face_one_ring_scatter_identity\\":'},
+    {"invariant": "production-call shadow", "needle": '\\"production_call_shadow\\":{'},
+    {"invariant": "production coordinate input order", "needle": "coordOneRingVertices[j] copied from Face::oneRingVertices[j]"},
+    {"invariant": "production force buffer layout", "needle": "fBend offsets 0..2, fArea offsets 3..5, fVolume offsets 6..8"},
+    {"invariant": "production shadow pass flag", "needle": '\\"matches_current_regular_production_call_shape\\":'},
     {"invariant": "not production routing", "needle": '\\"not_production_routing\\":true'},
 )
 
@@ -149,6 +155,41 @@ ANCHORS: tuple[Anchor, ...] = (
         "The C++ proof records Face::oneRingVertices scatter identity.",
     ),
     Anchor(
+        "c++ proof",
+        "production-call shadow",
+        CPP_PROOF_PATH,
+        '\\"production_call_shadow\\":{',
+        "The C++ proof emits proof-local evidence matching the current regular production-call shape.",
+    ),
+    Anchor(
+        "c++ proof",
+        "production input order",
+        CPP_PROOF_PATH,
+        "coordOneRingVertices[j] copied from Face::oneRingVertices[j]",
+        "The shadow evidence preserves the current production coordinate input order.",
+    ),
+    Anchor(
+        "c++ proof",
+        "production local force matrix shape",
+        CPP_PROOF_PATH,
+        '\\"local_force_matrix_rows\\":',
+        "The shadow evidence records the 12x3 local force-row shape used before scatter.",
+    ),
+    Anchor(
+        "c++ proof",
+        "production force buffer layout",
+        CPP_PROOF_PATH,
+        "fBend offsets 0..2, fArea offsets 3..5, fVolume offsets 6..8",
+        "The shadow evidence records the current 9-component vertex force-buffer layout.",
+    ),
+    Anchor(
+        "c++ proof",
+        "production shadow pass flag",
+        CPP_PROOF_PATH,
+        '\\"matches_current_regular_production_call_shape\\":',
+        "The emitted report fails if the proof-local production-call shadow does not match.",
+    ),
+    Anchor(
         "wrapper",
         "explicit root gate",
         WRAPPER_PATH,
@@ -182,6 +223,13 @@ ANCHORS: tuple[Anchor, ...] = (
         DOC_PATH,
         "does not add a Makefile target",
         "The doc states that default build and production routing are unchanged.",
+    ),
+    Anchor(
+        "docs",
+        "production shadow documented",
+        DOC_PATH,
+        "Production-Call Shadow Evidence",
+        "The doc records that this lane compares against production call shape without routing production through OpenSubdiv.",
     ),
 )
 
@@ -224,8 +272,10 @@ def production_leaks(root: Path) -> list[str]:
         files: list[Path]
         if full_path.is_dir():
             files = [candidate for candidate in full_path.rglob("*") if candidate.is_file()]
-        else:
+        elif full_path.is_file():
             files = [full_path]
+        else:
+            continue
         for candidate in files:
             text = read_text(candidate)
             for line_number, line in enumerate(text.splitlines(), start=1):
