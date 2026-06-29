@@ -46,6 +46,11 @@ class OpenSubdivRegularCppAdapterProofInventoryTest(unittest.TestCase):
         self.assertIn("default dependency unchanged", invariants)
         self.assertIn("no production route installed", invariants)
         self.assertIn("production helper dry-run pass flag", invariants)
+        self.assertIn("visible observable dry run", invariants)
+        self.assertIn("visible observable production API", invariants)
+        self.assertIn("visible area evidence", invariants)
+        self.assertIn("legacy visible volume evidence", invariants)
+        self.assertIn("visible observable pass flag", invariants)
         self.assertIn("not production routing", invariants)
         for needle in invariants.values():
             self.assertIn(needle, source)
@@ -75,6 +80,18 @@ class OpenSubdivRegularCppAdapterProofInventoryTest(unittest.TestCase):
         self.assertIn("route_installed_in_production", source)
         self.assertIn("max_force_row_difference_vs_proof_local_formula", source)
         self.assertIn("matches_proof_local_formula_rows", source)
+
+    def test_cpp_proof_covers_regular_visible_observable_dry_run(self):
+        source = (inventory.repo_root() / inventory.CPP_PROOF_PATH).read_text(encoding="utf-8")
+
+        self.assertIn('\\"visible_observable_dry_run\\":{', source)
+        self.assertIn("run_regular_visible_observable_dry_run", source)
+        self.assertIn("Mesh::calculate_element_area_volume regular 12-control path", source)
+        self.assertIn("productionMesh.calculate_element_area_volume()", source)
+        self.assertIn("legacy_visible_volume", source)
+        self.assertIn("force_fixture_full_dot_volume", source)
+        self.assertIn("max_area_volume_difference_vs_production_regular_path", source)
+        self.assertIn("matches_production_regular_area_volume", source)
 
     def test_wrapper_is_explicit_opensubdiv_root_only(self):
         source = (inventory.repo_root() / inventory.WRAPPER_PATH).read_text(encoding="utf-8")

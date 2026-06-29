@@ -1,8 +1,8 @@
 # OpenSubdiv Regular Adapter Proof
 
 Date: 2026-06-29.
-Baseline: PR #79 merge commit
-`a84c25284e843c14b0bc2e98b9e85dd0c2b9596f`.
+Baseline: PR #80 merge commit
+`099ba2b80baa20105a5db7c76a7879ecb6b36f66`.
 
 This is a docs/scripts/tests/experiments-only proof lane. It does not change
 production C++ behavior, default `make` or test behavior, OpenSubdiv dependency
@@ -62,7 +62,12 @@ per-vertex scatter layout. After PR #79, the report also emits
 `Mesh::element_energy_force_regular` helper with the OpenSubdiv-derived regular
 rows installed only on a local `Param::shapeFunctions` instance. That dry-run
 compares the live helper output against the proof-local force algebra rows and
-reports the maximum force-row and scalar differences.
+reports the maximum force-row and scalar differences. This lane adds
+`visible_observable_dry_run` as a second proof-local dry-run that calls the
+current regular `Mesh::calculate_element_area_volume` output path with the same
+OpenSubdiv-derived rows installed only on a local `Param`, then compares
+visible regular area and legacy visible-volume values against proof-local row
+evaluation.
 
 This C++ harness does not add a Makefile target, default dependency,
 production route, production include, public SLIMED signature, or OpenSubdiv
@@ -107,6 +112,26 @@ real production face through OpenSubdiv, does not alter the helper signature,
 and does not establish serial/OpenMP routed accumulation or output-visible
 state parity.
 
+## Visible Observable Dry-Run Evidence
+
+The C++ report emits `visible_observable_dry_run` as prerequisite
+output-visible evidence for the current regular area/volume path. The harness
+constructs a local mesh, installs the OpenSubdiv-derived regular rows only on
+that local `Param`, calls the current regular 12-control
+`Mesh::calculate_element_area_volume` path, and compares:
+
+- proof-local area against production regular `Face::elementArea`;
+- proof-local `legacy_visible_volume` against production regular
+  `Face::elementVolume`;
+- the force fixture's full-dot volume as a separately labeled value; and
+- a pass flag and maximum area/volume difference.
+
+The `legacy_visible_volume` label is intentional: the current production
+regular area/volume path preserves its existing x-component quadrature
+convention for volume. This evidence characterizes that visible output; it does
+not redefine volume semantics, prove scientific equivalence, or approve routing
+production faces through OpenSubdiv.
+
 ## Proof Boundary
 
 For the regular lattice fixture, the report remaps OpenSubdiv stencil rows into
@@ -143,7 +168,10 @@ The report records all of the following as machine-readable JSON:
   and
 - proof-local production-helper dry-run parity against
   `Mesh::element_energy_force_regular` using OpenSubdiv-derived regular rows in
-  a local `Param`.
+  a local `Param`; and
+- proof-local visible observable dry-run parity for regular area and current
+  legacy visible volume using OpenSubdiv-derived regular rows in a local
+  `Param`.
 
 This proves an experimental adapter boundary can produce the reviewable
 weighted-sample contract for the regular fixture. It does not approve any
@@ -153,5 +181,6 @@ production route to consume OpenSubdiv-derived rows.
 
 Before production routing can change, a later reviewed PR must still compare
 OpenSubdiv-derived rows against routed production call timing and scatter in
-the real C++ route, including output-visible state and serial/OpenMP
-accumulation behavior. This proof is prerequisite evidence only.
+the real C++ route, including output-visible state beyond this regular
+area/volume characterization and serial/OpenMP accumulation behavior. This
+proof is prerequisite evidence only.
