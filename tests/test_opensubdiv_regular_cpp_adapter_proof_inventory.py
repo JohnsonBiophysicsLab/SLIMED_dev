@@ -30,6 +30,12 @@ class OpenSubdivRegularCppAdapterProofInventoryTest(unittest.TestCase):
         self.assertIn("s=v,t=w convention", invariants)
         self.assertIn("seven derivative rows", invariants)
         self.assertIn("duplicated mixed row convention", invariants)
+        self.assertIn("actual force rows", invariants)
+        self.assertIn("fBend evidence", invariants)
+        self.assertIn("fArea evidence", invariants)
+        self.assertIn("fVolume evidence", invariants)
+        self.assertIn("proof-only force algebra", invariants)
+        self.assertIn("one-ring scatter identity", invariants)
         self.assertIn("not production routing", invariants)
         for needle in invariants.values():
             self.assertIn(needle, source)

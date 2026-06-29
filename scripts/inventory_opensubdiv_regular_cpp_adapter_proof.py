@@ -53,6 +53,12 @@ CPP_PROOF_INVARIANTS: tuple[dict[str, str], ...] = (
     {"invariant": "s=v,t=w convention", "needle": '\\"coordinate_mapping\\":\\"s=v,t=w\\"'},
     {"invariant": "seven derivative rows", "needle": '\\"adapter_row_count\\":7'},
     {"invariant": "duplicated mixed row convention", "needle": "MixedDerivativeWV"},
+    {"invariant": "actual force rows", "needle": '\\"actual_force_rows\\":{'},
+    {"invariant": "fBend evidence", "needle": '\\"max_abs_f_bend\\":'},
+    {"invariant": "fArea evidence", "needle": '\\"max_abs_f_area\\":'},
+    {"invariant": "fVolume evidence", "needle": '\\"max_abs_f_volume\\":'},
+    {"invariant": "proof-only force algebra", "needle": "proof-only local copy of current bending, area, and volume force sample algebra"},
+    {"invariant": "one-ring scatter identity", "needle": '\\"face_one_ring_scatter_identity\\":'},
     {"invariant": "not production routing", "needle": '\\"not_production_routing\\":true'},
 )
 
@@ -120,6 +126,27 @@ ANCHORS: tuple[Anchor, ...] = (
         CPP_PROOF_PATH,
         "stencil.GetDuvWeights(),",
         "The C++ proof maps OpenSubdiv duv into both mixed rows.",
+    ),
+    Anchor(
+        "c++ proof",
+        "actual force rows",
+        CPP_PROOF_PATH,
+        '\\"actual_force_rows\\"',
+        "The C++ proof emits actual fBend/fArea/fVolume force-row evidence.",
+    ),
+    Anchor(
+        "c++ proof",
+        "proof-only force algebra",
+        CPP_PROOF_PATH,
+        "proof-only local copy of current bending, area, and volume force sample algebra",
+        "The force formula evidence is explicitly scoped to the experimental proof.",
+    ),
+    Anchor(
+        "c++ proof",
+        "one-ring scatter identity",
+        CPP_PROOF_PATH,
+        "face_one_ring_scatter_identity",
+        "The C++ proof records Face::oneRingVertices scatter identity.",
     ),
     Anchor(
         "wrapper",
