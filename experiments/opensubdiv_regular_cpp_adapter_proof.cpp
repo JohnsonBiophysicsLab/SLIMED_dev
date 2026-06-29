@@ -135,6 +135,18 @@ struct ProductionDryRunResult
     bool matchesProofLocalRows = false;
 };
 
+struct VisibleObservableResult
+{
+    double area = 0.0;
+    double fullDotVolume = 0.0;
+    double legacyVisibleVolume = 0.0;
+    double productionArea = 0.0;
+    double productionLegacyVisibleVolume = 0.0;
+    double maxAreaVolumeDifference = 0.0;
+    bool finite = false;
+    bool matchesProductionAreaVolume = false;
+};
+
 void append_face(MeshCase &mesh, int a, int b, int c)
 {
     mesh.vertsPerFace.push_back(3);
@@ -567,6 +579,20 @@ void accumulate_area_volume(const WeightedSampleProof &proof,
     params.vol += (1.0 / 6.0) * quadratureCoeff * dot(x, xa);
 }
 
+void accumulate_visible_observable_sample(const WeightedSampleProof &proof,
+                                          double quadratureCoeff,
+                                          VisibleObservableResult &result)
+{
+    const Vec3d x = make_vec(proof.evaluatedRows[0]);
+    const Vec3d a1 = make_vec(proof.evaluatedRows[1]);
+    const Vec3d a2 = make_vec(proof.evaluatedRows[2]);
+    const Vec3d xa = cross(a1, a2);
+    const double sqa = norm(xa);
+    result.area += 0.5 * quadratureCoeff * sqa;
+    result.fullDotVolume += (1.0 / 6.0) * quadratureCoeff * dot(x, xa);
+    result.legacyVisibleVolume += (1.0 / 6.0) * quadratureCoeff * x.x * xa.x;
+}
+
 bool accumulate_actual_force_sample(const WeightedSampleProof &proof,
                                     double quadratureCoeff,
                                     const ActualForceParams &params,
@@ -912,6 +938,70 @@ ProductionDryRunResult run_regular_production_helper_dry_run(
     return result;
 }
 
+VisibleObservableResult run_regular_visible_observable_dry_run(
+    const MeshCase &mesh,
+    const std::vector<int> &faceOneRing,
+    const std::vector<WeightedSampleProof> &proofs,
+    const std::array<RegularSample, 3> &samples)
+{
+    VisibleObservableResult result;
+    for (int sampleIndex = 0; sampleIndex < static_cast<int>(proofs.size());
+         ++sampleIndex)
+    {
+        accumulate_visible_observable_sample(proofs[sampleIndex],
+                                             samples[sampleIndex].weight,
+                                             result);
+    }
+
+    Param param;
+    param.VERBOSE_MODE = false;
+    param.boundaryCondition = BoundaryType::Periodic;
+    Mesh productionMesh(param);
+    productionMesh.param.shapeFunctions.clear();
+    productionMesh.param.shapeFunctions.reserve(proofs.size());
+    productionMesh.param.gaussQuadratureCoeff =
+        Matrix(static_cast<int>(samples.size()), 1, true);
+    for (int sampleIndex = 0; sampleIndex < static_cast<int>(proofs.size());
+         ++sampleIndex)
+    {
+        productionMesh.param.shapeFunctions.push_back(
+            make_shape_function_matrix(proofs[sampleIndex]));
+        productionMesh.param.gaussQuadratureCoeff.set(sampleIndex,
+                                                      0,
+                                                      samples[sampleIndex].weight);
+    }
+
+    productionMesh.vertices.reserve(mesh.points.size());
+    for (int vertexIndex = 0; vertexIndex < static_cast<int>(mesh.points.size());
+         ++vertexIndex)
+    {
+        const Point &point = mesh.points[vertexIndex];
+        productionMesh.vertices.emplace_back(vertexIndex, point.x, point.y, point.z);
+    }
+    productionMesh.faces.emplace_back();
+    Face &face = productionMesh.faces.back();
+    face.index = mesh.sampleFace;
+    face.oneRingVertices = faceOneRing;
+    face.isGhost = false;
+    productionMesh.calculate_element_area_volume();
+
+    result.productionArea = productionMesh.faces.front().elementArea;
+    result.productionLegacyVisibleVolume =
+        productionMesh.faces.front().elementVolume;
+    result.maxAreaVolumeDifference =
+        std::max(std::abs(result.area - result.productionArea),
+                 std::abs(result.legacyVisibleVolume -
+                          result.productionLegacyVisibleVolume));
+    result.finite = std::isfinite(result.area) &&
+                    std::isfinite(result.fullDotVolume) &&
+                    std::isfinite(result.legacyVisibleVolume) &&
+                    std::isfinite(result.productionArea) &&
+                    std::isfinite(result.productionLegacyVisibleVolume);
+    result.matchesProductionAreaVolume =
+        result.finite && result.maxAreaVolumeDifference <= kTolerance;
+    return result;
+}
+
 int run_proof()
 {
     const MeshCase mesh = make_regular_lattice_case();
@@ -1107,6 +1197,8 @@ int run_proof()
                                               samples,
                                               forceParams,
                                               forceResult);
+    const VisibleObservableResult visibleObservables =
+        run_regular_visible_observable_dry_run(mesh, faceOneRing, proofs, samples);
 
     std::vector<double> proofLocalBendRows(faceOneRing.size() * kProductionSpatialDimension, 0.0);
     std::vector<double> proofLocalAreaRows(faceOneRing.size() * kProductionSpatialDimension, 0.0);
@@ -1169,7 +1261,8 @@ int run_proof()
         forceSourcesMatchFaceOneRing && scatterDifference <= kTolerance;
     const bool passed =
         adapterRowsPassed && actualForceRowsPassed && productionCallShadowPassed &&
-        productionDryRun.matchesProofLocalRows;
+        productionDryRun.matchesProofLocalRows &&
+        visibleObservables.matchesProductionAreaVolume;
 
     std::cout << "]";
     std::cout << ",\"summary\":{";
@@ -1236,6 +1329,33 @@ int run_proof()
     std::cout << ",\"finite\":" << (productionDryRun.finite ? "true" : "false");
     std::cout << ",\"matches_proof_local_formula_rows\":"
               << (productionDryRun.matchesProofLocalRows ? "true" : "false");
+    std::cout << "}";
+    std::cout << ",\"visible_observable_dry_run\":{";
+    std::cout << "\"scope\":\"proof-local regular area/volume observable comparison using OpenSubdiv-derived rows on a local Param only\"";
+    std::cout << ",\"not_production_routing\":true";
+    std::cout << ",\"production_api\":\"Mesh::calculate_element_area_volume regular 12-control path\"";
+    std::cout << ",\"open_subdiv_rows_used_as_local_shape_functions\":true";
+    std::cout << ",\"default_build_dependency_added\":false";
+    std::cout << ",\"route_installed_in_production\":false";
+    std::cout << ",\"regular_control_point_count\":"
+              << kProductionRegularControlPointCount;
+    std::cout << ",\"sample_count\":" << proofs.size();
+    std::cout << ",\"area\":" << visibleObservables.area;
+    std::cout << ",\"production_area\":"
+              << visibleObservables.productionArea;
+    std::cout << ",\"legacy_visible_volume\":"
+              << visibleObservables.legacyVisibleVolume;
+    std::cout << ",\"production_legacy_visible_volume\":"
+              << visibleObservables.productionLegacyVisibleVolume;
+    std::cout << ",\"force_fixture_full_dot_volume\":"
+              << visibleObservables.fullDotVolume;
+    std::cout << ",\"volume_note\":\"legacy visible volume preserves current regular area/volume x-component quadrature behavior; force fixture volume remains separately reported\"";
+    std::cout << ",\"max_area_volume_difference_vs_production_regular_path\":"
+              << visibleObservables.maxAreaVolumeDifference;
+    std::cout << ",\"finite\":"
+              << (visibleObservables.finite ? "true" : "false");
+    std::cout << ",\"matches_production_regular_area_volume\":"
+              << (visibleObservables.matchesProductionAreaVolume ? "true" : "false");
     std::cout << "}";
     std::cout << ",\"actual_force_rows\":{";
     std::cout << "\"available\":true";

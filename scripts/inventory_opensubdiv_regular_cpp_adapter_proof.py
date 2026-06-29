@@ -71,6 +71,11 @@ CPP_PROOF_INVARIANTS: tuple[dict[str, str], ...] = (
     {"invariant": "default dependency unchanged", "needle": '\\"default_build_dependency_added\\":false'},
     {"invariant": "no production route installed", "needle": '\\"route_installed_in_production\\":false'},
     {"invariant": "production helper dry-run pass flag", "needle": '\\"matches_proof_local_formula_rows\\":'},
+    {"invariant": "visible observable dry run", "needle": '\\"visible_observable_dry_run\\":{'},
+    {"invariant": "visible observable production API", "needle": "Mesh::calculate_element_area_volume regular 12-control path"},
+    {"invariant": "visible area evidence", "needle": '\\"production_area\\":'},
+    {"invariant": "legacy visible volume evidence", "needle": '\\"production_legacy_visible_volume\\":'},
+    {"invariant": "visible observable pass flag", "needle": '\\"matches_production_regular_area_volume\\":'},
     {"invariant": "not production routing", "needle": '\\"not_production_routing\\":true'},
 )
 
@@ -224,6 +229,27 @@ ANCHORS: tuple[Anchor, ...] = (
         "The emitted report fails if the production helper dry run diverges from the proof rows.",
     ),
     Anchor(
+        "c++ proof",
+        "visible observable dry run",
+        CPP_PROOF_PATH,
+        '\\"visible_observable_dry_run\\":{',
+        "The C++ proof emits proof-local area/volume observable evidence.",
+    ),
+    Anchor(
+        "c++ proof",
+        "visible observable production API",
+        CPP_PROOF_PATH,
+        "Mesh::calculate_element_area_volume regular 12-control path",
+        "The observable evidence names the current regular area/volume output path.",
+    ),
+    Anchor(
+        "c++ proof",
+        "legacy visible volume boundary",
+        CPP_PROOF_PATH,
+        "legacy visible volume preserves current regular area/volume x-component quadrature behavior",
+        "The report labels the current legacy visible-volume convention precisely.",
+    ),
+    Anchor(
         "wrapper",
         "explicit root gate",
         WRAPPER_PATH,
@@ -278,6 +304,13 @@ ANCHORS: tuple[Anchor, ...] = (
         DOC_PATH,
         "Production-Helper Dry-Run Evidence",
         "The doc records the proof-local production helper dry-run boundary.",
+    ),
+    Anchor(
+        "docs",
+        "visible observable dry run documented",
+        DOC_PATH,
+        "Visible Observable Dry-Run Evidence",
+        "The doc records proof-local output-visible area/volume evidence.",
     ),
 )
 
