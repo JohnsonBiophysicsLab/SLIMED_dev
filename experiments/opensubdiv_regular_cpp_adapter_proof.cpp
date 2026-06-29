@@ -79,6 +79,42 @@ struct WeightedSampleProof
     }
 };
 
+struct Vec3d
+{
+    double x = 0.0;
+    double y = 0.0;
+    double z = 0.0;
+};
+
+struct Mat3d
+{
+    double v[3][3] = {{0.0, 0.0, 0.0},
+                      {0.0, 0.0, 0.0},
+                      {0.0, 0.0, 0.0}};
+};
+
+struct ActualForceParams
+{
+    double kCurv = 47.5;
+    double spontCurv = 0.18;
+    double uSurf = 130.0;
+    double area0 = 2.75;
+    double area = 0.0;
+    double uVol = 65.0;
+    double vol0 = 0.82;
+    double vol = 0.0;
+};
+
+struct ActualForceResult
+{
+    double meanCurv = 0.0;
+    double eBend = 0.0;
+    Vec3d normVector;
+    std::vector<double> fBend;
+    std::vector<double> fArea;
+    std::vector<double> fVolume;
+};
+
 void append_face(MeshCase &mesh, int a, int b, int c)
 {
     mesh.vertsPerFace.push_back(3);
@@ -123,6 +159,212 @@ MeshCase make_regular_lattice_case()
 std::vector<int> regular_lattice_face_one_ring_source_ids()
 {
     return {9, 15, 10, 16, 22, 11, 17, 23, 29, 18, 24, 30};
+}
+
+Vec3d make_vec(double x, double y, double z)
+{
+    Vec3d out;
+    out.x = x;
+    out.y = y;
+    out.z = z;
+    return out;
+}
+
+Vec3d make_vec(const std::array<double, 3> &values)
+{
+    return make_vec(values[0], values[1], values[2]);
+}
+
+double get_axis(const Vec3d &value, int axis)
+{
+    if (axis == 0)
+    {
+        return value.x;
+    }
+    return axis == 1 ? value.y : value.z;
+}
+
+void set_axis(Vec3d &value, int axis, double component)
+{
+    if (axis == 0)
+    {
+        value.x = component;
+    }
+    else if (axis == 1)
+    {
+        value.y = component;
+    }
+    else
+    {
+        value.z = component;
+    }
+}
+
+Vec3d operator+(const Vec3d &lhs, const Vec3d &rhs)
+{
+    return make_vec(lhs.x + rhs.x, lhs.y + rhs.y, lhs.z + rhs.z);
+}
+
+Vec3d operator-(const Vec3d &lhs, const Vec3d &rhs)
+{
+    return make_vec(lhs.x - rhs.x, lhs.y - rhs.y, lhs.z - rhs.z);
+}
+
+Vec3d operator*(const Vec3d &value, double scale)
+{
+    return make_vec(value.x * scale, value.y * scale, value.z * scale);
+}
+
+Vec3d operator*(double scale, const Vec3d &value)
+{
+    return value * scale;
+}
+
+Vec3d &operator+=(Vec3d &lhs, const Vec3d &rhs)
+{
+    lhs.x += rhs.x;
+    lhs.y += rhs.y;
+    lhs.z += rhs.z;
+    return lhs;
+}
+
+double dot(const Vec3d &lhs, const Vec3d &rhs)
+{
+    return lhs.x * rhs.x + lhs.y * rhs.y + lhs.z * rhs.z;
+}
+
+Vec3d cross(const Vec3d &lhs, const Vec3d &rhs)
+{
+    return make_vec(lhs.y * rhs.z - lhs.z * rhs.y,
+                    lhs.z * rhs.x - lhs.x * rhs.z,
+                    lhs.x * rhs.y - lhs.y * rhs.x);
+}
+
+double norm(const Vec3d &value)
+{
+    return std::sqrt(dot(value, value));
+}
+
+Vec3d normalized(const Vec3d &value)
+{
+    const double length = norm(value);
+    if (length == 0.0)
+    {
+        return Vec3d();
+    }
+    return value * (1.0 / length);
+}
+
+bool finite_vec(const Vec3d &value)
+{
+    return std::isfinite(value.x) && std::isfinite(value.y) &&
+           std::isfinite(value.z);
+}
+
+Mat3d kron(const Vec3d &lhs, const Vec3d &rhs)
+{
+    Mat3d out;
+    for (int row = 0; row < 3; ++row)
+    {
+        for (int col = 0; col < 3; ++col)
+        {
+            out.v[row][col] = get_axis(lhs, row) * get_axis(rhs, col);
+        }
+    }
+    return out;
+}
+
+Mat3d &operator+=(Mat3d &lhs, const Mat3d &rhs)
+{
+    for (int row = 0; row < 3; ++row)
+    {
+        for (int col = 0; col < 3; ++col)
+        {
+            lhs.v[row][col] += rhs.v[row][col];
+        }
+    }
+    return lhs;
+}
+
+Mat3d operator*(const Mat3d &value, double scale)
+{
+    Mat3d out;
+    for (int row = 0; row < 3; ++row)
+    {
+        for (int col = 0; col < 3; ++col)
+        {
+            out.v[row][col] = value.v[row][col] * scale;
+        }
+    }
+    return out;
+}
+
+Vec3d row_vec_times_matrix(const Vec3d &row, const Mat3d &matrix)
+{
+    Vec3d out;
+    for (int col = 0; col < 3; ++col)
+    {
+        double value = 0.0;
+        for (int axis = 0; axis < 3; ++axis)
+        {
+            value += get_axis(row, axis) * matrix.v[axis][col];
+        }
+        set_axis(out, col, value);
+    }
+    return out;
+}
+
+void add_force(std::vector<double> &target,
+               int vertex,
+               const Vec3d &force,
+               double scale)
+{
+    target[3 * vertex] += scale * force.x;
+    target[3 * vertex + 1] += scale * force.y;
+    target[3 * vertex + 2] += scale * force.z;
+}
+
+double max_abs_component(const std::vector<double> &values)
+{
+    double out = 0.0;
+    for (double value : values)
+    {
+        out = std::max(out, std::abs(value));
+    }
+    return out;
+}
+
+double l1_component_sum(const std::vector<double> &values)
+{
+    double out = 0.0;
+    for (double value : values)
+    {
+        out += std::abs(value);
+    }
+    return out;
+}
+
+double max_abs_component_delta(const std::vector<double> &lhs,
+                               const std::vector<double> &rhs)
+{
+    double out = 0.0;
+    for (int i = 0; i < static_cast<int>(lhs.size()); ++i)
+    {
+        out = std::max(out, std::abs(lhs[i] - rhs[i]));
+    }
+    return out;
+}
+
+bool all_finite(const std::vector<double> &values)
+{
+    for (double value : values)
+    {
+        if (!std::isfinite(value))
+        {
+            return false;
+        }
+    }
+    return true;
 }
 
 std::array<RegularSample, 3> frozen_regular_samples()
@@ -240,6 +482,156 @@ WeightedSampleProof adapt_regular_sample(const MeshCase &mesh,
     return proof;
 }
 
+void accumulate_area_volume(const WeightedSampleProof &proof,
+                            double quadratureCoeff,
+                            ActualForceParams &params)
+{
+    const Vec3d x = make_vec(proof.evaluatedRows[0]);
+    const Vec3d a1 = make_vec(proof.evaluatedRows[1]);
+    const Vec3d a2 = make_vec(proof.evaluatedRows[2]);
+    const Vec3d xa = cross(a1, a2);
+    const double sqa = norm(xa);
+    params.area += 0.5 * quadratureCoeff * sqa;
+    params.vol += (1.0 / 6.0) * quadratureCoeff * dot(x, xa);
+}
+
+bool accumulate_actual_force_sample(const WeightedSampleProof &proof,
+                                    double quadratureCoeff,
+                                    const ActualForceParams &params,
+                                    ActualForceResult &result,
+                                    std::set<int> &forceSourceIds)
+{
+    const Vec3d x = make_vec(proof.evaluatedRows[0]);
+    const Vec3d a_1 = make_vec(proof.evaluatedRows[1]);
+    const Vec3d a_2 = make_vec(proof.evaluatedRows[2]);
+    const Vec3d a_11 = make_vec(proof.evaluatedRows[3]);
+    const Vec3d a_22 = make_vec(proof.evaluatedRows[4]);
+    const Vec3d a_12 = make_vec(proof.evaluatedRows[5]);
+    const Vec3d a_21 = make_vec(proof.evaluatedRows[6]);
+
+    const Vec3d xa = cross(a_1, a_2);
+    const double sqa = norm(xa);
+    if (sqa == 0.0)
+    {
+        return false;
+    }
+    const double tmpSqaSqrInv = 1.0 / sqa / sqa;
+
+    const Vec3d xa_1 = cross(a_11, a_2) + cross(a_1, a_21);
+    const Vec3d xa_2 = cross(a_12, a_2) + cross(a_1, a_22);
+    const double sqa_1 = dot(xa, xa_1) / sqa;
+    const double sqa_2 = dot(xa, xa_2) / sqa;
+    const Vec3d a_3 = xa * (1.0 / sqa);
+    const Vec3d a_31 = (xa_1 * sqa - xa * sqa_1) * tmpSqaSqrInv;
+    const Vec3d a_32 = (xa_2 * sqa - xa * sqa_2) * tmpSqaSqrInv;
+
+    const Vec3d tmpA2x3 = cross(a_2, a_3);
+    const Vec3d tmpA3x1 = cross(a_3, a_1);
+    const Vec3d a1 = tmpA2x3 * (1.0 / sqa);
+    const Vec3d a2 = tmpA3x1 * (1.0 / sqa);
+    const Vec3d a11 =
+        ((cross(a_21, a_3) + cross(a_2, a_31)) * sqa -
+         tmpA2x3 * sqa_1) *
+        tmpSqaSqrInv;
+    const Vec3d a12 =
+        ((cross(a_22, a_3) + cross(a_2, a_32)) * sqa -
+         tmpA2x3 * sqa_2) *
+        tmpSqaSqrInv;
+    const Vec3d a21 =
+        ((cross(a_31, a_1) + cross(a_3, a_11)) * sqa -
+         tmpA3x1 * sqa_1) *
+        tmpSqaSqrInv;
+    const Vec3d a22 =
+        ((cross(a_32, a_1) + cross(a_3, a_12)) * sqa -
+         tmpA3x1 * sqa_2) *
+        tmpSqaSqrInv;
+
+    const double hCurv = 0.5 * (dot(a1, a_31) + dot(a2, a_32));
+    const double tmpConstF =
+        -params.kCurv * (2.0 * hCurv - params.spontCurv);
+    const double tmpConstL =
+        params.kCurv * 0.5 * std::pow(2.0 * hCurv - params.spontCurv, 2.0);
+    const Vec3d n1Be =
+        (a_31 * dot(a1, a1) + a_32 * dot(a1, a2)) * tmpConstF +
+        a1 * tmpConstL;
+    const Vec3d n2Be =
+        (a_31 * dot(a2, a1) + a_32 * dot(a2, a2)) * tmpConstF +
+        a2 * tmpConstL;
+    const Vec3d m1Be = a1 * (-tmpConstF);
+    const Vec3d m2Be = a2 * (-tmpConstF);
+
+    const double areaScale =
+        (params.uSurf == 0.0 || params.area0 == 0.0)
+            ? 0.0
+            : (params.uSurf / params.area0) * (params.area - params.area0);
+    const Vec3d n1Cons = a1 * areaScale;
+    const Vec3d n2Cons = a2 * areaScale;
+
+    const double tmpEvol =
+        (params.uVol == 0.0 || params.vol0 == 0.0)
+            ? 0.0
+            : (params.uVol / params.vol0) * (params.vol - params.vol0) / 3.0;
+    const Vec3d n1Conv =
+        (a1 * dot(x, a_3) - a_3 * dot(x, a1)) * tmpEvol;
+    const Vec3d n2Conv =
+        (a2 * dot(x, a_3) - a_3 * dot(x, a2)) * tmpEvol;
+
+    const double eBendTmp =
+        0.5 * params.kCurv * sqa *
+        std::pow(2.0 * hCurv - params.spontCurv, 2.0);
+    const double halfCoeff = 0.5 * quadratureCoeff;
+
+    for (int col = 0; col < static_cast<int>(proof.sourceIds.size()); ++col)
+    {
+        const int vertex = proof.sourceIds[col];
+        forceSourceIds.insert(vertex);
+        const double sf0 = proof.rowWeights[0][col];
+        const double sf1 = proof.rowWeights[1][col];
+        const double sf2 = proof.rowWeights[2][col];
+        const double sf3 = proof.rowWeights[3][col];
+        const double sf4 = proof.rowWeights[4][col];
+        const double sf5 = proof.rowWeights[5][col];
+        const double sf6 = proof.rowWeights[6][col];
+
+        Mat3d da1;
+        da1 += kron(a1, a_3) * -sf3;
+        da1 += kron(a11, a_3) * -sf1;
+        da1 += kron(a1, a_31) * -sf1;
+        da1 += kron(a2, a_3) * -sf6;
+        da1 += kron(a21, a_3) * -sf2;
+        da1 += kron(a2, a_31) * -sf2;
+
+        Mat3d da2;
+        da2 += kron(a1, a_3) * -sf5;
+        da2 += kron(a12, a_3) * -sf1;
+        da2 += kron(a1, a_32) * -sf1;
+        da2 += kron(a2, a_3) * -sf4;
+        da2 += kron(a22, a_3) * -sf2;
+        da2 += kron(a2, a_32) * -sf2;
+
+        Vec3d tempfBe = row_vec_times_matrix(m1Be, da1) +
+                        row_vec_times_matrix(m2Be, da2) +
+                        n1Be * sf1 + n2Be * sf2;
+        tempfBe = tempfBe * -sqa;
+
+        const Vec3d tempfCons = (n1Cons * sf1 + n2Cons * sf2) * -sqa;
+        const Vec3d tempfConv =
+            (n1Conv * sf1 + n2Conv * sf2 + a_3 * (tmpEvol * sf0)) *
+            -sqa;
+
+        add_force(result.fBend, vertex, tempfBe, halfCoeff);
+        add_force(result.fArea, vertex, tempfCons, halfCoeff);
+        add_force(result.fVolume, vertex, tempfConv, halfCoeff);
+    }
+
+    result.meanCurv += halfCoeff * hCurv;
+    result.eBend += halfCoeff * eBendTmp;
+    result.normVector += a_3 * halfCoeff;
+    return finite_vec(x) && finite_vec(a_1) && finite_vec(a_2) &&
+           finite_vec(a_11) && finite_vec(a_22) && finite_vec(a_12) &&
+           finite_vec(a_21);
+}
+
 std::set<int> stencil_source_set(const Far::LimitStencil &stencil)
 {
     std::set<int> result;
@@ -302,6 +694,11 @@ void print_int_set(const std::set<int> &values)
     std::cout << "]";
 }
 
+void print_vec3(const Vec3d &values)
+{
+    std::cout << "[" << values.x << "," << values.y << "," << values.z << "]";
+}
+
 int run_proof()
 {
     const MeshCase mesh = make_regular_lattice_case();
@@ -351,6 +748,9 @@ int run_proof()
     double maxDuplicateAggregation = 0.0;
     bool allSourcesMatchFaceOneRing = true;
     bool allMixedRowsDuplicated = true;
+    ActualForceParams forceParams;
+    std::vector<WeightedSampleProof> proofs;
+    proofs.reserve(stencils->GetNumStencils());
 
     std::cout << std::setprecision(12);
     std::cout << "{";
@@ -375,6 +775,8 @@ int run_proof()
         Far::LimitStencil stencil = stencils->GetLimitStencil(sampleIndex);
         WeightedSampleProof proof =
             adapt_regular_sample(mesh, stencil, faceOneRing);
+        proofs.push_back(proof);
+        accumulate_area_volume(proof, samples[sampleIndex].weight, forceParams);
 
         const std::array<const float *, 7> rowPtrs = {
             stencil.GetWeights(),
@@ -450,9 +852,67 @@ int run_proof()
         std::cout << "}";
     }
 
+    ActualForceResult forceResult;
+    forceResult.fBend.assign(mesh.numVertices * 3, 0.0);
+    forceResult.fArea.assign(mesh.numVertices * 3, 0.0);
+    forceResult.fVolume.assign(mesh.numVertices * 3, 0.0);
+    std::set<int> forceSourceIds;
+    bool finiteForceRows = true;
+    for (int sampleIndex = 0; sampleIndex < static_cast<int>(proofs.size());
+         ++sampleIndex)
+    {
+        finiteForceRows =
+            accumulate_actual_force_sample(proofs[sampleIndex],
+                                           samples[sampleIndex].weight,
+                                           forceParams,
+                                           forceResult,
+                                           forceSourceIds) &&
+            finiteForceRows;
+    }
+    forceResult.normVector = normalized(forceResult.normVector);
+
+    const bool forceComponentsFinite =
+        all_finite(forceResult.fBend) && all_finite(forceResult.fArea) &&
+        all_finite(forceResult.fVolume) && std::isfinite(forceResult.eBend) &&
+        std::isfinite(forceResult.meanCurv) && finite_vec(forceResult.normVector);
+    const double bendMax = max_abs_component(forceResult.fBend);
+    const double areaMax = max_abs_component(forceResult.fArea);
+    const double volumeMax = max_abs_component(forceResult.fVolume);
+    const bool nonzeroActualForce =
+        bendMax > kTolerance && areaMax > kTolerance && volumeMax > kTolerance;
+    const bool forceSourcesMatchFaceOneRing =
+        same_set(forceSourceIds, faceOneRing);
+
+    std::vector<double> scatteredBend(mesh.numVertices * 3, 0.0);
+    std::vector<double> scatteredArea(mesh.numVertices * 3, 0.0);
+    std::vector<double> scatteredVolume(mesh.numVertices * 3, 0.0);
+    for (int row = 0; row < static_cast<int>(faceOneRing.size()); ++row)
+    {
+        const int sourceId = faceOneRing[row];
+        for (int axis = 0; axis < 3; ++axis)
+        {
+            scatteredBend[3 * sourceId + axis] =
+                forceResult.fBend[3 * sourceId + axis];
+            scatteredArea[3 * sourceId + axis] =
+                forceResult.fArea[3 * sourceId + axis];
+            scatteredVolume[3 * sourceId + axis] =
+                forceResult.fVolume[3 * sourceId + axis];
+        }
+    }
+    const double scatterDifference =
+        std::max(max_abs_component_delta(scatteredBend, forceResult.fBend),
+                 std::max(max_abs_component_delta(scatteredArea,
+                                                  forceResult.fArea),
+                          max_abs_component_delta(scatteredVolume,
+                                                  forceResult.fVolume)));
+
     const bool adapterRowsPassed =
         allSourcesMatchFaceOneRing && allMixedRowsDuplicated &&
         maxAdapterVsStencil <= kTolerance && maxDuplicateAggregation == 0.0;
+    const bool actualForceRowsPassed =
+        finiteForceRows && forceComponentsFinite && nonzeroActualForce &&
+        forceSourcesMatchFaceOneRing && scatterDifference <= kTolerance;
+    const bool passed = adapterRowsPassed && actualForceRowsPassed;
 
     std::cout << "]";
     std::cout << ",\"summary\":{";
@@ -469,12 +929,66 @@ int run_proof()
     std::cout << ",\"passed\":"
               << (adapterRowsPassed ? "true" : "false");
     std::cout << "}";
-    std::cout << ",\"passed\":" << (adapterRowsPassed ? "true" : "false");
+    std::cout << ",\"actual_force_rows\":{";
+    std::cout << "\"available\":true";
+    std::cout << ",\"formula_scope\":\"proof-only local copy of current bending, area, and volume force sample algebra fed by adapter-remapped OpenSubdiv rows\"";
+    std::cout << ",\"not_production_routing\":true";
+    std::cout << ",\"force_source_ids\":";
+    print_int_set(forceSourceIds);
+    std::cout << ",\"force_sources_match_face_one_ring\":"
+              << (forceSourcesMatchFaceOneRing ? "true" : "false");
+    std::cout << ",\"face_one_ring_scatter_identity\":"
+              << (scatterDifference <= kTolerance ? "true" : "false");
+    std::cout << ",\"scatter_max_abs_difference\":" << scatterDifference;
+    std::cout << ",\"area\":" << forceParams.area;
+    std::cout << ",\"volume\":" << forceParams.vol;
+    std::cout << ",\"e_bend\":" << forceResult.eBend;
+    std::cout << ",\"mean_curvature\":" << forceResult.meanCurv;
+    std::cout << ",\"normal\":";
+    print_vec3(forceResult.normVector);
+    std::cout << ",\"max_abs_f_bend\":" << bendMax;
+    std::cout << ",\"max_abs_f_area\":" << areaMax;
+    std::cout << ",\"max_abs_f_volume\":" << volumeMax;
+    std::cout << ",\"l1_f_bend\":" << l1_component_sum(forceResult.fBend);
+    std::cout << ",\"l1_f_area\":" << l1_component_sum(forceResult.fArea);
+    std::cout << ",\"l1_f_volume\":" << l1_component_sum(forceResult.fVolume);
+    std::cout << ",\"finite\":" << (forceComponentsFinite ? "true" : "false");
+    std::cout << ",\"nonzero_actual_force\":"
+              << (nonzeroActualForce ? "true" : "false");
+    std::cout << ",\"rows\":[";
+    for (int row = 0; row < static_cast<int>(faceOneRing.size()); ++row)
+    {
+        const int sourceId = faceOneRing[row];
+        if (row > 0)
+        {
+            std::cout << ",";
+        }
+        std::cout << "{\"local_row\":" << row;
+        std::cout << ",\"source_id\":" << sourceId;
+        std::cout << ",\"f_bend\":";
+        print_vec3(make_vec(forceResult.fBend[3 * sourceId],
+                            forceResult.fBend[3 * sourceId + 1],
+                            forceResult.fBend[3 * sourceId + 2]));
+        std::cout << ",\"f_area\":";
+        print_vec3(make_vec(forceResult.fArea[3 * sourceId],
+                            forceResult.fArea[3 * sourceId + 1],
+                            forceResult.fArea[3 * sourceId + 2]));
+        std::cout << ",\"f_volume\":";
+        print_vec3(make_vec(forceResult.fVolume[3 * sourceId],
+                            forceResult.fVolume[3 * sourceId + 1],
+                            forceResult.fVolume[3 * sourceId + 2]));
+        std::cout << "}";
+    }
+    std::cout << "]";
+    std::cout << ",\"passed\":"
+              << (actualForceRowsPassed ? "true" : "false");
+    std::cout << "}";
+    std::cout << ",\"passed\":" << (passed ? "true" : "false");
     std::cout << "}" << std::endl;
 
     delete stencils;
     delete refiner;
-    return adapterRowsPassed ? 0 : 4;
+    return passed ? 0 : 4;
 }
 }
 

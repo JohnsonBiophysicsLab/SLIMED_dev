@@ -1,8 +1,8 @@
 # OpenSubdiv Regular Adapter Proof
 
 Date: 2026-06-29.
-Baseline: PR #75 merge commit
-`0a495ef0e3ef6370f5e73892b987e356d9bc4f46`.
+Baseline: PR #77 merge commit
+`5abeedfe2caa6080b9d418989dba092d03912e6d`.
 
 This is a scripts/docs/tests-only proof lane. It does not change production C++
 behavior, default `make` or test behavior, OpenSubdiv dependency policy,
@@ -49,6 +49,10 @@ test_only_regular_opensubdiv_cpp_adapter_proof`. It maps OpenSubdiv regular
 limit stencils into a proof-local `LimitSurfaceWeightedSample`-style shape:
 seven rows, original SLIMED source ids, frozen regular sample coordinates,
 `s=v,t=w`, duplicated mixed rows, and deterministic duplicate aggregation.
+It now also feeds those adapter-remapped rows into a proof-only local copy of
+the current regular bending, area, and volume sample algebra and emits finite,
+nonzero `fBend`, `fArea`, and `fVolume` rows plus `Face::oneRingVertices`
+scatter identity.
 
 This C++ harness does not add a Makefile target, default dependency,
 production route, production include, public SLIMED signature, or OpenSubdiv
