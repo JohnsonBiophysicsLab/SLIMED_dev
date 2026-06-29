@@ -52,13 +52,32 @@ seven rows, original SLIMED source ids, frozen regular sample coordinates,
 It now also feeds those adapter-remapped rows into a proof-only local copy of
 the current regular bending, area, and volume sample algebra and emits finite,
 nonzero `fBend`, `fArea`, and `fVolume` rows plus `Face::oneRingVertices`
-scatter identity.
+scatter identity. The report also includes a production-call shadow section
+that compares the proof-local OpenSubdiv-derived rows against the current
+regular production call shape: 12 one-ring coordinate columns in
+`Face::oneRingVertices[j]` order, seven derivative rows, 12x3 local
+`fBend`/`fArea`/`fVolume` force matrices, and the current 9-component
+per-vertex scatter layout.
 
 This C++ harness does not add a Makefile target, default dependency,
 production route, production include, public SLIMED signature, or OpenSubdiv
 type at any production call site. It is evidence that the regular rows can be
 adapted into the existing weighted-sample contract, not approval to route
 production faces through OpenSubdiv.
+
+## Production-Call Shadow Evidence
+
+The C++ report emits `production_call_shadow` as an explicitly proof-local
+comparison against the current regular production-call shape. It verifies that
+the OpenSubdiv-derived weighted rows are keyed in the same source-id order that
+production passes as `coordOneRingVertices[j]`, that the proof produces local
+force rows with the current 12x3 matrix shape, and that row `j` scatters to
+`Face::oneRingVertices[j]` using the same 9-component force-buffer layout:
+`fBend` offsets `0..2`, `fArea` offsets `3..5`, and `fVolume` offsets `6..8`.
+
+This is shadow evidence only. It does not call the production helper with
+OpenSubdiv data, does not alter the regular helper, and does not change default
+serial or OpenMP accumulation behavior.
 
 ## Proof Boundary
 
@@ -90,7 +109,9 @@ The report records all of the following as machine-readable JSON:
 - deterministic duplicate source-id aggregation;
 - actual finite, nonzero `fBend`, `fArea`, and `fVolume` row evidence from the
   local copy of the current force algebra; and
-- `Face::oneRingVertices` scatter identity for those actual force rows.
+- `Face::oneRingVertices` scatter identity for those actual force rows; and
+- proof-local production-call shadow evidence for the 12-column input,
+  seven-row weighted sample, 12x3 force matrix, and 9-component scatter shape.
 
 This proves an experimental adapter boundary can produce the reviewable
 weighted-sample contract for the regular fixture. It does not approve any
