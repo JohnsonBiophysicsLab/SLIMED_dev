@@ -1,6 +1,7 @@
 #include "mesh/Mesh.hpp"
 
 #include "mesh/Limit_surface_evaluator.hpp"
+#include "mesh/OpenSubdiv_regular_evaluator.hpp"
 
 #include <array>
 #include <sstream>
@@ -104,6 +105,8 @@ void refresh_energy_force_geometry(Mesh &mesh)
 void accumulate_membrane_face_energy_and_forces(Mesh &mesh)
 {
     assert_supported_membrane_force_routing(mesh);
+    const std::vector<std::vector<Matrix>> routedRegularShapeFunctions =
+        build_opensubdiv_regular_shape_functions_by_face(mesh);
 
     const int nVertices = static_cast<int>(mesh.vertices.size());
 #ifdef OMP
@@ -154,6 +157,12 @@ void accumulate_membrane_face_energy_and_forces(Mesh &mesh)
         if (nOneRingVertices == 12)
         {
 //cout << "CEAF 75" << endl;
+            const std::vector<Matrix> *shapeFunctionsOverride = nullptr;
+            if (!routedRegularShapeFunctions.empty() &&
+                !routedRegularShapeFunctions[face.index].empty())
+            {
+                shapeFunctionsOverride = &routedRegularShapeFunctions[face.index];
+            }
             mesh.element_energy_force_regular(coordOneRingVertices,
                                               face,
                                               spontCurv,
@@ -163,7 +172,8 @@ void accumulate_membrane_face_energy_and_forces(Mesh &mesh)
                                               fBend,
                                               fArea,
                                               fVol,
-                                              true);
+                                              true,
+                                              shapeFunctionsOverride);
 
         }
         else if (nOneRingVertices == 11)
@@ -362,7 +372,8 @@ void Mesh::element_energy_force_regular(const std::vector<Matrix> &coordOneRingV
                                         Matrix &fBend,
                                         Matrix &fArea,
                                         Matrix &fVolume,
-                                        const bool useRegularBackProjection)
+                                        const bool useRegularBackProjection,
+                                        const std::vector<Matrix> *shapeFunctionsOverride)
 {
     // fBend is the Force related to the curvature
     // fArea is the Force related to the area-constraint
@@ -478,11 +489,14 @@ void Mesh::element_energy_force_regular(const std::vector<Matrix> &coordOneRingV
 
     // Gaussian quadrature, second-order or 3 points.
     //std::cout << param.shapeFunctions.size() << std::endl;
-    for (int i = 0; i < param.shapeFunctions.size(); i++)
+    const std::vector<Matrix> &activeShapeFunctions =
+        shapeFunctionsOverride == nullptr ? param.shapeFunctions
+                                          : *shapeFunctionsOverride;
+    for (int i = 0; i < static_cast<int>(activeShapeFunctions.size()); i++)
     {
         halfGaussQuadratureCoeff = 0.5 * param.gaussQuadratureCoeff(i, 0);
         //std::cout << halfGaussQuadratureCoeff << std::endl;
-        Matrix &sf = param.shapeFunctions[i];
+        const Matrix &sf = activeShapeFunctions[i];
         LimitSurfaceWeightedSample weightedSample;
 
         if (useBackProjectedWeights)

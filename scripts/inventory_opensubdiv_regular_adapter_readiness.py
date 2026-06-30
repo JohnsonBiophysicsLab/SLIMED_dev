@@ -2,8 +2,8 @@
 """Inventory regular OpenSubdiv backend-adapter readiness anchors.
 
 This helper is intentionally source-text based. It does not parse C++, compile
-OpenSubdiv, or execute production force code. It records the inert checklist a
-future regular OpenSubdiv-backed adapter must satisfy before any production
+OpenSubdiv, or execute production force code. It records the checklist a
+regular OpenSubdiv-backed adapter must satisfy before any broader production
 route can consume OpenSubdiv-derived samples or rows.
 """
 
@@ -84,6 +84,11 @@ EVIDENCE_LINEAGE: tuple[dict[str, str], ...] = (
         "anchor": "--regular-adapter-proof-report and run_opensubdiv_regular_cpp_adapter_proof.sh",
         "adapter_meaning": "emit test-only regular adapter, production-helper, visible-observable, and serial/OpenMP-style proof evidence through original SLIMED source ids",
     },
+    {
+        "lane": "Guarded production regular seam",
+        "anchor": "USE_OPENSUBDIV_REGULAR=1 and SLIMED_USE_OPENSUBDIV_REGULAR=1",
+        "adapter_meaning": "compile the guarded seam while keeping OpenSubdiv-derived rows disabled until semantics match",
+    },
 )
 
 
@@ -91,17 +96,17 @@ ADAPTER_READINESS_CHECKLIST: tuple[dict[str, str], ...] = (
     {
         "gate": "regular sample coordinates and quadrature order",
         "must_prove": "frozen sample rows, weights, and half-weight formula factors",
-        "current_status": "characterized, not routed",
+        "current_status": "characterized; guarded seam falls back to direct route",
     },
     {
         "gate": "coordinate and derivative convention",
         "must_prove": "s=v,t=w, orientation, seven rows, and duplicated mixed rows",
-        "current_status": "characterized, not routed",
+        "current_status": "characterized; guarded seam falls back to direct route",
     },
     {
         "gate": "original source-id order",
         "must_prove": "row weights keyed by original SLIMED ids in Face::oneRingVertices order",
-        "current_status": "in-tree seam characterized, not OpenSubdiv production routing",
+        "current_status": "in-tree seam characterized; OpenSubdiv production rows disabled",
     },
     {
         "gate": "deterministic duplicate aggregation",
@@ -111,17 +116,17 @@ ADAPTER_READINESS_CHECKLIST: tuple[dict[str, str], ...] = (
     {
         "gate": "actual force rows",
         "must_prove": "OpenSubdiv-derived rows compare through fBend, fArea, and fVolume",
-        "current_status": "test-only adapter proof exists; production routing remains missing",
+        "current_status": "test-only adapter proof exists; production route disabled after semantics drift",
     },
     {
         "gate": "regular production helper dry run",
         "must_prove": "OpenSubdiv-derived rows compare against Mesh::element_energy_force_regular without installing a production route",
-        "current_status": "proof-local dry-run evidence exists; routed production timing remains missing",
+        "current_status": "proof-local dry-run evidence exists; routed rows disabled at production call sites",
     },
     {
         "gate": "output-visible state",
         "must_prove": "energies, normals, mean curvature, area, and legacy volume at production timing",
-        "current_status": "proof-local visible-observable dry run exists; real routed production timing remains missing",
+        "current_status": "proof-local visible-observable dry run exists; runtime opt-in fallback preserves direct path",
     },
     {
         "gate": "scatter and reduction",
@@ -139,9 +144,9 @@ ADAPTER_READINESS_CHECKLIST: tuple[dict[str, str], ...] = (
         "current_status": "required boundary remains unchanged",
     },
     {
-        "gate": "non-production review gate",
-        "must_prove": "separate reviewed PR before production routing uses OpenSubdiv-derived rows",
-        "current_status": "explicit blocker for adapter routing",
+        "gate": "production review gate",
+        "must_prove": "separate reviewed PR before broader routing uses OpenSubdiv-derived rows",
+        "current_status": "regular 12-control seam installed; routed rows disabled",
     },
 )
 
@@ -157,19 +162,19 @@ ANCHORS: tuple[Anchor, ...] = (
     ),
     Anchor(
         "adapter checklist",
-        "non-production boundary",
+        "guarded production boundary",
         ADAPTER_DOC_PATH,
-        "This is a docs/scripts/tests-only adapter-readiness lane.",
+        "first explicitly guarded regular production",
         "policy boundary",
-        "The checklist records that production behavior, backend interfaces, and build policy are unchanged.",
+        "The checklist records the guarded regular seam and unchanged defaults.",
     ),
     Anchor(
         "adapter checklist",
-        "no production route",
+        "guarded seam gate",
         ADAPTER_DOC_PATH,
-        "No production route uses OpenSubdiv-derived rows",
+        "The production seam is opt-in twice",
         "policy boundary",
-        "The checklist blocks production routing until a separate reviewed PR.",
+        "The checklist records compile-time and runtime gates.",
     ),
     Anchor(
         "adapter checklist",
@@ -413,11 +418,11 @@ ANCHORS: tuple[Anchor, ...] = (
     ),
     Anchor(
         "routing readiness",
-        "regular not route ready",
+        "guarded regular route disabled",
         READINESS_DOC_PATH,
-        "Evidence package is substantially complete, but still not production-routed",
-        "remaining gap",
-        "The routing map still blocks production routing by probe evidence alone.",
+        "No OpenSubdiv-derived rows are production-routed yet",
+        "guarded route",
+        "The routing map records that routed rows remain disabled.",
     ),
     Anchor(
         "mapping contract",

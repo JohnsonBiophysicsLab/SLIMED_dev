@@ -133,6 +133,16 @@ endif
 INCS    = $(shell gsl-config --cflags) -Iinclude -Iinclude/*
 LIBS     = $(shell gsl-config --libs)
 
+USE_OPENSUBDIV_REGULAR ?= 0
+ifeq ($(USE_OPENSUBDIV_REGULAR),1)
+	ifeq ($(OPENSUBDIV_ROOT),)
+		$(error "USE_OPENSUBDIV_REGULAR=1 requires OPENSUBDIV_ROOT=/path/to/opensubdiv")
+	endif
+	DEFS += -DUSE_OPENSUBDIV_REGULAR
+	INCS += -I$(OPENSUBDIV_ROOT)/include
+	LIBS += -L$(OPENSUBDIV_ROOT)/lib -L$(OPENSUBDIV_ROOT)/lib64 -Wl,-rpath,$(OPENSUBDIV_ROOT)/lib -Wl,-rpath,$(OPENSUBDIV_ROOT)/lib64 -losdCPU
+endif
+
 # Optional GoogleTest prefix. This lets `make test` find Homebrew's keg on
 # macOS while preserving the default system paths used by Linux packages.
 GTEST_PREFIX ?= $(shell command -v brew >/dev/null 2>&1 && brew --prefix googletest 2>/dev/null)
@@ -156,12 +166,12 @@ endif
 
 ifeq (mpi,$(MAKECMDGOALS))
 	_EXEC = continuum_membrane
-         DEFS = -DMPI
+         DEFS += -DMPI
 endif
 
 ifeq (omp,$(MAKECMDGOALS))
     _EXEC  = continuum_membrane
-    DEFS   = -DOMP
+    DEFS   += -DOMP
     PLANG  = $(OMP_FLAGS)
     INCS  += $(OMP_INC)
     LIBS  += $(OMP_LIB)
@@ -173,7 +183,7 @@ endif
 
 ifeq (dyna_omp,$(MAKECMDGOALS))
     _EXEC = membrane_dynamics
-    DEFS  = -DOMP
+    DEFS  += -DOMP
     PLANG = $(OMP_FLAGS)
     INCS += $(OMP_INC)
     LIBS += $(OMP_LIB)
