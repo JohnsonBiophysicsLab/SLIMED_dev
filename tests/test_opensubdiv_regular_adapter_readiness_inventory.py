@@ -41,11 +41,11 @@ class OpenSubdivRegularAdapterReadinessInventoryTest(unittest.TestCase):
         self.assertIn("scatter and reduction", gates)
         self.assertIn("dependency-present behavior", gates)
         self.assertIn("dependency-absent behavior", gates)
-        self.assertIn("non-production review gate", gates)
+        self.assertIn("production review gate", gates)
         self.assertIn("fBend", gates["actual force rows"]["must_prove"])
         self.assertIn("Mesh::element_energy_force_regular", gates["regular production helper dry run"]["must_prove"])
         self.assertIn("Face::oneRingVertices", gates["scatter and reduction"]["must_prove"])
-        self.assertIn("OpenSubdiv-derived rows", gates["non-production review gate"]["must_prove"])
+        self.assertIn("OpenSubdiv-derived rows", gates["production review gate"]["must_prove"])
         self.assertIn("test-only adapter proof", gates["actual force rows"]["current_status"])
 
     def test_inventory_anchors_are_present(self):
