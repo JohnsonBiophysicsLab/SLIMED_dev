@@ -26,6 +26,7 @@ FORCE_SCATTER_DOC_PATH = Path("docs/force_formula_scatter_equivalence.md")
 POLICY_DOC_PATH = Path("docs/opensubdiv_backend_interface_policy.md")
 EVALUATOR_HEADER_PATH = Path("include/mesh/Limit_surface_evaluator.hpp")
 EVALUATOR_IMPL_PATH = Path("src/mesh/Limit_surface_evaluator.cpp")
+OPENSUBDIV_EVALUATOR_IMPL_PATH = Path("src/mesh/OpenSubdiv_regular_evaluator.cpp")
 PROBE_PATH = Path("scripts/probe_opensubdiv_feasibility.py")
 WRAPPER_PATH = Path("scripts/run_opensubdiv_probe.sh")
 SURFACE_TEST_PATH = Path("tests/test_surface_geometry_characterization.cpp")
@@ -86,8 +87,8 @@ EVIDENCE_LINEAGE: tuple[dict[str, str], ...] = (
     },
     {
         "lane": "Guarded production regular seam",
-        "anchor": "USE_OPENSUBDIV_REGULAR=1 and SLIMED_USE_OPENSUBDIV_REGULAR=1",
-        "adapter_meaning": "compile the guarded seam while keeping OpenSubdiv-derived rows disabled until semantics match",
+        "anchor": "diagnose_opensubdiv_regular_row_semantics and USE_OPENSUBDIV_REGULAR=1",
+        "adapter_meaning": "compile and diagnose the guarded seam while keeping OpenSubdiv-derived rows disabled until routed semantics match",
     },
 )
 
@@ -106,7 +107,7 @@ ADAPTER_READINESS_CHECKLIST: tuple[dict[str, str], ...] = (
     {
         "gate": "original source-id order",
         "must_prove": "row weights keyed by original SLIMED ids in Face::oneRingVertices order",
-        "current_status": "in-tree seam characterized; OpenSubdiv production rows disabled",
+        "current_status": "in-tree seam and opt-in row diagnostics characterized; OpenSubdiv production rows disabled",
     },
     {
         "gate": "deterministic duplicate aggregation",
@@ -175,6 +176,14 @@ ANCHORS: tuple[Anchor, ...] = (
         "The production seam is opt-in twice",
         "policy boundary",
         "The checklist records compile-time and runtime gates.",
+    ),
+    Anchor(
+        "adapter checklist",
+        "guarded seam row diagnostics",
+        ADAPTER_DOC_PATH,
+        "diagnose_opensubdiv_regular_row_semantics",
+        "opt-in row diagnostics",
+        "The checklist records the guarded seam row-semantic diagnostic.",
     ),
     Anchor(
         "adapter checklist",
@@ -425,6 +434,14 @@ ANCHORS: tuple[Anchor, ...] = (
         "The routing map records that routed rows remain disabled.",
     ),
     Anchor(
+        "routing readiness",
+        "compiled seam row diagnostics",
+        READINESS_DOC_PATH,
+        "diagnose_opensubdiv_regular_row_semantics",
+        "opt-in row diagnostics",
+        "The routing map records the compiled-seam row diagnostic.",
+    ),
+    Anchor(
         "mapping contract",
         "dedicated mapping contract",
         MAPPING_DOC_PATH,
@@ -503,6 +520,22 @@ ANCHORS: tuple[Anchor, ...] = (
         "weight += rowWeights.get(rowIndex, sourceIndex);",
         "source-id aggregation",
         "The current row-weight lookup aggregates duplicate source ids.",
+    ),
+    Anchor(
+        "OpenSubdiv evaluator",
+        "row diagnostic API",
+        OPENSUBDIV_EVALUATOR_IMPL_PATH,
+        "diagnose_opensubdiv_regular_row_semantics",
+        "opt-in row diagnostics",
+        "The guarded OpenSubdiv seam exposes a diagnostic without enabling routing.",
+    ),
+    Anchor(
+        "surface tests",
+        "row diagnostic comparison",
+        SURFACE_TEST_PATH,
+        "OptInRowDiagnosticsCompareOpenSubdivRowsAgainstSlimedRows",
+        "opt-in row diagnostics",
+        "The opt-in test compares compiled-seam OpenSubdiv rows to SLIMED rows.",
     ),
     Anchor(
         "probe",

@@ -5,7 +5,10 @@
 
 #include <cstdlib>
 #include <array>
+#include <algorithm>
+#include <cmath>
 #include <iostream>
+#include <set>
 #include <stdexcept>
 #include <string>
 
@@ -47,6 +50,7 @@ namespace
 constexpr int kRegularControlPointCount = 12;
 constexpr int kDerivativeRowCount = 7;
 constexpr bool kOpenSubdivRegularProductionRouteEnabled = false;
+constexpr double kOpenSubdivRegularRowTolerance = 5.0e-6;
 
 struct RefinerDeleter
 {
@@ -146,6 +150,45 @@ Matrix shape_function_from_stencil(const Far::LimitStencil &stencil,
     return shapeFunction;
 }
 
+std::set<int> stencil_source_set(const Far::LimitStencil &stencil)
+{
+    std::set<int> sources;
+    const Far::Index *indices = stencil.GetVertexIndices();
+    for (int index = 0; index < stencil.GetSize(); ++index)
+    {
+        sources.insert(indices[index]);
+    }
+    return sources;
+}
+
+bool stencil_sources_match_face_one_ring(const Far::LimitStencil &stencil,
+                                         const std::vector<int> &sourceIds)
+{
+    return stencil_source_set(stencil) ==
+           std::set<int>(sourceIds.begin(), sourceIds.end());
+}
+
+double max_abs_matrix_difference(const Matrix &lhs, const Matrix &rhs)
+{
+    if (lhs.nrow() != rhs.nrow() || lhs.ncol() != rhs.ncol())
+    {
+        throw std::runtime_error(
+            "OpenSubdiv regular row diagnostics require matching matrix dimensions.");
+    }
+
+    double maxDifference = 0.0;
+    for (int row = 0; row < lhs.nrow(); ++row)
+    {
+        for (int col = 0; col < lhs.ncol(); ++col)
+        {
+            maxDifference = std::max(maxDifference,
+                                     std::abs(lhs.get(row, col) -
+                                              rhs.get(row, col)));
+        }
+    }
+    return maxDifference;
+}
+
 std::vector<Matrix> shape_functions_for_face(
     const Mesh &mesh,
     const Face &face,
@@ -216,6 +259,92 @@ std::vector<Matrix> shape_functions_for_face(
     }
     return shapeFunctions;
 }
+
+void append_row_diagnostics_for_face(
+    const Mesh &mesh,
+    const Face &face,
+    Far::TopologyRefiner &refiner,
+    OpenSubdivRegularRowDiagnostics &diagnostics)
+{
+    if (face.oneRingVertices.size() != kRegularControlPointCount)
+    {
+        throw std::runtime_error(
+            "OpenSubdiv regular row diagnostics are limited to regular "
+            "12-control faces.");
+    }
+    if (mesh.param.shapeFunctions.size() != 3u ||
+        mesh.param.gaussQuadratureCoeff.nrow() != 3)
+    {
+        throw std::runtime_error(
+            "OpenSubdiv regular row diagnostics require the frozen "
+            "three-sample regular quadrature plan.");
+    }
+
+    std::vector<float> s(mesh.param.shapeFunctions.size(), 0.0f);
+    std::vector<float> t(mesh.param.shapeFunctions.size(), 0.0f);
+    for (int sample = 0; sample < static_cast<int>(mesh.param.shapeFunctions.size());
+         ++sample)
+    {
+        Matrix vwu = mesh.param.VWU.get_row(sample);
+        s[sample] = static_cast<float>(vwu.get(0, 0));
+        t[sample] = static_cast<float>(vwu.get(0, 1));
+    }
+
+    Far::LimitStencilTableFactory::LocationArray location;
+    location.ptexIdx = face.index;
+    location.numLocations = static_cast<int>(mesh.param.shapeFunctions.size());
+    location.s = s.data();
+    location.t = t.data();
+
+    Far::LimitStencilTableFactory::LocationArrayVec locations;
+    locations.push_back(location);
+
+    Far::LimitStencilTableFactory::Options stencilOptions;
+    stencilOptions.generate1stDerivatives = true;
+    stencilOptions.generate2ndDerivatives = true;
+
+    const Far::LimitStencilTable *rawStencils =
+        Far::LimitStencilTableFactory::Create(refiner,
+                                              locations,
+                                              0,
+                                              0,
+                                              stencilOptions);
+    if (rawStencils == nullptr)
+    {
+        throw std::runtime_error(
+            "OpenSubdiv regular row diagnostics failed to create limit stencils.");
+    }
+    std::unique_ptr<const Far::LimitStencilTable> stencils(rawStencils);
+
+    ++diagnostics.comparedFaceCount;
+    for (int sample = 0; sample < static_cast<int>(mesh.param.shapeFunctions.size());
+         ++sample)
+    {
+        const Far::LimitStencil stencil = stencils->GetLimitStencil(sample);
+        const Matrix openSubdivRows =
+            shape_function_from_stencil(stencil, face.oneRingVertices);
+        const double maxDifference =
+            max_abs_matrix_difference(openSubdivRows,
+                                      mesh.param.shapeFunctions[sample]);
+
+        OpenSubdivRegularRowDiagnosticSample sampleDiagnostic;
+        sampleDiagnostic.faceIndex = face.index;
+        sampleDiagnostic.sampleIndex = sample;
+        sampleDiagnostic.stencilSourcesMatchFaceOneRing =
+            stencil_sources_match_face_one_ring(stencil, face.oneRingVertices);
+        sampleDiagnostic.maxAbsWeightDifferenceVsSlimedRows = maxDifference;
+        diagnostics.samples.push_back(sampleDiagnostic);
+
+        ++diagnostics.comparedSampleCount;
+        diagnostics.maxAbsWeightDifferenceVsSlimedRows =
+            std::max(diagnostics.maxAbsWeightDifferenceVsSlimedRows,
+                     maxDifference);
+        diagnostics.regularRowsMatchSlimedRows =
+            diagnostics.regularRowsMatchSlimedRows &&
+            sampleDiagnostic.stencilSourcesMatchFaceOneRing &&
+            maxDifference <= kOpenSubdivRegularRowTolerance;
+    }
+}
 } // namespace
 
 std::vector<std::vector<Matrix>>
@@ -270,6 +399,44 @@ build_opensubdiv_regular_shape_functions_by_face(const Mesh &mesh)
     return routedShapeFunctions;
 }
 
+OpenSubdivRegularRowDiagnostics
+diagnose_opensubdiv_regular_row_semantics(const Mesh &mesh)
+{
+    OpenSubdivRegularRowDiagnostics diagnostics;
+    diagnostics.opensubdivCompiled = true;
+    diagnostics.productionRouteEnabled = kOpenSubdivRegularProductionRouteEnabled;
+    diagnostics.regularRowsMatchSlimedRows = true;
+
+    if (mesh.vertices.empty() || mesh.faces.empty())
+    {
+        diagnostics.regularRowsMatchSlimedRows = false;
+        return diagnostics;
+    }
+
+    auto refiner = create_refiner_for_mesh(mesh);
+    if (!refiner)
+    {
+        throw std::runtime_error(
+            "OpenSubdiv regular row diagnostics failed to create topology refiner.");
+    }
+
+    Far::TopologyRefiner::AdaptiveOptions adaptiveOptions(3);
+    refiner->RefineAdaptive(adaptiveOptions);
+
+    for (const Face &face : mesh.faces)
+    {
+        if (face.isBoundary || face.isGhost)
+        {
+            continue;
+        }
+        append_row_diagnostics_for_face(mesh, face, *refiner, diagnostics);
+    }
+    diagnostics.regularRowsMatchSlimedRows =
+        diagnostics.regularRowsMatchSlimedRows &&
+        diagnostics.comparedSampleCount > 0;
+    return diagnostics;
+}
+
 #else
 
 std::vector<std::vector<Matrix>>
@@ -284,6 +451,17 @@ build_opensubdiv_regular_shape_functions_by_face(const Mesh &mesh)
             "OPENSUBDIV_ROOT. Default builds remain OpenSubdiv-free.");
     }
     return {};
+}
+
+OpenSubdivRegularRowDiagnostics
+diagnose_opensubdiv_regular_row_semantics(const Mesh &mesh)
+{
+    (void)mesh;
+    OpenSubdivRegularRowDiagnostics diagnostics;
+    diagnostics.opensubdivCompiled = false;
+    diagnostics.productionRouteEnabled = false;
+    diagnostics.regularRowsMatchSlimedRows = false;
+    return diagnostics;
 }
 
 #endif

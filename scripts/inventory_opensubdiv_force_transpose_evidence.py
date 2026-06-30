@@ -26,6 +26,7 @@ POLICY_DOC_PATH = Path("docs/opensubdiv_backend_interface_policy.md")
 PROBE_PATH = Path("scripts/probe_opensubdiv_feasibility.py")
 SURFACE_TEST_PATH = Path("tests/test_surface_geometry_characterization.cpp")
 IMPLEMENTATION_PATH = Path("src/energy_force/Compute_energy_and_force_on_mesh.cpp")
+OPENSUBDIV_EVALUATOR_PATH = Path("src/mesh/OpenSubdiv_regular_evaluator.cpp")
 
 
 @dataclass(frozen=True)
@@ -71,6 +72,12 @@ EVIDENCE_MATRIX: tuple[dict[str, str], ...] = (
         "remaining_gap": "not production routing, production call timing, or OpenMP reduction evidence",
     },
     {
+        "claim": "compiled seam OpenSubdiv row diagnostics",
+        "current_status": "opt-in guarded C++ diagnostic",
+        "anchor": "diagnose_opensubdiv_regular_row_semantics",
+        "remaining_gap": "does not install rows or prove active routed force equivalence",
+    },
+    {
         "claim": "production regular formula/scatter shape",
         "current_status": "in-tree actual formula characterization",
         "anchor": "RegularActualForceBackProjectionMatchesDirectFormulaRows",
@@ -104,7 +111,7 @@ ANCHORS: tuple[Anchor, ...] = (
         "evidence map",
         "non-production boundary",
         EVIDENCE_DOC_PATH,
-        "This is a docs/scripts-only evidence lane.",
+        "This is an evidence lane with docs, scripts, guarded diagnostics, and tests.",
         "policy boundary",
         "The lane records that production behavior and dependency policy are unchanged.",
     ),
@@ -147,6 +154,14 @@ ANCHORS: tuple[Anchor, ...] = (
         "not production C++ routing, not default dependency behavior",
         "policy boundary",
         "The map keeps the regular adapter proof outside production routing and default dependency behavior.",
+    ),
+    Anchor(
+        "evidence map",
+        "compiled seam row diagnostics",
+        EVIDENCE_DOC_PATH,
+        "In-tree OpenSubdiv regular row diagnostics",
+        "opt-in guarded C++ diagnostic",
+        "The map documents the compiled-seam OpenSubdiv row diagnostic.",
     ),
     Anchor(
         "evidence map",
@@ -235,6 +250,22 @@ ANCHORS: tuple[Anchor, ...] = (
         "face_one_ring_scatter_identity",
         "scatter contract",
         "The probe reports Face::oneRingVertices scatter identity.",
+    ),
+    Anchor(
+        "OpenSubdiv evaluator",
+        "row diagnostic API",
+        OPENSUBDIV_EVALUATOR_PATH,
+        "diagnose_opensubdiv_regular_row_semantics",
+        "opt-in guarded C++ diagnostic",
+        "The compiled seam exposes a row diagnostic without enabling production routing.",
+    ),
+    Anchor(
+        "surface tests",
+        "row diagnostic opt-in comparison",
+        SURFACE_TEST_PATH,
+        "OptInRowDiagnosticsCompareOpenSubdivRowsAgainstSlimedRows",
+        "opt-in guarded C++ diagnostic",
+        "The opt-in test compares OpenSubdiv rows against frozen SLIMED rows.",
     ),
     Anchor(
         "probe",

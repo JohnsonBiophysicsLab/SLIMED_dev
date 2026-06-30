@@ -1697,6 +1697,22 @@ TEST(OpenSubdivRegularProductionRoutingGuard,
     EXPECT_TRUE(build_opensubdiv_regular_shape_functions_by_face(mesh).empty());
 }
 
+TEST(OpenSubdivRegularProductionRoutingGuard,
+     RowDiagnosticsDoNotEnableProductionRouting)
+{
+    ScopedEnvVar env("SLIMED_USE_OPENSUBDIV_REGULAR", nullptr);
+
+    Param param;
+    param.VERBOSE_MODE = false;
+    Mesh mesh(param);
+
+    const OpenSubdivRegularRowDiagnostics diagnostics =
+        diagnose_opensubdiv_regular_row_semantics(mesh);
+    EXPECT_FALSE(diagnostics.productionRouteEnabled);
+    EXPECT_FALSE(opensubdiv_regular_production_routing_requested());
+    EXPECT_TRUE(build_opensubdiv_regular_shape_functions_by_face(mesh).empty());
+}
+
 #ifndef USE_OPENSUBDIV_REGULAR
 TEST(OpenSubdivRegularProductionRoutingGuard,
      DefaultBuildFailsLoudlyWhenRuntimeOptInIsRequested)
@@ -1710,6 +1726,23 @@ TEST(OpenSubdivRegularProductionRoutingGuard,
     EXPECT_TRUE(opensubdiv_regular_production_routing_requested());
     EXPECT_THROW(build_opensubdiv_regular_shape_functions_by_face(mesh),
                  std::runtime_error);
+}
+
+TEST(OpenSubdivRegularProductionRoutingGuard,
+     DefaultBuildReportsRowDiagnosticsUnavailable)
+{
+    Param param;
+    param.VERBOSE_MODE = false;
+    Mesh mesh(param);
+
+    const OpenSubdivRegularRowDiagnostics diagnostics =
+        diagnose_opensubdiv_regular_row_semantics(mesh);
+    EXPECT_FALSE(diagnostics.opensubdivCompiled);
+    EXPECT_FALSE(diagnostics.productionRouteEnabled);
+    EXPECT_FALSE(diagnostics.regularRowsMatchSlimedRows);
+    EXPECT_EQ(diagnostics.comparedFaceCount, 0);
+    EXPECT_EQ(diagnostics.comparedSampleCount, 0);
+    EXPECT_TRUE(diagnostics.samples.empty());
 }
 #else
 TEST(OpenSubdivRegularProductionRoutingGuard,
@@ -1731,6 +1764,56 @@ TEST(OpenSubdivRegularProductionRoutingGuard,
     const std::vector<std::vector<Matrix>> routedShapeFunctions =
         build_opensubdiv_regular_shape_functions_by_face(mesh);
     EXPECT_TRUE(routedShapeFunctions.empty());
+}
+
+TEST(OpenSubdivRegularProductionRoutingGuard,
+     OptInRowDiagnosticsCompareOpenSubdivRowsAgainstSlimedRows)
+{
+    ScopedEnvVar env("SLIMED_USE_OPENSUBDIV_REGULAR", nullptr);
+
+    Param param;
+    param.VERBOSE_MODE = false;
+    param.boundaryCondition = BoundaryType::Periodic;
+    param.sideX = 40.0;
+    param.sideY = 10.0 * std::sqrt(3.0) / 2.0 * param.lFace;
+
+    Mesh mesh(param);
+    ::testing::internal::CaptureStdout();
+    mesh.setup_flat();
+    ::testing::internal::GetCapturedStdout();
+
+    int physicalRegularFaceCount = 0;
+    for (const Face &face : mesh.faces)
+    {
+        if (!face.isGhost && !face.isBoundary)
+        {
+            ASSERT_EQ(face.oneRingVertices.size(), 12);
+            ++physicalRegularFaceCount;
+        }
+    }
+    ASSERT_GT(physicalRegularFaceCount, 0);
+
+    const OpenSubdivRegularRowDiagnostics diagnostics =
+        diagnose_opensubdiv_regular_row_semantics(mesh);
+    EXPECT_TRUE(diagnostics.opensubdivCompiled);
+    EXPECT_FALSE(diagnostics.productionRouteEnabled);
+    EXPECT_TRUE(diagnostics.regularRowsMatchSlimedRows);
+    EXPECT_EQ(diagnostics.comparedFaceCount, physicalRegularFaceCount);
+    EXPECT_EQ(diagnostics.comparedSampleCount,
+              physicalRegularFaceCount *
+                  static_cast<int>(mesh.param.shapeFunctions.size()));
+    EXPECT_LE(diagnostics.maxAbsWeightDifferenceVsSlimedRows, 5.0e-6);
+    ASSERT_EQ(diagnostics.samples.size(),
+              static_cast<std::size_t>(diagnostics.comparedSampleCount));
+    for (const OpenSubdivRegularRowDiagnosticSample &sample : diagnostics.samples)
+    {
+        EXPECT_TRUE(sample.stencilSourcesMatchFaceOneRing)
+            << "face " << sample.faceIndex << " sample " << sample.sampleIndex;
+        EXPECT_LE(sample.maxAbsWeightDifferenceVsSlimedRows, 5.0e-6)
+            << "face " << sample.faceIndex << " sample " << sample.sampleIndex;
+    }
+
+    EXPECT_TRUE(build_opensubdiv_regular_shape_functions_by_face(mesh).empty());
 }
 
 TEST(OpenSubdivRegularProductionRoutingGuard,

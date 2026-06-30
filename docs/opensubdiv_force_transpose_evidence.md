@@ -4,10 +4,11 @@ Date: 2026-06-26.
 Baseline: `origin/main` at `cd9d9e3e365dfdbc225881f469b7837f9c49322b`
 after PR #70.
 
-This is a docs/scripts-only evidence lane. It does not change production C++
-behavior, default build policy, OpenSubdiv dependency policy, force formulas,
-force scatter ordering, OpenMP behavior, backend routing, checkpoint/output
-formats, propagation behavior, or `LimitSurfaceEvaluator` behavior.
+This is an evidence lane with docs, scripts, guarded diagnostics, and tests. It
+does not change production C++ behavior, default build policy, OpenSubdiv
+dependency policy, force formulas, force scatter ordering, OpenMP behavior,
+backend routing, checkpoint/output formats, propagation behavior, or
+`LimitSurfaceEvaluator` behavior.
 
 ## Purpose
 
@@ -32,6 +33,7 @@ OpenSubdiv production routing.
 | Regular OpenSubdiv toy transpose | `scripts/probe_opensubdiv_feasibility.py --force-transpose-report` emits `kind: toy_linear_functional_only`. | A deterministic toy gradient satisfies `g dot (W p) == (W^T g) dot p` for OpenSubdiv regular row weights and a SLIMED-compatible seven-row shape. | It does not compute `fBend`, `fArea`, `fVol`, per-control formula terms, quadrature accumulation, or production scatter. |
 | Regular OpenSubdiv actual formula smoke | `scripts/probe_opensubdiv_feasibility.py --regular-actual-force-report` emits `kind: opensubdiv_regular_rows_actual_formula_evidence`. | OpenSubdiv-derived regular value/derivative row weights for the SLIMED second-order triangular quadrature can drive a local copy of the current bending, area, and volume force sample algebra, producing finite nonzero `fBend`, `fArea`, and `fVolume` rows keyed by original source ids. | It is a temporary probe smoke, not production C++ routing, not an API/backend integration, not an OpenMP scatter comparison, and not irregular force evidence. |
 | Regular OpenSubdiv adapter proof | `scripts/probe_opensubdiv_feasibility.py --regular-adapter-proof-report` emits `kind: test_only_regular_opensubdiv_adapter_proof`. | OpenSubdiv-derived regular rows can be remapped by original SLIMED source id into the seven-row weighted-sample contract for the frozen regular quadrature plan, with duplicate aggregation, actual `fBend`/`fArea`/`fVolume` row evidence, and `Face::oneRingVertices` scatter identity. | It is still a temporary test-only probe, not production C++ routing, not default dependency behavior, not production call-timing evidence, and not OpenMP reduction evidence. |
+| In-tree OpenSubdiv regular row diagnostics | `diagnose_opensubdiv_regular_row_semantics` and `OpenSubdivRegularProductionRoutingGuard.OptInRowDiagnosticsCompareOpenSubdivRowsAgainstSlimedRows`. | An explicit `USE_OPENSUBDIV_REGULAR=1` build can compare compiled-seam OpenSubdiv rows against the frozen SLIMED regular rows for actual `Mesh::setup_flat()` regular faces, keyed by `Face::oneRingVertices`, while reporting that production routing remains disabled. | It does not install OpenSubdiv rows in production, prove routed force equivalence through the active call site, cover irregular routing, or alter default OpenSubdiv-free builds. |
 | Production regular formula/scatter characterization | `SurfaceLimitSurfaceEvaluatorContract.RegularActualForceBackProjectionMatchesDirectFormulaRows`, `RegularForceRowsScatterInOneRingOrder`, `docs/force_formula_scatter_equivalence.md`, and `scripts/inventory_force_formula_scatter_contract.py`. | Current bending, area, and volume formulas consume seven SLIMED rows, quadrature-accumulate local force matrices, match direct local shape rows against source-id row-weight lookup for natural and permuted 12-control orders, and scatter through `Face::oneRingVertices` into the thread-local force buffer. | It uses the in-tree SLIMED evaluator/source-id seam; it is not evidence that OpenSubdiv row weights have been routed through those actual formulas or that production OpenSubdiv routing is enabled. |
 | Positive-depth 11-control production route | `SurfaceSubdivisionCharacterization.SyntheticIrregularPatchEnergyForceBackProjectsChildRegularForces` and `scripts/inventory_irregular_routing_evidence.py`. | The dependency-free `11 = 4+3+4` route transposes child regular bending, area, and volume force rows through existing subdivision matrices back to the 11 original rows. | It is not OpenSubdiv-backed and does not approve broader irregular topologies, zero-depth 11-control requests, or dependency-present behavior. |
 | Irregular OpenSubdiv observational proof map | `scripts/probe_opensubdiv_feasibility.py --irregular-transpose-proof-map-report` emits `kind: observational_all_ptex_grid_toy_transpose`. | Aggregate all-ptex/sample-grid source visibility and toy transpose shape can be inspected for the 11-control fixture variants. | It does not select a ptex/sample plan for one SLIMED face and does not run actual force formulas or production scatter. |
@@ -85,9 +87,10 @@ The current production route remains:
   irregular topologies.
 
 Default builds remain OpenSubdiv-free. OpenSubdiv-present evidence remains
-opt-in through a user-provided `OPENSUBDIV_ROOT` and the non-default probe
-wrapper. No production code should use OpenSubdiv presence to change physics
-behavior until a separate backend routing PR passes the missing evidence above.
+opt-in through a user-provided `OPENSUBDIV_ROOT`, the non-default probe wrapper,
+or the explicit `USE_OPENSUBDIV_REGULAR=1` test build. No production code
+should use OpenSubdiv presence to change physics behavior until a separate
+backend routing PR passes the missing evidence above.
 
 The regular actual-force smoke command is:
 
