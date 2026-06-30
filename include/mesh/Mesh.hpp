@@ -439,7 +439,8 @@ public:
                                       Matrix &fBend,
                                       Matrix &fArea,
                                       Matrix &fVolume,
-                                      bool useRegularBackProjection = false);
+                                      bool useRegularBackProjection = false,
+                                      const std::vector<Matrix> *shapeFunctionsOverride = nullptr);
 
     /**
      * @brief Calculates energy and forces for the documented 11-control
@@ -771,7 +772,8 @@ protected:
     void enumerate_regular_patch_area_volume_with_limit_surface_evaluator(
         const Matrix &dots,
         double &area,
-        double &volume);
+        double &volume,
+        const std::vector<Matrix> *shapeFunctionsOverride = nullptr);
 
     /**
      * @brief

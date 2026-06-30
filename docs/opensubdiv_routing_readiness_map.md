@@ -3,11 +3,14 @@
 Date: 2026-06-30.
 Baseline: post-PR82 regular OpenSubdiv proof evidence.
 
-This is a docs/scripts-only readiness map. It does not change production C++
-behavior, C++ backend interfaces, default build policy, OpenSubdiv dependency
-policy, vendoring, Makefile target behavior, formula semantics, scatter order,
-OpenMP behavior, checkpoint/output behavior, propagation behavior, optimizer
-behavior, or production OpenSubdiv routing.
+This map now records the first narrowly guarded production regular-routing
+step. Default builds remain OpenSubdiv-free. The route is inert unless the
+binary is built with `USE_OPENSUBDIV_REGULAR=1 OPENSUBDIV_ROOT=...` and the
+runtime environment sets `SLIMED_USE_OPENSUBDIV_REGULAR=1`. It does not change
+default production behavior, public OpenSubdiv types, vendoring, submodules,
+generated dependency artifacts, formula semantics, scatter order, OpenMP
+buffer/reduction shape, checkpoint/output behavior, propagation behavior,
+optimizer behavior, or irregular/broader-valence routing.
 
 ## Purpose
 
@@ -34,13 +37,36 @@ separate PR.
 
 | Route | Current production status | OpenSubdiv evidence status | Readiness result |
 | --- | --- | --- | --- |
-| Regular 12-control membrane force | Supported through `SlimedLoopLimitSurfaceEvaluator`, current quadrature, and current force formulas. | Regular row/integrand equivalence, toy transpose, actual-force probe smoke, C++ adapter proof, production-call shadow, production-helper dry run, visible-observable dry run, and serial/OpenMP-style accumulation parity are opt-in proof evidence. | Evidence package is substantially complete, but still not production-routed until a separate reviewed PR installs and compares a real routed production path. |
+| Regular 12-control membrane force | Supported through `SlimedLoopLimitSurfaceEvaluator`, current quadrature, and current force formulas. An explicit opt-in OpenSubdiv route can now feed regular row weights into the same area/volume and force helpers when compiled and requested. | Regular row/integrand equivalence, toy transpose, actual-force probe smoke, C++ adapter proof, production-call shadow, production-helper dry run, visible-observable dry run, serial/OpenMP-style accumulation parity, and the guarded production helper smoke are opt-in evidence. | First guarded regular production-routing step is installed for regular non-ghost 12-control faces only; default and unsupported routes remain unchanged. |
 | Positive-depth `11 = 4+3+4` membrane force | Supported narrowly through dependency-free subdivision matrices and child-force back-projection. | OpenSubdiv aggregate source/transpose reports are observational only. | Keep current route; do not replace with OpenSubdiv in the regular readiness lane. |
 | Zero-depth 11-control and unsupported irregular topologies | Guarded unsupported cases. | No production approval. | Must continue to fail loudly or use only reviewed diagnostics. |
 | Broader extraordinary valence | Not production supported. | Synthetic broader-valence coverage can inform planning only. | Future-only until representative fixtures and scientific approval are available. |
 
 Default validation remains dependency-free. OpenSubdiv-present checks stay
-opt-in through `OPENSUBDIV_ROOT` and `scripts/run_opensubdiv_probe.sh`.
+opt-in through `OPENSUBDIV_ROOT`, `scripts/run_opensubdiv_probe.sh`, and
+`USE_OPENSUBDIV_REGULAR=1` builds with `SLIMED_USE_OPENSUBDIV_REGULAR=1`.
+
+## Guarded Production Regular Route
+
+The first production route is deliberately small:
+
+- `src/mesh/OpenSubdiv_regular_evaluator.cpp` is compiled in default builds
+  as an OpenSubdiv-free stub.
+- The real OpenSubdiv code is compiled only with
+  `USE_OPENSUBDIV_REGULAR=1`, which requires `OPENSUBDIV_ROOT`.
+- Runtime routing is additionally gated by
+  `SLIMED_USE_OPENSUBDIV_REGULAR=1`; setting this variable in a default build
+  throws a loud runtime error.
+- The selected route emits the same seven `s=v,t=w` rows, with duplicated
+  mixed rows, keyed by `Face::oneRingVertices[j]`.
+- The existing `calculate_element_area_volume` and
+  `element_energy_force_regular` helpers still own area, legacy volume,
+  `fBend`, `fArea`, `fVolume`, normal, and mean-curvature semantics.
+- The existing force scatter and serial/OpenMP thread-local force-buffer
+  reduction shape are unchanged.
+- Non-regular physical faces fail loudly when the OpenSubdiv route is
+  requested. Ghost faces and unsupported topology remain outside the regular
+  OpenSubdiv route boundary.
 
 ## Regular 12-Control Readiness Criteria
 

@@ -1,6 +1,7 @@
 #include "mesh/Mesh.hpp"
 
 #include "mesh/Limit_surface_evaluator.hpp"
+#include "mesh/OpenSubdiv_regular_evaluator.hpp"
 
 namespace
 {
@@ -217,15 +218,19 @@ void Mesh::enumerate_gauss_quadrature_point_area_volume(
 void Mesh::enumerate_regular_patch_area_volume_with_limit_surface_evaluator(
     const Matrix &matOneRingVertex,
     double &area,
-    double &volume)
+    double &volume,
+    const std::vector<Matrix> *shapeFunctionsOverride)
 {
     const SlimedLoopLimitSurfaceEvaluator evaluator;
+    const std::vector<Matrix> &activeShapeFunctions =
+        shapeFunctionsOverride == nullptr ? param.shapeFunctions
+                                          : *shapeFunctionsOverride;
 
 #pragma omp parallel for reduction(+ \
                                    : area, volume)
-    for (int j = 0; j < param.gaussQuadratureCoeff.nrow(); j++)
+    for (int j = 0; j < static_cast<int>(activeShapeFunctions.size()); j++)
     {
-        Matrix &sf = param.shapeFunctions[j];
+        const Matrix &sf = activeShapeFunctions[j];
         const LimitSurfaceEvaluation evaluation =
             evaluator.evaluate_shape_function(sf, matOneRingVertex);
         Matrix a_3 = cross_col(evaluation.firstDerivativeV,
@@ -258,6 +263,8 @@ Matrix Mesh::get_one_ring_vertex_matrix(const Face &face)
 
 void Mesh::calculate_element_area_volume()
 {
+    const std::vector<std::vector<Matrix>> routedRegularShapeFunctions =
+        build_opensubdiv_regular_shape_functions_by_face(*this);
     // five matrix used for subdivision of the irregular patch
     // M(17,11), M1(12,17), M2(12,17), M3(12,17), M4(11,17);
     // alias for subMatrix - does not cause
@@ -291,12 +298,18 @@ void Mesh::calculate_element_area_volume()
             {
                 // The matrix representing the coordinates of the one ring vertices.
                 Matrix matOneRingVertex = get_one_ring_vertex_matrix(face);
+                const std::vector<Matrix> *shapeFunctionsOverride = nullptr;
+                if (!routedRegularShapeFunctions.empty())
+                {
+                    shapeFunctionsOverride = &routedRegularShapeFunctions[face.index];
+                }
 
                 // Use Gaussian quadrature with 3 points to compute area and volume
                 enumerate_regular_patch_area_volume_with_limit_surface_evaluator(
                     matOneRingVertex,
                     area,
-                    volume);
+                    volume,
+                    shapeFunctionsOverride);
             }
             break;
 

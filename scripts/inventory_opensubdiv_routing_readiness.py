@@ -4,7 +4,7 @@
 This helper is intentionally source-text based. It does not parse C++, run
 OpenSubdiv, or execute production force code. It records the regular-first
 readiness criteria and the evidence boundaries that must stay visible before a
-future PR claims OpenSubdiv-derived samples or rows are production-route ready.
+    guarded PR claims broader OpenSubdiv-derived samples or rows are production-route ready.
 """
 
 from __future__ import annotations
@@ -48,8 +48,8 @@ class LocatedAnchor:
 REGULAR_READINESS_CRITERIA: tuple[dict[str, str], ...] = (
     {
         "criterion": "OpenSubdiv-derived sample identity",
-        "current_status": "regular row/integrand probe plus C++ proof evidence",
-        "remaining_gap": "show installed route consumes frozen samples and quadrature points",
+        "current_status": "regular row/integrand probe, C++ proof evidence, and guarded route tests",
+        "remaining_gap": "keep installed route on frozen samples and quadrature points",
     },
     {
         "criterion": "seven-row derivative mapping",
@@ -73,13 +73,13 @@ REGULAR_READINESS_CRITERIA: tuple[dict[str, str], ...] = (
     },
     {
         "criterion": "actual fBend/fArea/fVolume comparison",
-        "current_status": "opt-in regular actual-force probe, C++ proof rows, and production-helper dry run",
-        "remaining_gap": "compare OpenSubdiv-derived rows from the installed production route",
+        "current_status": "opt-in regular actual-force probe, C++ proof rows, production-helper dry run, and guarded helper route test",
+        "remaining_gap": "extend only with reviewed production timing evidence",
     },
     {
         "criterion": "energy/normal/area/volume comparison",
-        "current_status": "regular probe, tests, and visible-observable dry run cover deterministic evidence",
-        "remaining_gap": "compare output-visible real production call timing",
+        "current_status": "regular probe, tests, visible-observable dry run, and guarded route area/helper evidence",
+        "remaining_gap": "compare full output-visible real production call timing",
     },
     {
         "criterion": "scatter through Face::oneRingVertices",
@@ -103,8 +103,8 @@ REGULAR_READINESS_CRITERIA: tuple[dict[str, str], ...] = (
     },
     {
         "criterion": "reviewer/user gate",
-        "current_status": "readiness evidence only",
-        "remaining_gap": "separate reviewed PR before production routing",
+        "current_status": "regular route reviewer/user gate installed",
+        "remaining_gap": "separate reviewed PR before broader routing",
     },
 )
 
@@ -112,9 +112,9 @@ REGULAR_READINESS_CRITERIA: tuple[dict[str, str], ...] = (
 ROUTE_READINESS_MATRIX: tuple[dict[str, str], ...] = (
     {
         "route": "regular 12-control membrane force",
-        "current_production_status": "supported by in-tree evaluator",
-        "opensubdiv_evidence_status": "substantial opt-in proof evidence through PR #82",
-        "readiness_result": "not production-routed until separate gated route installation and comparison",
+        "current_production_status": "supported by in-tree evaluator; guarded OpenSubdiv route is opt-in",
+        "opensubdiv_evidence_status": "substantial proof evidence plus guarded production helper smoke",
+        "readiness_result": "first guarded regular production route installed for non-ghost 12-control faces",
     },
     {
         "route": "positive-depth 11 = 4+3+4 membrane force",
@@ -148,11 +148,11 @@ ANCHORS: tuple[Anchor, ...] = (
     ),
     Anchor(
         "readiness map",
-        "non-production boundary",
+        "guarded production boundary",
         READINESS_DOC_PATH,
-        "This is a docs/scripts-only readiness map.",
+        "first narrowly guarded production regular-routing",
         "policy boundary",
-        "The map records that production behavior, backend interfaces, and build policy are unchanged.",
+        "The map records the guarded regular production route and unchanged defaults.",
     ),
     Anchor(
         "readiness map",
@@ -172,11 +172,11 @@ ANCHORS: tuple[Anchor, ...] = (
     ),
     Anchor(
         "readiness map",
-        "regular not route ready",
+        "guarded regular route installed",
         READINESS_DOC_PATH,
-        "Evidence package is substantially complete, but still not production-routed",
-        "remaining gap",
-        "The regular route is not declared production-routed by proof evidence alone.",
+        "First guarded regular production-routing step is installed",
+        "guarded route",
+        "The regular route is declared installed only behind explicit guards.",
     ),
     Anchor(
         "readiness map",

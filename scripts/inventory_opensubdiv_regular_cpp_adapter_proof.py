@@ -3,8 +3,8 @@
 
 This helper is intentionally source-text based. It does not compile
 OpenSubdiv or execute production force code. It verifies that the experimental
-C++ proof stays opt-in and that default production build/routing surfaces do
-not gain an OpenSubdiv dependency.
+C++ proof stays opt-in and that production OpenSubdiv references remain limited
+to the guarded regular route and explicit wrappers.
 """
 
 from __future__ import annotations
@@ -28,6 +28,13 @@ PRODUCTION_PATHS = (
     Path(".github"),
     Path("scripts/verify_pr_ready.sh"),
 )
+ALLOWED_PRODUCTION_OPENSUBDIV_PATHS = {
+    Path("include/mesh/OpenSubdiv_regular_evaluator.hpp"),
+    Path("src/mesh/OpenSubdiv_regular_evaluator.cpp"),
+    Path("src/mesh/Mesh.cpp"),
+    Path("src/energy_force/Compute_energy_and_force_on_mesh.cpp"),
+    MAKEFILE_PATH,
+}
 
 
 @dataclass(frozen=True)
@@ -389,6 +396,9 @@ def production_leaks(root: Path) -> list[str]:
         else:
             continue
         for candidate in files:
+            relative_candidate = candidate.relative_to(root)
+            if relative_candidate in ALLOWED_PRODUCTION_OPENSUBDIV_PATHS:
+                continue
             text = read_text(candidate)
             for line_number, line in enumerate(text.splitlines(), start=1):
                 if any(needle in line for needle in needles):
