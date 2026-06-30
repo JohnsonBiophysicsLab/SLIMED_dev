@@ -26,7 +26,7 @@ class OpenSubdivRegularAdapterReadinessInventoryTest(unittest.TestCase):
         self.assertIn("PR #73 routing readiness map", lanes)
         self.assertIn("PR #74 regular sample plan", lanes)
         self.assertIn("PR #75 regular backend readiness", lanes)
-        self.assertIn("current regular adapter proof", lanes)
+        self.assertIn("PR #76 through PR #82 proof lane", lanes)
 
     def test_adapter_checklist_covers_regular_backend_gates(self):
         gates = {row["gate"]: row for row in inventory.ADAPTER_READINESS_CHECKLIST}

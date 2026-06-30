@@ -1,8 +1,8 @@
 # OpenSubdiv Regular Backend Adapter Readiness Checklist
 
-Date: 2026-06-29.
-Baseline: PR #79 merge commit
-`a84c25284e843c14b0bc2e98b9e85dd0c2b9596f`.
+Date: 2026-06-30.
+Baseline: PR #82 merge commit
+`378b7a2dc8964d9acc304fbba1899a0914198934`.
 
 This is a docs/scripts/tests-only adapter-readiness lane. It does not change
 production C++ behavior, C++ backend interfaces, default build policy,
@@ -39,7 +39,7 @@ must remain reviewable in SLIMED terms:
 | PR #73 routing readiness map | `docs/opensubdiv_routing_readiness_map.md` records regular-first readiness gates and keeps irregular/broader-valence routing future-only. | The regular adapter is still not route-ready until production comparison and reviewer/user gates are satisfied. |
 | PR #74 regular sample plan | `docs/opensubdiv_regular_sample_plan.md` freezes quadrature rows, `s=v,t=w`, seven rows, source order, duplicate aggregation, and comparison boundaries. | The adapter must match the frozen regular sample plan or carry an explicitly reviewed replacement. |
 | PR #75 regular backend readiness | `docs/opensubdiv_regular_backend_adapter_readiness.md` and its inventory keep adapter evidence review-gated. | The proof lane may add opt-in report evidence, but production routing remains blocked. |
-| Current proof lane | `docs/opensubdiv_regular_adapter_proof.md`, `scripts/probe_opensubdiv_feasibility.py --regular-adapter-proof-report`, and `scripts/run_opensubdiv_regular_cpp_adapter_proof.sh` emit test-only regular adapter proof evidence. | OpenSubdiv rows can be remapped into the weighted-sample contract and compared against the current regular production helper in a proof-local dry run without changing production routing. |
+| PR #76 through PR #82 proof lane | `docs/opensubdiv_regular_adapter_proof.md`, `scripts/probe_opensubdiv_feasibility.py --regular-adapter-proof-report`, and `scripts/run_opensubdiv_regular_cpp_adapter_proof.sh` emit test-only regular adapter proof evidence. | OpenSubdiv rows can be remapped into the weighted-sample contract and compared against production-call shape, current regular production helper semantics, visible regular area/legacy-volume observables, and proof-local serial/OpenMP-style accumulation shape without changing production routing. |
 
 ## Adapter Boundary
 
@@ -69,9 +69,9 @@ changes production behavior.
 | Original source-id order | Row weights are keyed by original SLIMED ids and match `Face::oneRingVertices[j]` for the regular 12-control support. | Weighted-sample seam, mapping contract, and force/scatter contract | Characterized through the in-tree seam, not OpenSubdiv production routing. |
 | Deterministic duplicate aggregation | Duplicate original source ids are summed deterministically before formula comparison or scatter comparison. | `LimitSurfaceWeightedSample::row_weight(...)` and regular source-id tests | Characterized through the in-tree seam, not OpenSubdiv production routing. |
 | Actual force rows | OpenSubdiv-derived rows compare through actual `fBend`, `fArea`, and `fVolume` formula rows, not only row/integrand or toy-transpose probes. | `docs/opensubdiv_force_transpose_evidence.md`, `--regular-actual-force-report`, and `--regular-adapter-proof-report` | Test-only adapter proof exists; production routing remains missing. |
-| Regular production helper dry run | OpenSubdiv-derived regular rows compare against the current `Mesh::element_energy_force_regular` call semantics without installing a production route. | `docs/opensubdiv_regular_adapter_proof.md` and `scripts/run_opensubdiv_regular_cpp_adapter_proof.sh` | Proof-local dry-run evidence exists; routed production timing, output state, and serial/OpenMP evidence remain missing. |
-| Output-visible state | Energies, normals, mean curvature, area, and legacy volume compare at production call timing. | Routing readiness map and force/scatter contract | Required before routing; not satisfied by this checklist. |
-| Scatter and reduction | Local OpenSubdiv-derived regular rows scatter through `Face::oneRingVertices` while preserving the current serial/OpenMP thread-local buffer shape and reduction order, or a reviewed replacement. | `docs/force_formula_scatter_equivalence.md`, routing readiness map, and `--regular-adapter-proof-report` | Test-only scatter identity exists; production serial/OpenMP routing evidence remains required. |
+| Regular production helper dry run | OpenSubdiv-derived regular rows compare against the current `Mesh::element_energy_force_regular` call semantics without installing a production route. | `docs/opensubdiv_regular_adapter_proof.md` and `scripts/run_opensubdiv_regular_cpp_adapter_proof.sh` | Proof-local dry-run evidence exists; real routed production timing remains missing. |
+| Output-visible state | Energies, normals, mean curvature, area, and legacy volume compare at production call timing. | Routing readiness map and force/scatter contract | Proof-local visible-observable dry-run evidence exists for regular area and legacy visible volume; real routed production timing and broader output-visible state remain required. |
+| Scatter and reduction | Local OpenSubdiv-derived regular rows scatter through `Face::oneRingVertices` while preserving the current serial/OpenMP thread-local buffer shape and reduction order, or a reviewed replacement. | `docs/force_formula_scatter_equivalence.md`, routing readiness map, and the C++ proof harness | Test-only scatter identity and serial/OpenMP-style accumulation parity exist; production serial/OpenMP routing evidence remains required. |
 | Dependency-present behavior | OpenSubdiv-present evidence is opt-in through `OPENSUBDIV_ROOT`; default builds, tests, and Makefile targets remain OpenSubdiv-free. | Backend interface policy and `scripts/run_opensubdiv_probe.sh` | Required boundary remains unchanged. |
 | Dependency-absent behavior | Missing OpenSubdiv skips probes cleanly and never changes production physics or routing. | `scripts/run_opensubdiv_probe.sh --json` absent-wrapper behavior | Required boundary remains unchanged. |
 | Non-production review gate | No production route uses OpenSubdiv-derived rows until a separate reviewed PR proves the checklist against production routing and scatter. | Routing readiness map and this checklist | Explicit blocker for adapter routing. |
@@ -103,6 +103,9 @@ seven-row weighted-sample contract, checks deterministic duplicate aggregation,
 emits actual `fBend`/`fArea`/`fVolume` rows, verifies
 `Face::oneRingVertices` scatter identity, and now compares the OpenSubdiv-fed
 rows against the current regular production helper in a dry-run local `Param`.
+It also reports proof-local visible regular area/legacy-volume observables and
+serial/OpenMP-style accumulation parity for the current `nVertices*9`
+force-buffer shape.
 It is still not production routing.
 
 ## Required Future Adapter Evidence Package

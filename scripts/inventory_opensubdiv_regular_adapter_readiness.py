@@ -80,9 +80,9 @@ EVIDENCE_LINEAGE: tuple[dict[str, str], ...] = (
         "adapter_meaning": "keep regular adapter proof work review-gated and non-production",
     },
     {
-        "lane": "current regular adapter proof",
+        "lane": "PR #76 through PR #82 proof lane",
         "anchor": "--regular-adapter-proof-report and run_opensubdiv_regular_cpp_adapter_proof.sh",
-        "adapter_meaning": "emit test-only regular adapter and production-helper dry-run evidence through original SLIMED source ids",
+        "adapter_meaning": "emit test-only regular adapter, production-helper, visible-observable, and serial/OpenMP-style proof evidence through original SLIMED source ids",
     },
 )
 
@@ -121,12 +121,12 @@ ADAPTER_READINESS_CHECKLIST: tuple[dict[str, str], ...] = (
     {
         "gate": "output-visible state",
         "must_prove": "energies, normals, mean curvature, area, and legacy volume at production timing",
-        "current_status": "required before routing",
+        "current_status": "proof-local visible-observable dry run exists; real routed production timing remains missing",
     },
     {
         "gate": "scatter and reduction",
         "must_prove": "Face::oneRingVertices scatter and current serial/OpenMP accumulation shape",
-        "current_status": "test-only scatter identity exists; production serial/OpenMP evidence remains required",
+        "current_status": "test-only scatter identity and serial/OpenMP-style accumulation parity exist; production serial/OpenMP evidence remains required",
     },
     {
         "gate": "dependency-present behavior",
@@ -223,7 +223,7 @@ ANCHORS: tuple[Anchor, ...] = (
         "adapter checklist",
         "current proof lineage",
         ADAPTER_DOC_PATH,
-        "Current proof lane",
+        "PR #76 through PR #82 proof lane",
         "evidence lineage",
         "The checklist ties the proof lane to the opt-in regular adapter proof report.",
     ),
@@ -415,7 +415,7 @@ ANCHORS: tuple[Anchor, ...] = (
         "routing readiness",
         "regular not route ready",
         READINESS_DOC_PATH,
-        "Not route-ready until OpenSubdiv-derived rows are compared through production routing/scatter",
+        "Evidence package is substantially complete, but still not production-routed",
         "remaining gap",
         "The routing map still blocks production routing by probe evidence alone.",
     ),

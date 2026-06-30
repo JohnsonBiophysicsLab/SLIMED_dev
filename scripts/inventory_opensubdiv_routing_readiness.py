@@ -48,8 +48,8 @@ class LocatedAnchor:
 REGULAR_READINESS_CRITERIA: tuple[dict[str, str], ...] = (
     {
         "criterion": "OpenSubdiv-derived sample identity",
-        "current_status": "regular row/integrand probe evidence",
-        "remaining_gap": "freeze routed production samples and quadrature points",
+        "current_status": "regular row/integrand probe plus C++ proof evidence",
+        "remaining_gap": "show installed route consumes frozen samples and quadrature points",
     },
     {
         "criterion": "seven-row derivative mapping",
@@ -58,13 +58,13 @@ REGULAR_READINESS_CRITERIA: tuple[dict[str, str], ...] = (
     },
     {
         "criterion": "source-id ordering",
-        "current_status": "backend-neutral seam and regular tests cover source ids",
-        "remaining_gap": "prove OpenSubdiv-derived ids match Face::oneRingVertices order",
+        "current_status": "backend-neutral seam, regular tests, and proof harness cover source ids",
+        "remaining_gap": "prove installed route matches Face::oneRingVertices order",
     },
     {
         "criterion": "duplicate aggregation",
-        "current_status": "readiness map requires deterministic source-id aggregation",
-        "remaining_gap": "compare aggregated OpenSubdiv weights before routing",
+        "current_status": "proof harness covers deterministic source-id aggregation",
+        "remaining_gap": "keep aggregation at the production route boundary",
     },
     {
         "criterion": "quadrature/sample identity",
@@ -73,23 +73,23 @@ REGULAR_READINESS_CRITERIA: tuple[dict[str, str], ...] = (
     },
     {
         "criterion": "actual fBend/fArea/fVolume comparison",
-        "current_status": "opt-in regular actual-force probe plus in-tree formula tests",
-        "remaining_gap": "compare OpenSubdiv-derived rows through production routing",
+        "current_status": "opt-in regular actual-force probe, C++ proof rows, and production-helper dry run",
+        "remaining_gap": "compare OpenSubdiv-derived rows from the installed production route",
     },
     {
         "criterion": "energy/normal/area/volume comparison",
-        "current_status": "regular probe and tests cover deterministic evidence",
-        "remaining_gap": "compare output-visible production call timing",
+        "current_status": "regular probe, tests, and visible-observable dry run cover deterministic evidence",
+        "remaining_gap": "compare output-visible real production call timing",
     },
     {
         "criterion": "scatter through Face::oneRingVertices",
-        "current_status": "regular scatter order test covers current route",
-        "remaining_gap": "prove OpenSubdiv-derived rows preserve or review-replace order",
+        "current_status": "regular scatter order test and C++ proof harness cover current route shape",
+        "remaining_gap": "prove installed route preserves or review-replaces order",
     },
     {
         "criterion": "serial/OpenMP tolerance envelope",
-        "current_status": "thread-local buffer and reduction order documented",
-        "remaining_gap": "establish routed backend tolerances for outputs",
+        "current_status": "thread-local buffer/reduction order documented; proof-local serial/OpenMP-style accumulation parity exists",
+        "remaining_gap": "establish real routed backend tolerances for outputs",
     },
     {
         "criterion": "fallback diagnostics",
@@ -113,8 +113,8 @@ ROUTE_READINESS_MATRIX: tuple[dict[str, str], ...] = (
     {
         "route": "regular 12-control membrane force",
         "current_production_status": "supported by in-tree evaluator",
-        "opensubdiv_evidence_status": "opt-in probe evidence only",
-        "readiness_result": "not route-ready until gated production comparison",
+        "opensubdiv_evidence_status": "substantial opt-in proof evidence through PR #82",
+        "readiness_result": "not production-routed until separate gated route installation and comparison",
     },
     {
         "route": "positive-depth 11 = 4+3+4 membrane force",
@@ -156,11 +156,11 @@ ANCHORS: tuple[Anchor, ...] = (
     ),
     Anchor(
         "readiness map",
-        "PR72 observational boundary",
+        "PR72 through PR82 observational boundary",
         READINESS_DOC_PATH,
-        "PR #72 probe evidence is observational and non-production.",
+        "PR #72 probe evidence and PR #76 through PR #82 proof evidence are",
         "policy boundary",
-        "The map keeps PR #72 evidence out of production routing.",
+        "The map keeps the proof evidence package out of production routing.",
     ),
     Anchor(
         "readiness map",
@@ -174,9 +174,25 @@ ANCHORS: tuple[Anchor, ...] = (
         "readiness map",
         "regular not route ready",
         READINESS_DOC_PATH,
-        "Not route-ready until OpenSubdiv-derived rows are compared through production routing/scatter",
+        "Evidence package is substantially complete, but still not production-routed",
         "remaining gap",
-        "The regular route is not declared production-ready by probe evidence alone.",
+        "The regular route is not declared production-routed by proof evidence alone.",
+    ),
+    Anchor(
+        "readiness map",
+        "production route boundary",
+        READINESS_DOC_PATH,
+        "a tiny production route selection boundary",
+        "remaining gate",
+        "The map names the smallest reviewed production routing boundary.",
+    ),
+    Anchor(
+        "readiness map",
+        "proof lineage through PR82",
+        READINESS_DOC_PATH,
+        "PR #76 through PR #82 proof evidence",
+        "evidence lineage",
+        "The map records the proof-lane evidence through PR #82.",
     ),
     Anchor(
         "readiness criterion",
