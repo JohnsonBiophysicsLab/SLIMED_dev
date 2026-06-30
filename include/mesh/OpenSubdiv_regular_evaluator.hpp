@@ -50,8 +50,16 @@ struct OpenSubdivRegularProductionParityRecheck
     double maxNormalDifference = 0.0;
     double maxFBendDifference = 0.0;
     double maxFAreaDifference = 0.0;
+    int maxFAreaDifferenceFaceIndex = -1;
+    int maxFAreaDifferenceLocalRow = -1;
+    int maxFAreaDifferenceAxis = -1;
     double maxFVolumeDifference = 0.0;
+    int maxFVolumeDifferenceFaceIndex = -1;
+    int maxFVolumeDifferenceLocalRow = -1;
+    int maxFVolumeDifferenceAxis = -1;
     double maxScatterDifference = 0.0;
+    int maxScatterDifferenceVertexIndex = -1;
+    int maxScatterDifferenceComponent = -1;
 };
 
 /**

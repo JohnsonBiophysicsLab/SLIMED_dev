@@ -196,6 +196,37 @@ void update_max_abs_matrix_difference(double &target,
     target = std::max(target, max_abs_matrix_difference(lhs, rhs));
 }
 
+void update_max_abs_matrix_difference_with_location(double &target,
+                                                   int &targetFaceIndex,
+                                                   int &targetRow,
+                                                   int &targetAxis,
+                                                   const int faceIndex,
+                                                   const Matrix &lhs,
+                                                   const Matrix &rhs)
+{
+    if (lhs.nrow() != rhs.nrow() || lhs.ncol() != rhs.ncol())
+    {
+        throw std::runtime_error(
+            "OpenSubdiv regular residual diagnostics require matching matrix dimensions.");
+    }
+
+    for (int row = 0; row < lhs.nrow(); ++row)
+    {
+        for (int axis = 0; axis < lhs.ncol(); ++axis)
+        {
+            const double difference =
+                std::abs(lhs.get(row, axis) - rhs.get(row, axis));
+            if (difference > target)
+            {
+                target = difference;
+                targetFaceIndex = faceIndex;
+                targetRow = row;
+                targetAxis = axis;
+            }
+        }
+    }
+}
+
 std::vector<Matrix> control_point_rows_to_columns_for_face(const Mesh &mesh,
                                                            const Face &face)
 {
@@ -232,8 +263,10 @@ void accumulate_scatter_rows(std::vector<double> &target,
     }
 }
 
-double max_abs_vector_difference(const std::vector<double> &lhs,
-                                 const std::vector<double> &rhs)
+void update_max_abs_scatter_difference_with_location(
+    OpenSubdivRegularProductionParityRecheck &recheck,
+    const std::vector<double> &lhs,
+    const std::vector<double> &rhs)
 {
     if (lhs.size() != rhs.size())
     {
@@ -241,13 +274,19 @@ double max_abs_vector_difference(const std::vector<double> &lhs,
             "OpenSubdiv regular parity recheck requires matching scatter dimensions.");
     }
 
-    double maxDifference = 0.0;
+    constexpr int kForceComponentsPerVertex = 9;
     for (std::size_t index = 0; index < lhs.size(); ++index)
     {
-        maxDifference =
-            std::max(maxDifference, std::abs(lhs[index] - rhs[index]));
+        const double difference = std::abs(lhs[index] - rhs[index]);
+        if (difference > recheck.maxScatterDifference)
+        {
+            recheck.maxScatterDifference = difference;
+            recheck.maxScatterDifferenceVertexIndex =
+                static_cast<int>(index / kForceComponentsPerVertex);
+            recheck.maxScatterDifferenceComponent =
+                static_cast<int>(index % kForceComponentsPerVertex);
+        }
     }
-    return maxDifference;
 }
 
 std::vector<Matrix> shape_functions_for_face(
@@ -626,12 +665,22 @@ diagnose_opensubdiv_regular_production_call_parity(Mesh &mesh)
         update_max_abs_matrix_difference(recheck.maxFBendDifference,
                                          directFBend,
                                          routedFBend);
-        update_max_abs_matrix_difference(recheck.maxFAreaDifference,
-                                         directFArea,
-                                         routedFArea);
-        update_max_abs_matrix_difference(recheck.maxFVolumeDifference,
-                                         directFVolume,
-                                         routedFVolume);
+        update_max_abs_matrix_difference_with_location(
+            recheck.maxFAreaDifference,
+            recheck.maxFAreaDifferenceFaceIndex,
+            recheck.maxFAreaDifferenceLocalRow,
+            recheck.maxFAreaDifferenceAxis,
+            face.index,
+            directFArea,
+            routedFArea);
+        update_max_abs_matrix_difference_with_location(
+            recheck.maxFVolumeDifference,
+            recheck.maxFVolumeDifferenceFaceIndex,
+            recheck.maxFVolumeDifferenceLocalRow,
+            recheck.maxFVolumeDifferenceAxis,
+            face.index,
+            directFVolume,
+            routedFVolume);
 
         accumulate_scatter_rows(directScatter,
                                 face,
@@ -646,8 +695,9 @@ diagnose_opensubdiv_regular_production_call_parity(Mesh &mesh)
     }
 
     mesh.param.shapeFunctions = originalShapeFunctions;
-    recheck.maxScatterDifference =
-        max_abs_vector_difference(directScatter, routedScatter);
+    update_max_abs_scatter_difference_with_location(recheck,
+                                                    directScatter,
+                                                    routedScatter);
     allMatched = allMatched && recheck.generatedRoutedRows &&
                  recheck.comparedFaceCount > 0 &&
                  recheck.maxAreaDifference <= kOpenSubdivRegularRowTolerance &&
