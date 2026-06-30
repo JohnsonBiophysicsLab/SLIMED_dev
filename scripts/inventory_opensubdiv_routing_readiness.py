@@ -74,7 +74,7 @@ REGULAR_READINESS_CRITERIA: tuple[dict[str, str], ...] = (
     },
     {
         "criterion": "actual fBend/fArea/fVolume comparison",
-        "current_status": "opt-in regular actual-force probe, C++ proof rows, production-helper dry run, guarded helper route test, and diagnostic production-call parity recheck exposing remaining fArea/fVolume deltas",
+        "current_status": "opt-in regular actual-force probe, C++ proof rows, production-helper dry run, guarded helper route test, and diagnostic production-call parity recheck exposing remaining fArea/fVolume deltas and residual locations",
         "remaining_gap": "keep route disabled until reviewers approve installing rows",
     },
     {
@@ -84,7 +84,7 @@ REGULAR_READINESS_CRITERIA: tuple[dict[str, str], ...] = (
     },
     {
         "criterion": "scatter through Face::oneRingVertices",
-        "current_status": "regular scatter order test, C++ proof harness, and diagnostic production-call parity recheck cover order while exposing remaining scatter deltas",
+        "current_status": "regular scatter order test, C++ proof harness, and diagnostic production-call parity recheck cover order while exposing remaining scatter deltas and residual locations",
         "remaining_gap": "prove installed route preserves or review-replaces order",
     },
     {

@@ -1901,8 +1901,21 @@ TEST(OpenSubdivRegularProductionRoutingGuard,
     EXPECT_LE(recheck.maxNormalDifference, 5.0e-6);
     EXPECT_LE(recheck.maxFBendDifference, 5.0e-6);
     EXPECT_GT(recheck.maxFAreaDifference, 5.0e-6);
+    EXPECT_GE(recheck.maxFAreaDifferenceFaceIndex, 0);
+    EXPECT_GE(recheck.maxFAreaDifferenceLocalRow, 0);
+    EXPECT_LT(recheck.maxFAreaDifferenceLocalRow, 12);
+    EXPECT_GE(recheck.maxFAreaDifferenceAxis, 0);
+    EXPECT_LT(recheck.maxFAreaDifferenceAxis, 3);
     EXPECT_GT(recheck.maxFVolumeDifference, 5.0e-6);
+    EXPECT_GE(recheck.maxFVolumeDifferenceFaceIndex, 0);
+    EXPECT_GE(recheck.maxFVolumeDifferenceLocalRow, 0);
+    EXPECT_LT(recheck.maxFVolumeDifferenceLocalRow, 12);
+    EXPECT_GE(recheck.maxFVolumeDifferenceAxis, 0);
+    EXPECT_LT(recheck.maxFVolumeDifferenceAxis, 3);
     EXPECT_GT(recheck.maxScatterDifference, 5.0e-6);
+    EXPECT_GE(recheck.maxScatterDifferenceVertexIndex, 0);
+    EXPECT_GE(recheck.maxScatterDifferenceComponent, 0);
+    EXPECT_LT(recheck.maxScatterDifferenceComponent, 9);
     EXPECT_TRUE(build_opensubdiv_regular_shape_functions_by_face(mesh).empty());
 }
 
