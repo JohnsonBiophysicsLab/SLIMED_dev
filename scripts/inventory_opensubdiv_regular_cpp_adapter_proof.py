@@ -76,6 +76,9 @@ CPP_PROOF_INVARIANTS: tuple[dict[str, str], ...] = (
     {"invariant": "visible area evidence", "needle": '\\"production_area\\":'},
     {"invariant": "legacy visible volume evidence", "needle": '\\"production_legacy_visible_volume\\":'},
     {"invariant": "visible observable pass flag", "needle": '\\"matches_production_regular_area_volume\\":'},
+    {"invariant": "serial OpenMP accumulation parity", "needle": '\\"serial_openmp_accumulation_parity\\":{'},
+    {"invariant": "serial OpenMP production shape reference", "needle": "accumulate_membrane_face_energy_and_forces per-thread nVertices*9 buffers reduced by vertex, component, then thread index"},
+    {"invariant": "serial OpenMP pass flag", "needle": '\\"matches_serial_openmp_accumulation_shape\\":'},
     {"invariant": "not production routing", "needle": '\\"not_production_routing\\":true'},
 )
 
@@ -250,6 +253,27 @@ ANCHORS: tuple[Anchor, ...] = (
         "The report labels the current legacy visible-volume convention precisely.",
     ),
     Anchor(
+        "c++ proof",
+        "serial OpenMP accumulation parity",
+        CPP_PROOF_PATH,
+        '\\"serial_openmp_accumulation_parity\\":{',
+        "The C++ proof emits proof-local serial/OpenMP-style accumulation evidence.",
+    ),
+    Anchor(
+        "c++ proof",
+        "serial OpenMP production shape reference",
+        CPP_PROOF_PATH,
+        "accumulate_membrane_face_energy_and_forces per-thread nVertices*9 buffers reduced by vertex, component, then thread index",
+        "The accumulation parity evidence names the current production buffer/reduction shape.",
+    ),
+    Anchor(
+        "c++ proof",
+        "serial OpenMP pass flag",
+        CPP_PROOF_PATH,
+        '\\"matches_serial_openmp_accumulation_shape\\":',
+        "The emitted report fails if proof-local serial and OpenMP-style accumulation diverge.",
+    ),
+    Anchor(
         "wrapper",
         "explicit root gate",
         WRAPPER_PATH,
@@ -311,6 +335,13 @@ ANCHORS: tuple[Anchor, ...] = (
         DOC_PATH,
         "Visible Observable Dry-Run Evidence",
         "The doc records proof-local output-visible area/volume evidence.",
+    ),
+    Anchor(
+        "docs",
+        "serial OpenMP accumulation documented",
+        DOC_PATH,
+        "Serial/OpenMP Accumulation Parity Evidence",
+        "The doc records proof-local serial/OpenMP-style accumulation parity evidence.",
     ),
 )
 

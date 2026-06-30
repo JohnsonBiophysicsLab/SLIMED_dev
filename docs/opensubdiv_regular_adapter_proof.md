@@ -1,8 +1,8 @@
 # OpenSubdiv Regular Adapter Proof
 
 Date: 2026-06-29.
-Baseline: PR #80 merge commit
-`099ba2b80baa20105a5db7c76a7879ecb6b36f66`.
+Baseline: PR #81 merge commit
+`9971f22953ff9adefd078dafbd5f4447e4a877d4`.
 
 This is a docs/scripts/tests/experiments-only proof lane. It does not change
 production C++ behavior, default `make` or test behavior, OpenSubdiv dependency
@@ -67,7 +67,11 @@ reports the maximum force-row and scalar differences. This lane adds
 current regular `Mesh::calculate_element_area_volume` output path with the same
 OpenSubdiv-derived rows installed only on a local `Param`, then compares
 visible regular area and legacy visible-volume values against proof-local row
-evaluation.
+evaluation. This lane also adds `serial_openmp_accumulation_parity`: a
+proof-local comparison between direct serial scatter and the OpenMP-style
+per-thread force-buffer accumulation/reduction shape used by
+`accumulate_membrane_face_energy_and_forces`, fed by the same
+OpenSubdiv-derived regular `fBend`/`fArea`/`fVolume` rows.
 
 This C++ harness does not add a Makefile target, default dependency,
 production route, production include, public SLIMED signature, or OpenSubdiv
@@ -132,6 +136,27 @@ convention for volume. This evidence characterizes that visible output; it does
 not redefine volume semantics, prove scientific equivalence, or approve routing
 production faces through OpenSubdiv.
 
+## Serial/OpenMP Accumulation Parity Evidence
+
+The C++ report emits `serial_openmp_accumulation_parity` as proof-only
+accumulation evidence. It starts from the already proven OpenSubdiv-derived
+regular force rows, scatters them through `Face::oneRingVertices[j]`, and
+compares:
+
+- a direct serial `nVertices*9` force-buffer accumulation; against
+- simulated OpenMP per-thread `nVertices*9` force buffers reduced by vertex,
+  force component, and thread index.
+
+The emitted JSON states `not_production_routing:true`,
+`default_build_dependency_added:false`, `route_installed_in_production:false`,
+the current 9-component force-buffer shape, the maximum serial/OpenMP-style
+accumulation difference, finite/nonzero checks, and
+`matches_serial_openmp_accumulation_shape`.
+
+This is a local shape/tolerance proof only. It does not change production
+OpenMP pragmas, thread-buffer allocation, reduction ordering, force formulas,
+scatter order, Makefile defaults, or dependency behavior.
+
 ## Proof Boundary
 
 For the regular lattice fixture, the report remaps OpenSubdiv stencil rows into
@@ -171,7 +196,9 @@ The report records all of the following as machine-readable JSON:
   a local `Param`; and
 - proof-local visible observable dry-run parity for regular area and current
   legacy visible volume using OpenSubdiv-derived regular rows in a local
-  `Param`.
+  `Param`; and
+- proof-local serial/OpenMP-style accumulation parity for the current
+  `nVertices*9` force-buffer scatter/reduction shape.
 
 This proves an experimental adapter boundary can produce the reviewable
 weighted-sample contract for the regular fixture. It does not approve any
