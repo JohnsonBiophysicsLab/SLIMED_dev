@@ -189,6 +189,67 @@ double max_abs_matrix_difference(const Matrix &lhs, const Matrix &rhs)
     return maxDifference;
 }
 
+void update_max_abs_matrix_difference(double &target,
+                                      const Matrix &lhs,
+                                      const Matrix &rhs)
+{
+    target = std::max(target, max_abs_matrix_difference(lhs, rhs));
+}
+
+std::vector<Matrix> control_point_rows_to_columns_for_face(const Mesh &mesh,
+                                                           const Face &face)
+{
+    std::vector<Matrix> columns;
+    columns.reserve(face.oneRingVertices.size());
+    for (int sourceId : face.oneRingVertices)
+    {
+        Matrix column(3, 1, true);
+        column.set(0, 0, mesh.vertices[sourceId].coord.get(0, 0));
+        column.set(1, 0, mesh.vertices[sourceId].coord.get(1, 0));
+        column.set(2, 0, mesh.vertices[sourceId].coord.get(2, 0));
+        columns.push_back(column);
+    }
+    return columns;
+}
+
+void accumulate_scatter_rows(std::vector<double> &target,
+                             const Face &face,
+                             const Matrix &fBend,
+                             const Matrix &fArea,
+                             const Matrix &fVolume)
+{
+    constexpr int kForceComponentsPerVertex = 9;
+    for (int row = 0; row < static_cast<int>(face.oneRingVertices.size()); ++row)
+    {
+        const int sourceId = face.oneRingVertices[row];
+        const int baseIndex = sourceId * kForceComponentsPerVertex;
+        for (int axis = 0; axis < 3; ++axis)
+        {
+            target[baseIndex + axis] += fBend.get(row, axis);
+            target[baseIndex + 3 + axis] += fArea.get(row, axis);
+            target[baseIndex + 6 + axis] += fVolume.get(row, axis);
+        }
+    }
+}
+
+double max_abs_vector_difference(const std::vector<double> &lhs,
+                                 const std::vector<double> &rhs)
+{
+    if (lhs.size() != rhs.size())
+    {
+        throw std::runtime_error(
+            "OpenSubdiv regular parity recheck requires matching scatter dimensions.");
+    }
+
+    double maxDifference = 0.0;
+    for (std::size_t index = 0; index < lhs.size(); ++index)
+    {
+        maxDifference =
+            std::max(maxDifference, std::abs(lhs[index] - rhs[index]));
+    }
+    return maxDifference;
+}
+
 std::vector<Matrix> shape_functions_for_face(
     const Mesh &mesh,
     const Face &face,
@@ -437,6 +498,171 @@ diagnose_opensubdiv_regular_row_semantics(const Mesh &mesh)
     return diagnostics;
 }
 
+OpenSubdivRegularProductionParityRecheck
+diagnose_opensubdiv_regular_production_call_parity(Mesh &mesh)
+{
+    OpenSubdivRegularProductionParityRecheck recheck;
+    recheck.opensubdivCompiled = true;
+    recheck.runtimeOptInRequested =
+        opensubdiv_regular_production_routing_requested();
+    recheck.productionRouteEnabled = kOpenSubdivRegularProductionRouteEnabled;
+    recheck.routeInstalledInProduction = false;
+
+    if (!recheck.runtimeOptInRequested || mesh.vertices.empty() ||
+        mesh.faces.empty())
+    {
+        return recheck;
+    }
+
+    auto refiner = create_refiner_for_mesh(mesh);
+    if (!refiner)
+    {
+        throw std::runtime_error(
+            "OpenSubdiv regular production parity recheck failed to create topology refiner.");
+    }
+    Far::TopologyRefiner::AdaptiveOptions adaptiveOptions(3);
+    refiner->RefineAdaptive(adaptiveOptions);
+
+    const std::vector<Matrix> originalShapeFunctions = mesh.param.shapeFunctions;
+    const int scatterSize = static_cast<int>(mesh.vertices.size()) * 9;
+    std::vector<double> directScatter(scatterSize, 0.0);
+    std::vector<double> routedScatter(scatterSize, 0.0);
+
+    bool allMatched = true;
+    for (Face &face : mesh.faces)
+    {
+        if (face.isGhost || face.isBoundary)
+        {
+            continue;
+        }
+        if (face.oneRingVertices.size() != kRegularControlPointCount)
+        {
+            throw std::runtime_error(
+                "OpenSubdiv regular production parity recheck is limited to "
+                "12-control regular faces.");
+        }
+
+        const std::vector<Matrix> routedShapeFunctions =
+            shape_functions_for_face(mesh, face, *refiner);
+        recheck.generatedRoutedRows = true;
+        ++recheck.comparedFaceCount;
+        recheck.comparedSampleCount +=
+            static_cast<int>(routedShapeFunctions.size());
+
+        const Matrix oneRingVertexMatrix = mesh.get_one_ring_vertex_matrix(face);
+        double directArea = 0.0;
+        double directVolume = 0.0;
+        double routedArea = 0.0;
+        double routedVolume = 0.0;
+        mesh.enumerate_regular_patch_area_volume_with_limit_surface_evaluator(
+            oneRingVertexMatrix,
+            directArea,
+            directVolume,
+            nullptr);
+        mesh.enumerate_regular_patch_area_volume_with_limit_surface_evaluator(
+            oneRingVertexMatrix,
+            routedArea,
+            routedVolume,
+            &routedShapeFunctions);
+
+        recheck.maxAreaDifference =
+            std::max(recheck.maxAreaDifference,
+                     std::abs(directArea - routedArea));
+        recheck.maxLegacyVolumeDifference =
+            std::max(recheck.maxLegacyVolumeDifference,
+                     std::abs(directVolume - routedVolume));
+
+        const std::vector<Matrix> coordinateColumns =
+            control_point_rows_to_columns_for_face(mesh, face);
+
+        double directMeanCurv = 0.0;
+        double directEBend = 0.0;
+        Matrix directNorm = mat_calloc(3, 1);
+        Matrix directFBend = mat_calloc(kRegularControlPointCount, 3);
+        Matrix directFArea = mat_calloc(kRegularControlPointCount, 3);
+        Matrix directFVolume = mat_calloc(kRegularControlPointCount, 3);
+
+        mesh.param.shapeFunctions = originalShapeFunctions;
+        mesh.element_energy_force_regular(coordinateColumns,
+                                          face,
+                                          face.spontCurvature,
+                                          directMeanCurv,
+                                          directNorm,
+                                          directEBend,
+                                          directFBend,
+                                          directFArea,
+                                          directFVolume,
+                                          true);
+
+        double routedMeanCurv = 0.0;
+        double routedEBend = 0.0;
+        Matrix routedNorm = mat_calloc(3, 1);
+        Matrix routedFBend = mat_calloc(kRegularControlPointCount, 3);
+        Matrix routedFArea = mat_calloc(kRegularControlPointCount, 3);
+        Matrix routedFVolume = mat_calloc(kRegularControlPointCount, 3);
+
+        mesh.param.shapeFunctions = routedShapeFunctions;
+        mesh.element_energy_force_regular(coordinateColumns,
+                                          face,
+                                          face.spontCurvature,
+                                          routedMeanCurv,
+                                          routedNorm,
+                                          routedEBend,
+                                          routedFBend,
+                                          routedFArea,
+                                          routedFVolume,
+                                          true);
+        mesh.param.shapeFunctions = originalShapeFunctions;
+
+        recheck.maxMeanCurvatureDifference =
+            std::max(recheck.maxMeanCurvatureDifference,
+                     std::abs(directMeanCurv - routedMeanCurv));
+        recheck.maxBendingEnergyDifference =
+            std::max(recheck.maxBendingEnergyDifference,
+                     std::abs(directEBend - routedEBend));
+        update_max_abs_matrix_difference(recheck.maxNormalDifference,
+                                         directNorm,
+                                         routedNorm);
+        update_max_abs_matrix_difference(recheck.maxFBendDifference,
+                                         directFBend,
+                                         routedFBend);
+        update_max_abs_matrix_difference(recheck.maxFAreaDifference,
+                                         directFArea,
+                                         routedFArea);
+        update_max_abs_matrix_difference(recheck.maxFVolumeDifference,
+                                         directFVolume,
+                                         routedFVolume);
+
+        accumulate_scatter_rows(directScatter,
+                                face,
+                                directFBend,
+                                directFArea,
+                                directFVolume);
+        accumulate_scatter_rows(routedScatter,
+                                face,
+                                routedFBend,
+                                routedFArea,
+                                routedFVolume);
+    }
+
+    mesh.param.shapeFunctions = originalShapeFunctions;
+    recheck.maxScatterDifference =
+        max_abs_vector_difference(directScatter, routedScatter);
+    allMatched = allMatched && recheck.generatedRoutedRows &&
+                 recheck.comparedFaceCount > 0 &&
+                 recheck.maxAreaDifference <= kOpenSubdivRegularRowTolerance &&
+                 recheck.maxLegacyVolumeDifference <= kOpenSubdivRegularRowTolerance &&
+                 recheck.maxMeanCurvatureDifference <= kOpenSubdivRegularRowTolerance &&
+                 recheck.maxBendingEnergyDifference <= kOpenSubdivRegularRowTolerance &&
+                 recheck.maxNormalDifference <= kOpenSubdivRegularRowTolerance &&
+                 recheck.maxFBendDifference <= kOpenSubdivRegularRowTolerance &&
+                 recheck.maxFAreaDifference <= kOpenSubdivRegularRowTolerance &&
+                 recheck.maxFVolumeDifference <= kOpenSubdivRegularRowTolerance &&
+                 recheck.maxScatterDifference <= kOpenSubdivRegularRowTolerance;
+    recheck.directVsRoutedMatch = allMatched;
+    return recheck;
+}
+
 #else
 
 std::vector<std::vector<Matrix>>
@@ -462,6 +688,26 @@ diagnose_opensubdiv_regular_row_semantics(const Mesh &mesh)
     diagnostics.productionRouteEnabled = false;
     diagnostics.regularRowsMatchSlimedRows = false;
     return diagnostics;
+}
+
+OpenSubdivRegularProductionParityRecheck
+diagnose_opensubdiv_regular_production_call_parity(Mesh &mesh)
+{
+    (void)mesh;
+    OpenSubdivRegularProductionParityRecheck recheck;
+    recheck.opensubdivCompiled = false;
+    recheck.runtimeOptInRequested =
+        opensubdiv_regular_production_routing_requested();
+    recheck.productionRouteEnabled = false;
+    recheck.routeInstalledInProduction = false;
+    if (recheck.runtimeOptInRequested)
+    {
+        throw std::runtime_error(
+            "SLIMED_USE_OPENSUBDIV_REGULAR was set, but production parity "
+            "recheck requires a binary built with USE_OPENSUBDIV_REGULAR=1 "
+            "and an explicit OPENSUBDIV_ROOT.");
+    }
+    return recheck;
 }
 
 #endif

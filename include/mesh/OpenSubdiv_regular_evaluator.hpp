@@ -33,6 +33,27 @@ struct OpenSubdivRegularRowDiagnostics
     std::vector<OpenSubdivRegularRowDiagnosticSample> samples;
 };
 
+struct OpenSubdivRegularProductionParityRecheck
+{
+    bool opensubdivCompiled = false;
+    bool runtimeOptInRequested = false;
+    bool productionRouteEnabled = false;
+    bool routeInstalledInProduction = false;
+    bool generatedRoutedRows = false;
+    bool directVsRoutedMatch = false;
+    int comparedFaceCount = 0;
+    int comparedSampleCount = 0;
+    double maxAreaDifference = 0.0;
+    double maxLegacyVolumeDifference = 0.0;
+    double maxMeanCurvatureDifference = 0.0;
+    double maxBendingEnergyDifference = 0.0;
+    double maxNormalDifference = 0.0;
+    double maxFBendDifference = 0.0;
+    double maxFAreaDifference = 0.0;
+    double maxFVolumeDifference = 0.0;
+    double maxScatterDifference = 0.0;
+};
+
 /**
  * @brief Return per-face regular shape-function rows for the explicit
  * OpenSubdiv route.
@@ -50,3 +71,14 @@ build_opensubdiv_regular_shape_functions_by_face(const Mesh &mesh);
  */
 OpenSubdivRegularRowDiagnostics
 diagnose_opensubdiv_regular_row_semantics(const Mesh &mesh);
+
+/**
+ * @brief Recheck the disabled regular OpenSubdiv route against the current
+ * production regular call shape without installing the route.
+ *
+ * The diagnostic requires the runtime opt-in in OpenSubdiv-enabled builds and
+ * reports whether per-face would-be-routed rows preserve area, legacy volume,
+ * local force rows, scatter order, normal, mean curvature, and bending energy.
+ */
+OpenSubdivRegularProductionParityRecheck
+diagnose_opensubdiv_regular_production_call_parity(Mesh &mesh);

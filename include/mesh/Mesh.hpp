@@ -45,6 +45,8 @@
 
 using namespace std;
 
+struct OpenSubdivRegularProductionParityRecheck;
+
 /**
  * @brief A class representing a triangular mesh that defines a
  * limit surface.
@@ -747,6 +749,8 @@ public:
      * @brief Overrides the operator << in ostream.
      */
     friend std::ostream &operator<<(std::ostream &stream, const Mesh &mesh);
+    friend OpenSubdivRegularProductionParityRecheck
+    diagnose_opensubdiv_regular_production_call_parity(Mesh &mesh);
 
 protected:
     /**
