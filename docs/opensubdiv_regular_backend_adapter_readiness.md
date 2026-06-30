@@ -4,7 +4,7 @@ Date: 2026-06-30.
 Baseline: guarded regular production-routing lane.
 
 This checklist now records the first explicitly guarded regular production
-routing step. It does not change default production behavior, default build
+routing seam. It does not change default production behavior, default build
 policy, vendoring, submodules, generated dependency artifacts, force formulas,
 force scatter ordering, OpenMP behavior, checkpoint/output behavior,
 propagation behavior, optimizer behavior, or irregular/broader-valence
@@ -28,11 +28,13 @@ The adapter boundary remains reviewable in SLIMED terms:
   force path; and
 - OpenSubdiv presence cannot silently change default behavior.
 
-The installed production route is opt-in twice: the binary must be built with
+The production seam is opt-in twice: the binary must be built with
 `USE_OPENSUBDIV_REGULAR=1 OPENSUBDIV_ROOT=...`, and runtime routing must be
-requested with `SLIMED_USE_OPENSUBDIV_REGULAR=1`. Without both gates, the
-default `SlimedLoopLimitSurfaceEvaluator` route remains the only active
-production route.
+requested with `SLIMED_USE_OPENSUBDIV_REGULAR=1`. The OpenSubdiv-derived rows
+are intentionally disabled after direct-vs-routed production characterization
+showed force/geometry semantics drift, so runtime opt-in currently emits a
+diagnostic and falls back to the default `SlimedLoopLimitSurfaceEvaluator`
+regular path.
 
 ## Evidence Lineage
 
@@ -45,7 +47,7 @@ production route.
 | PR #74 regular sample plan | `docs/opensubdiv_regular_sample_plan.md` freezes quadrature rows, `s=v,t=w`, seven rows, source order, duplicate aggregation, and comparison boundaries. | The adapter must match the frozen regular sample plan or carry an explicitly reviewed replacement. |
 | PR #75 regular backend readiness | `docs/opensubdiv_regular_backend_adapter_readiness.md` and its inventory keep adapter evidence review-gated. | The proof lane may add opt-in report evidence, but production routing remains blocked. |
 | PR #76 through PR #82 proof lane | `docs/opensubdiv_regular_adapter_proof.md`, `scripts/probe_opensubdiv_feasibility.py --regular-adapter-proof-report`, and `scripts/run_opensubdiv_regular_cpp_adapter_proof.sh` emit test-only regular adapter proof evidence. | OpenSubdiv rows can be remapped into the weighted-sample contract and compared against production-call shape, current regular production helper semantics, visible regular area/legacy-volume observables, and proof-local serial/OpenMP-style accumulation shape. |
-| Guarded production regular route | `src/mesh/OpenSubdiv_regular_evaluator.cpp`, `USE_OPENSUBDIV_REGULAR=1`, `SLIMED_USE_OPENSUBDIV_REGULAR=1`, and `OpenSubdivRegularProductionRoutingGuard` tests install a real but opt-in regular route. | Regular non-ghost 12-control faces can consume OpenSubdiv-derived rows through the existing area/volume and force helpers while default builds remain OpenSubdiv-free. |
+| Guarded production regular seam | `src/mesh/OpenSubdiv_regular_evaluator.cpp`, `USE_OPENSUBDIV_REGULAR=1`, `SLIMED_USE_OPENSUBDIV_REGULAR=1`, and `OpenSubdivRegularProductionRoutingGuard` tests compile the backend seam but keep OpenSubdiv-derived rows unavailable. | Runtime opt-in falls back to the reviewed direct regular route until OpenSubdiv rows pass real direct-vs-routed force/geometry characterization. |
 
 ## Adapter Boundary
 
@@ -75,8 +77,8 @@ changes production behavior.
 | Original source-id order | Row weights are keyed by original SLIMED ids and match `Face::oneRingVertices[j]` for the regular 12-control support. | Weighted-sample seam, mapping contract, and force/scatter contract | Characterized through the in-tree seam, not OpenSubdiv production routing. |
 | Deterministic duplicate aggregation | Duplicate original source ids are summed deterministically before formula comparison or scatter comparison. | `LimitSurfaceWeightedSample::row_weight(...)` and regular source-id tests | Characterized through the in-tree seam, not OpenSubdiv production routing. |
 | Actual force rows | OpenSubdiv-derived rows compare through actual `fBend`, `fArea`, and `fVolume` formula rows, not only row/integrand or toy-transpose probes. | `docs/opensubdiv_force_transpose_evidence.md`, `--regular-actual-force-report`, and `--regular-adapter-proof-report` | Test-only adapter proof exists; production routing remains missing. |
-| Regular production helper dry run | OpenSubdiv-derived regular rows compare against the current `Mesh::element_energy_force_regular` call semantics without installing a production route. | `docs/opensubdiv_regular_adapter_proof.md` and `scripts/run_opensubdiv_regular_cpp_adapter_proof.sh` | Proof-local dry-run evidence exists, and the guarded route now feeds the real regular helper in opt-in tests. |
-| Output-visible state | Energies, normals, mean curvature, area, and legacy volume compare at production call timing. | Routing readiness map and force/scatter contract | The guarded route compares regular area/legacy visible volume and helper-produced normals, curvature energy, mean curvature, and `fBend`/`fArea`/`fVolume` rows in opt-in tests. Full `Compute_Energy_And_Force` route-level comparison remains future evidence. |
+| Regular production helper dry run | OpenSubdiv-derived regular rows compare against the current `Mesh::element_energy_force_regular` call semantics without installing a production route. | `docs/opensubdiv_regular_adapter_proof.md` and `scripts/run_opensubdiv_regular_cpp_adapter_proof.sh` | Proof-local dry-run evidence exists, but real production direct-vs-routed characterization exposed semantics drift; routed rows remain disabled. |
+| Output-visible state | Energies, normals, mean curvature, area, and legacy volume compare at production call timing. | Routing readiness map and force/scatter contract | Runtime opt-in fallback preserves the reviewed direct regular path. OpenSubdiv-derived output-visible routing remains future evidence. |
 | Scatter and reduction | Local OpenSubdiv-derived regular rows scatter through `Face::oneRingVertices` while preserving the current serial/OpenMP thread-local buffer shape and reduction order, or a reviewed replacement. | `docs/force_formula_scatter_equivalence.md`, routing readiness map, and the C++ proof harness | Test-only scatter identity and serial/OpenMP-style accumulation parity exist; production serial/OpenMP routing evidence remains required. |
 | Dependency-present behavior | OpenSubdiv-present evidence is opt-in through `OPENSUBDIV_ROOT`; default builds and tests remain OpenSubdiv-free. | Backend interface policy, `scripts/run_opensubdiv_probe.sh`, and `USE_OPENSUBDIV_REGULAR=1` builds | Required boundary remains unchanged. |
 | Dependency-absent behavior | Missing OpenSubdiv skips probes cleanly and never changes production physics or routing. | `scripts/run_opensubdiv_probe.sh --json` absent-wrapper behavior and default-route guard tests | Required boundary remains unchanged. |

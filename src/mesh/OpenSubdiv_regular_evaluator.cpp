@@ -5,6 +5,7 @@
 
 #include <cstdlib>
 #include <array>
+#include <iostream>
 #include <stdexcept>
 #include <string>
 
@@ -45,6 +46,7 @@ namespace
 {
 constexpr int kRegularControlPointCount = 12;
 constexpr int kDerivativeRowCount = 7;
+constexpr bool kOpenSubdivRegularProductionRouteEnabled = false;
 
 struct RefinerDeleter
 {
@@ -221,6 +223,20 @@ build_opensubdiv_regular_shape_functions_by_face(const Mesh &mesh)
 {
     if (!opensubdiv_regular_production_routing_requested())
     {
+        return {};
+    }
+    if (!kOpenSubdivRegularProductionRouteEnabled)
+    {
+        static bool warned = false;
+        if (!warned)
+        {
+            std::cerr
+                << "OpenSubdiv regular production routing was requested, "
+                   "but the route is disabled because the OpenSubdiv-derived "
+                   "rows do not yet preserve reviewed direct force/geometry "
+                   "semantics. Falling back to the direct regular path.\n";
+            warned = true;
+        }
         return {};
     }
 

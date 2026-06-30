@@ -103,8 +103,8 @@ REGULAR_READINESS_CRITERIA: tuple[dict[str, str], ...] = (
     },
     {
         "criterion": "reviewer/user gate",
-        "current_status": "regular route reviewer/user gate installed",
-        "remaining_gap": "separate reviewed PR before broader routing",
+        "current_status": "regular seam reviewer/user gate installed; routed rows disabled",
+        "remaining_gap": "fix direct-vs-routed semantics before installing rows",
     },
 )
 
@@ -112,9 +112,9 @@ REGULAR_READINESS_CRITERIA: tuple[dict[str, str], ...] = (
 ROUTE_READINESS_MATRIX: tuple[dict[str, str], ...] = (
     {
         "route": "regular 12-control membrane force",
-        "current_production_status": "supported by in-tree evaluator; guarded OpenSubdiv route is opt-in",
-        "opensubdiv_evidence_status": "substantial proof evidence plus guarded production helper smoke",
-        "readiness_result": "first guarded regular production route installed for non-ghost 12-control faces",
+        "current_production_status": "supported by in-tree evaluator; guarded OpenSubdiv seam falls back to direct route",
+        "opensubdiv_evidence_status": "substantial proof evidence plus guarded fallback smoke",
+        "readiness_result": "OpenSubdiv-derived rows are not production-routed until direct-vs-routed semantics match",
     },
     {
         "route": "positive-depth 11 = 4+3+4 membrane force",
@@ -152,7 +152,7 @@ ANCHORS: tuple[Anchor, ...] = (
         READINESS_DOC_PATH,
         "first narrowly guarded production regular-routing",
         "policy boundary",
-        "The map records the guarded regular production route and unchanged defaults.",
+        "The map records the guarded regular production seam and unchanged defaults.",
     ),
     Anchor(
         "readiness map",
@@ -172,11 +172,11 @@ ANCHORS: tuple[Anchor, ...] = (
     ),
     Anchor(
         "readiness map",
-        "guarded regular route installed",
+        "guarded regular route disabled",
         READINESS_DOC_PATH,
-        "First guarded regular production-routing step is installed",
+        "No OpenSubdiv-derived rows are production-routed yet",
         "guarded route",
-        "The regular route is declared installed only behind explicit guards.",
+        "The regular route remains disabled until direct-vs-routed semantics match.",
     ),
     Anchor(
         "readiness map",

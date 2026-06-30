@@ -18,10 +18,9 @@ bool opensubdiv_regular_production_routing_requested();
  * @brief Return per-face regular shape-function rows for the explicit
  * OpenSubdiv route.
  *
- * The returned outer vector is indexed like Mesh::faces. Entries are populated
- * only for supported non-boundary, non-ghost 12-control faces. Unsupported
- * selected faces fail loudly instead of falling back silently.
+ * The returned outer vector is indexed like Mesh::faces when the backend is
+ * production-enabled. Empty results mean callers must use the direct regular
+ * path.
  */
 std::vector<std::vector<Matrix>>
 build_opensubdiv_regular_shape_functions_by_face(const Mesh &mesh);
-

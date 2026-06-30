@@ -1713,7 +1713,7 @@ TEST(OpenSubdivRegularProductionRoutingGuard,
 }
 #else
 TEST(OpenSubdivRegularProductionRoutingGuard,
-     OptInBuildMatchesRegularShapeRowsOnPeriodicFlatMesh)
+     OptInBuildKeepsUnprovenRegularRowsUnavailable)
 {
     ScopedEnvVar env("SLIMED_USE_OPENSUBDIV_REGULAR", "1");
 
@@ -1730,35 +1730,11 @@ TEST(OpenSubdivRegularProductionRoutingGuard,
 
     const std::vector<std::vector<Matrix>> routedShapeFunctions =
         build_opensubdiv_regular_shape_functions_by_face(mesh);
-    ASSERT_EQ(routedShapeFunctions.size(), mesh.faces.size());
-
-    int checkedFaces = 0;
-    for (const Face &face : mesh.faces)
-    {
-        if (face.isGhost)
-        {
-            EXPECT_TRUE(routedShapeFunctions[face.index].empty());
-            continue;
-        }
-
-        ASSERT_EQ(face.oneRingVertices.size(), 12);
-        ASSERT_EQ(routedShapeFunctions[face.index].size(),
-                  param.shapeFunctions.size());
-        for (int sample = 0; sample < static_cast<int>(param.shapeFunctions.size());
-             ++sample)
-        {
-            expect_matrix_near(routedShapeFunctions[face.index][sample],
-                               param.shapeFunctions[sample],
-                               5.0e-6,
-                               "OpenSubdiv regular routed shape row");
-        }
-        ++checkedFaces;
-    }
-    EXPECT_GT(checkedFaces, 0);
+    EXPECT_TRUE(routedShapeFunctions.empty());
 }
 
 TEST(OpenSubdivRegularProductionRoutingGuard,
-     OptInRouteMatchesDefaultRegularProductionEnergyForce)
+     RuntimeOptInFallsBackToDirectRegularProductionSemantics)
 {
     auto configure_param = [](Param &param) {
         param.VERBOSE_MODE = false;
@@ -1808,14 +1784,14 @@ TEST(OpenSubdivRegularProductionRoutingGuard,
 
         ASSERT_EQ(routedMesh.faces.size(), defaultMesh.faces.size());
         ASSERT_EQ(routedMesh.vertices.size(), defaultMesh.vertices.size());
+        EXPECT_TRUE(routedShapeFunctions.empty());
 
         EXPECT_NEAR(routedMesh.param.area,
                     defaultMesh.param.area,
-                    5.0e-6);
+                    1.0e-12);
         EXPECT_NEAR(routedMesh.param.vol,
                     defaultMesh.param.vol,
-                    5.0e-6);
-        ASSERT_EQ(routedShapeFunctions.size(), routedMesh.faces.size());
+                    1.0e-12);
 
         for (int faceIndex = 0;
              faceIndex < static_cast<int>(defaultMesh.faces.size());
@@ -1827,8 +1803,8 @@ TEST(OpenSubdivRegularProductionRoutingGuard,
             {
                 continue;
             }
-            EXPECT_NEAR(actual.elementArea, expected.elementArea, 5.0e-6);
-            EXPECT_NEAR(actual.elementVolume, expected.elementVolume, 5.0e-6);
+            EXPECT_NEAR(actual.elementArea, expected.elementArea, 1.0e-12);
+            EXPECT_NEAR(actual.elementVolume, expected.elementVolume, 1.0e-12);
 
             Matrix controlPoints = make_one_ring_control_points(defaultMesh,
                                                                 expected);
@@ -1858,37 +1834,32 @@ TEST(OpenSubdivRegularProductionRoutingGuard,
             Matrix routedFBend = mat_calloc(12, 3);
             Matrix routedFArea = mat_calloc(12, 3);
             Matrix routedFVolume = mat_calloc(12, 3);
-            routedMesh.element_energy_force_regular(
-                coordinateColumns,
-                routedMesh.faces[faceIndex],
-                actual.spontCurvature,
-                routedMeanCurv,
-                routedNorm,
-                routedEBend,
-                routedFBend,
-                routedFArea,
-                routedFVolume,
-                true,
-                &routedShapeFunctions[faceIndex]);
+            routedMesh.element_energy_force_regular(coordinateColumns,
+                                                    routedMesh.faces[faceIndex],
+                                                    actual.spontCurvature,
+                                                    routedMeanCurv,
+                                                    routedNorm,
+                                                    routedEBend,
+                                                    routedFBend,
+                                                    routedFArea,
+                                                    routedFVolume,
+                                                    true);
 
-            EXPECT_NEAR(routedMeanCurv, defaultMeanCurv, 5.0e-6);
-            EXPECT_NEAR(routedEBend, defaultEBend, 5.0e-6);
-            expect_matrix_near(routedNorm,
-                               defaultNorm,
-                               5.0e-6,
-                               "routed regular helper normal");
+            EXPECT_NEAR(routedMeanCurv, defaultMeanCurv, 1.0e-12);
+            EXPECT_NEAR(routedEBend, defaultEBend, 1.0e-10);
+            expect_matrix_near(routedNorm, defaultNorm, 1.0e-12, "fallback normal");
             expect_matrix_near(routedFBend,
                                defaultFBend,
-                               5.0e-3,
-                               "routed regular helper curvature force");
+                               1.0e-10,
+                               "fallback curvature force");
             expect_matrix_near(routedFArea,
                                defaultFArea,
-                               5.0e-3,
-                               "routed regular helper area force");
+                               1.0e-10,
+                               "fallback area force");
             expect_matrix_near(routedFVolume,
                                defaultFVolume,
-                               5.0e-3,
-                               "routed regular helper volume force");
+                               1.0e-10,
+                               "fallback volume force");
         }
     }
 }

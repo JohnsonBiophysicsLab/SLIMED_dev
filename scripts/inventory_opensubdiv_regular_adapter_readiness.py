@@ -85,9 +85,9 @@ EVIDENCE_LINEAGE: tuple[dict[str, str], ...] = (
         "adapter_meaning": "emit test-only regular adapter, production-helper, visible-observable, and serial/OpenMP-style proof evidence through original SLIMED source ids",
     },
     {
-        "lane": "Guarded production regular route",
+        "lane": "Guarded production regular seam",
         "anchor": "USE_OPENSUBDIV_REGULAR=1 and SLIMED_USE_OPENSUBDIV_REGULAR=1",
-        "adapter_meaning": "install the first opt-in regular route while keeping defaults OpenSubdiv-free",
+        "adapter_meaning": "compile the guarded seam while keeping OpenSubdiv-derived rows disabled until semantics match",
     },
 )
 
@@ -96,17 +96,17 @@ ADAPTER_READINESS_CHECKLIST: tuple[dict[str, str], ...] = (
     {
         "gate": "regular sample coordinates and quadrature order",
         "must_prove": "frozen sample rows, weights, and half-weight formula factors",
-        "current_status": "characterized and guarded route tested",
+        "current_status": "characterized; guarded seam falls back to direct route",
     },
     {
         "gate": "coordinate and derivative convention",
         "must_prove": "s=v,t=w, orientation, seven rows, and duplicated mixed rows",
-        "current_status": "characterized and guarded route tested",
+        "current_status": "characterized; guarded seam falls back to direct route",
     },
     {
         "gate": "original source-id order",
         "must_prove": "row weights keyed by original SLIMED ids in Face::oneRingVertices order",
-        "current_status": "in-tree seam characterized and guarded route tested",
+        "current_status": "in-tree seam characterized; OpenSubdiv production rows disabled",
     },
     {
         "gate": "deterministic duplicate aggregation",
@@ -116,17 +116,17 @@ ADAPTER_READINESS_CHECKLIST: tuple[dict[str, str], ...] = (
     {
         "gate": "actual force rows",
         "must_prove": "OpenSubdiv-derived rows compare through fBend, fArea, and fVolume",
-        "current_status": "test-only adapter proof exists; guarded route helper test exists",
+        "current_status": "test-only adapter proof exists; production route disabled after semantics drift",
     },
     {
         "gate": "regular production helper dry run",
         "must_prove": "OpenSubdiv-derived rows compare against Mesh::element_energy_force_regular without installing a production route",
-        "current_status": "proof-local dry-run evidence exists; guarded helper route exists",
+        "current_status": "proof-local dry-run evidence exists; routed rows disabled at production call sites",
     },
     {
         "gate": "output-visible state",
         "must_prove": "energies, normals, mean curvature, area, and legacy volume at production timing",
-        "current_status": "proof-local visible-observable dry run exists; guarded route area/helper evidence exists",
+        "current_status": "proof-local visible-observable dry run exists; runtime opt-in fallback preserves direct path",
     },
     {
         "gate": "scatter and reduction",
@@ -146,7 +146,7 @@ ADAPTER_READINESS_CHECKLIST: tuple[dict[str, str], ...] = (
     {
         "gate": "production review gate",
         "must_prove": "separate reviewed PR before broader routing uses OpenSubdiv-derived rows",
-        "current_status": "regular 12-control route installed behind explicit guards",
+        "current_status": "regular 12-control seam installed; routed rows disabled",
     },
 )
 
@@ -166,13 +166,13 @@ ANCHORS: tuple[Anchor, ...] = (
         ADAPTER_DOC_PATH,
         "first explicitly guarded regular production",
         "policy boundary",
-        "The checklist records the guarded regular route and unchanged defaults.",
+        "The checklist records the guarded regular seam and unchanged defaults.",
     ),
     Anchor(
         "adapter checklist",
-        "guarded route gate",
+        "guarded seam gate",
         ADAPTER_DOC_PATH,
-        "The installed production route is opt-in twice",
+        "The production seam is opt-in twice",
         "policy boundary",
         "The checklist records compile-time and runtime gates.",
     ),
@@ -418,11 +418,11 @@ ANCHORS: tuple[Anchor, ...] = (
     ),
     Anchor(
         "routing readiness",
-        "guarded regular route installed",
+        "guarded regular route disabled",
         READINESS_DOC_PATH,
-        "First guarded regular production-routing step is installed",
+        "No OpenSubdiv-derived rows are production-routed yet",
         "guarded route",
-        "The routing map records the guarded route and keeps broader routing gated.",
+        "The routing map records that routed rows remain disabled.",
     ),
     Anchor(
         "mapping contract",

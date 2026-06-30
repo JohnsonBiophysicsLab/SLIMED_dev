@@ -299,7 +299,8 @@ void Mesh::calculate_element_area_volume()
                 // The matrix representing the coordinates of the one ring vertices.
                 Matrix matOneRingVertex = get_one_ring_vertex_matrix(face);
                 const std::vector<Matrix> *shapeFunctionsOverride = nullptr;
-                if (!routedRegularShapeFunctions.empty())
+                if (!routedRegularShapeFunctions.empty() &&
+                    !routedRegularShapeFunctions[face.index].empty())
                 {
                     shapeFunctionsOverride = &routedRegularShapeFunctions[face.index];
                 }
