@@ -1744,6 +1744,41 @@ TEST(OpenSubdivRegularProductionRoutingGuard,
     EXPECT_EQ(diagnostics.comparedSampleCount, 0);
     EXPECT_TRUE(diagnostics.samples.empty());
 }
+
+TEST(OpenSubdivRegularProductionRoutingGuard,
+     DefaultBuildReportsProductionParityRecheckUnavailable)
+{
+    ScopedEnvVar env("SLIMED_USE_OPENSUBDIV_REGULAR", nullptr);
+
+    Param param;
+    param.VERBOSE_MODE = false;
+    Mesh mesh(param);
+
+    const OpenSubdivRegularProductionParityRecheck recheck =
+        diagnose_opensubdiv_regular_production_call_parity(mesh);
+    EXPECT_FALSE(recheck.opensubdivCompiled);
+    EXPECT_FALSE(recheck.runtimeOptInRequested);
+    EXPECT_FALSE(recheck.productionRouteEnabled);
+    EXPECT_FALSE(recheck.routeInstalledInProduction);
+    EXPECT_FALSE(recheck.generatedRoutedRows);
+    EXPECT_FALSE(recheck.directVsRoutedMatch);
+    EXPECT_EQ(recheck.comparedFaceCount, 0);
+    EXPECT_EQ(recheck.comparedSampleCount, 0);
+}
+
+TEST(OpenSubdivRegularProductionRoutingGuard,
+     DefaultBuildFailsProductionParityRecheckWhenRuntimeOptInIsRequested)
+{
+    ScopedEnvVar env("SLIMED_USE_OPENSUBDIV_REGULAR", "1");
+
+    Param param;
+    param.VERBOSE_MODE = false;
+    Mesh mesh(param);
+
+    EXPECT_TRUE(opensubdiv_regular_production_routing_requested());
+    EXPECT_THROW(diagnose_opensubdiv_regular_production_call_parity(mesh),
+                 std::runtime_error);
+}
 #else
 TEST(OpenSubdivRegularProductionRoutingGuard,
      OptInBuildKeepsUnprovenRegularRowsUnavailable)
@@ -1813,6 +1848,61 @@ TEST(OpenSubdivRegularProductionRoutingGuard,
             << "face " << sample.faceIndex << " sample " << sample.sampleIndex;
     }
 
+    EXPECT_TRUE(build_opensubdiv_regular_shape_functions_by_face(mesh).empty());
+}
+
+TEST(OpenSubdivRegularProductionRoutingGuard,
+     OptInProductionCallParityRecheckReportsRemainingForceDeltaAndKeepsRouteDisabled)
+{
+    ScopedEnvVar env("SLIMED_USE_OPENSUBDIV_REGULAR", "1");
+
+    Param param;
+    param.VERBOSE_MODE = false;
+    param.boundaryCondition = BoundaryType::Periodic;
+    param.sideX = 40.0;
+    param.sideY = 10.0 * std::sqrt(3.0) / 2.0 * param.lFace;
+    param.kCurv = 47.5;
+    param.uSurf = 130.0;
+    param.uVol = 65.0;
+    param.area0 = 2.75;
+    param.vol0 = 0.82;
+
+    Mesh mesh(param);
+    ::testing::internal::CaptureStdout();
+    mesh.setup_flat();
+    ::testing::internal::GetCapturedStdout();
+
+    for (Vertex &vertex : mesh.vertices)
+    {
+        const double index = static_cast<double>(vertex.index);
+        vertex.coord.set(2, 0, 0.03 * std::sin(0.7 * index)
+                                   + 0.01 * std::cos(0.3 * index));
+    }
+    mesh.calculate_element_area_volume();
+    mesh.sum_membrane_area_and_volume(mesh.param.area, mesh.param.vol);
+
+    const OpenSubdivRegularProductionParityRecheck recheck =
+        diagnose_opensubdiv_regular_production_call_parity(mesh);
+
+    EXPECT_TRUE(recheck.opensubdivCompiled);
+    EXPECT_TRUE(recheck.runtimeOptInRequested);
+    EXPECT_FALSE(recheck.productionRouteEnabled);
+    EXPECT_FALSE(recheck.routeInstalledInProduction);
+    EXPECT_TRUE(recheck.generatedRoutedRows);
+    EXPECT_FALSE(recheck.directVsRoutedMatch);
+    EXPECT_GT(recheck.comparedFaceCount, 0);
+    EXPECT_EQ(recheck.comparedSampleCount,
+              recheck.comparedFaceCount *
+                  static_cast<int>(mesh.param.shapeFunctions.size()));
+    EXPECT_LE(recheck.maxAreaDifference, 5.0e-6);
+    EXPECT_LE(recheck.maxLegacyVolumeDifference, 5.0e-6);
+    EXPECT_LE(recheck.maxMeanCurvatureDifference, 5.0e-6);
+    EXPECT_LE(recheck.maxBendingEnergyDifference, 5.0e-6);
+    EXPECT_LE(recheck.maxNormalDifference, 5.0e-6);
+    EXPECT_LE(recheck.maxFBendDifference, 5.0e-6);
+    EXPECT_GT(recheck.maxFAreaDifference, 5.0e-6);
+    EXPECT_GT(recheck.maxFVolumeDifference, 5.0e-6);
+    EXPECT_GT(recheck.maxScatterDifference, 5.0e-6);
     EXPECT_TRUE(build_opensubdiv_regular_shape_functions_by_face(mesh).empty());
 }
 

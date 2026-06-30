@@ -26,6 +26,7 @@ PROBE_PATH = Path("scripts/probe_opensubdiv_feasibility.py")
 WRAPPER_PATH = Path("scripts/run_opensubdiv_probe.sh")
 SURFACE_TEST_PATH = Path("tests/test_surface_geometry_characterization.cpp")
 IMPLEMENTATION_PATH = Path("src/energy_force/Compute_energy_and_force_on_mesh.cpp")
+OPENSUBDIV_EVALUATOR_PATH = Path("src/mesh/OpenSubdiv_regular_evaluator.cpp")
 
 
 @dataclass(frozen=True)
@@ -73,23 +74,23 @@ REGULAR_READINESS_CRITERIA: tuple[dict[str, str], ...] = (
     },
     {
         "criterion": "actual fBend/fArea/fVolume comparison",
-        "current_status": "opt-in regular actual-force probe, C++ proof rows, production-helper dry run, and guarded helper route test",
-        "remaining_gap": "extend only with reviewed production timing evidence",
+        "current_status": "opt-in regular actual-force probe, C++ proof rows, production-helper dry run, guarded helper route test, and diagnostic production-call parity recheck exposing remaining fArea/fVolume deltas",
+        "remaining_gap": "keep route disabled until reviewers approve installing rows",
     },
     {
         "criterion": "energy/normal/area/volume comparison",
-        "current_status": "regular probe, tests, visible-observable dry run, and guarded route area/helper evidence",
-        "remaining_gap": "compare full output-visible real production call timing",
+        "current_status": "regular probe, tests, visible-observable dry run, guarded route area/helper evidence, and diagnostic production-call parity recheck",
+        "remaining_gap": "promote diagnostic evidence only through an explicit activation PR",
     },
     {
         "criterion": "scatter through Face::oneRingVertices",
-        "current_status": "regular scatter order test and C++ proof harness cover current route shape",
+        "current_status": "regular scatter order test, C++ proof harness, and diagnostic production-call parity recheck cover order while exposing remaining scatter deltas",
         "remaining_gap": "prove installed route preserves or review-replaces order",
     },
     {
         "criterion": "serial/OpenMP tolerance envelope",
-        "current_status": "thread-local buffer/reduction order documented; proof-local serial/OpenMP-style accumulation parity exists",
-        "remaining_gap": "establish real routed backend tolerances for outputs",
+        "current_status": "thread-local buffer/reduction order documented; proof-local serial/OpenMP-style accumulation parity and diagnostic serial scatter deltas exist",
+        "remaining_gap": "establish full serial and OpenMP executable tolerances before activation",
     },
     {
         "criterion": "fallback diagnostics",
@@ -113,7 +114,7 @@ ROUTE_READINESS_MATRIX: tuple[dict[str, str], ...] = (
     {
         "route": "regular 12-control membrane force",
         "current_production_status": "supported by in-tree evaluator; guarded OpenSubdiv seam falls back to direct route",
-        "opensubdiv_evidence_status": "substantial proof evidence plus guarded fallback smoke",
+        "opensubdiv_evidence_status": "PR #82 proof evidence, PR #85 row diagnostics, diagnostic parity recheck, and guarded fallback smoke",
         "readiness_result": "OpenSubdiv-derived rows are not production-routed until direct-vs-routed semantics match",
     },
     {
@@ -193,6 +194,14 @@ ANCHORS: tuple[Anchor, ...] = (
         "PR #76 through PR #82 proof evidence",
         "evidence lineage",
         "The map records the proof-lane evidence through PR #82.",
+    ),
+    Anchor(
+        "readiness map",
+        "diagnostic production-call recheck",
+        READINESS_DOC_PATH,
+        "diagnose_opensubdiv_regular_production_call_parity",
+        "diagnostic gate",
+        "The map records the diagnostic-only production-call parity recheck.",
     ),
     Anchor(
         "readiness criterion",
@@ -449,6 +458,30 @@ ANCHORS: tuple[Anchor, ...] = (
         "RegularForceRowsScatterInOneRingOrder",
         "production characterization",
         "The current regular scatter order is characterized.",
+    ),
+    Anchor(
+        "production test",
+        "regular production-call parity recheck",
+        SURFACE_TEST_PATH,
+        "OptInProductionCallParityRecheckReportsRemainingForceDeltaAndKeepsRouteDisabled",
+        "diagnostic test",
+        "The OpenSubdiv-enabled focused test records the remaining force/scatter delta without route activation.",
+    ),
+    Anchor(
+        "production diagnostic",
+        "regular production-call parity helper",
+        OPENSUBDIV_EVALUATOR_PATH,
+        "diagnose_opensubdiv_regular_production_call_parity",
+        "diagnostic helper",
+        "The helper compares would-be routed OpenSubdiv rows against direct regular production helper semantics.",
+    ),
+    Anchor(
+        "production diagnostic",
+        "route remains disabled",
+        OPENSUBDIV_EVALUATOR_PATH,
+        "routeInstalledInProduction = false",
+        "guarded route",
+        "The diagnostic records that it does not install routed rows in production.",
     ),
     Anchor(
         "production implementation",

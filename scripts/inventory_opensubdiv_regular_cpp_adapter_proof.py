@@ -29,6 +29,7 @@ PRODUCTION_PATHS = (
     Path("scripts/verify_pr_ready.sh"),
 )
 ALLOWED_PRODUCTION_OPENSUBDIV_PATHS = {
+    Path("include/mesh/Mesh.hpp"),
     Path("include/mesh/OpenSubdiv_regular_evaluator.hpp"),
     Path("src/mesh/OpenSubdiv_regular_evaluator.cpp"),
     Path("src/mesh/Mesh.cpp"),

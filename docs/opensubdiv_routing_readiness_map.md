@@ -1,7 +1,8 @@
 # OpenSubdiv Production-Routing Readiness Map
 
 Date: 2026-06-30.
-Baseline: post-PR82 regular OpenSubdiv proof evidence.
+Baseline: post-PR85 regular OpenSubdiv row-semantics evidence plus this
+diagnostic-only production-call parity recheck.
 
 This map now records the first narrowly guarded production regular-routing
 seam. Default builds remain OpenSubdiv-free. The OpenSubdiv-backed route is
@@ -41,7 +42,7 @@ separate PR.
 
 | Route | Current production status | OpenSubdiv evidence status | Readiness result |
 | --- | --- | --- | --- |
-| Regular 12-control membrane force | Supported through `SlimedLoopLimitSurfaceEvaluator`, current quadrature, and current force formulas. A compile-time/runtime OpenSubdiv seam exists, but the routed rows are disabled and opt-in falls back to the direct regular path after direct-vs-routed characterization exposed semantics drift. | Regular row/integrand equivalence, compiled-seam row diagnostics, toy transpose, actual-force probe smoke, C++ adapter proof, production-call shadow, production-helper dry run, visible-observable dry run, serial/OpenMP-style accumulation parity, and guarded fallback tests are opt-in evidence. | No OpenSubdiv-derived rows are production-routed yet; default and unsupported routes remain unchanged. |
+| Regular 12-control membrane force | Supported through `SlimedLoopLimitSurfaceEvaluator`, current quadrature, and current force formulas. A compile-time/runtime OpenSubdiv seam exists, but the routed rows are disabled and opt-in falls back to the direct regular path after direct-vs-routed characterization exposed semantics drift. | Regular row/integrand equivalence, compiled-seam row diagnostics, diagnostic-only production-call parity recheck, toy transpose, actual-force probe smoke, C++ adapter proof, production-call shadow, production-helper dry run, visible-observable dry run, serial/OpenMP-style accumulation parity, and guarded fallback tests are opt-in evidence. | No OpenSubdiv-derived rows are production-routed yet; default and unsupported routes remain unchanged. |
 | Positive-depth `11 = 4+3+4` membrane force | Supported narrowly through dependency-free subdivision matrices and child-force back-projection. | OpenSubdiv aggregate source/transpose reports are observational only. | Keep current route; do not replace with OpenSubdiv in the regular readiness lane. |
 | Zero-depth 11-control and unsupported irregular topologies | Guarded unsupported cases. | No production approval. | Must continue to fail loudly or use only reviewed diagnostics. |
 | Broader extraordinary valence | Not production supported. | Synthetic broader-valence coverage can inform planning only. | Future-only until representative fixtures and scientific approval are available. |
@@ -64,6 +65,13 @@ The first production seam is deliberately small:
 - In an OpenSubdiv-enabled build, runtime opt-in currently prints a diagnostic
   and returns no routed rows because the OpenSubdiv-derived production rows do
   not yet preserve reviewed direct force/geometry semantics.
+- `diagnose_opensubdiv_regular_production_call_parity` can be called only as a
+  review-gated diagnostic. It requires the same runtime opt-in, builds the
+  would-be routed rows, compares them against the direct regular path at the
+  current per-face production helper shape, and reports deltas without
+  installing routed rows. The current diagnostic exposes remaining `fArea`,
+  `fVolume`, and scatter-buffer deltas, so it is readiness evidence for the
+  next decision, not approval to activate routing.
 - The direct regular path remains active for all regular production
   calculations while the OpenSubdiv row mismatch is unresolved.
 - The existing `calculate_element_area_volume` and
@@ -87,10 +95,10 @@ every criterion below must be green or explicitly review-waived.
 | Source-id ordering | The backend-neutral seam exposes row weights keyed by original SLIMED source ids; current regular tests and the proof harness cover natural/permuted 12-control orders and OpenSubdiv-derived source ids. | The first routed production PR must prove the installed route addresses the same ids as `Face::oneRingVertices[j]`, or document and test a reviewed replacement order. |
 | Duplicate aggregation | The regular source-id seam and proof harness aggregate repeated source-id contributions deterministically instead of assuming backend stencil order. | The first routed production PR must keep this aggregation at the production boundary. |
 | Quadrature/sample identity | Current regular formulas consume `Param::shapeFunctions` in existing quadrature order with `0.5 * param.gaussQuadratureCoeff(i, 0)`, and the proof harness reports the same frozen plan. | The OpenSubdiv production path must use the same sample locations and quadrature weights, or carry an explicitly reviewed formula/sample change. |
-| Actual `fBend`/`fArea`/`fVolume` comparison | The opt-in `--regular-actual-force-report` and the C++ proof harness emit finite nonzero local force rows, production-call shadow evidence, and production-helper dry-run parity against `Mesh::element_energy_force_regular` through a local `Param`. The in-tree row diagnostic now compares compiled-seam OpenSubdiv rows against SLIMED rows before installation. In-tree direct-vs-routed characterization exposed unacceptable drift when those rows were installed at the production call site. | Keep OpenSubdiv-derived rows disabled until local `fBend`, `fArea`, and `fVolume` rows compare against the current direct regular path from the real routed call site without loosening tests. |
-| Energy, normal, area, and volume comparison | Current regular probe, in-tree tests, and proof-local visible-observable dry run cover row/integrand values plus local energy, mean curvature, normal, area, and legacy volume semantics on deterministic fixtures. Production opt-in fallback now preserves the direct path. | A routed backend must compare output-visible energies, normals, area, and volume through real production call timing, not only a temporary proof binary, before installing routed rows. |
-| Scatter through `Face::oneRingVertices` | `RegularForceRowsScatterInOneRingOrder` and the C++ proof harness verify that local regular force rows land on the reviewed one-ring order. | The first routed production PR must preserve that scatter order or ship with a reviewed replacement order and tests. |
-| Serial/OpenMP tolerance envelope | Current docs characterize the thread-local buffer shape and ascending thread-index reduction order, and PR #82 added proof-local serial/OpenMP-style accumulation parity for the current `nVertices*9` force-buffer shape. Irregular serial/OpenMP tolerance work remains separate. | Establish real routed regular OpenSubdiv serial/OpenMP comparisons for energies, forces, normals, area, and volume while preserving reduction shape or documenting an approved replacement. |
+| Actual `fBend`/`fArea`/`fVolume` comparison | The opt-in `--regular-actual-force-report` and the C++ proof harness emit finite nonzero local force rows, production-call shadow evidence, and production-helper dry-run parity against `Mesh::element_energy_force_regular` through a local `Param`. The in-tree row diagnostic now compares compiled-seam OpenSubdiv rows against SLIMED rows before installation. The diagnostic-only `diagnose_opensubdiv_regular_production_call_parity` recheck compares would-be routed rows against the direct regular force helper at the current per-face production call shape while keeping route installation disabled; it currently isolates residual `fArea` and `fVolume` force-row deltas. | Keep OpenSubdiv-derived rows disabled until reviewers accept real routed-call parity evidence and explicitly approve installing rows. |
+| Energy, normal, area, and volume comparison | Current regular probe, in-tree tests, proof-local visible-observable dry run, and diagnostic-only production-call parity recheck cover row/integrand values plus local energy, mean curvature, normal, area, and legacy volume semantics on deterministic fixtures. Production opt-in fallback still preserves the direct path. | A routed backend must promote this diagnostic evidence into an explicitly reviewed production route activation, with tests that fail if routed rows drift. |
+| Scatter through `Face::oneRingVertices` | `RegularForceRowsScatterInOneRingOrder`, the C++ proof harness, and the diagnostic-only production-call parity recheck use the reviewed one-ring order. The current recheck reports residual scatter-buffer deltas caused by the remaining force-row mismatch. | The first routed production PR must preserve that scatter order or ship with a reviewed replacement order and tests. |
+| Serial/OpenMP tolerance envelope | Current docs characterize the thread-local buffer shape and ascending thread-index reduction order, PR #82 added proof-local serial/OpenMP-style accumulation parity for the current `nVertices*9` force-buffer shape, and the diagnostic-only production-call parity recheck reports the current serial scatter-buffer delta using that layout. Irregular serial/OpenMP tolerance work remains separate. | Establish full serial and OpenMP executable comparisons for energies, forces, normals, area, and volume before route activation. |
 | Fallback diagnostics | Dependency-absent probes skip cleanly; unsupported production irregular routes are guarded. | Production routing must never silently change physics based on ambient OpenSubdiv availability. Dependency-absent, unsupported topology, boundary, ghost, periodic, and failed-equivalence cases need explicit reviewed diagnostics. |
 | Default dependency isolation | Stage 0 remains docs/scripts/probe-only and `OPENSUBDIV_ROOT`-gated. | No default dependency, vendoring, submodule, generated artifact, package-manager assumption, or Makefile target behavior change can be bundled into the routing proof. |
 | Reviewer/user gate | Existing evidence maps state that OpenSubdiv remains opt-in/probe-only. | The production route change must be an explicit reviewed PR; this readiness map is not approval to route. |
@@ -107,6 +115,8 @@ A future regular production-routing PR should provide, at minimum:
 - source-id row-weight reports keyed by original SLIMED ids from the routed
   production call site;
 - duplicate aggregation checks for row weights at that call site;
+- diagnostic-only production-call parity recheck output from
+  `diagnose_opensubdiv_regular_production_call_parity`;
 - actual bending, area, and volume force-row equivalence for `fBend`,
   `fArea`, and `fVolume` from the routed production call site;
 - energy, normal, mean-curvature, area, and legacy-volume comparison through
