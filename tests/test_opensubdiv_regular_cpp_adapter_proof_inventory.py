@@ -51,6 +51,9 @@ class OpenSubdivRegularCppAdapterProofInventoryTest(unittest.TestCase):
         self.assertIn("visible area evidence", invariants)
         self.assertIn("legacy visible volume evidence", invariants)
         self.assertIn("visible observable pass flag", invariants)
+        self.assertIn("serial OpenMP accumulation parity", invariants)
+        self.assertIn("serial OpenMP production shape reference", invariants)
+        self.assertIn("serial OpenMP pass flag", invariants)
         self.assertIn("not production routing", invariants)
         for needle in invariants.values():
             self.assertIn(needle, source)
@@ -92,6 +95,19 @@ class OpenSubdivRegularCppAdapterProofInventoryTest(unittest.TestCase):
         self.assertIn("force_fixture_full_dot_volume", source)
         self.assertIn("max_area_volume_difference_vs_production_regular_path", source)
         self.assertIn("matches_production_regular_area_volume", source)
+
+    def test_cpp_proof_covers_serial_openmp_accumulation_parity(self):
+        source = (inventory.repo_root() / inventory.CPP_PROOF_PATH).read_text(encoding="utf-8")
+
+        self.assertIn('\\"serial_openmp_accumulation_parity\\":{', source)
+        self.assertIn("run_serial_openmp_accumulation_parity_proof", source)
+        self.assertIn("proof-local serial versus OpenMP-style per-thread force-buffer accumulation", source)
+        self.assertIn("accumulate_membrane_face_energy_and_forces per-thread nVertices*9 buffers", source)
+        self.assertIn("add_rows_to_production_force_buffer", source)
+        self.assertIn("simulated_openmp_thread_buffers", source)
+        self.assertIn("max_serial_openmp_accumulation_difference", source)
+        self.assertIn("matches_serial_openmp_accumulation_shape", source)
+        self.assertIn("route_installed_in_production", source)
 
     def test_wrapper_is_explicit_opensubdiv_root_only(self):
         source = (inventory.repo_root() / inventory.WRAPPER_PATH).read_text(encoding="utf-8")

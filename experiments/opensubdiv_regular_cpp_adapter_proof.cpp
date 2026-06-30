@@ -147,6 +147,17 @@ struct VisibleObservableResult
     bool matchesProductionAreaVolume = false;
 };
 
+struct AccumulationParityResult
+{
+    int simulatedFaceContributions = 0;
+    int simulatedOpenMpThreadBuffers = 0;
+    double maxDifference = 0.0;
+    double maxAbsSerialComponent = 0.0;
+    bool finite = false;
+    bool nonzero = false;
+    bool matchesSerialOpenMpShape = false;
+};
+
 void append_face(MeshCase &mesh, int a, int b, int c)
 {
     mesh.vertsPerFace.push_back(3);
@@ -822,6 +833,92 @@ double max_production_scatter_delta(const std::vector<double> &productionBuffer,
     return out;
 }
 
+void add_rows_to_production_force_buffer(std::vector<double> &buffer,
+                                         const std::vector<int> &faceOneRing,
+                                         const std::vector<double> &fBendRows,
+                                         const std::vector<double> &fAreaRows,
+                                         const std::vector<double> &fVolumeRows,
+                                         double scale)
+{
+    for (int row = 0; row < static_cast<int>(faceOneRing.size()); ++row)
+    {
+        const int sourceId = faceOneRing[row];
+        const int baseIndex = sourceId * kProductionForceComponentsPerVertex;
+        for (int axis = 0; axis < kProductionSpatialDimension; ++axis)
+        {
+            const int localIndex = row * kProductionSpatialDimension + axis;
+            buffer[baseIndex + axis] += scale * fBendRows[localIndex];
+            buffer[baseIndex + 3 + axis] += scale * fAreaRows[localIndex];
+            buffer[baseIndex + 6 + axis] += scale * fVolumeRows[localIndex];
+        }
+    }
+}
+
+AccumulationParityResult run_serial_openmp_accumulation_parity_proof(
+    int vertexCount,
+    const std::vector<int> &faceOneRing,
+    const std::vector<double> &fBendRows,
+    const std::vector<double> &fAreaRows,
+    const std::vector<double> &fVolumeRows)
+{
+    // Proof-only mirror of production's per-thread force buffers and final
+    // deterministic thread-index reduction. It does not enter production routing.
+    const std::array<double, 4> contributionScales = {{1.0, 1.0, -0.25, 0.5}};
+    const int simulatedThreadBuffers = 3;
+    std::vector<double> serial(vertexCount * kProductionForceComponentsPerVertex, 0.0);
+    std::vector<std::vector<double>> openMpThreadBuffers(
+        simulatedThreadBuffers,
+        std::vector<double>(vertexCount * kProductionForceComponentsPerVertex, 0.0));
+
+    for (int contribution = 0;
+         contribution < static_cast<int>(contributionScales.size());
+         ++contribution)
+    {
+        const double scale = contributionScales[contribution];
+        add_rows_to_production_force_buffer(serial,
+                                            faceOneRing,
+                                            fBendRows,
+                                            fAreaRows,
+                                            fVolumeRows,
+                                            scale);
+        add_rows_to_production_force_buffer(
+            openMpThreadBuffers[contribution % simulatedThreadBuffers],
+            faceOneRing,
+            fBendRows,
+            fAreaRows,
+            fVolumeRows,
+            scale);
+    }
+
+    std::vector<double> openMpReduced(vertexCount * kProductionForceComponentsPerVertex, 0.0);
+    for (int vertex = 0; vertex < vertexCount; ++vertex)
+    {
+        const int baseIndex = vertex * kProductionForceComponentsPerVertex;
+        for (int component = 0; component < kProductionForceComponentsPerVertex;
+             ++component)
+        {
+            for (int threadIndex = 0; threadIndex < simulatedThreadBuffers;
+                 ++threadIndex)
+            {
+                openMpReduced[baseIndex + component] +=
+                    openMpThreadBuffers[threadIndex][baseIndex + component];
+            }
+        }
+    }
+
+    AccumulationParityResult result;
+    result.simulatedFaceContributions =
+        static_cast<int>(contributionScales.size());
+    result.simulatedOpenMpThreadBuffers = simulatedThreadBuffers;
+    result.maxDifference = max_abs_component_delta(serial, openMpReduced);
+    result.maxAbsSerialComponent = max_abs_component(serial);
+    result.finite = all_finite(serial) && all_finite(openMpReduced);
+    result.nonzero = result.maxAbsSerialComponent > kTolerance;
+    result.matchesSerialOpenMpShape =
+        result.finite && result.nonzero && result.maxDifference <= kTolerance;
+    return result;
+}
+
 ProductionDryRunResult run_regular_production_helper_dry_run(
     const MeshCase &mesh,
     const std::vector<int> &faceOneRing,
@@ -1234,6 +1331,13 @@ int run_proof()
                 proofLocalVolumeRows[kProductionSpatialDimension * row + axis];
         }
     }
+    const AccumulationParityResult accumulationParity =
+        run_serial_openmp_accumulation_parity_proof(
+            mesh.numVertices,
+            faceOneRing,
+            proofLocalBendRows,
+            proofLocalAreaRows,
+            proofLocalVolumeRows);
     const double scatterDifference =
         std::max(max_abs_component_delta(scatteredBend, forceResult.fBend),
                  std::max(max_abs_component_delta(scatteredArea,
@@ -1262,7 +1366,8 @@ int run_proof()
     const bool passed =
         adapterRowsPassed && actualForceRowsPassed && productionCallShadowPassed &&
         productionDryRun.matchesProofLocalRows &&
-        visibleObservables.matchesProductionAreaVolume;
+        visibleObservables.matchesProductionAreaVolume &&
+        accumulationParity.matchesSerialOpenMpShape;
 
     std::cout << "]";
     std::cout << ",\"summary\":{";
@@ -1356,6 +1461,31 @@ int run_proof()
               << (visibleObservables.finite ? "true" : "false");
     std::cout << ",\"matches_production_regular_area_volume\":"
               << (visibleObservables.matchesProductionAreaVolume ? "true" : "false");
+    std::cout << "}";
+    std::cout << ",\"serial_openmp_accumulation_parity\":{";
+    std::cout << "\"scope\":\"proof-local serial versus OpenMP-style per-thread force-buffer accumulation using OpenSubdiv-derived regular rows; no production route invokes OpenSubdiv\"";
+    std::cout << ",\"not_production_routing\":true";
+    std::cout << ",\"production_shape_reference\":\"accumulate_membrane_face_energy_and_forces per-thread nVertices*9 buffers reduced by vertex, component, then thread index\"";
+    std::cout << ",\"source_rows\":\"proof-local fBend/fArea/fVolume rows from OpenSubdiv-derived regular weighted samples\"";
+    std::cout << ",\"scatter_order\":\"Face::oneRingVertices[j]\"";
+    std::cout << ",\"force_components_per_vertex\":"
+              << kProductionForceComponentsPerVertex;
+    std::cout << ",\"simulated_face_contributions\":"
+              << accumulationParity.simulatedFaceContributions;
+    std::cout << ",\"simulated_openmp_thread_buffers\":"
+              << accumulationParity.simulatedOpenMpThreadBuffers;
+    std::cout << ",\"default_build_dependency_added\":false";
+    std::cout << ",\"route_installed_in_production\":false";
+    std::cout << ",\"max_serial_openmp_accumulation_difference\":"
+              << accumulationParity.maxDifference;
+    std::cout << ",\"max_abs_serial_component\":"
+              << accumulationParity.maxAbsSerialComponent;
+    std::cout << ",\"finite\":"
+              << (accumulationParity.finite ? "true" : "false");
+    std::cout << ",\"nonzero_accumulation\":"
+              << (accumulationParity.nonzero ? "true" : "false");
+    std::cout << ",\"matches_serial_openmp_accumulation_shape\":"
+              << (accumulationParity.matchesSerialOpenMpShape ? "true" : "false");
     std::cout << "}";
     std::cout << ",\"actual_force_rows\":{";
     std::cout << "\"available\":true";
