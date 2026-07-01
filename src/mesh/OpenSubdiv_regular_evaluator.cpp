@@ -200,6 +200,9 @@ void update_max_abs_matrix_difference_with_location(double &target,
                                                    int &targetFaceIndex,
                                                    int &targetRow,
                                                    int &targetAxis,
+                                                   double &targetDirectValue,
+                                                   double &targetRoutedValue,
+                                                   double &targetSignedDelta,
                                                    const int faceIndex,
                                                    const Matrix &lhs,
                                                    const Matrix &rhs)
@@ -222,6 +225,9 @@ void update_max_abs_matrix_difference_with_location(double &target,
                 targetFaceIndex = faceIndex;
                 targetRow = row;
                 targetAxis = axis;
+                targetDirectValue = lhs.get(row, axis);
+                targetRoutedValue = rhs.get(row, axis);
+                targetSignedDelta = targetRoutedValue - targetDirectValue;
             }
         }
     }
@@ -285,6 +291,11 @@ void update_max_abs_scatter_difference_with_location(
                 static_cast<int>(index / kForceComponentsPerVertex);
             recheck.maxScatterDifferenceComponent =
                 static_cast<int>(index % kForceComponentsPerVertex);
+            recheck.maxScatterDifferenceDirectValue = lhs[index];
+            recheck.maxScatterDifferenceRoutedValue = rhs[index];
+            recheck.maxScatterDifferenceSignedDelta =
+                recheck.maxScatterDifferenceRoutedValue -
+                recheck.maxScatterDifferenceDirectValue;
         }
     }
 }
@@ -670,6 +681,9 @@ diagnose_opensubdiv_regular_production_call_parity(Mesh &mesh)
             recheck.maxFAreaDifferenceFaceIndex,
             recheck.maxFAreaDifferenceLocalRow,
             recheck.maxFAreaDifferenceAxis,
+            recheck.maxFAreaDifferenceDirectValue,
+            recheck.maxFAreaDifferenceRoutedValue,
+            recheck.maxFAreaDifferenceSignedDelta,
             face.index,
             directFArea,
             routedFArea);
@@ -678,6 +692,9 @@ diagnose_opensubdiv_regular_production_call_parity(Mesh &mesh)
             recheck.maxFVolumeDifferenceFaceIndex,
             recheck.maxFVolumeDifferenceLocalRow,
             recheck.maxFVolumeDifferenceAxis,
+            recheck.maxFVolumeDifferenceDirectValue,
+            recheck.maxFVolumeDifferenceRoutedValue,
+            recheck.maxFVolumeDifferenceSignedDelta,
             face.index,
             directFVolume,
             routedFVolume);

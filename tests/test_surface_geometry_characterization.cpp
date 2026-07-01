@@ -1906,16 +1906,34 @@ TEST(OpenSubdivRegularProductionRoutingGuard,
     EXPECT_LT(recheck.maxFAreaDifferenceLocalRow, 12);
     EXPECT_GE(recheck.maxFAreaDifferenceAxis, 0);
     EXPECT_LT(recheck.maxFAreaDifferenceAxis, 3);
+    EXPECT_TRUE(std::isfinite(recheck.maxFAreaDifferenceDirectValue));
+    EXPECT_TRUE(std::isfinite(recheck.maxFAreaDifferenceRoutedValue));
+    EXPECT_TRUE(std::isfinite(recheck.maxFAreaDifferenceSignedDelta));
+    EXPECT_NEAR(std::abs(recheck.maxFAreaDifferenceSignedDelta),
+                recheck.maxFAreaDifference,
+                1.0e-12);
     EXPECT_GT(recheck.maxFVolumeDifference, 5.0e-6);
     EXPECT_GE(recheck.maxFVolumeDifferenceFaceIndex, 0);
     EXPECT_GE(recheck.maxFVolumeDifferenceLocalRow, 0);
     EXPECT_LT(recheck.maxFVolumeDifferenceLocalRow, 12);
     EXPECT_GE(recheck.maxFVolumeDifferenceAxis, 0);
     EXPECT_LT(recheck.maxFVolumeDifferenceAxis, 3);
+    EXPECT_TRUE(std::isfinite(recheck.maxFVolumeDifferenceDirectValue));
+    EXPECT_TRUE(std::isfinite(recheck.maxFVolumeDifferenceRoutedValue));
+    EXPECT_TRUE(std::isfinite(recheck.maxFVolumeDifferenceSignedDelta));
+    EXPECT_NEAR(std::abs(recheck.maxFVolumeDifferenceSignedDelta),
+                recheck.maxFVolumeDifference,
+                1.0e-12);
     EXPECT_GT(recheck.maxScatterDifference, 5.0e-6);
     EXPECT_GE(recheck.maxScatterDifferenceVertexIndex, 0);
     EXPECT_GE(recheck.maxScatterDifferenceComponent, 0);
     EXPECT_LT(recheck.maxScatterDifferenceComponent, 9);
+    EXPECT_TRUE(std::isfinite(recheck.maxScatterDifferenceDirectValue));
+    EXPECT_TRUE(std::isfinite(recheck.maxScatterDifferenceRoutedValue));
+    EXPECT_TRUE(std::isfinite(recheck.maxScatterDifferenceSignedDelta));
+    EXPECT_NEAR(std::abs(recheck.maxScatterDifferenceSignedDelta),
+                recheck.maxScatterDifference,
+                1.0e-12);
     EXPECT_TRUE(build_opensubdiv_regular_shape_functions_by_face(mesh).empty());
 }
 
