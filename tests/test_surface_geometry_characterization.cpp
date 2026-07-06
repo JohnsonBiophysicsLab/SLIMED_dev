@@ -1894,6 +1894,8 @@ TEST(OpenSubdivRegularProductionRoutingGuard,
     EXPECT_EQ(recheck.comparedSampleCount,
               recheck.comparedFaceCount *
                   static_cast<int>(mesh.param.shapeFunctions.size()));
+    EXPECT_GT(recheck.maxRoutedRowWeightDifferenceVsSlimedRows, 0.0);
+    EXPECT_LE(recheck.maxRoutedRowWeightDifferenceVsSlimedRows, 5.0e-6);
     EXPECT_LE(recheck.maxAreaDifference, 5.0e-6);
     EXPECT_LE(recheck.maxLegacyVolumeDifference, 5.0e-6);
     EXPECT_LE(recheck.maxMeanCurvatureDifference, 5.0e-6);

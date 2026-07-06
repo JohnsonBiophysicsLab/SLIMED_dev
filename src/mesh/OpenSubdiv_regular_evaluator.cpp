@@ -598,6 +598,14 @@ diagnose_opensubdiv_regular_production_call_parity(Mesh &mesh)
         ++recheck.comparedFaceCount;
         recheck.comparedSampleCount +=
             static_cast<int>(routedShapeFunctions.size());
+        for (int sample = 0; sample < static_cast<int>(routedShapeFunctions.size());
+             ++sample)
+        {
+            recheck.maxRoutedRowWeightDifferenceVsSlimedRows =
+                std::max(recheck.maxRoutedRowWeightDifferenceVsSlimedRows,
+                         max_abs_matrix_difference(routedShapeFunctions[sample],
+                                                   originalShapeFunctions[sample]));
+        }
 
         const Matrix oneRingVertexMatrix = mesh.get_one_ring_vertex_matrix(face);
         double directArea = 0.0;
