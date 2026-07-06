@@ -74,7 +74,7 @@ REGULAR_READINESS_CRITERIA: tuple[dict[str, str], ...] = (
     },
     {
         "criterion": "actual fBend/fArea/fVolume comparison",
-        "current_status": "opt-in regular actual-force probe, C++ proof rows, production-helper dry run, guarded helper route test, and diagnostic production-call parity recheck exposing remaining fArea/fVolume deltas and residual locations",
+        "current_status": "opt-in regular actual-force probe, C++ proof rows, production-helper dry run, guarded helper route test, and diagnostic production-call parity recheck exposing remaining fArea/fVolume deltas, residual locations, and row-error budget",
         "remaining_gap": "keep route disabled until reviewers approve installing rows",
     },
     {
@@ -506,6 +506,30 @@ ANCHORS: tuple[Anchor, ...] = (
         "maxScatterDifferenceSignedDelta",
         "scatter residual diagnostic",
         "The diagnostic records the signed direct-vs-routed scatter residual.",
+    ),
+    Anchor(
+        "production diagnostic",
+        "routed row weight residual budget",
+        OPENSUBDIV_EVALUATOR_PATH,
+        "maxRoutedRowWeightDifferenceVsSlimedRows",
+        "row residual diagnostic",
+        "The parity recheck records the row-weight drift behind the remaining force residuals.",
+    ),
+    Anchor(
+        "production test",
+        "routed row weight residual budget assertion",
+        SURFACE_TEST_PATH,
+        "maxRoutedRowWeightDifferenceVsSlimedRows",
+        "row residual diagnostic",
+        "The focused OpenSubdiv test asserts the routed row-weight drift remains bounded.",
+    ),
+    Anchor(
+        "readiness map",
+        "row-error budget wording",
+        READINESS_DOC_PATH,
+        "row-error budget",
+        "row residual diagnostic",
+        "The readiness map frames remaining force residuals against the row-error budget.",
     ),
     Anchor(
         "production implementation",
