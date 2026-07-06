@@ -44,6 +44,13 @@ struct OpenSubdivRegularProductionParityRecheck
     int comparedFaceCount = 0;
     int comparedSampleCount = 0;
     double maxRoutedRowWeightDifferenceVsSlimedRows = 0.0;
+    int maxRoutedRowWeightDifferenceFaceIndex = -1;
+    int maxRoutedRowWeightDifferenceSampleIndex = -1;
+    int maxRoutedRowWeightDifferenceRow = -1;
+    int maxRoutedRowWeightDifferenceSourceColumn = -1;
+    double maxRoutedRowWeightDifferenceDirectValue = 0.0;
+    double maxRoutedRowWeightDifferenceRoutedValue = 0.0;
+    double maxRoutedRowWeightDifferenceSignedDelta = 0.0;
     double maxAreaDifference = 0.0;
     double maxLegacyVolumeDifference = 0.0;
     double maxMeanCurvatureDifference = 0.0;
