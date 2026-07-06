@@ -74,7 +74,7 @@ REGULAR_READINESS_CRITERIA: tuple[dict[str, str], ...] = (
     },
     {
         "criterion": "actual fBend/fArea/fVolume comparison",
-        "current_status": "opt-in regular actual-force probe, C++ proof rows, production-helper dry run, guarded helper route test, and diagnostic production-call parity recheck exposing remaining fArea/fVolume deltas, residual locations, and row-error budget",
+        "current_status": "opt-in regular actual-force probe, C++ proof rows, production-helper dry run, guarded helper route test, and diagnostic production-call parity recheck exposing remaining fArea/fVolume deltas, residual locations, and row-error budget location",
         "remaining_gap": "keep route disabled until reviewers approve installing rows",
     },
     {
@@ -516,12 +516,36 @@ ANCHORS: tuple[Anchor, ...] = (
         "The parity recheck records the row-weight drift behind the remaining force residuals.",
     ),
     Anchor(
+        "production diagnostic",
+        "routed row weight residual location",
+        OPENSUBDIV_EVALUATOR_PATH,
+        "maxRoutedRowWeightDifferenceSourceColumn",
+        "row residual diagnostic",
+        "The parity recheck records where the largest row-weight drift occurs.",
+    ),
+    Anchor(
+        "production diagnostic",
+        "signed routed row weight residual",
+        OPENSUBDIV_EVALUATOR_PATH,
+        "maxRoutedRowWeightDifferenceSignedDelta",
+        "row residual diagnostic",
+        "The parity recheck records the signed direct-vs-routed row-weight residual.",
+    ),
+    Anchor(
         "production test",
         "routed row weight residual budget assertion",
         SURFACE_TEST_PATH,
         "maxRoutedRowWeightDifferenceVsSlimedRows",
         "row residual diagnostic",
         "The focused OpenSubdiv test asserts the routed row-weight drift remains bounded.",
+    ),
+    Anchor(
+        "production test",
+        "routed row weight residual location assertion",
+        SURFACE_TEST_PATH,
+        "maxRoutedRowWeightDifferenceSourceColumn",
+        "row residual diagnostic",
+        "The focused OpenSubdiv test asserts the row-weight residual location is populated.",
     ),
     Anchor(
         "readiness map",

@@ -233,6 +233,45 @@ void update_max_abs_matrix_difference_with_location(double &target,
     }
 }
 
+void update_max_row_weight_difference_with_location(
+    OpenSubdivRegularProductionParityRecheck &recheck,
+    const int faceIndex,
+    const int sampleIndex,
+    const Matrix &directRows,
+    const Matrix &routedRows)
+{
+    if (directRows.nrow() != routedRows.nrow() ||
+        directRows.ncol() != routedRows.ncol())
+    {
+        throw std::runtime_error(
+            "OpenSubdiv regular row residual diagnostics require matching matrix dimensions.");
+    }
+
+    for (int row = 0; row < directRows.nrow(); ++row)
+    {
+        for (int col = 0; col < directRows.ncol(); ++col)
+        {
+            const double difference =
+                std::abs(directRows.get(row, col) - routedRows.get(row, col));
+            if (difference > recheck.maxRoutedRowWeightDifferenceVsSlimedRows)
+            {
+                recheck.maxRoutedRowWeightDifferenceVsSlimedRows = difference;
+                recheck.maxRoutedRowWeightDifferenceFaceIndex = faceIndex;
+                recheck.maxRoutedRowWeightDifferenceSampleIndex = sampleIndex;
+                recheck.maxRoutedRowWeightDifferenceRow = row;
+                recheck.maxRoutedRowWeightDifferenceSourceColumn = col;
+                recheck.maxRoutedRowWeightDifferenceDirectValue =
+                    directRows.get(row, col);
+                recheck.maxRoutedRowWeightDifferenceRoutedValue =
+                    routedRows.get(row, col);
+                recheck.maxRoutedRowWeightDifferenceSignedDelta =
+                    recheck.maxRoutedRowWeightDifferenceRoutedValue -
+                    recheck.maxRoutedRowWeightDifferenceDirectValue;
+            }
+        }
+    }
+}
+
 std::vector<Matrix> control_point_rows_to_columns_for_face(const Mesh &mesh,
                                                            const Face &face)
 {
@@ -601,10 +640,12 @@ diagnose_opensubdiv_regular_production_call_parity(Mesh &mesh)
         for (int sample = 0; sample < static_cast<int>(routedShapeFunctions.size());
              ++sample)
         {
-            recheck.maxRoutedRowWeightDifferenceVsSlimedRows =
-                std::max(recheck.maxRoutedRowWeightDifferenceVsSlimedRows,
-                         max_abs_matrix_difference(routedShapeFunctions[sample],
-                                                   originalShapeFunctions[sample]));
+            update_max_row_weight_difference_with_location(
+                recheck,
+                face.index,
+                sample,
+                originalShapeFunctions[sample],
+                routedShapeFunctions[sample]);
         }
 
         const Matrix oneRingVertexMatrix = mesh.get_one_ring_vertex_matrix(face);

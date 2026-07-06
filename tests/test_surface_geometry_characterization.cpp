@@ -1896,6 +1896,23 @@ TEST(OpenSubdivRegularProductionRoutingGuard,
                   static_cast<int>(mesh.param.shapeFunctions.size()));
     EXPECT_GT(recheck.maxRoutedRowWeightDifferenceVsSlimedRows, 0.0);
     EXPECT_LE(recheck.maxRoutedRowWeightDifferenceVsSlimedRows, 5.0e-6);
+    EXPECT_GE(recheck.maxRoutedRowWeightDifferenceFaceIndex, 0);
+    EXPECT_GE(recheck.maxRoutedRowWeightDifferenceSampleIndex, 0);
+    EXPECT_LT(recheck.maxRoutedRowWeightDifferenceSampleIndex,
+              static_cast<int>(mesh.param.shapeFunctions.size()));
+    EXPECT_GE(recheck.maxRoutedRowWeightDifferenceRow, 0);
+    EXPECT_LT(recheck.maxRoutedRowWeightDifferenceRow, 7);
+    EXPECT_GE(recheck.maxRoutedRowWeightDifferenceSourceColumn, 0);
+    EXPECT_LT(recheck.maxRoutedRowWeightDifferenceSourceColumn, 12);
+    EXPECT_TRUE(std::isfinite(
+        recheck.maxRoutedRowWeightDifferenceDirectValue));
+    EXPECT_TRUE(std::isfinite(
+        recheck.maxRoutedRowWeightDifferenceRoutedValue));
+    EXPECT_TRUE(std::isfinite(
+        recheck.maxRoutedRowWeightDifferenceSignedDelta));
+    EXPECT_NEAR(std::abs(recheck.maxRoutedRowWeightDifferenceSignedDelta),
+                recheck.maxRoutedRowWeightDifferenceVsSlimedRows,
+                1.0e-12);
     EXPECT_LE(recheck.maxAreaDifference, 5.0e-6);
     EXPECT_LE(recheck.maxLegacyVolumeDifference, 5.0e-6);
     EXPECT_LE(recheck.maxMeanCurvatureDifference, 5.0e-6);
