@@ -199,11 +199,13 @@ void update_max_abs_matrix_difference(double &target,
 void update_max_abs_matrix_difference_with_location(double &target,
                                                    int &targetFaceIndex,
                                                    int &targetRow,
+                                                   int &targetSourceId,
                                                    int &targetAxis,
                                                    double &targetDirectValue,
                                                    double &targetRoutedValue,
                                                    double &targetSignedDelta,
                                                    const int faceIndex,
+                                                   const std::vector<int> &sourceIds,
                                                    const Matrix &lhs,
                                                    const Matrix &rhs)
 {
@@ -211,6 +213,11 @@ void update_max_abs_matrix_difference_with_location(double &target,
     {
         throw std::runtime_error(
             "OpenSubdiv regular residual diagnostics require matching matrix dimensions.");
+    }
+    if (lhs.nrow() > static_cast<int>(sourceIds.size()))
+    {
+        throw std::runtime_error(
+            "OpenSubdiv regular residual diagnostics require source ids for every force row.");
     }
 
     for (int row = 0; row < lhs.nrow(); ++row)
@@ -224,6 +231,7 @@ void update_max_abs_matrix_difference_with_location(double &target,
                 target = difference;
                 targetFaceIndex = faceIndex;
                 targetRow = row;
+                targetSourceId = sourceIds[row];
                 targetAxis = axis;
                 targetDirectValue = lhs.get(row, axis);
                 targetRoutedValue = rhs.get(row, axis);
@@ -237,6 +245,7 @@ void update_max_row_weight_difference_with_location(
     OpenSubdivRegularProductionParityRecheck &recheck,
     const int faceIndex,
     const int sampleIndex,
+    const std::vector<int> &sourceIds,
     const Matrix &directRows,
     const Matrix &routedRows)
 {
@@ -245,6 +254,11 @@ void update_max_row_weight_difference_with_location(
     {
         throw std::runtime_error(
             "OpenSubdiv regular row residual diagnostics require matching matrix dimensions.");
+    }
+    if (directRows.ncol() > static_cast<int>(sourceIds.size()))
+    {
+        throw std::runtime_error(
+            "OpenSubdiv regular row residual diagnostics require source ids for every row-weight column.");
     }
 
     for (int row = 0; row < directRows.nrow(); ++row)
@@ -260,6 +274,8 @@ void update_max_row_weight_difference_with_location(
                 recheck.maxRoutedRowWeightDifferenceSampleIndex = sampleIndex;
                 recheck.maxRoutedRowWeightDifferenceRow = row;
                 recheck.maxRoutedRowWeightDifferenceSourceColumn = col;
+                recheck.maxRoutedRowWeightDifferenceSourceId =
+                    sourceIds[col];
                 recheck.maxRoutedRowWeightDifferenceDirectValue =
                     directRows.get(row, col);
                 recheck.maxRoutedRowWeightDifferenceRoutedValue =
@@ -644,6 +660,7 @@ diagnose_opensubdiv_regular_production_call_parity(Mesh &mesh)
                 recheck,
                 face.index,
                 sample,
+                face.oneRingVertices,
                 originalShapeFunctions[sample],
                 routedShapeFunctions[sample]);
         }
@@ -729,22 +746,26 @@ diagnose_opensubdiv_regular_production_call_parity(Mesh &mesh)
             recheck.maxFAreaDifference,
             recheck.maxFAreaDifferenceFaceIndex,
             recheck.maxFAreaDifferenceLocalRow,
+            recheck.maxFAreaDifferenceSourceId,
             recheck.maxFAreaDifferenceAxis,
             recheck.maxFAreaDifferenceDirectValue,
             recheck.maxFAreaDifferenceRoutedValue,
             recheck.maxFAreaDifferenceSignedDelta,
             face.index,
+            face.oneRingVertices,
             directFArea,
             routedFArea);
         update_max_abs_matrix_difference_with_location(
             recheck.maxFVolumeDifference,
             recheck.maxFVolumeDifferenceFaceIndex,
             recheck.maxFVolumeDifferenceLocalRow,
+            recheck.maxFVolumeDifferenceSourceId,
             recheck.maxFVolumeDifferenceAxis,
             recheck.maxFVolumeDifferenceDirectValue,
             recheck.maxFVolumeDifferenceRoutedValue,
             recheck.maxFVolumeDifferenceSignedDelta,
             face.index,
+            face.oneRingVertices,
             directFVolume,
             routedFVolume);
 
