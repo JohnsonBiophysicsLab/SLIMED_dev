@@ -48,6 +48,7 @@ struct OpenSubdivRegularProductionParityRecheck
     int maxRoutedRowWeightDifferenceSampleIndex = -1;
     int maxRoutedRowWeightDifferenceRow = -1;
     int maxRoutedRowWeightDifferenceSourceColumn = -1;
+    int maxRoutedRowWeightDifferenceSourceId = -1;
     double maxRoutedRowWeightDifferenceDirectValue = 0.0;
     double maxRoutedRowWeightDifferenceRoutedValue = 0.0;
     double maxRoutedRowWeightDifferenceSignedDelta = 0.0;
@@ -60,6 +61,7 @@ struct OpenSubdivRegularProductionParityRecheck
     double maxFAreaDifference = 0.0;
     int maxFAreaDifferenceFaceIndex = -1;
     int maxFAreaDifferenceLocalRow = -1;
+    int maxFAreaDifferenceSourceId = -1;
     int maxFAreaDifferenceAxis = -1;
     double maxFAreaDifferenceDirectValue = 0.0;
     double maxFAreaDifferenceRoutedValue = 0.0;
@@ -67,6 +69,7 @@ struct OpenSubdivRegularProductionParityRecheck
     double maxFVolumeDifference = 0.0;
     int maxFVolumeDifferenceFaceIndex = -1;
     int maxFVolumeDifferenceLocalRow = -1;
+    int maxFVolumeDifferenceSourceId = -1;
     int maxFVolumeDifferenceAxis = -1;
     double maxFVolumeDifferenceDirectValue = 0.0;
     double maxFVolumeDifferenceRoutedValue = 0.0;

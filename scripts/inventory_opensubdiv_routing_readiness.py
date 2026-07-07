@@ -74,7 +74,7 @@ REGULAR_READINESS_CRITERIA: tuple[dict[str, str], ...] = (
     },
     {
         "criterion": "actual fBend/fArea/fVolume comparison",
-        "current_status": "opt-in regular actual-force probe, C++ proof rows, production-helper dry run, guarded helper route test, and diagnostic production-call parity recheck exposing remaining fArea/fVolume deltas, residual locations, and row-error budget location",
+        "current_status": "opt-in regular actual-force probe, C++ proof rows, production-helper dry run, guarded helper route test, and diagnostic production-call parity recheck exposing remaining fArea/fVolume deltas, source-id residual locations, and row-error budget location",
         "remaining_gap": "keep route disabled until reviewers approve installing rows",
     },
     {
@@ -493,11 +493,27 @@ ANCHORS: tuple[Anchor, ...] = (
     ),
     Anchor(
         "production diagnostic",
+        "area residual source id",
+        OPENSUBDIV_EVALUATOR_PATH,
+        "maxFAreaDifferenceSourceId",
+        "force residual diagnostic",
+        "The diagnostic records the source id for the largest area-force residual.",
+    ),
+    Anchor(
+        "production diagnostic",
         "signed volume residual",
         OPENSUBDIV_EVALUATOR_PATH,
         "maxFVolumeDifferenceSignedDelta",
         "force residual diagnostic",
         "The diagnostic records the signed direct-vs-routed volume-force residual.",
+    ),
+    Anchor(
+        "production diagnostic",
+        "volume residual source id",
+        OPENSUBDIV_EVALUATOR_PATH,
+        "maxFVolumeDifferenceSourceId",
+        "force residual diagnostic",
+        "The diagnostic records the source id for the largest volume-force residual.",
     ),
     Anchor(
         "production diagnostic",
@@ -522,6 +538,14 @@ ANCHORS: tuple[Anchor, ...] = (
         "maxRoutedRowWeightDifferenceSourceColumn",
         "row residual diagnostic",
         "The parity recheck records where the largest row-weight drift occurs.",
+    ),
+    Anchor(
+        "production diagnostic",
+        "routed row weight residual source id",
+        OPENSUBDIV_EVALUATOR_PATH,
+        "maxRoutedRowWeightDifferenceSourceId",
+        "row residual diagnostic",
+        "The parity recheck resolves the largest row-weight drift to a Face::oneRingVertices source id.",
     ),
     Anchor(
         "production diagnostic",

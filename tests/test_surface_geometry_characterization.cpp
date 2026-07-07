@@ -1904,6 +1904,13 @@ TEST(OpenSubdivRegularProductionRoutingGuard,
     EXPECT_LT(recheck.maxRoutedRowWeightDifferenceRow, 7);
     EXPECT_GE(recheck.maxRoutedRowWeightDifferenceSourceColumn, 0);
     EXPECT_LT(recheck.maxRoutedRowWeightDifferenceSourceColumn, 12);
+    EXPECT_GE(recheck.maxRoutedRowWeightDifferenceSourceId, 0);
+    ASSERT_LT(recheck.maxRoutedRowWeightDifferenceFaceIndex,
+              static_cast<int>(mesh.faces.size()));
+    EXPECT_EQ(
+        recheck.maxRoutedRowWeightDifferenceSourceId,
+        mesh.faces[recheck.maxRoutedRowWeightDifferenceFaceIndex]
+            .oneRingVertices[recheck.maxRoutedRowWeightDifferenceSourceColumn]);
     EXPECT_TRUE(std::isfinite(
         recheck.maxRoutedRowWeightDifferenceDirectValue));
     EXPECT_TRUE(std::isfinite(
@@ -1923,6 +1930,12 @@ TEST(OpenSubdivRegularProductionRoutingGuard,
     EXPECT_GE(recheck.maxFAreaDifferenceFaceIndex, 0);
     EXPECT_GE(recheck.maxFAreaDifferenceLocalRow, 0);
     EXPECT_LT(recheck.maxFAreaDifferenceLocalRow, 12);
+    EXPECT_GE(recheck.maxFAreaDifferenceSourceId, 0);
+    ASSERT_LT(recheck.maxFAreaDifferenceFaceIndex,
+              static_cast<int>(mesh.faces.size()));
+    EXPECT_EQ(recheck.maxFAreaDifferenceSourceId,
+              mesh.faces[recheck.maxFAreaDifferenceFaceIndex]
+                  .oneRingVertices[recheck.maxFAreaDifferenceLocalRow]);
     EXPECT_GE(recheck.maxFAreaDifferenceAxis, 0);
     EXPECT_LT(recheck.maxFAreaDifferenceAxis, 3);
     EXPECT_TRUE(std::isfinite(recheck.maxFAreaDifferenceDirectValue));
@@ -1935,6 +1948,12 @@ TEST(OpenSubdivRegularProductionRoutingGuard,
     EXPECT_GE(recheck.maxFVolumeDifferenceFaceIndex, 0);
     EXPECT_GE(recheck.maxFVolumeDifferenceLocalRow, 0);
     EXPECT_LT(recheck.maxFVolumeDifferenceLocalRow, 12);
+    EXPECT_GE(recheck.maxFVolumeDifferenceSourceId, 0);
+    ASSERT_LT(recheck.maxFVolumeDifferenceFaceIndex,
+              static_cast<int>(mesh.faces.size()));
+    EXPECT_EQ(recheck.maxFVolumeDifferenceSourceId,
+              mesh.faces[recheck.maxFVolumeDifferenceFaceIndex]
+                  .oneRingVertices[recheck.maxFVolumeDifferenceLocalRow]);
     EXPECT_GE(recheck.maxFVolumeDifferenceAxis, 0);
     EXPECT_LT(recheck.maxFVolumeDifferenceAxis, 3);
     EXPECT_TRUE(std::isfinite(recheck.maxFVolumeDifferenceDirectValue));
