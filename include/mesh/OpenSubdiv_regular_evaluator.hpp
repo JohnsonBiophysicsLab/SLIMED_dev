@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include <string>
 #include <vector>
 
 #include "linalg/Linear_algebra.hpp"
@@ -103,6 +104,8 @@ struct OpenSubdivRegularProductionParityRecheck
     double routedResidualRequiredAbsoluteTolerance = 0.0;
     double routedResidualRequiredRelativeTolerance = 0.0;
     double routedResidualRequiredToleranceMultiplier = 0.0;
+    std::string routedResidualRequiredToleranceSource = "none";
+    double routedResidualRequiredToleranceSourceRelative = 0.0;
     bool routedResidualsExceedCurrentTolerance = false;
     bool routedResidualToleranceReviewRequired = false;
 };
