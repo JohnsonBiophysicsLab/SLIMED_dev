@@ -1897,6 +1897,10 @@ TEST(OpenSubdivRegularProductionRoutingGuard,
                   static_cast<int>(mesh.param.shapeFunctions.size()));
     EXPECT_LE(recheck.maxDirectRowsOverrideAreaDifference, 1.0e-12);
     EXPECT_LE(recheck.maxDirectRowsOverrideLegacyVolumeDifference, 1.0e-12);
+    EXPECT_LE(recheck.maxDirectRowsOverrideMeanCurvatureDifference, 1.0e-12);
+    EXPECT_LE(recheck.maxDirectRowsOverrideBendingEnergyDifference, 1.0e-12);
+    EXPECT_LE(recheck.maxDirectRowsOverrideNormalDifference, 1.0e-12);
+    EXPECT_LE(recheck.maxDirectRowsOverrideFBendDifference, 1.0e-12);
     EXPECT_LE(recheck.maxDirectRowsOverrideFAreaDifference, 1.0e-12);
     EXPECT_LE(recheck.maxDirectRowsOverrideFVolumeDifference, 1.0e-12);
     EXPECT_LE(recheck.maxDirectRowsOverrideScatterDifference, 1.0e-12);

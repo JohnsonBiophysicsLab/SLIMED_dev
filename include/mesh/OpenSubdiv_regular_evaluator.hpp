@@ -55,6 +55,10 @@ struct OpenSubdivRegularProductionParityRecheck
     double maxRoutedRowWeightDifferenceSignedDelta = 0.0;
     double maxDirectRowsOverrideAreaDifference = 0.0;
     double maxDirectRowsOverrideLegacyVolumeDifference = 0.0;
+    double maxDirectRowsOverrideMeanCurvatureDifference = 0.0;
+    double maxDirectRowsOverrideBendingEnergyDifference = 0.0;
+    double maxDirectRowsOverrideNormalDifference = 0.0;
+    double maxDirectRowsOverrideFBendDifference = 0.0;
     double maxDirectRowsOverrideFAreaDifference = 0.0;
     double maxDirectRowsOverrideFVolumeDifference = 0.0;
     double maxDirectRowsOverrideScatterDifference = 0.0;
