@@ -74,7 +74,7 @@ REGULAR_READINESS_CRITERIA: tuple[dict[str, str], ...] = (
     },
     {
         "criterion": "actual fBend/fArea/fVolume comparison",
-        "current_status": "opt-in regular actual-force probe, C++ proof rows, production-helper dry run, guarded helper route test, and diagnostic production-call parity recheck exposing remaining fArea/fVolume deltas, source-id residual locations, row-error budget location, and exact full-observable direct-row override control",
+        "current_status": "opt-in regular actual-force probe, C++ proof rows, production-helper dry run, guarded helper route test, and diagnostic production-call parity recheck exposing remaining fArea/fVolume deltas, source-id residual locations, row-error budget location, scale-normalized tolerance envelope, and exact full-observable direct-row override control",
         "remaining_gap": "keep route disabled until reviewers approve installing rows or a row-residual tolerance/precision policy",
     },
     {
@@ -549,6 +549,30 @@ ANCHORS: tuple[Anchor, ...] = (
     ),
     Anchor(
         "production diagnostic",
+        "force residual tolerance envelope",
+        OPENSUBDIV_EVALUATOR_PATH,
+        "maxFAreaDifferenceRelativeToComponentScale",
+        "row residual diagnostic",
+        "The diagnostic records the remaining force residual against its component scale.",
+    ),
+    Anchor(
+        "production diagnostic",
+        "scatter residual tolerance envelope",
+        OPENSUBDIV_EVALUATOR_PATH,
+        "maxScatterDifferenceRelativeToComponentScale",
+        "scatter residual diagnostic",
+        "The diagnostic records the remaining scatter residual against its component scale.",
+    ),
+    Anchor(
+        "production diagnostic",
+        "routed residual tolerance review gate",
+        OPENSUBDIV_EVALUATOR_PATH,
+        "routedResidualToleranceReviewRequired",
+        "row residual diagnostic",
+        "The diagnostic records whether the remaining routed residuals need tolerance review.",
+    ),
+    Anchor(
+        "production diagnostic",
         "signed area residual",
         OPENSUBDIV_EVALUATOR_PATH,
         "maxFAreaDifferenceSignedDelta",
@@ -684,6 +708,22 @@ ANCHORS: tuple[Anchor, ...] = (
         "The focused OpenSubdiv test asserts the remaining residual is amplified beyond the row-weight delta.",
     ),
     Anchor(
+        "production test",
+        "force residual tolerance envelope assertion",
+        SURFACE_TEST_PATH,
+        "maxFAreaDifferenceRelativeToComponentScale",
+        "row residual diagnostic",
+        "The focused OpenSubdiv test asserts the remaining force residual has a finite scale-normalized envelope.",
+    ),
+    Anchor(
+        "production test",
+        "routed residual tolerance review assertion",
+        SURFACE_TEST_PATH,
+        "routedResidualToleranceReviewRequired",
+        "row residual diagnostic",
+        "The focused OpenSubdiv test asserts route activation still needs tolerance review.",
+    ),
+    Anchor(
         "readiness map",
         "row-error budget wording",
         READINESS_DOC_PATH,
@@ -706,6 +746,14 @@ ANCHORS: tuple[Anchor, ...] = (
         "residual amplification",
         "row residual diagnostic",
         "The readiness map records that remaining OpenSubdiv-row residuals need tolerance or precision review.",
+    ),
+    Anchor(
+        "readiness map",
+        "tolerance envelope wording",
+        READINESS_DOC_PATH,
+        "tolerance envelope",
+        "row residual diagnostic",
+        "The readiness map records the scale-normalized tolerance envelope for remaining residuals.",
     ),
     Anchor(
         "production implementation",

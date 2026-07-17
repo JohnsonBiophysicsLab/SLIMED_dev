@@ -1991,6 +1991,32 @@ TEST(OpenSubdivRegularProductionRoutingGuard,
     EXPECT_GT(recheck.maxFAreaDifferencePerRowWeightDifference, 1.0);
     EXPECT_GT(recheck.maxFVolumeDifferencePerRowWeightDifference, 1.0);
     EXPECT_GT(recheck.maxScatterDifferencePerRowWeightDifference, 1.0);
+    EXPECT_TRUE(recheck.routedResidualsExceedCurrentTolerance);
+    EXPECT_TRUE(recheck.routedResidualToleranceReviewRequired);
+    EXPECT_GT(recheck.maxFAreaDifferenceComponentScale, 0.0);
+    EXPECT_GT(recheck.maxFVolumeDifferenceComponentScale, 0.0);
+    EXPECT_GT(recheck.maxScatterDifferenceComponentScale, 0.0);
+    EXPECT_TRUE(std::isfinite(
+        recheck.maxFAreaDifferenceRelativeToComponentScale));
+    EXPECT_TRUE(std::isfinite(
+        recheck.maxFVolumeDifferenceRelativeToComponentScale));
+    EXPECT_TRUE(std::isfinite(
+        recheck.maxScatterDifferenceRelativeToComponentScale));
+    EXPECT_GT(recheck.maxFAreaDifferenceRelativeToComponentScale, 0.0);
+    EXPECT_GT(recheck.maxFVolumeDifferenceRelativeToComponentScale, 0.0);
+    EXPECT_GT(recheck.maxScatterDifferenceRelativeToComponentScale, 0.0);
+    EXPECT_NEAR(recheck.maxFAreaDifference /
+                    recheck.maxFAreaDifferenceComponentScale,
+                recheck.maxFAreaDifferenceRelativeToComponentScale,
+                1.0e-12);
+    EXPECT_NEAR(recheck.maxFVolumeDifference /
+                    recheck.maxFVolumeDifferenceComponentScale,
+                recheck.maxFVolumeDifferenceRelativeToComponentScale,
+                1.0e-12);
+    EXPECT_NEAR(recheck.maxScatterDifference /
+                    recheck.maxScatterDifferenceComponentScale,
+                recheck.maxScatterDifferenceRelativeToComponentScale,
+                1.0e-12);
     EXPECT_TRUE(build_opensubdiv_regular_shape_functions_by_face(mesh).empty());
 }
 

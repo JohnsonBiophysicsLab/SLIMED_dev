@@ -90,9 +90,17 @@ struct OpenSubdivRegularProductionParityRecheck
     double maxScatterDifferenceDirectValue = 0.0;
     double maxScatterDifferenceRoutedValue = 0.0;
     double maxScatterDifferenceSignedDelta = 0.0;
+    double maxFAreaDifferenceComponentScale = 0.0;
+    double maxFVolumeDifferenceComponentScale = 0.0;
+    double maxScatterDifferenceComponentScale = 0.0;
+    double maxFAreaDifferenceRelativeToComponentScale = 0.0;
+    double maxFVolumeDifferenceRelativeToComponentScale = 0.0;
+    double maxScatterDifferenceRelativeToComponentScale = 0.0;
     double maxFAreaDifferencePerRowWeightDifference = 0.0;
     double maxFVolumeDifferencePerRowWeightDifference = 0.0;
     double maxScatterDifferencePerRowWeightDifference = 0.0;
+    bool routedResidualsExceedCurrentTolerance = false;
+    bool routedResidualToleranceReviewRequired = false;
 };
 
 /**
