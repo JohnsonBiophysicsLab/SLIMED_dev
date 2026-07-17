@@ -792,6 +792,20 @@ diagnose_opensubdiv_regular_production_call_parity(Mesh &mesh)
         update_max_abs_matrix_difference(recheck.maxFBendDifference,
                                          directFBend,
                                          routedFBend);
+        recheck.maxDirectRowsOverrideMeanCurvatureDifference =
+            std::max(recheck.maxDirectRowsOverrideMeanCurvatureDifference,
+                     std::abs(directMeanCurv - directRowsOverrideMeanCurv));
+        recheck.maxDirectRowsOverrideBendingEnergyDifference =
+            std::max(recheck.maxDirectRowsOverrideBendingEnergyDifference,
+                     std::abs(directEBend - directRowsOverrideEBend));
+        update_max_abs_matrix_difference(
+            recheck.maxDirectRowsOverrideNormalDifference,
+            directNorm,
+            directRowsOverrideNorm);
+        update_max_abs_matrix_difference(
+            recheck.maxDirectRowsOverrideFBendDifference,
+            directFBend,
+            directRowsOverrideFBend);
         update_max_abs_matrix_difference(
             recheck.maxDirectRowsOverrideFAreaDifference,
             directFArea,
@@ -856,6 +870,10 @@ diagnose_opensubdiv_regular_production_call_parity(Mesh &mesh)
         recheck.generatedRoutedRows && recheck.comparedFaceCount > 0 &&
         recheck.maxDirectRowsOverrideAreaDifference <= kOpenSubdivRegularRowTolerance &&
         recheck.maxDirectRowsOverrideLegacyVolumeDifference <= kOpenSubdivRegularRowTolerance &&
+        recheck.maxDirectRowsOverrideMeanCurvatureDifference <= kOpenSubdivRegularRowTolerance &&
+        recheck.maxDirectRowsOverrideBendingEnergyDifference <= kOpenSubdivRegularRowTolerance &&
+        recheck.maxDirectRowsOverrideNormalDifference <= kOpenSubdivRegularRowTolerance &&
+        recheck.maxDirectRowsOverrideFBendDifference <= kOpenSubdivRegularRowTolerance &&
         recheck.maxDirectRowsOverrideFAreaDifference <= kOpenSubdivRegularRowTolerance &&
         recheck.maxDirectRowsOverrideFVolumeDifference <= kOpenSubdivRegularRowTolerance &&
         recheck.maxDirectRowsOverrideScatterDifference <= kOpenSubdivRegularRowTolerance;
