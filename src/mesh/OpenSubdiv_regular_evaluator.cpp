@@ -423,6 +423,25 @@ void populate_residual_tolerance_envelope(
     recheck.routedResidualRequiredToleranceMultiplier =
         recheck.routedResidualRequiredAbsoluteTolerance /
         recheck.routedResidualCurrentAbsoluteTolerance;
+    if (recheck.maxFAreaDifference >= recheck.maxFVolumeDifference &&
+        recheck.maxFAreaDifference >= recheck.maxScatterDifference)
+    {
+        recheck.routedResidualRequiredToleranceSource = "fArea";
+        recheck.routedResidualRequiredToleranceSourceRelative =
+            recheck.maxFAreaDifferenceRelativeToComponentScale;
+    }
+    else if (recheck.maxFVolumeDifference >= recheck.maxScatterDifference)
+    {
+        recheck.routedResidualRequiredToleranceSource = "fVolume";
+        recheck.routedResidualRequiredToleranceSourceRelative =
+            recheck.maxFVolumeDifferenceRelativeToComponentScale;
+    }
+    else
+    {
+        recheck.routedResidualRequiredToleranceSource = "scatter";
+        recheck.routedResidualRequiredToleranceSourceRelative =
+            recheck.maxScatterDifferenceRelativeToComponentScale;
+    }
     recheck.routedResidualsExceedCurrentTolerance =
         recheck.maxFAreaDifference > kOpenSubdivRegularRowTolerance ||
         recheck.maxFVolumeDifference > kOpenSubdivRegularRowTolerance ||

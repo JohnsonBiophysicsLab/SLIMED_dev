@@ -2028,6 +2028,23 @@ TEST(OpenSubdivRegularProductionRoutingGuard,
         std::max(recheck.maxFAreaDifferenceRelativeToComponentScale,
                  std::max(recheck.maxFVolumeDifferenceRelativeToComponentScale,
                           recheck.maxScatterDifferenceRelativeToComponentScale));
+    std::string requiredToleranceSource = "fArea";
+    double requiredToleranceSourceRelative =
+        recheck.maxFAreaDifferenceRelativeToComponentScale;
+    if (recheck.maxFVolumeDifference > recheck.maxFAreaDifference &&
+        recheck.maxFVolumeDifference >= recheck.maxScatterDifference)
+    {
+        requiredToleranceSource = "fVolume";
+        requiredToleranceSourceRelative =
+            recheck.maxFVolumeDifferenceRelativeToComponentScale;
+    }
+    else if (recheck.maxScatterDifference > recheck.maxFAreaDifference &&
+             recheck.maxScatterDifference > recheck.maxFVolumeDifference)
+    {
+        requiredToleranceSource = "scatter";
+        requiredToleranceSourceRelative =
+            recheck.maxScatterDifferenceRelativeToComponentScale;
+    }
     EXPECT_NEAR(recheck.routedResidualRequiredAbsoluteTolerance,
                 requiredAbsoluteTolerance,
                 1.0e-12);
@@ -2038,6 +2055,11 @@ TEST(OpenSubdivRegularProductionRoutingGuard,
     EXPECT_NEAR(recheck.routedResidualRequiredToleranceMultiplier,
                 recheck.routedResidualRequiredAbsoluteTolerance /
                     recheck.routedResidualCurrentAbsoluteTolerance,
+                1.0e-12);
+    EXPECT_EQ(recheck.routedResidualRequiredToleranceSource,
+              requiredToleranceSource);
+    EXPECT_NEAR(recheck.routedResidualRequiredToleranceSourceRelative,
+                requiredToleranceSourceRelative,
                 1.0e-12);
     EXPECT_TRUE(build_opensubdiv_regular_shape_functions_by_face(mesh).empty());
 }

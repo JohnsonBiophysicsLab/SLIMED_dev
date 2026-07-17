@@ -66,8 +66,12 @@ class OpenSubdivRoutingReadinessInventoryTest(unittest.TestCase):
         self.assertIn("required routed residual absolute tolerance", anchor_names)
         self.assertIn("required routed residual relative tolerance", anchor_names)
         self.assertIn("required routed residual tolerance multiplier", anchor_names)
+        self.assertIn("required routed residual tolerance source", anchor_names)
+        self.assertIn("required routed residual tolerance source relative value", anchor_names)
         self.assertIn("required routed residual tolerance assertion", anchor_names)
+        self.assertIn("required routed residual tolerance source assertion", anchor_names)
         self.assertIn("required tolerance decision metrics wording", anchor_names)
+        self.assertIn("required tolerance source wording", anchor_names)
 
 
 if __name__ == "__main__":

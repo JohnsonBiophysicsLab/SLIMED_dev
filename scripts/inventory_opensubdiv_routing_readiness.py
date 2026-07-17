@@ -605,6 +605,22 @@ ANCHORS: tuple[Anchor, ...] = (
     ),
     Anchor(
         "production diagnostic",
+        "required routed residual tolerance source",
+        OPENSUBDIV_EVALUATOR_PATH,
+        "routedResidualRequiredToleranceSource",
+        "row residual diagnostic",
+        "The diagnostic records which residual source sets the required tolerance.",
+    ),
+    Anchor(
+        "production diagnostic",
+        "required routed residual tolerance source relative value",
+        OPENSUBDIV_EVALUATOR_PATH,
+        "routedResidualRequiredToleranceSourceRelative",
+        "row residual diagnostic",
+        "The diagnostic records the scale-normalized value for the residual source that sets the required tolerance.",
+    ),
+    Anchor(
+        "production diagnostic",
         "signed area residual",
         OPENSUBDIV_EVALUATOR_PATH,
         "maxFAreaDifferenceSignedDelta",
@@ -764,6 +780,14 @@ ANCHORS: tuple[Anchor, ...] = (
         "The focused OpenSubdiv test asserts the diagnostic exposes required tolerance decision metrics.",
     ),
     Anchor(
+        "production test",
+        "required routed residual tolerance source assertion",
+        SURFACE_TEST_PATH,
+        "routedResidualRequiredToleranceSource",
+        "row residual diagnostic",
+        "The focused OpenSubdiv test asserts the required tolerance source matches the dominant residual.",
+    ),
+    Anchor(
         "readiness map",
         "row-error budget wording",
         READINESS_DOC_PATH,
@@ -802,6 +826,14 @@ ANCHORS: tuple[Anchor, ...] = (
         "required absolute and",
         "row residual diagnostic",
         "The readiness map records that route activation needs an explicit required-tolerance decision.",
+    ),
+    Anchor(
+        "readiness map",
+        "required tolerance source wording",
+        READINESS_DOC_PATH,
+        "residual source",
+        "row residual diagnostic",
+        "The readiness map records that the required-tolerance decision includes residual-source attribution.",
     ),
     Anchor(
         "production implementation",
