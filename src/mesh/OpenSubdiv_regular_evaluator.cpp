@@ -196,6 +196,22 @@ void update_max_abs_matrix_difference(double &target,
     target = std::max(target, max_abs_matrix_difference(lhs, rhs));
 }
 
+void update_max_abs_vector_difference(double &target,
+                                      const std::vector<double> &lhs,
+                                      const std::vector<double> &rhs)
+{
+    if (lhs.size() != rhs.size())
+    {
+        throw std::runtime_error(
+            "OpenSubdiv regular parity recheck requires matching vector dimensions.");
+    }
+
+    for (std::size_t index = 0; index < lhs.size(); ++index)
+    {
+        target = std::max(target, std::abs(lhs[index] - rhs[index]));
+    }
+}
+
 void update_max_abs_matrix_difference_with_location(double &target,
                                                    int &targetFaceIndex,
                                                    int &targetRow,
@@ -631,6 +647,7 @@ diagnose_opensubdiv_regular_production_call_parity(Mesh &mesh)
     const std::vector<Matrix> originalShapeFunctions = mesh.param.shapeFunctions;
     const int scatterSize = static_cast<int>(mesh.vertices.size()) * 9;
     std::vector<double> directScatter(scatterSize, 0.0);
+    std::vector<double> directRowsOverrideScatter(scatterSize, 0.0);
     std::vector<double> routedScatter(scatterSize, 0.0);
 
     bool allMatched = true;
@@ -668,6 +685,8 @@ diagnose_opensubdiv_regular_production_call_parity(Mesh &mesh)
         const Matrix oneRingVertexMatrix = mesh.get_one_ring_vertex_matrix(face);
         double directArea = 0.0;
         double directVolume = 0.0;
+        double directRowsOverrideArea = 0.0;
+        double directRowsOverrideVolume = 0.0;
         double routedArea = 0.0;
         double routedVolume = 0.0;
         mesh.enumerate_regular_patch_area_volume_with_limit_surface_evaluator(
@@ -675,6 +694,11 @@ diagnose_opensubdiv_regular_production_call_parity(Mesh &mesh)
             directArea,
             directVolume,
             nullptr);
+        mesh.enumerate_regular_patch_area_volume_with_limit_surface_evaluator(
+            oneRingVertexMatrix,
+            directRowsOverrideArea,
+            directRowsOverrideVolume,
+            &originalShapeFunctions);
         mesh.enumerate_regular_patch_area_volume_with_limit_surface_evaluator(
             oneRingVertexMatrix,
             routedArea,
@@ -687,6 +711,12 @@ diagnose_opensubdiv_regular_production_call_parity(Mesh &mesh)
         recheck.maxLegacyVolumeDifference =
             std::max(recheck.maxLegacyVolumeDifference,
                      std::abs(directVolume - routedVolume));
+        recheck.maxDirectRowsOverrideAreaDifference =
+            std::max(recheck.maxDirectRowsOverrideAreaDifference,
+                     std::abs(directArea - directRowsOverrideArea));
+        recheck.maxDirectRowsOverrideLegacyVolumeDifference =
+            std::max(recheck.maxDirectRowsOverrideLegacyVolumeDifference,
+                     std::abs(directVolume - directRowsOverrideVolume));
 
         const std::vector<Matrix> coordinateColumns =
             control_point_rows_to_columns_for_face(mesh, face);
@@ -709,6 +739,26 @@ diagnose_opensubdiv_regular_production_call_parity(Mesh &mesh)
                                           directFArea,
                                           directFVolume,
                                           true);
+
+        double directRowsOverrideMeanCurv = 0.0;
+        double directRowsOverrideEBend = 0.0;
+        Matrix directRowsOverrideNorm = mat_calloc(3, 1);
+        Matrix directRowsOverrideFBend = mat_calloc(kRegularControlPointCount, 3);
+        Matrix directRowsOverrideFArea = mat_calloc(kRegularControlPointCount, 3);
+        Matrix directRowsOverrideFVolume = mat_calloc(kRegularControlPointCount, 3);
+
+        mesh.param.shapeFunctions = originalShapeFunctions;
+        mesh.element_energy_force_regular(coordinateColumns,
+                                          face,
+                                          face.spontCurvature,
+                                          directRowsOverrideMeanCurv,
+                                          directRowsOverrideNorm,
+                                          directRowsOverrideEBend,
+                                          directRowsOverrideFBend,
+                                          directRowsOverrideFArea,
+                                          directRowsOverrideFVolume,
+                                          true,
+                                          &originalShapeFunctions);
 
         double routedMeanCurv = 0.0;
         double routedEBend = 0.0;
@@ -742,6 +792,14 @@ diagnose_opensubdiv_regular_production_call_parity(Mesh &mesh)
         update_max_abs_matrix_difference(recheck.maxFBendDifference,
                                          directFBend,
                                          routedFBend);
+        update_max_abs_matrix_difference(
+            recheck.maxDirectRowsOverrideFAreaDifference,
+            directFArea,
+            directRowsOverrideFArea);
+        update_max_abs_matrix_difference(
+            recheck.maxDirectRowsOverrideFVolumeDifference,
+            directFVolume,
+            directRowsOverrideFVolume);
         update_max_abs_matrix_difference_with_location(
             recheck.maxFAreaDifference,
             recheck.maxFAreaDifferenceFaceIndex,
@@ -774,6 +832,11 @@ diagnose_opensubdiv_regular_production_call_parity(Mesh &mesh)
                                 directFBend,
                                 directFArea,
                                 directFVolume);
+        accumulate_scatter_rows(directRowsOverrideScatter,
+                                face,
+                                directRowsOverrideFBend,
+                                directRowsOverrideFArea,
+                                directRowsOverrideFVolume);
         accumulate_scatter_rows(routedScatter,
                                 face,
                                 routedFBend,
@@ -782,9 +845,32 @@ diagnose_opensubdiv_regular_production_call_parity(Mesh &mesh)
     }
 
     mesh.param.shapeFunctions = originalShapeFunctions;
+    update_max_abs_vector_difference(
+        recheck.maxDirectRowsOverrideScatterDifference,
+        directScatter,
+        directRowsOverrideScatter);
     update_max_abs_scatter_difference_with_location(recheck,
                                                     directScatter,
                                                     routedScatter);
+    recheck.directRowsOverrideMatch =
+        recheck.generatedRoutedRows && recheck.comparedFaceCount > 0 &&
+        recheck.maxDirectRowsOverrideAreaDifference <= kOpenSubdivRegularRowTolerance &&
+        recheck.maxDirectRowsOverrideLegacyVolumeDifference <= kOpenSubdivRegularRowTolerance &&
+        recheck.maxDirectRowsOverrideFAreaDifference <= kOpenSubdivRegularRowTolerance &&
+        recheck.maxDirectRowsOverrideFVolumeDifference <= kOpenSubdivRegularRowTolerance &&
+        recheck.maxDirectRowsOverrideScatterDifference <= kOpenSubdivRegularRowTolerance;
+    if (recheck.maxRoutedRowWeightDifferenceVsSlimedRows > 0.0)
+    {
+        recheck.maxFAreaDifferencePerRowWeightDifference =
+            recheck.maxFAreaDifference /
+            recheck.maxRoutedRowWeightDifferenceVsSlimedRows;
+        recheck.maxFVolumeDifferencePerRowWeightDifference =
+            recheck.maxFVolumeDifference /
+            recheck.maxRoutedRowWeightDifferenceVsSlimedRows;
+        recheck.maxScatterDifferencePerRowWeightDifference =
+            recheck.maxScatterDifference /
+            recheck.maxRoutedRowWeightDifferenceVsSlimedRows;
+    }
     allMatched = allMatched && recheck.generatedRoutedRows &&
                  recheck.comparedFaceCount > 0 &&
                  recheck.maxAreaDifference <= kOpenSubdivRegularRowTolerance &&

@@ -41,6 +41,7 @@ struct OpenSubdivRegularProductionParityRecheck
     bool routeInstalledInProduction = false;
     bool generatedRoutedRows = false;
     bool directVsRoutedMatch = false;
+    bool directRowsOverrideMatch = false;
     int comparedFaceCount = 0;
     int comparedSampleCount = 0;
     double maxRoutedRowWeightDifferenceVsSlimedRows = 0.0;
@@ -52,6 +53,11 @@ struct OpenSubdivRegularProductionParityRecheck
     double maxRoutedRowWeightDifferenceDirectValue = 0.0;
     double maxRoutedRowWeightDifferenceRoutedValue = 0.0;
     double maxRoutedRowWeightDifferenceSignedDelta = 0.0;
+    double maxDirectRowsOverrideAreaDifference = 0.0;
+    double maxDirectRowsOverrideLegacyVolumeDifference = 0.0;
+    double maxDirectRowsOverrideFAreaDifference = 0.0;
+    double maxDirectRowsOverrideFVolumeDifference = 0.0;
+    double maxDirectRowsOverrideScatterDifference = 0.0;
     double maxAreaDifference = 0.0;
     double maxLegacyVolumeDifference = 0.0;
     double maxMeanCurvatureDifference = 0.0;
@@ -80,6 +86,9 @@ struct OpenSubdivRegularProductionParityRecheck
     double maxScatterDifferenceDirectValue = 0.0;
     double maxScatterDifferenceRoutedValue = 0.0;
     double maxScatterDifferenceSignedDelta = 0.0;
+    double maxFAreaDifferencePerRowWeightDifference = 0.0;
+    double maxFVolumeDifferencePerRowWeightDifference = 0.0;
+    double maxScatterDifferencePerRowWeightDifference = 0.0;
 };
 
 /**
