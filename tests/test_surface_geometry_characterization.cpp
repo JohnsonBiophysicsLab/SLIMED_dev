@@ -1889,11 +1889,17 @@ TEST(OpenSubdivRegularProductionRoutingGuard,
     EXPECT_FALSE(recheck.productionRouteEnabled);
     EXPECT_FALSE(recheck.routeInstalledInProduction);
     EXPECT_TRUE(recheck.generatedRoutedRows);
+    EXPECT_TRUE(recheck.directRowsOverrideMatch);
     EXPECT_FALSE(recheck.directVsRoutedMatch);
     EXPECT_GT(recheck.comparedFaceCount, 0);
     EXPECT_EQ(recheck.comparedSampleCount,
               recheck.comparedFaceCount *
                   static_cast<int>(mesh.param.shapeFunctions.size()));
+    EXPECT_LE(recheck.maxDirectRowsOverrideAreaDifference, 1.0e-12);
+    EXPECT_LE(recheck.maxDirectRowsOverrideLegacyVolumeDifference, 1.0e-12);
+    EXPECT_LE(recheck.maxDirectRowsOverrideFAreaDifference, 1.0e-12);
+    EXPECT_LE(recheck.maxDirectRowsOverrideFVolumeDifference, 1.0e-12);
+    EXPECT_LE(recheck.maxDirectRowsOverrideScatterDifference, 1.0e-12);
     EXPECT_GT(recheck.maxRoutedRowWeightDifferenceVsSlimedRows, 0.0);
     EXPECT_LE(recheck.maxRoutedRowWeightDifferenceVsSlimedRows, 5.0e-6);
     EXPECT_GE(recheck.maxRoutedRowWeightDifferenceFaceIndex, 0);
@@ -1972,6 +1978,15 @@ TEST(OpenSubdivRegularProductionRoutingGuard,
     EXPECT_NEAR(std::abs(recheck.maxScatterDifferenceSignedDelta),
                 recheck.maxScatterDifference,
                 1.0e-12);
+    EXPECT_TRUE(std::isfinite(
+        recheck.maxFAreaDifferencePerRowWeightDifference));
+    EXPECT_TRUE(std::isfinite(
+        recheck.maxFVolumeDifferencePerRowWeightDifference));
+    EXPECT_TRUE(std::isfinite(
+        recheck.maxScatterDifferencePerRowWeightDifference));
+    EXPECT_GT(recheck.maxFAreaDifferencePerRowWeightDifference, 1.0);
+    EXPECT_GT(recheck.maxFVolumeDifferencePerRowWeightDifference, 1.0);
+    EXPECT_GT(recheck.maxScatterDifferencePerRowWeightDifference, 1.0);
     EXPECT_TRUE(build_opensubdiv_regular_shape_functions_by_face(mesh).empty());
 }
 
