@@ -1993,6 +1993,9 @@ TEST(OpenSubdivRegularProductionRoutingGuard,
     EXPECT_GT(recheck.maxScatterDifferencePerRowWeightDifference, 1.0);
     EXPECT_TRUE(recheck.routedResidualsExceedCurrentTolerance);
     EXPECT_TRUE(recheck.routedResidualToleranceReviewRequired);
+    EXPECT_NEAR(recheck.routedResidualCurrentAbsoluteTolerance,
+                5.0e-6,
+                1.0e-15);
     EXPECT_GT(recheck.maxFAreaDifferenceComponentScale, 0.0);
     EXPECT_GT(recheck.maxFVolumeDifferenceComponentScale, 0.0);
     EXPECT_GT(recheck.maxScatterDifferenceComponentScale, 0.0);
@@ -2016,6 +2019,25 @@ TEST(OpenSubdivRegularProductionRoutingGuard,
     EXPECT_NEAR(recheck.maxScatterDifference /
                     recheck.maxScatterDifferenceComponentScale,
                 recheck.maxScatterDifferenceRelativeToComponentScale,
+                1.0e-12);
+    const double requiredAbsoluteTolerance =
+        std::max(recheck.maxFAreaDifference,
+                 std::max(recheck.maxFVolumeDifference,
+                          recheck.maxScatterDifference));
+    const double requiredRelativeTolerance =
+        std::max(recheck.maxFAreaDifferenceRelativeToComponentScale,
+                 std::max(recheck.maxFVolumeDifferenceRelativeToComponentScale,
+                          recheck.maxScatterDifferenceRelativeToComponentScale));
+    EXPECT_NEAR(recheck.routedResidualRequiredAbsoluteTolerance,
+                requiredAbsoluteTolerance,
+                1.0e-12);
+    EXPECT_NEAR(recheck.routedResidualRequiredRelativeTolerance,
+                requiredRelativeTolerance,
+                1.0e-12);
+    EXPECT_GT(recheck.routedResidualRequiredToleranceMultiplier, 1.0);
+    EXPECT_NEAR(recheck.routedResidualRequiredToleranceMultiplier,
+                recheck.routedResidualRequiredAbsoluteTolerance /
+                    recheck.routedResidualCurrentAbsoluteTolerance,
                 1.0e-12);
     EXPECT_TRUE(build_opensubdiv_regular_shape_functions_by_face(mesh).empty());
 }

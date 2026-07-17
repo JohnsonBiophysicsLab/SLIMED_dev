@@ -74,7 +74,7 @@ REGULAR_READINESS_CRITERIA: tuple[dict[str, str], ...] = (
     },
     {
         "criterion": "actual fBend/fArea/fVolume comparison",
-        "current_status": "opt-in regular actual-force probe, C++ proof rows, production-helper dry run, guarded helper route test, and diagnostic production-call parity recheck exposing remaining fArea/fVolume deltas, source-id residual locations, row-error budget location, scale-normalized tolerance envelope, and exact full-observable direct-row override control",
+        "current_status": "opt-in regular actual-force probe, C++ proof rows, production-helper dry run, guarded helper route test, and diagnostic production-call parity recheck exposing remaining fArea/fVolume deltas, source-id residual locations, row-error budget location, scale-normalized tolerance envelope, required tolerance decision metrics, and exact full-observable direct-row override control",
         "remaining_gap": "keep route disabled until reviewers approve installing rows or a row-residual tolerance/precision policy",
     },
     {
@@ -573,6 +573,38 @@ ANCHORS: tuple[Anchor, ...] = (
     ),
     Anchor(
         "production diagnostic",
+        "current routed residual tolerance",
+        OPENSUBDIV_EVALUATOR_PATH,
+        "routedResidualCurrentAbsoluteTolerance",
+        "row residual diagnostic",
+        "The diagnostic records the current absolute residual tolerance used by the route gate.",
+    ),
+    Anchor(
+        "production diagnostic",
+        "required routed residual absolute tolerance",
+        OPENSUBDIV_EVALUATOR_PATH,
+        "routedResidualRequiredAbsoluteTolerance",
+        "row residual diagnostic",
+        "The diagnostic records the absolute tolerance required by the largest remaining routed residual.",
+    ),
+    Anchor(
+        "production diagnostic",
+        "required routed residual relative tolerance",
+        OPENSUBDIV_EVALUATOR_PATH,
+        "routedResidualRequiredRelativeTolerance",
+        "row residual diagnostic",
+        "The diagnostic records the scale-normalized tolerance required by the largest remaining routed residual.",
+    ),
+    Anchor(
+        "production diagnostic",
+        "required routed residual tolerance multiplier",
+        OPENSUBDIV_EVALUATOR_PATH,
+        "routedResidualRequiredToleranceMultiplier",
+        "row residual diagnostic",
+        "The diagnostic records how far the required absolute residual tolerance is above the current gate.",
+    ),
+    Anchor(
+        "production diagnostic",
         "signed area residual",
         OPENSUBDIV_EVALUATOR_PATH,
         "maxFAreaDifferenceSignedDelta",
@@ -724,6 +756,14 @@ ANCHORS: tuple[Anchor, ...] = (
         "The focused OpenSubdiv test asserts route activation still needs tolerance review.",
     ),
     Anchor(
+        "production test",
+        "required routed residual tolerance assertion",
+        SURFACE_TEST_PATH,
+        "routedResidualRequiredAbsoluteTolerance",
+        "row residual diagnostic",
+        "The focused OpenSubdiv test asserts the diagnostic exposes required tolerance decision metrics.",
+    ),
+    Anchor(
         "readiness map",
         "row-error budget wording",
         READINESS_DOC_PATH,
@@ -754,6 +794,14 @@ ANCHORS: tuple[Anchor, ...] = (
         "tolerance envelope",
         "row residual diagnostic",
         "The readiness map records the scale-normalized tolerance envelope for remaining residuals.",
+    ),
+    Anchor(
+        "readiness map",
+        "required tolerance decision metrics wording",
+        READINESS_DOC_PATH,
+        "required absolute and",
+        "row residual diagnostic",
+        "The readiness map records that route activation needs an explicit required-tolerance decision.",
     ),
     Anchor(
         "production implementation",
