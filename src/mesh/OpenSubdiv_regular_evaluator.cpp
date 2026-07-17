@@ -51,6 +51,7 @@ constexpr int kRegularControlPointCount = 12;
 constexpr int kDerivativeRowCount = 7;
 constexpr bool kOpenSubdivRegularProductionRouteEnabled = false;
 constexpr double kOpenSubdivRegularRowTolerance = 5.0e-6;
+constexpr double kOpenSubdivRegularResidualScaleFloor = 1.0e-12;
 
 struct RefinerDeleter
 {
@@ -369,6 +370,50 @@ void update_max_abs_scatter_difference_with_location(
                 recheck.maxScatterDifferenceDirectValue;
         }
     }
+}
+
+double residual_component_scale(const double directValue,
+                                const double routedValue)
+{
+    return std::max(kOpenSubdivRegularResidualScaleFloor,
+                    std::max(std::abs(directValue),
+                             std::abs(routedValue)));
+}
+
+double relative_residual_to_component_scale(const double residual,
+                                            const double directValue,
+                                            const double routedValue,
+                                            double &scale)
+{
+    scale = residual_component_scale(directValue, routedValue);
+    return residual / scale;
+}
+
+void populate_residual_tolerance_envelope(
+    OpenSubdivRegularProductionParityRecheck &recheck)
+{
+    recheck.maxFAreaDifferenceRelativeToComponentScale =
+        relative_residual_to_component_scale(
+            recheck.maxFAreaDifference,
+            recheck.maxFAreaDifferenceDirectValue,
+            recheck.maxFAreaDifferenceRoutedValue,
+            recheck.maxFAreaDifferenceComponentScale);
+    recheck.maxFVolumeDifferenceRelativeToComponentScale =
+        relative_residual_to_component_scale(
+            recheck.maxFVolumeDifference,
+            recheck.maxFVolumeDifferenceDirectValue,
+            recheck.maxFVolumeDifferenceRoutedValue,
+            recheck.maxFVolumeDifferenceComponentScale);
+    recheck.maxScatterDifferenceRelativeToComponentScale =
+        relative_residual_to_component_scale(
+            recheck.maxScatterDifference,
+            recheck.maxScatterDifferenceDirectValue,
+            recheck.maxScatterDifferenceRoutedValue,
+            recheck.maxScatterDifferenceComponentScale);
+    recheck.routedResidualsExceedCurrentTolerance =
+        recheck.maxFAreaDifference > kOpenSubdivRegularRowTolerance ||
+        recheck.maxFVolumeDifference > kOpenSubdivRegularRowTolerance ||
+        recheck.maxScatterDifference > kOpenSubdivRegularRowTolerance;
 }
 
 std::vector<Matrix> shape_functions_for_face(
@@ -889,6 +934,7 @@ diagnose_opensubdiv_regular_production_call_parity(Mesh &mesh)
             recheck.maxScatterDifference /
             recheck.maxRoutedRowWeightDifferenceVsSlimedRows;
     }
+    populate_residual_tolerance_envelope(recheck);
     allMatched = allMatched && recheck.generatedRoutedRows &&
                  recheck.comparedFaceCount > 0 &&
                  recheck.maxAreaDifference <= kOpenSubdivRegularRowTolerance &&
@@ -901,6 +947,9 @@ diagnose_opensubdiv_regular_production_call_parity(Mesh &mesh)
                  recheck.maxFVolumeDifference <= kOpenSubdivRegularRowTolerance &&
                  recheck.maxScatterDifference <= kOpenSubdivRegularRowTolerance;
     recheck.directVsRoutedMatch = allMatched;
+    recheck.routedResidualToleranceReviewRequired =
+        recheck.directRowsOverrideMatch && !recheck.directVsRoutedMatch &&
+        recheck.routedResidualsExceedCurrentTolerance;
     return recheck;
 }
 
