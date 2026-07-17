@@ -392,6 +392,8 @@ double relative_residual_to_component_scale(const double residual,
 void populate_residual_tolerance_envelope(
     OpenSubdivRegularProductionParityRecheck &recheck)
 {
+    recheck.routedResidualCurrentAbsoluteTolerance =
+        kOpenSubdivRegularRowTolerance;
     recheck.maxFAreaDifferenceRelativeToComponentScale =
         relative_residual_to_component_scale(
             recheck.maxFAreaDifference,
@@ -410,6 +412,17 @@ void populate_residual_tolerance_envelope(
             recheck.maxScatterDifferenceDirectValue,
             recheck.maxScatterDifferenceRoutedValue,
             recheck.maxScatterDifferenceComponentScale);
+    recheck.routedResidualRequiredAbsoluteTolerance =
+        std::max(recheck.maxFAreaDifference,
+                 std::max(recheck.maxFVolumeDifference,
+                          recheck.maxScatterDifference));
+    recheck.routedResidualRequiredRelativeTolerance =
+        std::max(recheck.maxFAreaDifferenceRelativeToComponentScale,
+                 std::max(recheck.maxFVolumeDifferenceRelativeToComponentScale,
+                          recheck.maxScatterDifferenceRelativeToComponentScale));
+    recheck.routedResidualRequiredToleranceMultiplier =
+        recheck.routedResidualRequiredAbsoluteTolerance /
+        recheck.routedResidualCurrentAbsoluteTolerance;
     recheck.routedResidualsExceedCurrentTolerance =
         recheck.maxFAreaDifference > kOpenSubdivRegularRowTolerance ||
         recheck.maxFVolumeDifference > kOpenSubdivRegularRowTolerance ||

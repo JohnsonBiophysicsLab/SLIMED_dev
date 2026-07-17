@@ -99,6 +99,10 @@ struct OpenSubdivRegularProductionParityRecheck
     double maxFAreaDifferencePerRowWeightDifference = 0.0;
     double maxFVolumeDifferencePerRowWeightDifference = 0.0;
     double maxScatterDifferencePerRowWeightDifference = 0.0;
+    double routedResidualCurrentAbsoluteTolerance = 0.0;
+    double routedResidualRequiredAbsoluteTolerance = 0.0;
+    double routedResidualRequiredRelativeTolerance = 0.0;
+    double routedResidualRequiredToleranceMultiplier = 0.0;
     bool routedResidualsExceedCurrentTolerance = false;
     bool routedResidualToleranceReviewRequired = false;
 };

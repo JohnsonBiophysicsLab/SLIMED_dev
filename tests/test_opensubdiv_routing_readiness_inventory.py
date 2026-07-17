@@ -59,6 +59,16 @@ class OpenSubdivRoutingReadinessInventoryTest(unittest.TestCase):
         self.assertFalse(missing)
         self.assertGreaterEqual(len(located), len(inventory.ANCHORS))
 
+    def test_residual_policy_anchors_cover_required_tolerance_metrics(self):
+        anchor_names = {anchor.name for anchor in inventory.ANCHORS}
+
+        self.assertIn("current routed residual tolerance", anchor_names)
+        self.assertIn("required routed residual absolute tolerance", anchor_names)
+        self.assertIn("required routed residual relative tolerance", anchor_names)
+        self.assertIn("required routed residual tolerance multiplier", anchor_names)
+        self.assertIn("required routed residual tolerance assertion", anchor_names)
+        self.assertIn("required tolerance decision metrics wording", anchor_names)
+
 
 if __name__ == "__main__":
     unittest.main()
