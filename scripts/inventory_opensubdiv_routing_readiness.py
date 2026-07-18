@@ -661,6 +661,22 @@ ANCHORS: tuple[Anchor, ...] = (
     ),
     Anchor(
         "production diagnostic",
+        "scatter residual force kind",
+        OPENSUBDIV_EVALUATOR_PATH,
+        "maxScatterDifferenceForceKind",
+        "scatter residual diagnostic",
+        "The diagnostic records whether the largest scatter residual is in fBend, fArea, or fVolume.",
+    ),
+    Anchor(
+        "production diagnostic",
+        "scatter residual axis",
+        OPENSUBDIV_EVALUATOR_PATH,
+        "maxScatterDifferenceAxis",
+        "scatter residual diagnostic",
+        "The diagnostic records the coordinate axis for the largest scatter residual.",
+    ),
+    Anchor(
+        "production diagnostic",
         "routed row weight residual budget",
         OPENSUBDIV_EVALUATOR_PATH,
         "maxRoutedRowWeightDifferenceVsSlimedRows",
