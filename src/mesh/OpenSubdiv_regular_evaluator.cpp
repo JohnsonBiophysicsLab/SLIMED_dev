@@ -363,6 +363,24 @@ void update_max_abs_scatter_difference_with_location(
                 static_cast<int>(index / kForceComponentsPerVertex);
             recheck.maxScatterDifferenceComponent =
                 static_cast<int>(index % kForceComponentsPerVertex);
+            if (recheck.maxScatterDifferenceComponent < 3)
+            {
+                recheck.maxScatterDifferenceForceKind = "fBend";
+                recheck.maxScatterDifferenceAxis =
+                    recheck.maxScatterDifferenceComponent;
+            }
+            else if (recheck.maxScatterDifferenceComponent < 6)
+            {
+                recheck.maxScatterDifferenceForceKind = "fArea";
+                recheck.maxScatterDifferenceAxis =
+                    recheck.maxScatterDifferenceComponent - 3;
+            }
+            else
+            {
+                recheck.maxScatterDifferenceForceKind = "fVolume";
+                recheck.maxScatterDifferenceAxis =
+                    recheck.maxScatterDifferenceComponent - 6;
+            }
             recheck.maxScatterDifferenceDirectValue = lhs[index];
             recheck.maxScatterDifferenceRoutedValue = rhs[index];
             recheck.maxScatterDifferenceSignedDelta =

@@ -1976,6 +1976,23 @@ TEST(OpenSubdivRegularProductionRoutingGuard,
     EXPECT_GE(recheck.maxScatterDifferenceVertexIndex, 0);
     EXPECT_GE(recheck.maxScatterDifferenceComponent, 0);
     EXPECT_LT(recheck.maxScatterDifferenceComponent, 9);
+    std::string expectedScatterForceKind = "fBend";
+    int expectedScatterAxis = recheck.maxScatterDifferenceComponent;
+    if (recheck.maxScatterDifferenceComponent >= 6)
+    {
+        expectedScatterForceKind = "fVolume";
+        expectedScatterAxis = recheck.maxScatterDifferenceComponent - 6;
+    }
+    else if (recheck.maxScatterDifferenceComponent >= 3)
+    {
+        expectedScatterForceKind = "fArea";
+        expectedScatterAxis = recheck.maxScatterDifferenceComponent - 3;
+    }
+    EXPECT_EQ(recheck.maxScatterDifferenceForceKind,
+              expectedScatterForceKind);
+    EXPECT_EQ(recheck.maxScatterDifferenceAxis, expectedScatterAxis);
+    EXPECT_GE(recheck.maxScatterDifferenceAxis, 0);
+    EXPECT_LT(recheck.maxScatterDifferenceAxis, 3);
     EXPECT_TRUE(std::isfinite(recheck.maxScatterDifferenceDirectValue));
     EXPECT_TRUE(std::isfinite(recheck.maxScatterDifferenceRoutedValue));
     EXPECT_TRUE(std::isfinite(recheck.maxScatterDifferenceSignedDelta));

@@ -72,6 +72,8 @@ class OpenSubdivRoutingReadinessInventoryTest(unittest.TestCase):
         self.assertIn("required routed residual tolerance source assertion", anchor_names)
         self.assertIn("required tolerance decision metrics wording", anchor_names)
         self.assertIn("required tolerance source wording", anchor_names)
+        self.assertIn("scatter residual force kind", anchor_names)
+        self.assertIn("scatter residual axis", anchor_names)
 
 
 if __name__ == "__main__":

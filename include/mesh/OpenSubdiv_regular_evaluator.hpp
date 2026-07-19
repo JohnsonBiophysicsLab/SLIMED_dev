@@ -88,6 +88,8 @@ struct OpenSubdivRegularProductionParityRecheck
     double maxScatterDifference = 0.0;
     int maxScatterDifferenceVertexIndex = -1;
     int maxScatterDifferenceComponent = -1;
+    std::string maxScatterDifferenceForceKind = "none";
+    int maxScatterDifferenceAxis = -1;
     double maxScatterDifferenceDirectValue = 0.0;
     double maxScatterDifferenceRoutedValue = 0.0;
     double maxScatterDifferenceSignedDelta = 0.0;
