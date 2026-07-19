@@ -110,6 +110,8 @@ struct OpenSubdivRegularProductionParityRecheck
     double routedResidualRequiredToleranceSourceRelative = 0.0;
     bool routedResidualsExceedCurrentTolerance = false;
     bool routedResidualToleranceReviewRequired = false;
+    std::string routedResidualReadinessDecision = "not_evaluated";
+    std::string routedResidualActivationBlocker = "none";
 };
 
 /**

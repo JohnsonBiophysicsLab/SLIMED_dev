@@ -2078,6 +2078,10 @@ TEST(OpenSubdivRegularProductionRoutingGuard,
     EXPECT_NEAR(recheck.routedResidualRequiredToleranceSourceRelative,
                 requiredToleranceSourceRelative,
                 1.0e-12);
+    EXPECT_EQ(recheck.routedResidualReadinessDecision,
+              "blocked_by_routed_residual_tolerance");
+    EXPECT_EQ(recheck.routedResidualActivationBlocker,
+              requiredToleranceSource);
     EXPECT_TRUE(build_opensubdiv_regular_shape_functions_by_face(mesh).empty());
 }
 
