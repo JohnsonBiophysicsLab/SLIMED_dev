@@ -466,6 +466,42 @@ void populate_residual_tolerance_envelope(
         recheck.maxScatterDifference > kOpenSubdivRegularRowTolerance;
 }
 
+void populate_residual_readiness_decision(
+    OpenSubdivRegularProductionParityRecheck &recheck)
+{
+    if (!recheck.generatedRoutedRows || recheck.comparedFaceCount == 0)
+    {
+        recheck.routedResidualReadinessDecision = "unavailable";
+        recheck.routedResidualActivationBlocker = "no_routed_rows";
+        return;
+    }
+    if (!recheck.directRowsOverrideMatch)
+    {
+        recheck.routedResidualReadinessDecision =
+            "blocked_by_direct_row_override";
+        recheck.routedResidualActivationBlocker = "direct_row_override";
+        return;
+    }
+    if (recheck.routedResidualsExceedCurrentTolerance)
+    {
+        recheck.routedResidualReadinessDecision =
+            "blocked_by_routed_residual_tolerance";
+        recheck.routedResidualActivationBlocker =
+            recheck.routedResidualRequiredToleranceSource;
+        return;
+    }
+    if (recheck.directVsRoutedMatch)
+    {
+        recheck.routedResidualReadinessDecision =
+            "candidate_needs_serial_openmp_and_reviewer_approval";
+        recheck.routedResidualActivationBlocker = "none";
+        return;
+    }
+    recheck.routedResidualReadinessDecision =
+        "blocked_by_unclassified_parity_gap";
+    recheck.routedResidualActivationBlocker = "unclassified_parity_gap";
+}
+
 std::vector<Matrix> shape_functions_for_face(
     const Mesh &mesh,
     const Face &face,
@@ -1000,6 +1036,7 @@ diagnose_opensubdiv_regular_production_call_parity(Mesh &mesh)
     recheck.routedResidualToleranceReviewRequired =
         recheck.directRowsOverrideMatch && !recheck.directVsRoutedMatch &&
         recheck.routedResidualsExceedCurrentTolerance;
+    populate_residual_readiness_decision(recheck);
     return recheck;
 }
 
