@@ -1643,13 +1643,16 @@ int run_proof()
         productionRoutePolicy.generatedRoutedRows &&
         productionRoutePolicy.comparedFaceCount > 0 &&
         productionRoutePolicy.directRowsOverrideMatch &&
-        !productionRoutePolicy.directVsRoutedMatch &&
-        productionRoutePolicy.routedResidualsExceedCurrentTolerance &&
-        productionRoutePolicy.routedResidualToleranceReviewRequired &&
-        !productionRoutePolicy.routedResidualCurrentPolicySatisfied &&
-        !productionRoutePolicy.routedResidualActivationAllowedByCurrentPolicy &&
+        productionRoutePolicy.directVsRoutedMatch &&
+        !productionRoutePolicy.routedResidualsExceedCurrentTolerance &&
+        !productionRoutePolicy.routedResidualToleranceReviewRequired &&
+        productionRoutePolicy.routedResidualCurrentPolicySatisfied &&
+        productionRoutePolicy.routedResidualActivationAllowedByCurrentPolicy &&
+        productionRoutePolicy.routedResidualReadinessDecision ==
+            "candidate_needs_serial_openmp_and_reviewer_approval" &&
+        productionRoutePolicy.routedResidualActivationBlocker == "none" &&
         productionRoutePolicy.routedResidualActivationPolicyDecision ==
-            "blocked_pending_residual_tolerance_policy";
+            "current_policy_satisfied_pending_serial_openmp_and_reviewer_approval";
     const bool doubleLimitStencilDiagnosticPassed =
         doubleLimitStencil.stencilTableCreated &&
         doubleLimitStencil.stencilSourcesMatchFaceOneRing &&

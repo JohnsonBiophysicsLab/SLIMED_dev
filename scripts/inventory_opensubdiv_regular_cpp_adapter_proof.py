@@ -89,7 +89,7 @@ CPP_PROOF_INVARIANTS: tuple[dict[str, str], ...] = (
     {"invariant": "serial OpenMP pass flag", "needle": '\\"matches_serial_openmp_accumulation_shape\\":'},
     {"invariant": "production route policy diagnostic", "needle": '\\"production_route_policy_diagnostic\\":{'},
     {"invariant": "production route diagnostic API", "needle": "diagnose_opensubdiv_regular_production_call_parity"},
-    {"invariant": "production route policy blocked state", "needle": "blocked_pending_residual_tolerance_policy"},
+    {"invariant": "production route policy candidate state", "needle": "current_policy_satisfied_pending_serial_openmp_and_reviewer_approval"},
     {"invariant": "production route current tolerance", "needle": '\\"routed_residual_current_absolute_tolerance\\":'},
     {"invariant": "production route required tolerance source", "needle": '\\"routed_residual_required_tolerance_source\\":'},
     {"invariant": "production route activation decision", "needle": '\\"routed_residual_activation_policy_decision\\":'},
@@ -308,10 +308,10 @@ ANCHORS: tuple[Anchor, ...] = (
     ),
     Anchor(
         "c++ proof",
-        "production route policy blocked decision",
+        "production route policy candidate decision",
         CPP_PROOF_PATH,
-        "blocked_pending_residual_tolerance_policy",
-        "The policy report preserves the current blocked activation decision.",
+        "current_policy_satisfied_pending_serial_openmp_and_reviewer_approval",
+        "The policy report preserves the reviewed parity candidate decision without activating routing.",
     ),
     Anchor(
         "c++ proof",

@@ -171,10 +171,11 @@ The emitted JSON states `not_production_routing:true`,
 `production_route_enabled:false`, `route_installed_in_production:false`, the
 direct-row override result, the direct-vs-routed result, exact routed residual
 absolute and relative tolerance metrics, the required-tolerance source, and the
-current activation policy decision. The expected current decision is
-`blocked_pending_residual_tolerance_policy`: the diagnostic is evidence for a
-reviewed residual precision/tolerance decision, not acceptance of that policy
-and not approval to install OpenSubdiv-derived rows in production.
+current activation policy decision. With the guarded evaluator using the
+double limit-stencil factory, the expected current decision is
+`current_policy_satisfied_pending_serial_openmp_and_reviewer_approval`.
+This is still diagnostic evidence, not approval to install OpenSubdiv-derived
+rows in production.
 
 ## Double Limit-Stencil Feasibility
 
@@ -194,9 +195,10 @@ order, and duplicated mixed rows. This identifies float row generation as a
 small, correctable implementation source for the residual amplification. It
 does not approve a tolerance increase.
 
-The double factory remains proof-only in this lane. No production evaluator,
-route gate, default dependency behavior, force formula, scatter order, OpenMP
-reduction, checkpoint/output, or propagation behavior consumes these rows.
+The guarded evaluator now uses the same double factory for its disabled routed
+row candidate and row diagnostics. The production route gate remains disabled,
+and default dependency behavior, force formulas, scatter order, OpenMP
+reductions, checkpoint/output, and propagation behavior are unchanged.
 
 ## Proof Boundary
 
@@ -241,8 +243,8 @@ The report records all of the following as machine-readable JSON:
 - proof-local serial/OpenMP-style accumulation parity for the current
   `nVertices*9` force-buffer scatter/reduction shape; and
 - an opt-in production route policy diagnostic that emits exact current
-  routed-residual tolerance metrics and the blocked activation-policy decision
-  without installing the route; and
+  routed-residual tolerance metrics and the current-policy-satisfied candidate
+  decision without installing the route; and
 - a proof-only float-versus-double OpenSubdiv limit-stencil comparison showing
   that double rows match the frozen SLIMED rows at strict precision without
   changing the current route or tolerance policy.
@@ -253,11 +255,10 @@ production route to consume OpenSubdiv-derived rows.
 
 ## Remaining Gate
 
-Before production routing can change, a later reviewed PR must apply the
-double-precision limit-stencil factory to the guarded regular evaluator and
-rerun the full real-call parity package. Activation remains blocked unless that
-recheck proves `fArea`, `fVolume`, and `Face::oneRingVertices` scatter under the
-current tolerance, including output-visible state and serial/OpenMP executable
-comparisons. A tolerance-policy change is not part of this proof and would
-remain a separate scientific decision if the double-row correction did not
-close every residual. This proof is prerequisite evidence only.
+Before production routing can change, a later reviewed PR must complete the
+remaining serial/OpenMP executable comparison for the guarded double-row
+candidate and confirm output-visible state remains unchanged. The regular
+real-call recheck now proves `fArea`, `fVolume`, and
+`Face::oneRingVertices` scatter under the current tolerance. A separate,
+explicitly reviewed activation PR is still required; this correction does not
+change the route gate.
