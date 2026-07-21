@@ -74,8 +74,8 @@ REGULAR_READINESS_CRITERIA: tuple[dict[str, str], ...] = (
     },
     {
         "criterion": "actual fBend/fArea/fVolume comparison",
-        "current_status": "opt-in regular actual-force probe, C++ proof rows, production-helper dry run, guarded helper route test, and diagnostic production-call parity recheck/report exposing remaining fArea/fVolume deltas, source-id residual locations, row-error budget location, scale-normalized tolerance envelope, required tolerance decision metrics, current-policy activation gate, and exact full-observable direct-row override control",
-        "remaining_gap": "keep route disabled until reviewers approve installing rows or a row-residual tolerance/precision policy",
+        "current_status": "guarded double-row production-call parity passes fBend/fArea/fVolume and scatter under the current tolerance while route installation remains disabled",
+        "remaining_gap": "complete serial/OpenMP executable parity and explicit reviewer/user activation approval",
     },
     {
         "criterion": "energy/normal/area/volume comparison",
@@ -84,8 +84,8 @@ REGULAR_READINESS_CRITERIA: tuple[dict[str, str], ...] = (
     },
     {
         "criterion": "scatter through Face::oneRingVertices",
-        "current_status": "regular scatter order test, C++ proof harness, and diagnostic production-call parity recheck cover order, prove exact direct-row override scatter, and expose remaining OpenSubdiv-row scatter deltas",
-        "remaining_gap": "resolve or review-waive OpenSubdiv-row residual amplification before activation",
+        "current_status": "regular scatter order test, C++ proof harness, and guarded double-row parity recheck pass under the current tolerance",
+        "remaining_gap": "preserve the passing assertion through serial/OpenMP executable and activation review",
     },
     {
         "criterion": "serial/OpenMP tolerance envelope",
@@ -105,7 +105,7 @@ REGULAR_READINESS_CRITERIA: tuple[dict[str, str], ...] = (
     {
         "criterion": "reviewer/user gate",
         "current_status": "regular seam reviewer/user gate installed; routed rows disabled",
-        "remaining_gap": "fix direct-vs-routed semantics before installing rows",
+        "remaining_gap": "complete executable parity and approve a separate activation PR",
     },
 )
 
@@ -114,8 +114,8 @@ ROUTE_READINESS_MATRIX: tuple[dict[str, str], ...] = (
     {
         "route": "regular 12-control membrane force",
         "current_production_status": "supported by in-tree evaluator; guarded OpenSubdiv seam falls back to direct route",
-        "opensubdiv_evidence_status": "PR #82 proof evidence, PR #85 row diagnostics, diagnostic parity recheck, and guarded fallback smoke",
-        "readiness_result": "OpenSubdiv-derived rows are not production-routed until direct-vs-routed semantics match",
+        "opensubdiv_evidence_status": "PR #82 proof evidence plus double-row guarded parity passing the current tolerance; route remains disabled",
+        "readiness_result": "not production-routed; complete serial/OpenMP executable parity and explicit activation review",
     },
     {
         "route": "positive-depth 11 = 4+3+4 membrane force",
@@ -175,9 +175,9 @@ ANCHORS: tuple[Anchor, ...] = (
         "readiness map",
         "guarded regular route disabled",
         READINESS_DOC_PATH,
-        "No OpenSubdiv-derived rows are production-routed yet",
+        "routed rows remain disabled",
         "guarded route",
-        "The regular route remains disabled until direct-vs-routed semantics match.",
+        "The regular route remains disabled pending executable parity and explicit approval.",
     ),
     Anchor(
         "readiness map",
@@ -463,9 +463,9 @@ ANCHORS: tuple[Anchor, ...] = (
         "production test",
         "regular production-call parity recheck",
         SURFACE_TEST_PATH,
-        "OptInProductionCallParityRecheckReportsRemainingForceDeltaAndKeepsRouteDisabled",
+        "OptInProductionCallParityRecheckPassesCurrentToleranceAndKeepsRouteDisabled",
         "diagnostic test",
-        "The OpenSubdiv-enabled focused test records the remaining force/scatter delta without route activation.",
+        "The OpenSubdiv-enabled focused test proves force/scatter parity without route activation.",
     ),
     Anchor(
         "production diagnostic",
@@ -825,7 +825,7 @@ ANCHORS: tuple[Anchor, ...] = (
         SURFACE_TEST_PATH,
         "routedResidualToleranceReviewRequired",
         "row residual diagnostic",
-        "The focused OpenSubdiv test asserts route activation still needs tolerance review.",
+        "The focused OpenSubdiv test asserts the double-row residual no longer needs tolerance review.",
     ),
     Anchor(
         "production test",
@@ -833,7 +833,7 @@ ANCHORS: tuple[Anchor, ...] = (
         SURFACE_TEST_PATH,
         "routedResidualReadinessDecision",
         "row residual diagnostic",
-        "The focused OpenSubdiv test asserts the route remains blocked by residual tolerance.",
+        "The focused OpenSubdiv test asserts the candidate is ready for executable and reviewer gates.",
     ),
     Anchor(
         "production test",
@@ -841,7 +841,7 @@ ANCHORS: tuple[Anchor, ...] = (
         SURFACE_TEST_PATH,
         "routedResidualActivationBlocker",
         "row residual diagnostic",
-        "The focused OpenSubdiv test asserts the residual source blocking activation.",
+        "The focused OpenSubdiv test asserts no residual source blocks activation review.",
     ),
     Anchor(
         "production test",
@@ -849,7 +849,7 @@ ANCHORS: tuple[Anchor, ...] = (
         SURFACE_TEST_PATH,
         "routedResidualCurrentPolicySatisfied",
         "row residual diagnostic",
-        "The focused OpenSubdiv test asserts the current route tolerance policy is not satisfied.",
+        "The focused OpenSubdiv test asserts the current route tolerance policy is satisfied.",
     ),
     Anchor(
         "production test",
@@ -857,15 +857,15 @@ ANCHORS: tuple[Anchor, ...] = (
         SURFACE_TEST_PATH,
         "routedResidualActivationAllowedByCurrentPolicy",
         "row residual diagnostic",
-        "The focused OpenSubdiv test asserts activation is not allowed by the current route tolerance policy.",
+        "The focused OpenSubdiv test asserts the current policy allows activation review.",
     ),
     Anchor(
         "production test",
         "routed residual activation policy decision assertion",
         SURFACE_TEST_PATH,
-        "blocked_pending_residual_tolerance_policy",
+        "current_policy_satisfied_pending_serial_openmp_and_reviewer_approval",
         "row residual diagnostic",
-        "The focused OpenSubdiv test asserts activation remains blocked pending residual tolerance policy review.",
+        "The focused OpenSubdiv test asserts the candidate still needs executable and reviewer approval.",
     ),
     Anchor(
         "production test",
@@ -901,11 +901,11 @@ ANCHORS: tuple[Anchor, ...] = (
     ),
     Anchor(
         "readiness map",
-        "residual amplification wording",
+        "double-row parity wording",
         READINESS_DOC_PATH,
-        "residual amplification",
+        "double-row recheck passes scatter parity",
         "row residual diagnostic",
-        "The readiness map records that remaining OpenSubdiv-row residuals need tolerance or precision review.",
+        "The readiness map records that the double-row correction closes the scatter tolerance gap.",
     ),
     Anchor(
         "readiness map",

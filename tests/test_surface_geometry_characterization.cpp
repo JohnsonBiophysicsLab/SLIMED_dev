@@ -1781,7 +1781,7 @@ TEST(OpenSubdivRegularProductionRoutingGuard,
 }
 #else
 TEST(OpenSubdivRegularProductionRoutingGuard,
-     OptInBuildKeepsUnprovenRegularRowsUnavailable)
+     OptInBuildKeepsReviewedParityCandidateUnavailable)
 {
     ScopedEnvVar env("SLIMED_USE_OPENSUBDIV_REGULAR", "1");
 
@@ -1852,7 +1852,7 @@ TEST(OpenSubdivRegularProductionRoutingGuard,
 }
 
 TEST(OpenSubdivRegularProductionRoutingGuard,
-     OptInProductionCallParityRecheckReportsRemainingForceDeltaAndKeepsRouteDisabled)
+     OptInProductionCallParityRecheckPassesCurrentToleranceAndKeepsRouteDisabled)
 {
     ScopedEnvVar env("SLIMED_USE_OPENSUBDIV_REGULAR", "1");
 
@@ -1890,7 +1890,7 @@ TEST(OpenSubdivRegularProductionRoutingGuard,
     EXPECT_FALSE(recheck.routeInstalledInProduction);
     EXPECT_TRUE(recheck.generatedRoutedRows);
     EXPECT_TRUE(recheck.directRowsOverrideMatch);
-    EXPECT_FALSE(recheck.directVsRoutedMatch);
+    EXPECT_TRUE(recheck.directVsRoutedMatch);
     EXPECT_GT(recheck.comparedFaceCount, 0);
     EXPECT_EQ(recheck.comparedSampleCount,
               recheck.comparedFaceCount *
@@ -1904,8 +1904,7 @@ TEST(OpenSubdivRegularProductionRoutingGuard,
     EXPECT_LE(recheck.maxDirectRowsOverrideFAreaDifference, 1.0e-12);
     EXPECT_LE(recheck.maxDirectRowsOverrideFVolumeDifference, 1.0e-12);
     EXPECT_LE(recheck.maxDirectRowsOverrideScatterDifference, 1.0e-12);
-    EXPECT_GT(recheck.maxRoutedRowWeightDifferenceVsSlimedRows, 0.0);
-    EXPECT_LE(recheck.maxRoutedRowWeightDifferenceVsSlimedRows, 5.0e-6);
+    EXPECT_LE(recheck.maxRoutedRowWeightDifferenceVsSlimedRows, 1.0e-12);
     EXPECT_GE(recheck.maxRoutedRowWeightDifferenceFaceIndex, 0);
     EXPECT_GE(recheck.maxRoutedRowWeightDifferenceSampleIndex, 0);
     EXPECT_LT(recheck.maxRoutedRowWeightDifferenceSampleIndex,
@@ -1936,7 +1935,7 @@ TEST(OpenSubdivRegularProductionRoutingGuard,
     EXPECT_LE(recheck.maxBendingEnergyDifference, 5.0e-6);
     EXPECT_LE(recheck.maxNormalDifference, 5.0e-6);
     EXPECT_LE(recheck.maxFBendDifference, 5.0e-6);
-    EXPECT_GT(recheck.maxFAreaDifference, 5.0e-6);
+    EXPECT_LE(recheck.maxFAreaDifference, 1.0e-9);
     EXPECT_GE(recheck.maxFAreaDifferenceFaceIndex, 0);
     EXPECT_GE(recheck.maxFAreaDifferenceLocalRow, 0);
     EXPECT_LT(recheck.maxFAreaDifferenceLocalRow, 12);
@@ -1954,7 +1953,7 @@ TEST(OpenSubdivRegularProductionRoutingGuard,
     EXPECT_NEAR(std::abs(recheck.maxFAreaDifferenceSignedDelta),
                 recheck.maxFAreaDifference,
                 1.0e-12);
-    EXPECT_GT(recheck.maxFVolumeDifference, 5.0e-6);
+    EXPECT_LE(recheck.maxFVolumeDifference, 1.0e-9);
     EXPECT_GE(recheck.maxFVolumeDifferenceFaceIndex, 0);
     EXPECT_GE(recheck.maxFVolumeDifferenceLocalRow, 0);
     EXPECT_LT(recheck.maxFVolumeDifferenceLocalRow, 12);
@@ -1972,7 +1971,7 @@ TEST(OpenSubdivRegularProductionRoutingGuard,
     EXPECT_NEAR(std::abs(recheck.maxFVolumeDifferenceSignedDelta),
                 recheck.maxFVolumeDifference,
                 1.0e-12);
-    EXPECT_GT(recheck.maxScatterDifference, 5.0e-6);
+    EXPECT_LE(recheck.maxScatterDifference, 1.0e-9);
     EXPECT_GE(recheck.maxScatterDifferenceVertexIndex, 0);
     EXPECT_GE(recheck.maxScatterDifferenceComponent, 0);
     EXPECT_LT(recheck.maxScatterDifferenceComponent, 9);
@@ -2005,11 +2004,11 @@ TEST(OpenSubdivRegularProductionRoutingGuard,
         recheck.maxFVolumeDifferencePerRowWeightDifference));
     EXPECT_TRUE(std::isfinite(
         recheck.maxScatterDifferencePerRowWeightDifference));
-    EXPECT_GT(recheck.maxFAreaDifferencePerRowWeightDifference, 1.0);
-    EXPECT_GT(recheck.maxFVolumeDifferencePerRowWeightDifference, 1.0);
-    EXPECT_GT(recheck.maxScatterDifferencePerRowWeightDifference, 1.0);
-    EXPECT_TRUE(recheck.routedResidualsExceedCurrentTolerance);
-    EXPECT_TRUE(recheck.routedResidualToleranceReviewRequired);
+    EXPECT_GE(recheck.maxFAreaDifferencePerRowWeightDifference, 0.0);
+    EXPECT_GE(recheck.maxFVolumeDifferencePerRowWeightDifference, 0.0);
+    EXPECT_GE(recheck.maxScatterDifferencePerRowWeightDifference, 0.0);
+    EXPECT_FALSE(recheck.routedResidualsExceedCurrentTolerance);
+    EXPECT_FALSE(recheck.routedResidualToleranceReviewRequired);
     EXPECT_NEAR(recheck.routedResidualCurrentAbsoluteTolerance,
                 5.0e-6,
                 1.0e-15);
@@ -2022,9 +2021,9 @@ TEST(OpenSubdivRegularProductionRoutingGuard,
         recheck.maxFVolumeDifferenceRelativeToComponentScale));
     EXPECT_TRUE(std::isfinite(
         recheck.maxScatterDifferenceRelativeToComponentScale));
-    EXPECT_GT(recheck.maxFAreaDifferenceRelativeToComponentScale, 0.0);
-    EXPECT_GT(recheck.maxFVolumeDifferenceRelativeToComponentScale, 0.0);
-    EXPECT_GT(recheck.maxScatterDifferenceRelativeToComponentScale, 0.0);
+    EXPECT_GE(recheck.maxFAreaDifferenceRelativeToComponentScale, 0.0);
+    EXPECT_GE(recheck.maxFVolumeDifferenceRelativeToComponentScale, 0.0);
+    EXPECT_GE(recheck.maxScatterDifferenceRelativeToComponentScale, 0.0);
     EXPECT_NEAR(recheck.maxFAreaDifference /
                     recheck.maxFAreaDifferenceComponentScale,
                 recheck.maxFAreaDifferenceRelativeToComponentScale,
@@ -2068,7 +2067,7 @@ TEST(OpenSubdivRegularProductionRoutingGuard,
     EXPECT_NEAR(recheck.routedResidualRequiredRelativeTolerance,
                 requiredRelativeTolerance,
                 1.0e-12);
-    EXPECT_GT(recheck.routedResidualRequiredToleranceMultiplier, 1.0);
+    EXPECT_LE(recheck.routedResidualRequiredToleranceMultiplier, 1.0);
     EXPECT_NEAR(recheck.routedResidualRequiredToleranceMultiplier,
                 recheck.routedResidualRequiredAbsoluteTolerance /
                     recheck.routedResidualCurrentAbsoluteTolerance,
@@ -2079,13 +2078,13 @@ TEST(OpenSubdivRegularProductionRoutingGuard,
                 requiredToleranceSourceRelative,
                 1.0e-12);
     EXPECT_EQ(recheck.routedResidualReadinessDecision,
-              "blocked_by_routed_residual_tolerance");
+              "candidate_needs_serial_openmp_and_reviewer_approval");
     EXPECT_EQ(recheck.routedResidualActivationBlocker,
-              requiredToleranceSource);
-    EXPECT_FALSE(recheck.routedResidualCurrentPolicySatisfied);
-    EXPECT_FALSE(recheck.routedResidualActivationAllowedByCurrentPolicy);
+              "none");
+    EXPECT_TRUE(recheck.routedResidualCurrentPolicySatisfied);
+    EXPECT_TRUE(recheck.routedResidualActivationAllowedByCurrentPolicy);
     EXPECT_EQ(recheck.routedResidualActivationPolicyDecision,
-              "blocked_pending_residual_tolerance_policy");
+              "current_policy_satisfied_pending_serial_openmp_and_reviewer_approval");
     EXPECT_TRUE(build_opensubdiv_regular_shape_functions_by_face(mesh).empty());
 }
 

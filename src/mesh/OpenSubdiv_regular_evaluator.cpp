@@ -107,8 +107,9 @@ create_refiner_for_mesh(const Mesh &mesh)
                 Sdc::SCHEME_LOOP, options)));
 }
 
-double stencil_weight_for_source(const Far::LimitStencil &stencil,
-                                 const float *weights,
+template <typename Real>
+double stencil_weight_for_source(const Far::LimitStencilReal<Real> &stencil,
+                                 const Real *weights,
                                  const int sourceId)
 {
     double result = 0.0;
@@ -123,10 +124,11 @@ double stencil_weight_for_source(const Far::LimitStencil &stencil,
     return result;
 }
 
-Matrix shape_function_from_stencil(const Far::LimitStencil &stencil,
+template <typename Real>
+Matrix shape_function_from_stencil(const Far::LimitStencilReal<Real> &stencil,
                                    const std::vector<int> &sourceIds)
 {
-    const std::array<const float *, kDerivativeRowCount> rowWeights = {
+    const std::array<const Real *, kDerivativeRowCount> rowWeights = {
         stencil.GetWeights(),
         stencil.GetDuWeights(),
         stencil.GetDvWeights(),
@@ -151,7 +153,8 @@ Matrix shape_function_from_stencil(const Far::LimitStencil &stencil,
     return shapeFunction;
 }
 
-std::set<int> stencil_source_set(const Far::LimitStencil &stencil)
+template <typename Real>
+std::set<int> stencil_source_set(const Far::LimitStencilReal<Real> &stencil)
 {
     std::set<int> sources;
     const Far::Index *indices = stencil.GetVertexIndices();
@@ -162,8 +165,10 @@ std::set<int> stencil_source_set(const Far::LimitStencil &stencil)
     return sources;
 }
 
-bool stencil_sources_match_face_one_ring(const Far::LimitStencil &stencil,
-                                         const std::vector<int> &sourceIds)
+template <typename Real>
+bool stencil_sources_match_face_one_ring(
+    const Far::LimitStencilReal<Real> &stencil,
+    const std::vector<int> &sourceIds)
 {
     return stencil_source_set(stencil) ==
            std::set<int>(sourceIds.begin(), sourceIds.end());
@@ -562,42 +567,39 @@ std::vector<Matrix> shape_functions_for_face(
             "OpenSubdiv regular routing requires the frozen three-sample regular quadrature plan.");
     }
 
-    std::vector<float> s(mesh.param.shapeFunctions.size(), 0.0f);
-    std::vector<float> t(mesh.param.shapeFunctions.size(), 0.0f);
+    std::vector<double> s(mesh.param.shapeFunctions.size(), 0.0);
+    std::vector<double> t(mesh.param.shapeFunctions.size(), 0.0);
 
     for (int sample = 0; sample < static_cast<int>(mesh.param.shapeFunctions.size());
          ++sample)
     {
         Matrix vwu = mesh.param.VWU.get_row(sample);
-        s[sample] = static_cast<float>(vwu.get(0, 0));
-        t[sample] = static_cast<float>(vwu.get(0, 1));
+        s[sample] = vwu.get(0, 0);
+        t[sample] = vwu.get(0, 1);
     }
 
-    Far::LimitStencilTableFactory::LocationArray location;
+    using DoubleFactory = Far::LimitStencilTableFactoryReal<double>;
+    DoubleFactory::LocationArray location;
     location.ptexIdx = face.index;
     location.numLocations = static_cast<int>(mesh.param.shapeFunctions.size());
     location.s = s.data();
     location.t = t.data();
 
-    Far::LimitStencilTableFactory::LocationArrayVec locations;
+    DoubleFactory::LocationArrayVec locations;
     locations.push_back(location);
 
-    Far::LimitStencilTableFactory::Options stencilOptions;
+    DoubleFactory::Options stencilOptions;
     stencilOptions.generate1stDerivatives = true;
     stencilOptions.generate2ndDerivatives = true;
 
-    const Far::LimitStencilTable *rawStencils =
-        Far::LimitStencilTableFactory::Create(refiner,
-                                              locations,
-                                              0,
-                                              0,
-                                              stencilOptions);
+    const Far::LimitStencilTableReal<double> *rawStencils =
+        DoubleFactory::Create(refiner, locations, 0, 0, stencilOptions);
     if (rawStencils == nullptr)
     {
         throw std::runtime_error(
             "OpenSubdiv regular routing failed to create limit stencils.");
     }
-    std::unique_ptr<const Far::LimitStencilTable> stencils(rawStencils);
+    std::unique_ptr<const Far::LimitStencilTableReal<double>> stencils(rawStencils);
 
     std::vector<Matrix> shapeFunctions;
     shapeFunctions.reserve(mesh.param.shapeFunctions.size());
@@ -631,47 +633,45 @@ void append_row_diagnostics_for_face(
             "three-sample regular quadrature plan.");
     }
 
-    std::vector<float> s(mesh.param.shapeFunctions.size(), 0.0f);
-    std::vector<float> t(mesh.param.shapeFunctions.size(), 0.0f);
+    std::vector<double> s(mesh.param.shapeFunctions.size(), 0.0);
+    std::vector<double> t(mesh.param.shapeFunctions.size(), 0.0);
     for (int sample = 0; sample < static_cast<int>(mesh.param.shapeFunctions.size());
          ++sample)
     {
         Matrix vwu = mesh.param.VWU.get_row(sample);
-        s[sample] = static_cast<float>(vwu.get(0, 0));
-        t[sample] = static_cast<float>(vwu.get(0, 1));
+        s[sample] = vwu.get(0, 0);
+        t[sample] = vwu.get(0, 1);
     }
 
-    Far::LimitStencilTableFactory::LocationArray location;
+    using DoubleFactory = Far::LimitStencilTableFactoryReal<double>;
+    DoubleFactory::LocationArray location;
     location.ptexIdx = face.index;
     location.numLocations = static_cast<int>(mesh.param.shapeFunctions.size());
     location.s = s.data();
     location.t = t.data();
 
-    Far::LimitStencilTableFactory::LocationArrayVec locations;
+    DoubleFactory::LocationArrayVec locations;
     locations.push_back(location);
 
-    Far::LimitStencilTableFactory::Options stencilOptions;
+    DoubleFactory::Options stencilOptions;
     stencilOptions.generate1stDerivatives = true;
     stencilOptions.generate2ndDerivatives = true;
 
-    const Far::LimitStencilTable *rawStencils =
-        Far::LimitStencilTableFactory::Create(refiner,
-                                              locations,
-                                              0,
-                                              0,
-                                              stencilOptions);
+    const Far::LimitStencilTableReal<double> *rawStencils =
+        DoubleFactory::Create(refiner, locations, 0, 0, stencilOptions);
     if (rawStencils == nullptr)
     {
         throw std::runtime_error(
             "OpenSubdiv regular row diagnostics failed to create limit stencils.");
     }
-    std::unique_ptr<const Far::LimitStencilTable> stencils(rawStencils);
+    std::unique_ptr<const Far::LimitStencilTableReal<double>> stencils(rawStencils);
 
     ++diagnostics.comparedFaceCount;
     for (int sample = 0; sample < static_cast<int>(mesh.param.shapeFunctions.size());
          ++sample)
     {
-        const Far::LimitStencil stencil = stencils->GetLimitStencil(sample);
+        const Far::LimitStencilReal<double> stencil =
+            stencils->GetLimitStencil(sample);
         const Matrix openSubdivRows =
             shape_function_from_stencil(stencil, face.oneRingVertices);
         const double maxDifference =
@@ -712,9 +712,9 @@ build_opensubdiv_regular_shape_functions_by_face(const Mesh &mesh)
         {
             std::cerr
                 << "OpenSubdiv regular production routing was requested, "
-                   "but the route is disabled because the OpenSubdiv-derived "
-                   "rows do not yet preserve reviewed direct force/geometry "
-                   "semantics. Falling back to the direct regular path.\n";
+                   "but the parity candidate remains reviewer-gated and is "
+                   "not installed in production. Falling back to the direct "
+                   "regular path.\n";
             warned = true;
         }
         return {};
