@@ -1,8 +1,8 @@
 # OpenSubdiv Regular Adapter Proof
 
-Date: 2026-06-29.
-Baseline: PR #81 merge commit
-`9971f22953ff9adefd078dafbd5f4447e4a877d4`.
+Date: 2026-07-21.
+Baseline: PR #101 merge commit
+`110b38b4d222affb2e7c737c3d1ea63d652bbdfa`.
 
 This is a docs/scripts/tests/experiments-only proof lane. It does not change
 production C++ behavior, default `make` or test behavior, OpenSubdiv dependency
@@ -176,6 +176,28 @@ current activation policy decision. The expected current decision is
 reviewed residual precision/tolerance decision, not acceptance of that policy
 and not approval to install OpenSubdiv-derived rows in production.
 
+## Double Limit-Stencil Feasibility
+
+The C++ report now emits `double_limit_stencil_feasibility` to test whether the
+remaining routed residuals require a looser scientific tolerance or have a
+correctable numerical source. The proof constructs the same three regular
+locations twice through OpenSubdiv: once through the current float compatibility
+factory and once through `Far::LimitStencilTableFactoryReal<double>`. Both
+results are remapped by original SLIMED source id and compared with the frozen
+double-precision `Param::shapeFunctions` rows.
+
+On the deterministic regular fixture, the current float limit-stencil rows have
+a maximum difference of approximately `1.457e-7` from the frozen SLIMED rows.
+The double limit-stencil rows reduce that maximum difference to approximately
+`3.89e-16`, while preserving the 12 original source ids, `s=v,t=w`, seven-row
+order, and duplicated mixed rows. This identifies float row generation as a
+small, correctable implementation source for the residual amplification. It
+does not approve a tolerance increase.
+
+The double factory remains proof-only in this lane. No production evaluator,
+route gate, default dependency behavior, force formula, scatter order, OpenMP
+reduction, checkpoint/output, or propagation behavior consumes these rows.
+
 ## Proof Boundary
 
 For the regular lattice fixture, the report remaps OpenSubdiv stencil rows into
@@ -220,7 +242,10 @@ The report records all of the following as machine-readable JSON:
   `nVertices*9` force-buffer scatter/reduction shape; and
 - an opt-in production route policy diagnostic that emits exact current
   routed-residual tolerance metrics and the blocked activation-policy decision
-  without installing the route.
+  without installing the route; and
+- a proof-only float-versus-double OpenSubdiv limit-stencil comparison showing
+  that double rows match the frozen SLIMED rows at strict precision without
+  changing the current route or tolerance policy.
 
 This proves an experimental adapter boundary can produce the reviewable
 weighted-sample contract for the regular fixture. It does not approve any
@@ -228,10 +253,11 @@ production route to consume OpenSubdiv-derived rows.
 
 ## Remaining Gate
 
-Before production routing can change, a later reviewed PR must still compare
-OpenSubdiv-derived rows against routed production call timing and scatter in
-the real C++ route, including output-visible state beyond this regular
-area/volume characterization, serial/OpenMP accumulation behavior, and an
-explicit reviewed residual precision/tolerance policy if the remaining routed
-row residuals are accepted instead of corrected. This proof is prerequisite
-evidence only.
+Before production routing can change, a later reviewed PR must apply the
+double-precision limit-stencil factory to the guarded regular evaluator and
+rerun the full real-call parity package. Activation remains blocked unless that
+recheck proves `fArea`, `fVolume`, and `Face::oneRingVertices` scatter under the
+current tolerance, including output-visible state and serial/OpenMP executable
+comparisons. A tolerance-policy change is not part of this proof and would
+remain a separate scientific decision if the double-row correction did not
+close every residual. This proof is prerequisite evidence only.

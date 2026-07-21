@@ -93,6 +93,11 @@ CPP_PROOF_INVARIANTS: tuple[dict[str, str], ...] = (
     {"invariant": "production route current tolerance", "needle": '\\"routed_residual_current_absolute_tolerance\\":'},
     {"invariant": "production route required tolerance source", "needle": '\\"routed_residual_required_tolerance_source\\":'},
     {"invariant": "production route activation decision", "needle": '\\"routed_residual_activation_policy_decision\\":'},
+    {"invariant": "double limit stencil feasibility", "needle": '\\"double_limit_stencil_feasibility\\":{'},
+    {"invariant": "double limit stencil factory", "needle": "LimitStencilTableFactoryReal<double>"},
+    {"invariant": "double source identity", "needle": '\\"stencil_sources_match_face_one_ring\\":'},
+    {"invariant": "strict double row match", "needle": '\\"double_rows_match_slimed_at_strict_precision\\":'},
+    {"invariant": "tolerance policy unchanged", "needle": '\\"tolerance_policy_changed\\":false'},
     {"invariant": "not production routing", "needle": '\\"not_production_routing\\":true'},
 )
 
@@ -323,6 +328,27 @@ ANCHORS: tuple[Anchor, ...] = (
         "The policy report emits the current activation policy decision.",
     ),
     Anchor(
+        "c++ proof",
+        "double limit stencil feasibility",
+        CPP_PROOF_PATH,
+        '\\"double_limit_stencil_feasibility\\":{',
+        "The proof compares float and double OpenSubdiv limit-stencil rows.",
+    ),
+    Anchor(
+        "c++ proof",
+        "double limit stencil factory",
+        CPP_PROOF_PATH,
+        "LimitStencilTableFactoryReal<double>",
+        "The precision candidate uses OpenSubdiv's original-source double stencil factory.",
+    ),
+    Anchor(
+        "c++ proof",
+        "strict double row match",
+        CPP_PROOF_PATH,
+        '\\"double_rows_match_slimed_at_strict_precision\\":',
+        "The proof reports the strict double-row comparison result.",
+    ),
+    Anchor(
         "wrapper",
         "explicit root gate",
         WRAPPER_PATH,
@@ -405,6 +431,13 @@ ANCHORS: tuple[Anchor, ...] = (
         DOC_PATH,
         "Production Route Policy Diagnostic",
         "The doc records the opt-in production route policy diagnostic boundary.",
+    ),
+    Anchor(
+        "docs",
+        "double limit stencil feasibility documented",
+        DOC_PATH,
+        "Double Limit-Stencil Feasibility",
+        "The doc records the proof-only double row-generation correction candidate.",
     ),
 )
 
