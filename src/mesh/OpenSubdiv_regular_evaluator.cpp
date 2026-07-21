@@ -49,7 +49,13 @@ namespace
 {
 constexpr int kRegularControlPointCount = 12;
 constexpr int kDerivativeRowCount = 7;
+#ifdef SLIMED_OPENSUBDIV_REGULAR_EXECUTABLE_PARITY
+// Dedicated proof binaries may exercise the guarded candidate through the
+// real accumulator. Ordinary production and test builds never define this.
+constexpr bool kOpenSubdivRegularProductionRouteEnabled = true;
+#else
 constexpr bool kOpenSubdivRegularProductionRouteEnabled = false;
+#endif
 constexpr double kOpenSubdivRegularRowTolerance = 5.0e-6;
 constexpr double kOpenSubdivRegularResidualScaleFloor = 1.0e-12;
 
