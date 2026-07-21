@@ -87,6 +87,12 @@ CPP_PROOF_INVARIANTS: tuple[dict[str, str], ...] = (
     {"invariant": "serial OpenMP accumulation parity", "needle": '\\"serial_openmp_accumulation_parity\\":{'},
     {"invariant": "serial OpenMP production shape reference", "needle": "accumulate_membrane_face_energy_and_forces per-thread nVertices*9 buffers reduced by vertex, component, then thread index"},
     {"invariant": "serial OpenMP pass flag", "needle": '\\"matches_serial_openmp_accumulation_shape\\":'},
+    {"invariant": "production route policy diagnostic", "needle": '\\"production_route_policy_diagnostic\\":{'},
+    {"invariant": "production route diagnostic API", "needle": "diagnose_opensubdiv_regular_production_call_parity"},
+    {"invariant": "production route policy blocked state", "needle": "blocked_pending_residual_tolerance_policy"},
+    {"invariant": "production route current tolerance", "needle": '\\"routed_residual_current_absolute_tolerance\\":'},
+    {"invariant": "production route required tolerance source", "needle": '\\"routed_residual_required_tolerance_source\\":'},
+    {"invariant": "production route activation decision", "needle": '\\"routed_residual_activation_policy_decision\\":'},
     {"invariant": "not production routing", "needle": '\\"not_production_routing\\":true'},
 )
 
@@ -282,6 +288,41 @@ ANCHORS: tuple[Anchor, ...] = (
         "The emitted report fails if proof-local serial and OpenMP-style accumulation diverge.",
     ),
     Anchor(
+        "c++ proof",
+        "production route policy diagnostic",
+        CPP_PROOF_PATH,
+        '\\"production_route_policy_diagnostic\\":{',
+        "The C++ proof emits the current disabled production-route policy diagnostic.",
+    ),
+    Anchor(
+        "c++ proof",
+        "production route policy API",
+        CPP_PROOF_PATH,
+        "diagnose_opensubdiv_regular_production_call_parity",
+        "The policy report calls the guarded in-tree production parity recheck.",
+    ),
+    Anchor(
+        "c++ proof",
+        "production route policy blocked decision",
+        CPP_PROOF_PATH,
+        "blocked_pending_residual_tolerance_policy",
+        "The policy report preserves the current blocked activation decision.",
+    ),
+    Anchor(
+        "c++ proof",
+        "production route required tolerance",
+        CPP_PROOF_PATH,
+        '\\"routed_residual_required_absolute_tolerance\\":',
+        "The policy report emits the absolute tolerance required by the largest routed residual.",
+    ),
+    Anchor(
+        "c++ proof",
+        "production route activation decision",
+        CPP_PROOF_PATH,
+        '\\"routed_residual_activation_policy_decision\\":',
+        "The policy report emits the current activation policy decision.",
+    ),
+    Anchor(
         "wrapper",
         "explicit root gate",
         WRAPPER_PATH,
@@ -294,6 +335,13 @@ ANCHORS: tuple[Anchor, ...] = (
         WRAPPER_PATH,
         "experiments/opensubdiv_regular_cpp_adapter_proof.cpp",
         "The wrapper compiles the experimental proof binary only on explicit invocation.",
+    ),
+    Anchor(
+        "wrapper",
+        "opt-in OpenSubdiv production diagnostic compile",
+        WRAPPER_PATH,
+        "-DUSE_OPENSUBDIV_REGULAR",
+        "The production parity diagnostic is compiled only by the explicit OPENSUBDIV_ROOT-gated wrapper.",
     ),
     Anchor(
         "wrapper",
@@ -350,6 +398,13 @@ ANCHORS: tuple[Anchor, ...] = (
         DOC_PATH,
         "Serial/OpenMP Accumulation Parity Evidence",
         "The doc records proof-local serial/OpenMP-style accumulation parity evidence.",
+    ),
+    Anchor(
+        "docs",
+        "production route policy diagnostic documented",
+        DOC_PATH,
+        "Production Route Policy Diagnostic",
+        "The doc records the opt-in production route policy diagnostic boundary.",
     ),
 )
 

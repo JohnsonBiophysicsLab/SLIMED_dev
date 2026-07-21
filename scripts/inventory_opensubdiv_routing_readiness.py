@@ -74,7 +74,7 @@ REGULAR_READINESS_CRITERIA: tuple[dict[str, str], ...] = (
     },
     {
         "criterion": "actual fBend/fArea/fVolume comparison",
-        "current_status": "opt-in regular actual-force probe, C++ proof rows, production-helper dry run, guarded helper route test, and diagnostic production-call parity recheck exposing remaining fArea/fVolume deltas, source-id residual locations, row-error budget location, scale-normalized tolerance envelope, required tolerance decision metrics, current-policy activation gate, and exact full-observable direct-row override control",
+        "current_status": "opt-in regular actual-force probe, C++ proof rows, production-helper dry run, guarded helper route test, and diagnostic production-call parity recheck/report exposing remaining fArea/fVolume deltas, source-id residual locations, row-error budget location, scale-normalized tolerance envelope, required tolerance decision metrics, current-policy activation gate, and exact full-observable direct-row override control",
         "remaining_gap": "keep route disabled until reviewers approve installing rows or a row-residual tolerance/precision policy",
     },
     {
@@ -962,6 +962,14 @@ ANCHORS: tuple[Anchor, ...] = (
         "routedResidualActivationPolicyDecision",
         "row residual diagnostic",
         "The readiness map records the machine-readable current-policy activation decision.",
+    ),
+    Anchor(
+        "readiness map",
+        "external policy report wording",
+        READINESS_DOC_PATH,
+        "production_route_policy_diagnostic",
+        "row residual diagnostic",
+        "The readiness map records the opt-in machine-readable production route policy report.",
     ),
     Anchor(
         "production implementation",

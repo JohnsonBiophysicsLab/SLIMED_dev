@@ -98,6 +98,7 @@ fi
 command=(
     "${cxx}"
     -std=c++17
+    -DUSE_OPENSUBDIV_REGULAR
     -I include
     -I include/energy_force
     -I include/linalg

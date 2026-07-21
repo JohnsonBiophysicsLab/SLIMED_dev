@@ -9,12 +9,15 @@
 #include <opensubdiv/far/topologyRefinerFactory.h>
 
 #include "mesh/Mesh.hpp"
+#include "mesh/OpenSubdiv_regular_evaluator.hpp"
 
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstdlib>
 #include <iomanip>
 #include <iostream>
+#include <sstream>
 #include <set>
 #include <string>
 #include <vector>
@@ -156,6 +159,68 @@ struct AccumulationParityResult
     bool finite = false;
     bool nonzero = false;
     bool matchesSerialOpenMpShape = false;
+};
+
+class ScopedEnvVar
+{
+public:
+    ScopedEnvVar(const char *name, const char *value)
+        : name_(name)
+    {
+        const char *previous = std::getenv(name_);
+        if (previous != nullptr)
+        {
+            hadPrevious_ = true;
+            previous_ = previous;
+        }
+        if (value == nullptr)
+        {
+            unsetenv(name_);
+        }
+        else
+        {
+            setenv(name_, value, 1);
+        }
+    }
+
+    ~ScopedEnvVar()
+    {
+        if (hadPrevious_)
+        {
+            setenv(name_, previous_.c_str(), 1);
+        }
+        else
+        {
+            unsetenv(name_);
+        }
+    }
+
+private:
+    const char *name_;
+    bool hadPrevious_ = false;
+    std::string previous_;
+};
+
+class ScopedCoutSilencer
+{
+public:
+    ScopedCoutSilencer()
+        : previousCout_(std::cout.rdbuf(coutSink_.rdbuf())),
+          previousCerr_(std::cerr.rdbuf(cerrSink_.rdbuf()))
+    {
+    }
+
+    ~ScopedCoutSilencer()
+    {
+        std::cout.rdbuf(previousCout_);
+        std::cerr.rdbuf(previousCerr_);
+    }
+
+private:
+    std::ostringstream coutSink_;
+    std::ostringstream cerrSink_;
+    std::streambuf *previousCout_ = nullptr;
+    std::streambuf *previousCerr_ = nullptr;
 };
 
 void append_face(MeshCase &mesh, int a, int b, int c)
@@ -919,6 +984,46 @@ AccumulationParityResult run_serial_openmp_accumulation_parity_proof(
     return result;
 }
 
+OpenSubdivRegularProductionParityRecheck
+run_regular_production_route_policy_diagnostic()
+{
+    Param param;
+    param.VERBOSE_MODE = false;
+    param.boundaryCondition = BoundaryType::Periodic;
+    param.sideX = 40.0;
+    param.sideY = 10.0 * std::sqrt(3.0) / 2.0 * param.lFace;
+    param.kCurv = 47.5;
+    param.uSurf = 130.0;
+    param.uVol = 65.0;
+    param.area0 = 2.75;
+    param.vol0 = 0.82;
+
+    Mesh mesh(param);
+    {
+        ScopedCoutSilencer silence;
+        mesh.setup_flat();
+    }
+
+    for (Vertex &vertex : mesh.vertices)
+    {
+        const double index = static_cast<double>(vertex.index);
+        vertex.coord.set(2,
+                         0,
+                         0.03 * std::sin(0.7 * index) +
+                             0.01 * std::cos(0.3 * index));
+    }
+    mesh.calculate_element_area_volume();
+    mesh.sum_membrane_area_and_volume(mesh.param.area, mesh.param.vol);
+
+    OpenSubdivRegularProductionParityRecheck recheck;
+    {
+        ScopedEnvVar runtimeOptIn("SLIMED_USE_OPENSUBDIV_REGULAR", "1");
+        ScopedCoutSilencer silence;
+        recheck = diagnose_opensubdiv_regular_production_call_parity(mesh);
+    }
+    return recheck;
+}
+
 ProductionDryRunResult run_regular_production_helper_dry_run(
     const MeshCase &mesh,
     const std::vector<int> &faceOneRing,
@@ -1296,6 +1401,8 @@ int run_proof()
                                               forceResult);
     const VisibleObservableResult visibleObservables =
         run_regular_visible_observable_dry_run(mesh, faceOneRing, proofs, samples);
+    const OpenSubdivRegularProductionParityRecheck productionRoutePolicy =
+        run_regular_production_route_policy_diagnostic();
 
     std::vector<double> proofLocalBendRows(faceOneRing.size() * kProductionSpatialDimension, 0.0);
     std::vector<double> proofLocalAreaRows(faceOneRing.size() * kProductionSpatialDimension, 0.0);
@@ -1363,11 +1470,27 @@ int run_proof()
     const bool actualForceRowsPassed =
         finiteForceRows && forceComponentsFinite && nonzeroActualForce &&
         forceSourcesMatchFaceOneRing && scatterDifference <= kTolerance;
+    const bool productionRoutePolicyPassed =
+        productionRoutePolicy.opensubdivCompiled &&
+        productionRoutePolicy.runtimeOptInRequested &&
+        !productionRoutePolicy.productionRouteEnabled &&
+        !productionRoutePolicy.routeInstalledInProduction &&
+        productionRoutePolicy.generatedRoutedRows &&
+        productionRoutePolicy.comparedFaceCount > 0 &&
+        productionRoutePolicy.directRowsOverrideMatch &&
+        !productionRoutePolicy.directVsRoutedMatch &&
+        productionRoutePolicy.routedResidualsExceedCurrentTolerance &&
+        productionRoutePolicy.routedResidualToleranceReviewRequired &&
+        !productionRoutePolicy.routedResidualCurrentPolicySatisfied &&
+        !productionRoutePolicy.routedResidualActivationAllowedByCurrentPolicy &&
+        productionRoutePolicy.routedResidualActivationPolicyDecision ==
+            "blocked_pending_residual_tolerance_policy";
     const bool passed =
         adapterRowsPassed && actualForceRowsPassed && productionCallShadowPassed &&
         productionDryRun.matchesProofLocalRows &&
         visibleObservables.matchesProductionAreaVolume &&
-        accumulationParity.matchesSerialOpenMpShape;
+        accumulationParity.matchesSerialOpenMpShape &&
+        productionRoutePolicyPassed;
 
     std::cout << "]";
     std::cout << ",\"summary\":{";
@@ -1486,6 +1609,71 @@ int run_proof()
               << (accumulationParity.nonzero ? "true" : "false");
     std::cout << ",\"matches_serial_openmp_accumulation_shape\":"
               << (accumulationParity.matchesSerialOpenMpShape ? "true" : "false");
+    std::cout << "}";
+    std::cout << ",\"production_route_policy_diagnostic\":{";
+    std::cout << "\"scope\":\"opt-in diagnostic call to the disabled regular OpenSubdiv production route parity recheck; no production route consumes OpenSubdiv rows\"";
+    std::cout << ",\"not_production_routing\":true";
+    std::cout << ",\"production_api\":\"diagnose_opensubdiv_regular_production_call_parity\"";
+    std::cout << ",\"runtime_opt_in_requested\":"
+              << (productionRoutePolicy.runtimeOptInRequested ? "true" : "false");
+    std::cout << ",\"production_route_enabled\":"
+              << (productionRoutePolicy.productionRouteEnabled ? "true" : "false");
+    std::cout << ",\"route_installed_in_production\":"
+              << (productionRoutePolicy.routeInstalledInProduction ? "true" : "false");
+    std::cout << ",\"generated_routed_rows\":"
+              << (productionRoutePolicy.generatedRoutedRows ? "true" : "false");
+    std::cout << ",\"compared_face_count\":"
+              << productionRoutePolicy.comparedFaceCount;
+    std::cout << ",\"compared_sample_count\":"
+              << productionRoutePolicy.comparedSampleCount;
+    std::cout << ",\"direct_rows_override_match\":"
+              << (productionRoutePolicy.directRowsOverrideMatch ? "true" : "false");
+    std::cout << ",\"direct_vs_routed_match\":"
+              << (productionRoutePolicy.directVsRoutedMatch ? "true" : "false");
+    std::cout << ",\"max_routed_row_weight_difference_vs_slimed_rows\":"
+              << productionRoutePolicy.maxRoutedRowWeightDifferenceVsSlimedRows;
+    std::cout << ",\"max_f_area_difference\":"
+              << productionRoutePolicy.maxFAreaDifference;
+    std::cout << ",\"max_f_area_difference_relative_to_component_scale\":"
+              << productionRoutePolicy.maxFAreaDifferenceRelativeToComponentScale;
+    std::cout << ",\"max_f_volume_difference\":"
+              << productionRoutePolicy.maxFVolumeDifference;
+    std::cout << ",\"max_f_volume_difference_relative_to_component_scale\":"
+              << productionRoutePolicy.maxFVolumeDifferenceRelativeToComponentScale;
+    std::cout << ",\"max_scatter_difference\":"
+              << productionRoutePolicy.maxScatterDifference;
+    std::cout << ",\"max_scatter_difference_relative_to_component_scale\":"
+              << productionRoutePolicy.maxScatterDifferenceRelativeToComponentScale;
+    std::cout << ",\"routed_residual_current_absolute_tolerance\":"
+              << productionRoutePolicy.routedResidualCurrentAbsoluteTolerance;
+    std::cout << ",\"routed_residual_required_absolute_tolerance\":"
+              << productionRoutePolicy.routedResidualRequiredAbsoluteTolerance;
+    std::cout << ",\"routed_residual_required_relative_tolerance\":"
+              << productionRoutePolicy.routedResidualRequiredRelativeTolerance;
+    std::cout << ",\"routed_residual_required_tolerance_multiplier\":"
+              << productionRoutePolicy.routedResidualRequiredToleranceMultiplier;
+    std::cout << ",\"routed_residual_required_tolerance_source\":\""
+              << productionRoutePolicy.routedResidualRequiredToleranceSource
+              << "\"";
+    std::cout << ",\"routed_residual_required_tolerance_source_relative\":"
+              << productionRoutePolicy.routedResidualRequiredToleranceSourceRelative;
+    std::cout << ",\"routed_residuals_exceed_current_tolerance\":"
+              << (productionRoutePolicy.routedResidualsExceedCurrentTolerance ? "true" : "false");
+    std::cout << ",\"routed_residual_tolerance_review_required\":"
+              << (productionRoutePolicy.routedResidualToleranceReviewRequired ? "true" : "false");
+    std::cout << ",\"routed_residual_readiness_decision\":\""
+              << productionRoutePolicy.routedResidualReadinessDecision << "\"";
+    std::cout << ",\"routed_residual_activation_blocker\":\""
+              << productionRoutePolicy.routedResidualActivationBlocker << "\"";
+    std::cout << ",\"routed_residual_current_policy_satisfied\":"
+              << (productionRoutePolicy.routedResidualCurrentPolicySatisfied ? "true" : "false");
+    std::cout << ",\"routed_residual_activation_allowed_by_current_policy\":"
+              << (productionRoutePolicy.routedResidualActivationAllowedByCurrentPolicy ? "true" : "false");
+    std::cout << ",\"routed_residual_activation_policy_decision\":\""
+              << productionRoutePolicy.routedResidualActivationPolicyDecision
+              << "\"";
+    std::cout << ",\"passed\":"
+              << (productionRoutePolicyPassed ? "true" : "false");
     std::cout << "}";
     std::cout << ",\"actual_force_rows\":{";
     std::cout << "\"available\":true";
