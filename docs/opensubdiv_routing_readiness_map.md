@@ -1,27 +1,30 @@
 # OpenSubdiv Production-Routing Readiness Map
 
 Date: 2026-07-21.
-Baseline: PR #102 double limit-stencil feasibility proof plus the guarded
-double-row evaluator correction.
+Baseline: PR #104 serial/OpenMP executable parity proof for the guarded
+double-row evaluator candidate.
 
 This map now records the first narrowly guarded production regular-routing
 seam. Default builds remain OpenSubdiv-free. The OpenSubdiv-backed route is
 compiled only when the binary is built with
-`USE_OPENSUBDIV_REGULAR=1 OPENSUBDIV_ROOT=...`, and runtime routing must still
-be requested with `SLIMED_USE_OPENSUBDIV_REGULAR=1`; however the routed rows
-remain intentionally disabled pending explicit reviewer/user activation
-approval. The double-row candidate now passes the
-direct-vs-routed production force/geometry characterization under the current
-tolerance and the complete serial/OpenMP executable-visible comparison. Runtime
-opt-in still falls back to the reviewed direct regular path.
+`USE_OPENSUBDIV_REGULAR=1 OPENSUBDIV_ROOT=...`, and runtime routing must also
+be requested with `SLIMED_USE_OPENSUBDIV_REGULAR=1`. Supported non-boundary,
+non-ghost 12-control regular faces whose generated rows match the frozen
+regular rows then consume the reviewed double-precision OpenSubdiv rows. The
+direct path remains active when runtime opt-in is absent and for boundary,
+ghost, irregular, or non-equivalent faces. The activated route passes the direct/routed
+force and geometry characterization plus the complete serial/OpenMP
+executable-visible comparison under the unchanged tolerance.
+In short, the guarded regular route is active only behind both explicit gates,
+and the double-row recheck passes scatter parity without a tolerance change.
 This does not change default production behavior, public OpenSubdiv types,
 vendoring, submodules, generated dependency artifacts, formula semantics,
 scatter order, OpenMP buffer/reduction shape, checkpoint/output behavior,
 propagation behavior, optimizer behavior, or irregular/broader-valence routing.
 
-The disabled double-row candidate's serial/OpenMP executable-visible parity is
-tracked separately in `docs/opensubdiv_regular_executable_parity.md`. That proof
-does not enable routing; guarded activation remains a distinct reviewed step.
+The double-row route's serial/OpenMP executable-visible parity is tracked in
+`docs/opensubdiv_regular_executable_parity.md`. That gate exercises the same
+build-time and runtime route controls used by production binaries.
 
 ## Purpose
 
@@ -48,7 +51,7 @@ separate PR.
 
 | Route | Current production status | OpenSubdiv evidence status | Readiness result |
 | --- | --- | --- | --- |
-| Regular 12-control membrane force | Supported through `SlimedLoopLimitSurfaceEvaluator`, current quadrature, and current force formulas. A compile-time/runtime OpenSubdiv seam exists, but the routed rows remain disabled and opt-in falls back to the direct regular path. | The guarded double-row candidate passes regular row, production-call force/scatter, geometry, output-visible, and serial/OpenMP executable parity under the current tolerance. | Explicit reviewer/user activation approval; default and unsupported routes remain unchanged. |
+| Regular 12-control membrane force | Supported through the direct evaluator by default. OpenSubdiv-enabled binaries may route supported non-boundary, non-ghost regular faces only when runtime opt-in is explicit. | The guarded double-row route passes regular row, production-call force/scatter, geometry, output-visible, and serial/OpenMP executable parity under the current tolerance. | Guarded regular route active; preserve parity gates and direct fallback. |
 | Positive-depth `11 = 4+3+4` membrane force | Supported narrowly through dependency-free subdivision matrices and child-force back-projection. | OpenSubdiv aggregate source/transpose reports are observational only. | Keep current route; do not replace with OpenSubdiv in the regular readiness lane. |
 | Zero-depth 11-control and unsupported irregular topologies | Guarded unsupported cases. | No production approval. | Must continue to fail loudly or use only reviewed diagnostics. |
 | Broader extraordinary valence | Not production supported. | Synthetic broader-valence coverage can inform planning only. | Future-only until representative fixtures and scientific approval are available. |
@@ -68,8 +71,10 @@ The first production seam is deliberately small:
 - Runtime routing is additionally gated by
   `SLIMED_USE_OPENSUBDIV_REGULAR=1`; setting this variable in a default build
   throws a loud runtime error.
-- In an OpenSubdiv-enabled build, runtime opt-in prints a diagnostic and
-  returns no routed rows because the parity candidate remains reviewer-gated.
+- In an OpenSubdiv-enabled build, runtime opt-in installs reviewed rows only
+  for supported non-boundary, non-ghost 12-control regular faces whose rows
+  match the frozen regular plan under the current tolerance. Unsupported or
+  non-equivalent faces emit a diagnostic and retain their existing path.
 - `diagnose_opensubdiv_regular_production_call_parity` can be called only as a
   review-gated diagnostic. It requires the same runtime opt-in, builds the
   would-be routed rows, compares them against the direct regular path at the
@@ -102,8 +107,8 @@ The first production seam is deliberately small:
   explicit readiness decision instead of an implicit activation policy.
   The opt-in C++ proof wrapper also emits the same current-policy state as a
   machine-readable `production_route_policy_diagnostic` report for reviewer
-  decision packets; it still records `not_production_routing:true` and route
-  installation remains disabled.
+  decision packets. The production diagnostic now reports route installation
+  when both build-time and runtime gates are active.
   The proof harness also compares the float compatibility factory
   with `Far::LimitStencilTableFactoryReal<double>`. The float rows reproduce
   the production diagnostic's approximately `1.457e-7` row residual, while
@@ -112,17 +117,17 @@ The first production seam is deliberately small:
   rather than an obvious `Face::oneRingVertices` scatter wiring bug or a reason
   to relax the scientific tolerance policy.
   The guarded evaluator now uses the double factory and passes the current
-  direct-vs-routed tolerance gate. This is readiness evidence, not approval to
-  activate routing.
-- The direct regular path remains active for all regular production
-  calculations while route activation and reviewer approval remain pending.
+  direct-vs-routed tolerance gate and is the row source used by the guarded
+  route.
+- The direct regular path remains active unless both explicit route gates are
+  enabled, and remains the fallback for faces outside the reviewed route.
 - The existing `calculate_element_area_volume` and
   `element_energy_force_regular` helpers still own area, legacy volume,
   `fBend`, `fArea`, `fVolume`, normal, and mean-curvature semantics.
 - The existing force scatter and serial/OpenMP thread-local force-buffer
   reduction shape are unchanged.
-- Boundary, ghost, and other non-routable regular faces avoid empty overrides
-  and continue through the direct path.
+- Boundary, ghost, irregular, and non-equivalent faces avoid routed overrides
+  and continue through their existing direct or subdivision path.
 
 ## Regular 12-Control Readiness Criteria
 
@@ -137,20 +142,20 @@ every criterion below must be green or explicitly review-waived.
 | Source-id ordering | The backend-neutral seam exposes row weights keyed by original SLIMED source ids; current regular tests and the proof harness cover natural/permuted 12-control orders and OpenSubdiv-derived source ids. | The first routed production PR must prove the installed route addresses the same ids as `Face::oneRingVertices[j]`, or document and test a reviewed replacement order. |
 | Duplicate aggregation | The regular source-id seam and proof harness aggregate repeated source-id contributions deterministically instead of assuming backend stencil order. | The first routed production PR must keep this aggregation at the production boundary. |
 | Quadrature/sample identity | Current regular formulas consume `Param::shapeFunctions` in existing quadrature order with `0.5 * param.gaussQuadratureCoeff(i, 0)`, and the proof harness reports the same frozen plan. | The OpenSubdiv production path must use the same sample locations and quadrature weights, or carry an explicitly reviewed formula/sample change. |
-| Actual `fBend`/`fArea`/`fVolume` comparison | The opt-in `--regular-actual-force-report` and the C++ proof harness emit finite nonzero local force rows, production-call shadow evidence, and production-helper dry-run parity against `Mesh::element_energy_force_regular` through a local `Param`. The in-tree row diagnostic compares compiled-seam OpenSubdiv rows against SLIMED rows before installation. The diagnostic-only `diagnose_opensubdiv_regular_production_call_parity` recheck compares would-be routed rows against the direct regular force helper at the current per-face production call shape while keeping route installation disabled. With the double limit-stencil factory, row mismatch is approximately `3.89e-16`, `fArea` delta is approximately `5.46e-12`, `fVolume` delta is approximately `2.84e-13`, and scatter delta is approximately `1.46e-11`; all pass the existing `5e-6` policy. | Keep OpenSubdiv-derived rows disabled until explicit reviewer/user activation approval is complete. |
-| Energy, normal, area, and volume comparison | Current regular probe, in-tree tests, proof-local visible-observable dry run, and diagnostic-only production-call parity recheck cover row/integrand values plus local energy, mean curvature, normal, area, and legacy volume semantics on deterministic fixtures. The direct-row override control now explicitly proves those current production observables remain exact through the override seam when fed frozen SLIMED rows. Production opt-in fallback still preserves the direct path. | A routed backend must promote this diagnostic evidence into an explicitly reviewed production route activation, with tests that fail if routed rows drift. |
-| Scatter through `Face::oneRingVertices` | `RegularForceRowsScatterInOneRingOrder`, the C++ proof harness, and the diagnostic-only production-call parity recheck use the reviewed one-ring order. The double-row recheck passes scatter parity under the current tolerance and records the force kind, axis, and signed direct/routed values at the largest residual. | The activation PR must preserve this scatter order and keep the parity assertion green. |
-| Serial/OpenMP tolerance envelope | The executable parity harness compiles the real accumulator in serial and OpenMP modes, then compares direct and disabled-candidate snapshots for global/per-face energy, every vertex force component, normals, area, legacy volume, and mean curvature. The maximum direct/candidate delta is approximately `4.66e-10`; the maximum serial/OpenMP delta is approximately `2.33e-10`. Irregular serial/OpenMP tolerance work remains separate. | Preserve this proof and the existing reduction order during the separately reviewed activation change. |
+| Actual `fBend`/`fArea`/`fVolume` comparison | The opt-in `--regular-actual-force-report`, C++ proof harness, production-call recheck, and activated-route test cover finite nonzero force rows through `Mesh::element_energy_force_regular`. With the double limit-stencil factory, row mismatch is approximately `3.89e-16`, `fArea` delta is approximately `5.46e-12`, `fVolume` delta is approximately `2.84e-13`, and scatter delta is approximately `1.46e-11`; all pass the existing `5e-6` policy. | Keep the route tests and executable parity gate green. |
+| Energy, normal, area, and volume comparison | Current regular probes, in-tree tests, visible-observable dry run, production-call recheck, and serial/OpenMP executable gate cover energy, mean curvature, normal, area, and legacy volume semantics on deterministic fixtures. Runtime opt-in now exercises the guarded route; absence of either gate preserves the direct path. | Preserve tests that fail if routed observables drift. |
+| Scatter through `Face::oneRingVertices` | `RegularForceRowsScatterInOneRingOrder`, the C++ proof harness, the production-call recheck, and the activated-route test use the reviewed one-ring order. The double-row route passes scatter parity under the current tolerance. | Preserve this scatter order and keep the parity assertion green. |
+| Serial/OpenMP tolerance envelope | The executable parity harness compiles the real accumulator in serial and OpenMP modes, then compares direct and runtime-routed snapshots for global/per-face energy, every vertex force component, normals, area, legacy volume, and mean curvature. The maximum direct/routed delta is approximately `4.66e-10`; the maximum serial/OpenMP delta is approximately `2.33e-10`. Irregular serial/OpenMP tolerance work remains separate. | Preserve this gate and the existing reduction order. |
 | Fallback diagnostics | Dependency-absent probes skip cleanly; unsupported production irregular routes are guarded. | Production routing must never silently change physics based on ambient OpenSubdiv availability. Dependency-absent, unsupported topology, boundary, ghost, periodic, and failed-equivalence cases need explicit reviewed diagnostics. |
 | Default dependency isolation | Stage 0 remains docs/scripts/probe-only and `OPENSUBDIV_ROOT`-gated. | No default dependency, vendoring, submodule, generated artifact, package-manager assumption, or Makefile target behavior change can be bundled into the routing proof. |
-| Reviewer/user gate | Existing evidence maps state that OpenSubdiv remains opt-in/probe-only. | The production route change must be an explicit reviewed PR; this readiness map is not approval to route. |
+| Reviewer/user gate | The regular activation is isolated in an explicit reviewed PR after the executable parity gate. | Future route expansion or policy changes require their own reviewer/user approval. |
 
-## Required Regular Evidence Package
+## Activated Regular Evidence Package
 
-A future regular production-routing PR should provide, at minimum:
+The guarded regular production route provides:
 
-- a tiny production route selection boundary that is disabled unless explicitly
-  built or invoked by the reviewed PR;
+- a tiny production route selection boundary that is inactive unless explicitly
+  built with OpenSubdiv and requested at runtime;
 - confirmation that the routed route consumes the frozen regular fixtures and
   sample coordinates already proven by the proof lane;
 - OpenSubdiv row/integrand equivalence for the routed sample plan;

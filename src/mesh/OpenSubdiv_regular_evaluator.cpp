@@ -11,6 +11,7 @@
 #include <set>
 #include <stdexcept>
 #include <string>
+#include <utility>
 
 namespace
 {
@@ -49,13 +50,9 @@ namespace
 {
 constexpr int kRegularControlPointCount = 12;
 constexpr int kDerivativeRowCount = 7;
-#ifdef SLIMED_OPENSUBDIV_REGULAR_EXECUTABLE_PARITY
-// Dedicated proof binaries may exercise the guarded candidate through the
-// real accumulator. Ordinary production and test builds never define this.
+// OpenSubdiv-enabled binaries may route supported regular faces only when the
+// separate runtime opt-in is also present. Default builds use the stub below.
 constexpr bool kOpenSubdivRegularProductionRouteEnabled = true;
-#else
-constexpr bool kOpenSubdivRegularProductionRouteEnabled = false;
-#endif
 constexpr double kOpenSubdivRegularRowTolerance = 5.0e-6;
 constexpr double kOpenSubdivRegularResidualScaleFloor = 1.0e-12;
 
@@ -199,6 +196,27 @@ double max_abs_matrix_difference(const Matrix &lhs, const Matrix &rhs)
         }
     }
     return maxDifference;
+}
+
+bool shape_functions_match_frozen_regular_rows(
+    const std::vector<Matrix> &shapeFunctions,
+    const std::vector<Matrix> &frozenRows)
+{
+    if (shapeFunctions.size() != frozenRows.size())
+    {
+        return false;
+    }
+    for (int sample = 0; sample < static_cast<int>(shapeFunctions.size());
+         ++sample)
+    {
+        if (max_abs_matrix_difference(shapeFunctions[sample],
+                                      frozenRows[sample]) >
+            kOpenSubdivRegularRowTolerance)
+        {
+            return false;
+        }
+    }
+    return true;
 }
 
 void update_max_abs_matrix_difference(double &target,
@@ -504,7 +522,9 @@ void populate_residual_readiness_decision(
     if (recheck.directVsRoutedMatch)
     {
         recheck.routedResidualReadinessDecision =
-            "candidate_needs_serial_openmp_and_reviewer_approval";
+            recheck.routeInstalledInProduction
+                ? "guarded_route_active"
+                : "candidate_needs_serial_openmp_and_reviewer_approval";
         recheck.routedResidualActivationBlocker = "none";
         return;
     }
@@ -543,7 +563,9 @@ void populate_residual_activation_policy_decision(
     {
         recheck.routedResidualActivationAllowedByCurrentPolicy = true;
         recheck.routedResidualActivationPolicyDecision =
-            "current_policy_satisfied_pending_serial_openmp_and_reviewer_approval";
+            recheck.routeInstalledInProduction
+                ? "current_policy_satisfied_route_active"
+                : "current_policy_satisfied_pending_serial_openmp_and_reviewer_approval";
         return;
     }
 
@@ -737,6 +759,7 @@ build_opensubdiv_regular_shape_functions_by_face(const Mesh &mesh)
     refiner->RefineAdaptive(adaptiveOptions);
 
     std::vector<std::vector<Matrix>> routedShapeFunctions(mesh.faces.size());
+    bool skippedUnsupportedFace = false;
     for (const Face &face : mesh.faces)
     {
         if (face.isBoundary || face.isGhost)
@@ -745,13 +768,30 @@ build_opensubdiv_regular_shape_functions_by_face(const Mesh &mesh)
         }
         if (face.oneRingVertices.size() != kRegularControlPointCount)
         {
-            throw std::runtime_error(
-                "OpenSubdiv regular routing was requested, but a non-regular "
-                "face was encountered. This route is limited to regular "
-                "12-control faces.");
+            skippedUnsupportedFace = true;
+            continue;
         }
-        routedShapeFunctions[face.index] =
+        std::vector<Matrix> shapeFunctions =
             shape_functions_for_face(mesh, face, *refiner);
+        if (!shape_functions_match_frozen_regular_rows(
+                shapeFunctions, mesh.param.shapeFunctions))
+        {
+            skippedUnsupportedFace = true;
+            continue;
+        }
+        routedShapeFunctions[face.index] = std::move(shapeFunctions);
+    }
+    if (skippedUnsupportedFace)
+    {
+        static bool warned = false;
+        if (!warned)
+        {
+            std::cerr
+                << "OpenSubdiv regular routing skipped unsupported or "
+                   "non-equivalent faces; their existing direct/subdivision "
+                   "paths remain active.\n";
+            warned = true;
+        }
     }
     return routedShapeFunctions;
 }
@@ -802,7 +842,9 @@ diagnose_opensubdiv_regular_production_call_parity(Mesh &mesh)
     recheck.runtimeOptInRequested =
         opensubdiv_regular_production_routing_requested();
     recheck.productionRouteEnabled = kOpenSubdivRegularProductionRouteEnabled;
-    recheck.routeInstalledInProduction = false;
+    recheck.routeInstalledInProduction =
+        kOpenSubdivRegularProductionRouteEnabled &&
+        recheck.runtimeOptInRequested;
 
     if (!recheck.runtimeOptInRequested || mesh.vertices.empty() ||
         mesh.faces.empty())

@@ -225,11 +225,12 @@ int main()
 #endif
     std::cout << "\"candidate_rows_requested\":"
               << (candidateRequested ? "true" : "false") << ',';
-    std::cout << "\"candidate_rows_installed_in_diagnostic_build\":"
+    std::cout << "\"candidate_rows_installed_in_opt_in_build\":"
               << (candidateInstalled ? "true" : "false") << ',';
     std::cout << "\"candidate_shape_face_count\":"
               << snapshot.candidateShapeFaceCount << ',';
-    std::cout << "\"not_production_routing\":true,";
+    std::cout << "\"production_route_exercised\":"
+              << (candidateInstalled ? "true" : "false") << ',';
     std::cout << "\"finite\":" << (snapshot.finite ? "true" : "false") << ',';
     std::cout << "\"vertex_count\":" << snapshot.vertexCount << ',';
     std::cout << "\"active_face_ids\":";

@@ -160,22 +160,24 @@ scatter order, Makefile defaults, or dependency behavior.
 ## Production Route Policy Diagnostic
 
 The C++ report now emits `production_route_policy_diagnostic` as an
-opt-in, machine-readable view of the current disabled production-route parity
-recheck. The wrapper compiles the temporary binary with
+opt-in, machine-readable view of the guarded production-route parity recheck.
+The wrapper compiles the temporary binary with
 `USE_OPENSUBDIV_REGULAR` only after `OPENSUBDIV_ROOT` is supplied, sets
 `SLIMED_USE_OPENSUBDIV_REGULAR=1` only inside the report process, and calls
 `diagnose_opensubdiv_regular_production_call_parity` on the deterministic
 regular production fixture used by the focused route-guard tests.
 
-The emitted JSON states `not_production_routing:true`,
-`production_route_enabled:false`, `route_installed_in_production:false`, the
+The emitted JSON states `not_production_routing:false`,
+`production_route_enabled:true`, `route_installed_in_production:true`, the
 direct-row override result, the direct-vs-routed result, exact routed residual
 absolute and relative tolerance metrics, the required-tolerance source, and the
 current activation policy decision. With the guarded evaluator using the
-double limit-stencil factory, the expected current decision is
-`current_policy_satisfied_pending_serial_openmp_and_reviewer_approval`.
-This is still diagnostic evidence, not approval to install OpenSubdiv-derived
-rows in production.
+double limit-stencil factory, the expected current decisions are
+`guarded_route_active` and `current_policy_satisfied_route_active`. The route
+is active only in an OpenSubdiv-enabled build when
+`SLIMED_USE_OPENSUBDIV_REGULAR=1`; otherwise the direct regular path remains in
+use. This report diagnoses that narrowly guarded production behavior and does
+not extend routing to unsupported or broader-valence faces.
 
 ## Double Limit-Stencil Feasibility
 
@@ -195,10 +197,11 @@ order, and duplicated mixed rows. This identifies float row generation as a
 small, correctable implementation source for the residual amplification. It
 does not approve a tolerance increase.
 
-The guarded evaluator now uses the same double factory for its disabled routed
-row candidate and row diagnostics. The production route gate remains disabled,
-and default dependency behavior, force formulas, scatter order, OpenMP
-reductions, checkpoint/output, and propagation behavior are unchanged.
+The guarded evaluator now uses the same double factory for its routed rows and
+row diagnostics. The production route remains disabled unless both explicit
+build-time and runtime gates are present. Default dependency behavior, force
+formulas, scatter order, OpenMP reductions, checkpoint/output, and propagation
+behavior are unchanged.
 
 ## Proof Boundary
 

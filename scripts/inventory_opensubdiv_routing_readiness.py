@@ -74,23 +74,23 @@ REGULAR_READINESS_CRITERIA: tuple[dict[str, str], ...] = (
     },
     {
         "criterion": "actual fBend/fArea/fVolume comparison",
-        "current_status": "guarded double-row production-call parity passes fBend/fArea/fVolume and scatter under the current tolerance while route installation remains disabled",
-        "remaining_gap": "complete serial/OpenMP executable parity and explicit reviewer/user activation approval",
+        "current_status": "guarded double-row production route passes fBend/fArea/fVolume and scatter under the current tolerance",
+        "remaining_gap": "preserve the passing route and executable parity assertions",
     },
     {
         "criterion": "energy/normal/area/volume comparison",
         "current_status": "regular probe, tests, visible-observable dry run, guarded route area/helper evidence, and diagnostic production-call parity recheck with exact direct-row mean-curvature, normal, bending-energy, area, and legacy-volume controls",
-        "remaining_gap": "promote diagnostic evidence only through an explicit activation PR",
+        "remaining_gap": "preserve activated-route observable parity",
     },
     {
         "criterion": "scatter through Face::oneRingVertices",
         "current_status": "regular scatter order test, C++ proof harness, and guarded double-row parity recheck pass under the current tolerance",
-        "remaining_gap": "preserve the passing assertion through serial/OpenMP executable and activation review",
+        "remaining_gap": "preserve the passing assertion in future route changes",
     },
     {
         "criterion": "serial/OpenMP tolerance envelope",
-        "current_status": "thread-local buffer/reduction order documented; proof-local serial/OpenMP-style accumulation parity and diagnostic serial scatter deltas exist",
-        "remaining_gap": "establish full serial and OpenMP executable tolerances before activation",
+        "current_status": "real serial/OpenMP executables pass direct-versus-routed output parity under the current tolerance",
+        "remaining_gap": "preserve the current thread-local buffer and reduction order",
     },
     {
         "criterion": "fallback diagnostics",
@@ -104,8 +104,8 @@ REGULAR_READINESS_CRITERIA: tuple[dict[str, str], ...] = (
     },
     {
         "criterion": "reviewer/user gate",
-        "current_status": "regular seam reviewer/user gate installed; routed rows disabled",
-        "remaining_gap": "complete executable parity and approve a separate activation PR",
+        "current_status": "guarded regular route activated after executable parity and reviewer/user approval",
+        "remaining_gap": "require a new gate for broader route or policy changes",
     },
 )
 
@@ -113,9 +113,9 @@ REGULAR_READINESS_CRITERIA: tuple[dict[str, str], ...] = (
 ROUTE_READINESS_MATRIX: tuple[dict[str, str], ...] = (
     {
         "route": "regular 12-control membrane force",
-        "current_production_status": "supported by in-tree evaluator; guarded OpenSubdiv seam falls back to direct route",
-        "opensubdiv_evidence_status": "PR #82 proof evidence plus double-row guarded parity passing the current tolerance; route remains disabled",
-        "readiness_result": "not production-routed; complete serial/OpenMP executable parity and explicit activation review",
+        "current_production_status": "direct by default; guarded OpenSubdiv route active only with build-time and runtime opt-in",
+        "opensubdiv_evidence_status": "double-row route passes production-call and serial/OpenMP executable parity",
+        "readiness_result": "guarded regular production route active; preserve fallback and parity gates",
     },
     {
         "route": "positive-depth 11 = 4+3+4 membrane force",
@@ -173,11 +173,11 @@ ANCHORS: tuple[Anchor, ...] = (
     ),
     Anchor(
         "readiness map",
-        "guarded regular route disabled",
+        "guarded regular route is active",
         READINESS_DOC_PATH,
-        "routed rows remain disabled",
+        "guarded regular route is active",
         "guarded route",
-        "The regular route remains disabled pending executable parity and explicit approval.",
+        "The regular route is active only behind explicit build-time and runtime gates.",
     ),
     Anchor(
         "readiness map",
@@ -463,9 +463,9 @@ ANCHORS: tuple[Anchor, ...] = (
         "production test",
         "regular production-call parity recheck",
         SURFACE_TEST_PATH,
-        "OptInProductionCallParityRecheckPassesCurrentToleranceAndKeepsRouteDisabled",
+        "OptInProductionCallParityRecheckPassesCurrentToleranceAndReportsRouteInstalled",
         "diagnostic test",
-        "The OpenSubdiv-enabled focused test proves force/scatter parity without route activation.",
+        "The OpenSubdiv-enabled focused test proves force/scatter parity and reports route installation.",
     ),
     Anchor(
         "production diagnostic",
@@ -477,11 +477,11 @@ ANCHORS: tuple[Anchor, ...] = (
     ),
     Anchor(
         "production diagnostic",
-        "route remains disabled",
+        "guarded route installation",
         OPENSUBDIV_EVALUATOR_PATH,
-        "routeInstalledInProduction = false",
+        "recheck.routeInstalledInProduction",
         "guarded route",
-        "The diagnostic records that it does not install routed rows in production.",
+        "The diagnostic records route installation when both explicit gates are active.",
     ),
     Anchor(
         "production diagnostic",
@@ -863,9 +863,9 @@ ANCHORS: tuple[Anchor, ...] = (
         "production test",
         "routed residual activation policy decision assertion",
         SURFACE_TEST_PATH,
-        "current_policy_satisfied_pending_serial_openmp_and_reviewer_approval",
+        "current_policy_satisfied_route_active",
         "row residual diagnostic",
-        "The focused OpenSubdiv test asserts the candidate still needs executable and reviewer approval.",
+        "The focused OpenSubdiv test asserts the guarded regular route is active under the current policy.",
     ),
     Anchor(
         "production test",

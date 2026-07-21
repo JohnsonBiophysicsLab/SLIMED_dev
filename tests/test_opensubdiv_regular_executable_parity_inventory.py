@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class OpenSubdivRegularExecutableParityInventoryTest(unittest.TestCase):
-    def test_inventory_has_no_missing_anchors_or_production_macro_leaks(self):
+    def test_inventory_has_no_missing_anchors_or_default_dependency_leaks(self):
         result = subprocess.run(
             ["python3", "scripts/inventory_opensubdiv_regular_executable_parity.py", "--check"],
             cwd=ROOT,
@@ -35,7 +35,6 @@ class OpenSubdivRegularExecutableParityInventoryTest(unittest.TestCase):
     def test_comparator_accepts_exact_four_way_parity(self):
         base = {
             "finite": True,
-            "not_production_routing": True,
             "vertex_count": 1,
             "active_face_ids": [2],
             "global_energy": [1.0],
@@ -58,7 +57,8 @@ class OpenSubdivRegularExecutableParityInventoryTest(unittest.TestCase):
                 report = dict(base)
                 report["execution_mode"] = mode
                 report["candidate_rows_requested"] = requested
-                report["candidate_rows_installed_in_diagnostic_build"] = installed
+                report["candidate_rows_installed_in_opt_in_build"] = installed
+                report["production_route_exercised"] = requested
                 report["candidate_shape_face_count"] = 1 if requested else 0
                 path = Path(directory) / name
                 path.write_text(json.dumps(report), encoding="utf-8")
@@ -84,7 +84,8 @@ class OpenSubdivRegularExecutableParityInventoryTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         report = json.loads(result.stdout)
         self.assertEqual(report["status"], "passed")
-        self.assertFalse(report["route_activation_allowed"])
+        self.assertTrue(report["production_route_exercised"])
+        self.assertTrue(report["route_activation_allowed"])
 
 
 if __name__ == "__main__":

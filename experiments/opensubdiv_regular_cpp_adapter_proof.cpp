@@ -1638,8 +1638,8 @@ int run_proof()
     const bool productionRoutePolicyPassed =
         productionRoutePolicy.opensubdivCompiled &&
         productionRoutePolicy.runtimeOptInRequested &&
-        !productionRoutePolicy.productionRouteEnabled &&
-        !productionRoutePolicy.routeInstalledInProduction &&
+        productionRoutePolicy.productionRouteEnabled &&
+        productionRoutePolicy.routeInstalledInProduction &&
         productionRoutePolicy.generatedRoutedRows &&
         productionRoutePolicy.comparedFaceCount > 0 &&
         productionRoutePolicy.directRowsOverrideMatch &&
@@ -1649,10 +1649,10 @@ int run_proof()
         productionRoutePolicy.routedResidualCurrentPolicySatisfied &&
         productionRoutePolicy.routedResidualActivationAllowedByCurrentPolicy &&
         productionRoutePolicy.routedResidualReadinessDecision ==
-            "candidate_needs_serial_openmp_and_reviewer_approval" &&
+            "guarded_route_active" &&
         productionRoutePolicy.routedResidualActivationBlocker == "none" &&
         productionRoutePolicy.routedResidualActivationPolicyDecision ==
-            "current_policy_satisfied_pending_serial_openmp_and_reviewer_approval";
+            "current_policy_satisfied_route_active";
     const bool doubleLimitStencilDiagnosticPassed =
         doubleLimitStencil.stencilTableCreated &&
         doubleLimitStencil.stencilSourcesMatchFaceOneRing &&
@@ -1810,8 +1810,8 @@ int run_proof()
               << (accumulationParity.matchesSerialOpenMpShape ? "true" : "false");
     std::cout << "}";
     std::cout << ",\"production_route_policy_diagnostic\":{";
-    std::cout << "\"scope\":\"opt-in diagnostic call to the disabled regular OpenSubdiv production route parity recheck; no production route consumes OpenSubdiv rows\"";
-    std::cout << ",\"not_production_routing\":true";
+    std::cout << "\"scope\":\"opt-in diagnostic call to the guarded regular OpenSubdiv production route parity recheck\"";
+    std::cout << ",\"not_production_routing\":false";
     std::cout << ",\"production_api\":\"diagnose_opensubdiv_regular_production_call_parity\"";
     std::cout << ",\"runtime_opt_in_requested\":"
               << (productionRoutePolicy.runtimeOptInRequested ? "true" : "false");
