@@ -54,6 +54,12 @@ class OpenSubdivRegularCppAdapterProofInventoryTest(unittest.TestCase):
         self.assertIn("serial OpenMP accumulation parity", invariants)
         self.assertIn("serial OpenMP production shape reference", invariants)
         self.assertIn("serial OpenMP pass flag", invariants)
+        self.assertIn("production route policy diagnostic", invariants)
+        self.assertIn("production route diagnostic API", invariants)
+        self.assertIn("production route policy blocked state", invariants)
+        self.assertIn("production route current tolerance", invariants)
+        self.assertIn("production route required tolerance source", invariants)
+        self.assertIn("production route activation decision", invariants)
         self.assertIn("not production routing", invariants)
         for needle in invariants.values():
             self.assertIn(needle, source)
@@ -109,12 +115,29 @@ class OpenSubdivRegularCppAdapterProofInventoryTest(unittest.TestCase):
         self.assertIn("matches_serial_openmp_accumulation_shape", source)
         self.assertIn("route_installed_in_production", source)
 
+    def test_cpp_proof_covers_production_route_policy_diagnostic(self):
+        source = (inventory.repo_root() / inventory.CPP_PROOF_PATH).read_text(encoding="utf-8")
+
+        self.assertIn('\\"production_route_policy_diagnostic\\":{', source)
+        self.assertIn("run_regular_production_route_policy_diagnostic", source)
+        self.assertIn("diagnose_opensubdiv_regular_production_call_parity", source)
+        self.assertIn("SLIMED_USE_OPENSUBDIV_REGULAR", source)
+        self.assertIn("production_route_enabled", source)
+        self.assertIn("route_installed_in_production", source)
+        self.assertIn("routed_residual_required_absolute_tolerance", source)
+        self.assertIn("routed_residual_required_relative_tolerance", source)
+        self.assertIn("routed_residual_required_tolerance_source", source)
+        self.assertIn("routed_residual_activation_policy_decision", source)
+        self.assertIn("blocked_pending_residual_tolerance_policy", source)
+        self.assertIn("productionRoutePolicyPassed", source)
+
     def test_wrapper_is_explicit_opensubdiv_root_only(self):
         source = (inventory.repo_root() / inventory.WRAPPER_PATH).read_text(encoding="utf-8")
 
         self.assertIn("OPENSUBDIV_ROOT is not set", source)
         self.assertIn("--require-opensubdiv", source)
         self.assertIn("experiments/opensubdiv_regular_cpp_adapter_proof.cpp", source)
+        self.assertIn("-DUSE_OPENSUBDIV_REGULAR", source)
         self.assertIn("repo_sources", source)
         self.assertIn("-losdCPU", source)
         self.assertNotIn("make ", source)

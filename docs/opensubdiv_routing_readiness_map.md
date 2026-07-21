@@ -95,6 +95,10 @@ The first production seam is deliberately small:
   `routedResidualActivationAllowedByCurrentPolicy`, and
   `routedResidualActivationPolicyDecision` so the current state is recorded as a
   blocked/readiness decision instead of an implicit activation policy.
+  The opt-in C++ proof wrapper also emits the same current-policy state as a
+  machine-readable `production_route_policy_diagnostic` report for reviewer
+  decision packets; it still records `not_production_routing:true` and route
+  installation remains disabled.
   This isolates the remaining blocker to OpenSubdiv row precision or a
   reviewed tolerance/precision decision rather than an obvious
   `Face::oneRingVertices` scatter wiring bug.

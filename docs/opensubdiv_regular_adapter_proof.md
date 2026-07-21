@@ -157,6 +157,25 @@ This is a local shape/tolerance proof only. It does not change production
 OpenMP pragmas, thread-buffer allocation, reduction ordering, force formulas,
 scatter order, Makefile defaults, or dependency behavior.
 
+## Production Route Policy Diagnostic
+
+The C++ report now emits `production_route_policy_diagnostic` as an
+opt-in, machine-readable view of the current disabled production-route parity
+recheck. The wrapper compiles the temporary binary with
+`USE_OPENSUBDIV_REGULAR` only after `OPENSUBDIV_ROOT` is supplied, sets
+`SLIMED_USE_OPENSUBDIV_REGULAR=1` only inside the report process, and calls
+`diagnose_opensubdiv_regular_production_call_parity` on the deterministic
+regular production fixture used by the focused route-guard tests.
+
+The emitted JSON states `not_production_routing:true`,
+`production_route_enabled:false`, `route_installed_in_production:false`, the
+direct-row override result, the direct-vs-routed result, exact routed residual
+absolute and relative tolerance metrics, the required-tolerance source, and the
+current activation policy decision. The expected current decision is
+`blocked_pending_residual_tolerance_policy`: the diagnostic is evidence for a
+reviewed residual precision/tolerance decision, not acceptance of that policy
+and not approval to install OpenSubdiv-derived rows in production.
+
 ## Proof Boundary
 
 For the regular lattice fixture, the report remaps OpenSubdiv stencil rows into
@@ -198,7 +217,10 @@ The report records all of the following as machine-readable JSON:
   legacy visible volume using OpenSubdiv-derived regular rows in a local
   `Param`; and
 - proof-local serial/OpenMP-style accumulation parity for the current
-  `nVertices*9` force-buffer scatter/reduction shape.
+  `nVertices*9` force-buffer scatter/reduction shape; and
+- an opt-in production route policy diagnostic that emits exact current
+  routed-residual tolerance metrics and the blocked activation-policy decision
+  without installing the route.
 
 This proves an experimental adapter boundary can produce the reviewable
 weighted-sample contract for the regular fixture. It does not approve any
@@ -209,5 +231,7 @@ production route to consume OpenSubdiv-derived rows.
 Before production routing can change, a later reviewed PR must still compare
 OpenSubdiv-derived rows against routed production call timing and scatter in
 the real C++ route, including output-visible state beyond this regular
-area/volume characterization and serial/OpenMP accumulation behavior. This
-proof is prerequisite evidence only.
+area/volume characterization, serial/OpenMP accumulation behavior, and an
+explicit reviewed residual precision/tolerance policy if the remaining routed
+row residuals are accepted instead of corrected. This proof is prerequisite
+evidence only.
