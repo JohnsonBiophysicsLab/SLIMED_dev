@@ -2082,6 +2082,10 @@ TEST(OpenSubdivRegularProductionRoutingGuard,
               "blocked_by_routed_residual_tolerance");
     EXPECT_EQ(recheck.routedResidualActivationBlocker,
               requiredToleranceSource);
+    EXPECT_FALSE(recheck.routedResidualCurrentPolicySatisfied);
+    EXPECT_FALSE(recheck.routedResidualActivationAllowedByCurrentPolicy);
+    EXPECT_EQ(recheck.routedResidualActivationPolicyDecision,
+              "blocked_pending_residual_tolerance_policy");
     EXPECT_TRUE(build_opensubdiv_regular_shape_functions_by_face(mesh).empty());
 }
 
