@@ -77,9 +77,9 @@ def main():
         mode_checks[name] = (
             report.get("execution_mode") == execution_mode
             and report.get("candidate_rows_requested") is requested
-            and report.get("candidate_rows_installed_in_diagnostic_build") is installed
+            and report.get("candidate_rows_installed_in_opt_in_build") is installed
             and report.get("candidate_shape_face_count") == expected_candidate_faces
-            and report.get("not_production_routing") is True
+            and report.get("production_route_exercised") is requested
         )
 
     comparisons = {
@@ -101,9 +101,9 @@ def main():
     )
     summary = {
         "status": "passed" if passed else "failed",
-        "proof_kind": "disabled_double_row_serial_openmp_executable_output_parity",
-        "not_production_routing": True,
-        "route_activation_allowed": False,
+        "proof_kind": "guarded_regular_route_serial_openmp_executable_output_parity",
+        "production_route_exercised": True,
+        "route_activation_allowed": passed,
         "tolerance": args.tolerance,
         "mode_checks": mode_checks,
         "comparisons": comparisons,

@@ -74,7 +74,6 @@ common=(
     "${cxx}"
     -std=c++17
     -DUSE_OPENSUBDIV_REGULAR
-    -DSLIMED_OPENSUBDIV_REGULAR_EXECUTABLE_PARITY
     -Iinclude
     -Iinclude/energy_force
     -Iinclude/linalg

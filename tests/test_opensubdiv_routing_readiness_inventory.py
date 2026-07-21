@@ -43,8 +43,8 @@ class OpenSubdivRoutingReadinessInventoryTest(unittest.TestCase):
         }
 
         regular = matrix["regular 12-control membrane force"]
-        self.assertIn("not production-routed", regular["readiness_result"])
-        self.assertIn("PR #82", regular["opensubdiv_evidence_status"])
+        self.assertIn("guarded regular production route active", regular["readiness_result"])
+        self.assertIn("double-row route passes", regular["opensubdiv_evidence_status"])
 
         irregular_11 = matrix["positive-depth 11 = 4+3+4 membrane force"]
         self.assertIn("subdivision matrices", irregular_11["current_production_status"])

@@ -44,7 +44,7 @@ class OpenSubdivRegularCppAdapterProofInventoryTest(unittest.TestCase):
         self.assertIn("production helper API", invariants)
         self.assertIn("OpenSubdiv rows installed locally", invariants)
         self.assertIn("default dependency unchanged", invariants)
-        self.assertIn("no production route installed", invariants)
+        self.assertIn("proof-local dry runs remain isolated", invariants)
         self.assertIn("production helper dry-run pass flag", invariants)
         self.assertIn("visible observable dry run", invariants)
         self.assertIn("visible observable production API", invariants)
@@ -56,7 +56,7 @@ class OpenSubdivRegularCppAdapterProofInventoryTest(unittest.TestCase):
         self.assertIn("serial OpenMP pass flag", invariants)
         self.assertIn("production route policy diagnostic", invariants)
         self.assertIn("production route diagnostic API", invariants)
-        self.assertIn("production route policy candidate state", invariants)
+        self.assertIn("production route policy active state", invariants)
         self.assertIn("production route current tolerance", invariants)
         self.assertIn("production route required tolerance source", invariants)
         self.assertIn("production route activation decision", invariants)
@@ -134,7 +134,7 @@ class OpenSubdivRegularCppAdapterProofInventoryTest(unittest.TestCase):
         self.assertIn("routed_residual_required_tolerance_source", source)
         self.assertIn("routed_residual_activation_policy_decision", source)
         self.assertIn(
-            "current_policy_satisfied_pending_serial_openmp_and_reviewer_approval",
+            "current_policy_satisfied_route_active",
             source,
         )
         self.assertIn("productionRoutePolicyPassed", source)

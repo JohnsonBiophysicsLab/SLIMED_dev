@@ -1,15 +1,14 @@
 # OpenSubdiv Regular Executable Parity
 
-This evidence lane compares complete evaluator-visible state for the disabled
-double-row regular OpenSubdiv candidate. It is not production routing and does
-not approve route activation.
+This gate compares complete evaluator-visible state for the guarded regular
+OpenSubdiv production route. The route exists only in an OpenSubdiv-enabled
+binary and still requires explicit runtime opt-in.
 
 The standalone harness compiles the real mesh and energy/force implementation
-twice, once serially and once with the existing `OMP` accumulator. A dedicated
-`SLIMED_OPENSUBDIV_REGULAR_EXECUTABLE_PARITY` compile definition allows only
-those proof binaries to install candidate rows when
-`SLIMED_USE_OPENSUBDIV_REGULAR=1` is also set. Ordinary builds do not define the
-proof macro, so `kOpenSubdivRegularProductionRouteEnabled` remains `false`.
+twice, once serially and once with the existing `OMP` accumulator. Both binaries
+use the normal `USE_OPENSUBDIV_REGULAR` build gate. Candidate snapshots set
+`SLIMED_USE_OPENSUBDIV_REGULAR=1`; direct snapshots omit it. Default builds
+remain OpenSubdiv-free and cannot silently select this route.
 
 The wrapper executes four snapshots from the same deterministic periodic mesh:
 
@@ -37,8 +36,11 @@ OPENSUBDIV_ROOT=/path/to/opensubdiv \
 scripts/run_opensubdiv_regular_executable_parity.sh --require-opensubdiv
 ```
 
-A passing report closes the executable-output evidence gate only. Guarded
-production activation remains a separate reviewer- and user-approved change.
+A passing report verifies that the guarded production route remains within the
+reviewed parity policy. The route also checks generated rows against the frozen
+regular plan and leaves unsupported or non-equivalent faces on their existing
+path. It does not establish irregular, boundary, ghost, or broader-valence
+OpenSubdiv routing.
 
 On the deterministic periodic fixture, the candidate passed all four
 comparisons. The largest direct-versus-candidate difference was
@@ -46,4 +48,5 @@ comparisons. The largest direct-versus-candidate difference was
 was `1.4551915228366852e-11`. The largest serial-versus-OpenMP difference was
 `2.3283064365386963e-10` in global energy, with vertex forces at or below
 `7.275957614183426e-12`. All reported channels remain well inside the unchanged
-`5e-6` policy.
+`5e-6` policy. These values were reproduced before activation and remain the
+acceptance envelope for the guarded route.
