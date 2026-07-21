@@ -68,7 +68,7 @@ EVIDENCE_LINEAGE: tuple[dict[str, str], ...] = (
     {
         "lane": "PR #73 routing readiness map",
         "anchor": "docs/opensubdiv_routing_readiness_map.md",
-        "adapter_meaning": "keep regular production routing behind reviewer gates",
+        "adapter_meaning": "preserve the reviewed regular route gates and keep broader valence future-only",
     },
     {
         "lane": "PR #74 regular sample plan",
@@ -78,7 +78,7 @@ EVIDENCE_LINEAGE: tuple[dict[str, str], ...] = (
     {
         "lane": "PR #75 regular backend readiness",
         "anchor": "docs/opensubdiv_regular_backend_adapter_readiness.md",
-        "adapter_meaning": "keep regular adapter proof work review-gated and non-production",
+        "adapter_meaning": "preserve the proof lineage behind the active guarded regular route",
     },
     {
         "lane": "PR #76 through PR #82 proof lane",
@@ -88,7 +88,7 @@ EVIDENCE_LINEAGE: tuple[dict[str, str], ...] = (
     {
         "lane": "Guarded production regular seam",
         "anchor": "diagnose_opensubdiv_regular_row_semantics and USE_OPENSUBDIV_REGULAR=1",
-        "adapter_meaning": "compile and diagnose the guarded seam while keeping OpenSubdiv-derived rows disabled until routed semantics match",
+        "adapter_meaning": "route equivalent supported regular faces behind compile-time and runtime gates while retaining existing fallback paths",
     },
 )
 
@@ -97,42 +97,42 @@ ADAPTER_READINESS_CHECKLIST: tuple[dict[str, str], ...] = (
     {
         "gate": "regular sample coordinates and quadrature order",
         "must_prove": "frozen sample rows, weights, and half-weight formula factors",
-        "current_status": "characterized; guarded seam falls back to direct route",
+        "current_status": "preserved by the active guarded equivalent-row route",
     },
     {
         "gate": "coordinate and derivative convention",
         "must_prove": "s=v,t=w, orientation, seven rows, and duplicated mixed rows",
-        "current_status": "characterized; guarded seam falls back to direct route",
+        "current_status": "preserved by the active guarded equivalent-row route",
     },
     {
         "gate": "original source-id order",
         "must_prove": "row weights keyed by original SLIMED ids in Face::oneRingVertices order",
-        "current_status": "in-tree seam and opt-in row diagnostics characterized; OpenSubdiv production rows disabled",
+        "current_status": "preserved by the active guarded regular route and row diagnostics",
     },
     {
         "gate": "deterministic duplicate aggregation",
         "must_prove": "duplicate original source ids are summed before comparison",
-        "current_status": "in-tree seam characterized, not OpenSubdiv production routing",
+        "current_status": "preserved by the active guarded regular route",
     },
     {
         "gate": "actual force rows",
         "must_prove": "OpenSubdiv-derived rows compare through fBend, fArea, and fVolume",
-        "current_status": "test-only adapter proof exists; production route disabled after semantics drift",
+        "current_status": "test-only adapter proof and active guarded production evidence pass under current policy",
     },
     {
         "gate": "regular production helper dry run",
-        "must_prove": "OpenSubdiv-derived rows compare against Mesh::element_energy_force_regular without installing a production route",
-        "current_status": "proof-local dry-run evidence exists; routed rows disabled at production call sites",
+        "must_prove": "OpenSubdiv-derived rows compare against Mesh::element_energy_force_regular",
+        "current_status": "proof-local evidence is backed by active guarded direct/routed characterization",
     },
     {
         "gate": "output-visible state",
         "must_prove": "energies, normals, mean curvature, area, and legacy volume at production timing",
-        "current_status": "proof-local visible-observable dry run exists; runtime opt-in fallback preserves direct path",
+        "current_status": "guarded route output-visible parity passes; unsupported faces retain existing paths",
     },
     {
         "gate": "scatter and reduction",
         "must_prove": "Face::oneRingVertices scatter and current serial/OpenMP accumulation shape",
-        "current_status": "test-only scatter identity and serial/OpenMP-style accumulation parity exist; production serial/OpenMP evidence remains required",
+        "current_status": "active guarded serial/OpenMP executable parity passes under current policy",
     },
     {
         "gate": "dependency-present behavior",
@@ -147,7 +147,7 @@ ADAPTER_READINESS_CHECKLIST: tuple[dict[str, str], ...] = (
     {
         "gate": "production review gate",
         "must_prove": "separate reviewed PR before broader routing uses OpenSubdiv-derived rows",
-        "current_status": "regular 12-control seam installed; routed rows disabled",
+        "current_status": "equivalent non-boundary non-ghost regular route active; broader routing blocked",
     },
 )
 
@@ -387,11 +387,11 @@ ANCHORS: tuple[Anchor, ...] = (
     ),
     Anchor(
         "adapter checklist",
-        "prototype stop boundary",
+        "current activation boundary",
         ADAPTER_DOC_PATH,
-        "The next safe implementation step",
-        "prototype boundary",
-        "The checklist states that a future prototype remains inert unless separately reviewed.",
+        "The current safe production boundary",
+        "activation boundary",
+        "The checklist limits production behavior to the doubly gated equivalent-row route.",
     ),
     Anchor(
         "sample plan",
@@ -427,11 +427,11 @@ ANCHORS: tuple[Anchor, ...] = (
     ),
     Anchor(
         "routing readiness",
-        "guarded regular route disabled",
+        "guarded regular route active",
         READINESS_DOC_PATH,
-        "No OpenSubdiv-derived rows are production-routed yet",
+        "Guarded regular route active; preserve parity gates and direct fallback.",
         "guarded route",
-        "The routing map records that routed rows remain disabled.",
+        "The routing map records the active guarded regular route and retained fallback.",
     ),
     Anchor(
         "routing readiness",
