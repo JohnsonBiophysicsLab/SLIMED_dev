@@ -61,9 +61,9 @@ struct MeshCase
 
 struct RegularSample
 {
-    float v = 0.0f;
-    float w = 0.0f;
-    float u = 0.0f;
+    double v = 0.0;
+    double w = 0.0;
+    double u = 0.0;
     double weight = 0.0;
 };
 
@@ -159,6 +159,18 @@ struct AccumulationParityResult
     bool finite = false;
     bool nonzero = false;
     bool matchesSerialOpenMpShape = false;
+};
+
+struct DoubleLimitStencilFeasibilityResult
+{
+    bool stencilTableCreated = false;
+    bool stencilSourcesMatchFaceOneRing = true;
+    bool mixedRowsDuplicated = true;
+    int sampleCount = 0;
+    double maxFloatStencilVsSlimedRowDifference = 0.0;
+    double maxDoubleStencilVsSlimedRowDifference = 0.0;
+    double maxDoubleStencilVsFloatStencilDifference = 0.0;
+    bool doubleRowsMatchSlimedAtStrictPrecision = false;
 };
 
 class ScopedEnvVar
@@ -530,9 +542,9 @@ Vec3d make_vec_from_column(const Matrix &matrix)
 std::array<RegularSample, 3> frozen_regular_samples()
 {
     return {{
-        {1.0f / 6.0f, 1.0f / 6.0f, 4.0f / 6.0f, 1.0 / 3.0},
-        {1.0f / 6.0f, 4.0f / 6.0f, 1.0f / 6.0f, 1.0 / 3.0},
-        {4.0f / 6.0f, 1.0f / 6.0f, 1.0f / 6.0f, 1.0 / 3.0},
+        {1.0 / 6.0, 1.0 / 6.0, 4.0 / 6.0, 1.0 / 3.0},
+        {1.0 / 6.0, 4.0 / 6.0, 1.0 / 6.0, 1.0 / 3.0},
+        {4.0 / 6.0, 1.0 / 6.0, 1.0 / 6.0, 1.0 / 3.0},
     }};
 }
 
@@ -640,6 +652,148 @@ WeightedSampleProof adapt_regular_sample(const MeshCase &mesh,
             evaluate_row_by_original_ids(mesh, sourceIds, proof.rowWeights[row]);
     }
     return proof;
+}
+
+double stencil_weight_for_source(
+    const Far::LimitStencilReal<double> &stencil,
+    const double *weights,
+    int sourceId)
+{
+    double result = 0.0;
+    const Far::Index *indices = stencil.GetVertexIndices();
+    for (int i = 0; i < stencil.GetSize(); ++i)
+    {
+        if (indices[i] == sourceId)
+        {
+            result += weights[i];
+        }
+    }
+    return result;
+}
+
+WeightedSampleProof adapt_regular_sample(
+    const MeshCase &mesh,
+    const Far::LimitStencilReal<double> &stencil,
+    const std::vector<int> &sourceIds)
+{
+    const std::array<const double *, 7> rowPtrs = {
+        stencil.GetWeights(),
+        stencil.GetDuWeights(),
+        stencil.GetDvWeights(),
+        stencil.GetDuuWeights(),
+        stencil.GetDvvWeights(),
+        stencil.GetDuvWeights(),
+        stencil.GetDuvWeights(),
+    };
+
+    WeightedSampleProof proof;
+    proof.sourceIds = sourceIds;
+    for (int row = 0; row < 7; ++row)
+    {
+        proof.rowWeights[row].assign(sourceIds.size(), 0.0);
+        for (int col = 0; col < static_cast<int>(sourceIds.size()); ++col)
+        {
+            proof.rowWeights[row][col] =
+                stencil_weight_for_source(stencil, rowPtrs[row], sourceIds[col]);
+        }
+        proof.evaluatedRows[row] =
+            evaluate_row_by_original_ids(mesh, sourceIds, proof.rowWeights[row]);
+    }
+    return proof;
+}
+
+DoubleLimitStencilFeasibilityResult evaluate_double_limit_stencil_feasibility(
+    const MeshCase &mesh,
+    Far::TopologyRefiner &refiner,
+    const std::vector<int> &faceOneRing,
+    const std::array<RegularSample, 3> &samples,
+    const std::vector<WeightedSampleProof> &floatStencilProofs)
+{
+    DoubleLimitStencilFeasibilityResult result;
+    double s[3] = {samples[0].v, samples[1].v, samples[2].v};
+    double t[3] = {samples[0].w, samples[1].w, samples[2].w};
+
+    typedef Far::LimitStencilTableFactoryReal<double> DoubleFactory;
+    DoubleFactory::LocationArray location;
+    location.ptexIdx = mesh.sampleFace;
+    location.numLocations = static_cast<int>(samples.size());
+    location.s = s;
+    location.t = t;
+    DoubleFactory::LocationArrayVec locations;
+    locations.push_back(location);
+
+    DoubleFactory::Options options;
+    options.generate1stDerivatives = true;
+    options.generate2ndDerivatives = true;
+    const Far::LimitStencilTableReal<double> *stencils =
+        DoubleFactory::Create(refiner, locations, 0, 0, options);
+    if (stencils == nullptr)
+    {
+        return result;
+    }
+    result.stencilTableCreated = true;
+
+    Param directSourceParam;
+    directSourceParam.VERBOSE_MODE = false;
+    Mesh directMesh(directSourceParam);
+    const Param &directParam = directMesh.param;
+    if (directParam.shapeFunctions.size() != samples.size() ||
+        stencils->GetNumStencils() != static_cast<int>(samples.size()))
+    {
+        delete stencils;
+        return result;
+    }
+
+    const std::set<int> expectedSources(faceOneRing.begin(), faceOneRing.end());
+    for (int sampleIndex = 0; sampleIndex < stencils->GetNumStencils(); ++sampleIndex)
+    {
+        const Far::LimitStencilReal<double> stencil =
+            stencils->GetLimitStencil(sampleIndex);
+        const Far::Index *indices = stencil.GetVertexIndices();
+        std::set<int> stencilSources;
+        for (int i = 0; i < stencil.GetSize(); ++i)
+        {
+            stencilSources.insert(indices[i]);
+        }
+        result.stencilSourcesMatchFaceOneRing =
+            result.stencilSourcesMatchFaceOneRing &&
+            stencilSources == expectedSources;
+
+        WeightedSampleProof proof =
+            adapt_regular_sample(mesh, stencil, faceOneRing);
+        for (int row = 0; row < kProductionDerivativeRowCount; ++row)
+        {
+            for (int col = 0; col < static_cast<int>(faceOneRing.size()); ++col)
+            {
+                const double directValue =
+                    directParam.shapeFunctions[sampleIndex].get(row, col);
+                result.maxDoubleStencilVsSlimedRowDifference = std::max(
+                    result.maxDoubleStencilVsSlimedRowDifference,
+                    std::abs(proof.rowWeights[row][col] - directValue));
+                result.maxFloatStencilVsSlimedRowDifference = std::max(
+                    result.maxFloatStencilVsSlimedRowDifference,
+                    std::abs(floatStencilProofs[sampleIndex].rowWeights[row][col] -
+                             directValue));
+                result.maxDoubleStencilVsFloatStencilDifference = std::max(
+                    result.maxDoubleStencilVsFloatStencilDifference,
+                    std::abs(proof.rowWeights[row][col] -
+                             floatStencilProofs[sampleIndex].rowWeights[row][col]));
+            }
+        }
+        result.mixedRowsDuplicated =
+            result.mixedRowsDuplicated &&
+            proof.rowWeights[static_cast<int>(WeightedRow::MixedDerivativeVW)] ==
+                proof.rowWeights[static_cast<int>(WeightedRow::MixedDerivativeWV)];
+        ++result.sampleCount;
+    }
+    delete stencils;
+
+    result.doubleRowsMatchSlimedAtStrictPrecision =
+        result.stencilTableCreated && result.stencilSourcesMatchFaceOneRing &&
+        result.mixedRowsDuplicated &&
+        result.sampleCount == static_cast<int>(samples.size()) &&
+        result.maxDoubleStencilVsSlimedRowDifference <= 1.0e-12;
+    return result;
 }
 
 void accumulate_area_volume(const WeightedSampleProof &proof,
@@ -1217,8 +1371,12 @@ int run_proof()
     refiner->RefineAdaptive(adaptiveOptions);
 
     const std::array<RegularSample, 3> samples = frozen_regular_samples();
-    float s[3] = {samples[0].v, samples[1].v, samples[2].v};
-    float t[3] = {samples[0].w, samples[1].w, samples[2].w};
+    float s[3] = {static_cast<float>(samples[0].v),
+                  static_cast<float>(samples[1].v),
+                  static_cast<float>(samples[2].v)};
+    float t[3] = {static_cast<float>(samples[0].w),
+                  static_cast<float>(samples[1].w),
+                  static_cast<float>(samples[2].w)};
 
     Far::LimitStencilTableFactory::LocationArray location;
     location.ptexIdx = mesh.sampleFace;
@@ -1361,6 +1519,13 @@ int run_proof()
         std::cout << "}";
     }
 
+    const DoubleLimitStencilFeasibilityResult doubleLimitStencil =
+        evaluate_double_limit_stencil_feasibility(mesh,
+                                                  *refiner,
+                                                  faceOneRing,
+                                                  samples,
+                                                  proofs);
+
     ActualForceResult forceResult;
     forceResult.fBend.assign(mesh.numVertices * 3, 0.0);
     forceResult.fArea.assign(mesh.numVertices * 3, 0.0);
@@ -1485,12 +1650,18 @@ int run_proof()
         !productionRoutePolicy.routedResidualActivationAllowedByCurrentPolicy &&
         productionRoutePolicy.routedResidualActivationPolicyDecision ==
             "blocked_pending_residual_tolerance_policy";
+    const bool doubleLimitStencilDiagnosticPassed =
+        doubleLimitStencil.stencilTableCreated &&
+        doubleLimitStencil.stencilSourcesMatchFaceOneRing &&
+        doubleLimitStencil.mixedRowsDuplicated &&
+        doubleLimitStencil.sampleCount == static_cast<int>(samples.size()) &&
+        doubleLimitStencil.doubleRowsMatchSlimedAtStrictPrecision;
     const bool passed =
         adapterRowsPassed && actualForceRowsPassed && productionCallShadowPassed &&
         productionDryRun.matchesProofLocalRows &&
         visibleObservables.matchesProductionAreaVolume &&
         accumulationParity.matchesSerialOpenMpShape &&
-        productionRoutePolicyPassed;
+        productionRoutePolicyPassed && doubleLimitStencilDiagnosticPassed;
 
     std::cout << "]";
     std::cout << ",\"summary\":{";
@@ -1506,6 +1677,31 @@ int run_proof()
     std::cout << ",\"tolerance\":" << kTolerance;
     std::cout << ",\"passed\":"
               << (adapterRowsPassed ? "true" : "false");
+    std::cout << "}";
+    std::cout << ",\"double_limit_stencil_feasibility\":{";
+    std::cout << "\"scope\":\"proof-only comparison of OpenSubdiv double limit-stencil rows against current float limit-stencil rows and frozen SLIMED double rows\"";
+    std::cout << ",\"not_production_routing\":true";
+    std::cout << ",\"production_route_enabled\":false";
+    std::cout << ",\"route_installed_in_production\":false";
+    std::cout << ",\"tolerance_policy_changed\":false";
+    std::cout << ",\"stencil_table_created\":"
+              << (doubleLimitStencil.stencilTableCreated ? "true" : "false");
+    std::cout << ",\"stencil_sources_match_face_one_ring\":"
+              << (doubleLimitStencil.stencilSourcesMatchFaceOneRing ? "true" : "false");
+    std::cout << ",\"mixed_rows_duplicated\":"
+              << (doubleLimitStencil.mixedRowsDuplicated ? "true" : "false");
+    std::cout << ",\"sample_count\":" << doubleLimitStencil.sampleCount;
+    std::cout << ",\"max_float_limit_stencil_vs_slimed_row_difference\":"
+              << doubleLimitStencil.maxFloatStencilVsSlimedRowDifference;
+    std::cout << ",\"max_double_limit_stencil_vs_slimed_row_difference\":"
+              << doubleLimitStencil.maxDoubleStencilVsSlimedRowDifference;
+    std::cout << ",\"max_double_vs_float_limit_stencil_difference\":"
+              << doubleLimitStencil.maxDoubleStencilVsFloatStencilDifference;
+    std::cout << ",\"strict_precision_tolerance\":1e-12";
+    std::cout << ",\"double_rows_match_slimed_at_strict_precision\":"
+              << (doubleLimitStencil.doubleRowsMatchSlimedAtStrictPrecision ? "true" : "false");
+    std::cout << ",\"diagnostic_passed\":"
+              << (doubleLimitStencilDiagnosticPassed ? "true" : "false");
     std::cout << "}";
     std::cout << ",\"production_call_shadow\":{";
     std::cout << "\"scope\":\"proof-local shadow of the current regular production call shape; no production route invokes OpenSubdiv\"";

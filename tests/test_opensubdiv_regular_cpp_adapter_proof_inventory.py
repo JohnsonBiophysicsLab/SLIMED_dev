@@ -60,6 +60,11 @@ class OpenSubdivRegularCppAdapterProofInventoryTest(unittest.TestCase):
         self.assertIn("production route current tolerance", invariants)
         self.assertIn("production route required tolerance source", invariants)
         self.assertIn("production route activation decision", invariants)
+        self.assertIn("double limit stencil feasibility", invariants)
+        self.assertIn("double limit stencil factory", invariants)
+        self.assertIn("double source identity", invariants)
+        self.assertIn("strict double row match", invariants)
+        self.assertIn("tolerance policy unchanged", invariants)
         self.assertIn("not production routing", invariants)
         for needle in invariants.values():
             self.assertIn(needle, source)
@@ -130,6 +135,19 @@ class OpenSubdivRegularCppAdapterProofInventoryTest(unittest.TestCase):
         self.assertIn("routed_residual_activation_policy_decision", source)
         self.assertIn("blocked_pending_residual_tolerance_policy", source)
         self.assertIn("productionRoutePolicyPassed", source)
+
+    def test_cpp_proof_covers_double_limit_stencil_feasibility(self):
+        source = (inventory.repo_root() / inventory.CPP_PROOF_PATH).read_text(encoding="utf-8")
+
+        self.assertIn('\\"double_limit_stencil_feasibility\\":{', source)
+        self.assertIn("LimitStencilTableFactoryReal<double>", source)
+        self.assertIn("LimitStencilTableReal<double>", source)
+        self.assertIn("max_float_limit_stencil_vs_slimed_row_difference", source)
+        self.assertIn("max_double_limit_stencil_vs_slimed_row_difference", source)
+        self.assertIn("max_double_vs_float_limit_stencil_difference", source)
+        self.assertIn("double_rows_match_slimed_at_strict_precision", source)
+        self.assertIn('\\"tolerance_policy_changed\\":false', source)
+        self.assertIn('\\"production_route_enabled\\":false', source)
 
     def test_wrapper_is_explicit_opensubdiv_root_only(self):
         source = (inventory.repo_root() / inventory.WRAPPER_PATH).read_text(encoding="utf-8")
