@@ -99,7 +99,9 @@ Any follow-up must stop before adding:
 The opt-in route currently rebuilds and refines its OpenSubdiv topology when
 geometry or force rows are requested. Correctness and parity gates pass, but
 the route is not performance-tuned; caching or lifetime changes require a
-separate ownership and invalidation review.
+separate ownership and invalidation review. Reproducible direct-versus-routed
+measurements and the cache design questions are recorded in
+`docs/opensubdiv_regular_route_performance.md`.
 
 If any of those decisions are needed, the correct result is a blocker report
 and a new prompt for an explicitly reviewed implementation lane.
