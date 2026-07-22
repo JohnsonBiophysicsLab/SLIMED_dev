@@ -68,7 +68,7 @@ must answer, before implementation:
 Measured evidence should be reviewed before choosing a cache lifetime. This
 document and its harness do not approve a particular ownership model.
 
-The next appropriate lane is therefore a reviewer-gated cache design and
-prototype. It should first prove topology lifetime and invalidation behavior in
-an experimental or test-only surface. Production ownership changes should be a
-separate PR after that evidence is accepted.
+The cache ownership, fingerprint, invalidation, copy/move, and concurrency
+contract is recorded in `docs/opensubdiv_regular_cache_readiness.md`. Its next
+step is an experimental or test-only prototype. Production ownership changes
+remain a separate PR after that evidence is accepted.
