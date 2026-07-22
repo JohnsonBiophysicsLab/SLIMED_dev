@@ -56,7 +56,8 @@ PROTOTYPE_GATES = (
     "coordinate-only cache hit with full observable parity",
     "topology and sample-plan mutation misses",
     "copy move destruction and concurrent mesh isolation",
-    "runtime opt-out and unsupported fallback unchanged",
+    "runtime opt-out ignores populated cache and preserves direct semantics",
+    "unsupported fallback unchanged",
     "PR #106 benchmark matrix repeated",
 )
 

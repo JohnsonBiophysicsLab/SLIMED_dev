@@ -90,8 +90,9 @@ sample-plan changes must produce a cache miss and rebuild before publication.
   fallback state.
 - Build counters and diagnostics must be synchronized and must not affect
   numerical accumulation order.
-- Runtime opt-out bypasses cache construction. Default builds remain
-  OpenSubdiv-free.
+- Runtime opt-out bypasses cache lookup, reuse, and construction, including any
+  table populated by an earlier opted-in evaluation, and preserves the current
+  direct regular semantics. Default builds remain OpenSubdiv-free.
 
 ## Prototype acceptance gates
 
@@ -108,8 +109,9 @@ cache PR is proposed:
    not share stale or mutable backend state. A serialized mutation/read test
    confirms that mutation produces a miss before readers resume; concurrent
    public-container mutation is explicitly unsupported.
-5. Runtime opt-out, unsupported-face fallback, dependency-absent builds, and
-   current serial/OpenMP reduction behavior remain unchanged.
+5. Runtime opt-out ignores any previously populated table and preserves direct
+   semantics; unsupported-face fallback, dependency-absent builds, and current
+   serial/OpenMP reduction behavior remain unchanged.
 6. The active regular route is benchmarked again with the same harness and
    fixture matrix used for the PR #106 baseline.
 

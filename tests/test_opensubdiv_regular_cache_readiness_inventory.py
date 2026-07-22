@@ -52,6 +52,10 @@ class OpenSubdivRegularCacheReadinessInventoryTest(unittest.TestCase):
         self.assertIn("coordinate-only cache hit with full observable parity", gates)
         self.assertIn("topology and sample-plan mutation misses", gates)
         self.assertIn("copy move destruction and concurrent mesh isolation", gates)
+        self.assertIn(
+            "runtime opt-out ignores populated cache and preserves direct semantics",
+            gates,
+        )
         self.assertIn("PR #106 benchmark matrix repeated", gates)
 
     def test_all_inventory_anchors_are_present(self):
