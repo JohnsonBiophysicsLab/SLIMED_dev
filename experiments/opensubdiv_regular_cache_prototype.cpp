@@ -458,6 +458,7 @@ struct ProofResult
 {
     bool oneBuildForUnchanged = false;
     bool coordinateOnlyHit = false;
+    bool coordinateOnlyObservableParity = false;
     bool topologyMutationMiss = false;
     bool samplePlanMutationMiss = false;
     bool adjacentTopologyMutationMiss = false;
@@ -514,6 +515,16 @@ ProofResult run_proof()
         2, 0, fixture.mesh.vertices.front().coord.get(2, 0) + 0.125);
     result.coordinateOnlyHit =
         cache.get(fixture.mesh) == initial && cache.build_count() == 1;
+    const ObservableSnapshot coordinateCached =
+        run_regular_observables(fixture.mesh, initial.get());
+    MeshFixture coordinateDirectFixture;
+    coordinateDirectFixture.mesh.vertices.front().coord.set(
+        2, 0,
+        coordinateDirectFixture.mesh.vertices.front().coord.get(2, 0) + 0.125);
+    const ObservableSnapshot coordinateDirect =
+        run_regular_observables(coordinateDirectFixture.mesh, nullptr);
+    result.coordinateOnlyObservableParity =
+        max_observable_difference(coordinateCached, coordinateDirect) <= 5.0e-6;
 
     const auto faceIterator = std::find_if(
         fixture.mesh.faces.begin(), fixture.mesh.faces.end(),
@@ -590,6 +601,9 @@ ProofResult run_proof()
 
     const double originalQuadrature =
         fixture.param.gaussQuadratureCoeff.get(0, 0);
+    PrototypeRegularRowCache serializedMutationCache;
+    const std::shared_ptr<const RegularRowTable> serializedInitial =
+        serializedMutationCache.get(fixture.mesh);
     fixture.param.gaussQuadratureCoeff.set(
         0, 0, originalQuadrature + 0.01);
     buildsBeforeMutation = cache.build_count();
@@ -598,7 +612,6 @@ ProofResult run_proof()
     result.quadratureMutationMiss =
         quadratureMutation && cache.build_count() == buildsBeforeMutation + 1;
 
-    PrototypeRegularRowCache serializedMutationCache;
     std::vector<std::shared_ptr<const RegularRowTable>> mutationReaders(6);
     std::vector<std::thread> mutationReaderThreads;
     for (std::size_t index = 0; index < mutationReaders.size(); ++index)
@@ -613,8 +626,9 @@ ProofResult run_proof()
         reader.join();
     }
     result.serializedMutationReadersSeeRebuild =
-        serializedMutationCache.build_count() == 1 &&
+        serializedInitial && serializedMutationCache.build_count() == 2 &&
         mutationReaders.front() &&
+        mutationReaders.front() != serializedInitial &&
         std::all_of(mutationReaders.begin(), mutationReaders.end(),
                     [&mutationReaders](const auto &table) {
                         return table == mutationReaders.front();
@@ -715,6 +729,7 @@ ProofResult run_proof()
 bool passed(const ProofResult &result)
 {
     return result.oneBuildForUnchanged && result.coordinateOnlyHit &&
+           result.coordinateOnlyObservableParity &&
            result.topologyMutationMiss && result.samplePlanMutationMiss &&
            result.adjacentTopologyMutationMiss &&
            result.faceIndexMutationMiss &&
@@ -746,6 +761,8 @@ int main()
     print_bool("passed", success);
     print_bool("one_build_for_unchanged", result.oneBuildForUnchanged);
     print_bool("coordinate_only_hit", result.coordinateOnlyHit);
+    print_bool("coordinate_only_observable_parity",
+               result.coordinateOnlyObservableParity);
     print_bool("topology_mutation_miss", result.topologyMutationMiss);
     print_bool("sample_plan_mutation_miss", result.samplePlanMutationMiss);
     print_bool("adjacent_topology_mutation_miss",

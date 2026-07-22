@@ -19,6 +19,7 @@ ANCHORS = {
     "complete fingerprint": (SOURCE, "regular_cache_fingerprint"),
     "OpenSubdiv version key": (SOURCE, "OPENSUBDIV_VERSION_NUMBER"),
     "coordinate hit": (SOURCE, "coordinateOnlyHit"),
+    "coordinate observable parity": (SOURCE, "coordinateOnlyObservableParity"),
     "topology miss": (SOURCE, "topologyMutationMiss"),
     "sample-plan miss": (SOURCE, "samplePlanMutationMiss"),
     "adjacent topology miss": (SOURCE, "adjacentTopologyMutationMiss"),
