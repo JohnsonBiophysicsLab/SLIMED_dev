@@ -37,8 +37,9 @@ unavailable unless they carry an equally explicit reviewed contract.
 
 ## Current Inventory Snapshot
 
-`data/example/vertices_flat.csv + data/example/faces_flat.csv` is the only
-checked-in triangulated mesh fixture discovered by the command:
+The command discovers the negative `data/example` physical fixture and the
+approved narrow positive stand-in under `data/fixtures/closed_valence5`.
+For `data/example`:
 
 - 1,927 vertices and 3,680 faces.
 - Edge incidence counts: 172 boundary edges and 5,434 two-face edges.
@@ -69,22 +70,24 @@ The generated `closed_icosahedron_valence5` probe reports:
 - The same 20 faces also map to the zero-depth guard when
   `Param::subDivideTimes <= 0`.
 
-This generated probe is not a production scientific fixture. It is a
-topology-only sanity check that the discovery command can identify physical
-11-control candidates when face connectivity exposes them.
+The user-approved narrow scientific stand-in is now checked in as the same
+coordinates/connectivity under `data/fixtures/closed_valence5`. Production
+setup confirms 20 physical 11-control faces and executable serial/OpenMP
+evidence is recorded separately. This approval does not approve
+broader-valence or OpenSubdiv irregular routing.
 
 ## Resulting Gap Status
 
-The representative fixture decision is resolved for `data/example`, but the
-positive irregular fixture gap remains open:
+The representative fixture decisions are now resolved for the negative
+physical fixture and the narrow positive stand-in:
 
 - The repo now has an inert command and report for discovering candidate
   irregular fixtures.
 - The approved checked-in mesh provides explicit production ghost status and
   proves that it has no physical irregular face.
-- A future positive fixture still needs reviewed coordinates/connectivity with
-  at least one non-ghost 11-control candidate, or an explicit scientific waiver
-  allowing the generated closed valence-5 mesh to stand in for that claim.
+- The serialized closed valence-5 stand-in supplies the approved positive
+  11-control fixture contract. Broader-valence fixture requirements remain
+  open and separate.
 
 The serial/OpenMP tolerance policy, broader valence policy, and OpenSubdiv
 replacement criteria remain separate lanes.

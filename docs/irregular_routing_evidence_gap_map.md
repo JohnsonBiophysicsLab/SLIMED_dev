@@ -10,7 +10,7 @@ behavior, scatter order, or broader valence support.
 | Route | Current behavior | Current evidence | Remaining gap |
 | --- | --- | --- | --- |
 | Regular 12-control membrane force | Supported. | Regular evaluator, force formula, and scatter characterization tests. | Preserve serial/OpenMP baselines if a future backend changes row weights or force scatter. |
-| 11-control `4+3+4` membrane force with `Param::subDivideTimes > 0` | Supported narrowly through existing subdivision matrices and transpose back-projection. | Synthetic 11-control area/volume and energy/force tests compare production output against independent test-side subdivision/back-projection. The serial/OpenMP tolerance lane now replays the documented thread-buffer reduction shape on deterministic synthetic route outputs. | Representative physical fixtures and executable-level serial/OpenMP baselines remain open until a stable production fixture exists. |
+| 11-control `4+3+4` membrane force with `Param::subDivideTimes > 0` | Supported narrowly through existing subdivision matrices and transpose back-projection. | Synthetic route tests plus the approved closed valence-5 stand-in exercise all 20 physical faces through production setup. Actual serial/OpenMP executables compare energy, force, normals, area, legacy volume, and mean curvature within `1.0e-10`. | Preserve the fixture and tolerance baselines; no narrow route evidence gap remains. |
 | 11-control membrane force with `Param::subDivideTimes <= 0` | Guarded unsupported. | Zero-depth diagnostic test verifies the route fails before regular fallback. | None for the current guard; changing this policy needs production review. |
 | Other irregular force topologies | Unsupported. | Documentation explicitly limits support to the existing `11 = 4+3+4` matrix contract. | Backend or valence policy, fixtures, expected outputs, and review criteria. |
 | OpenSubdiv-backed irregular replacement | Not production. | Existing OpenSubdiv docs/probe remain observational only. | Dependency/build policy, sample selection, source-id mapping, and force-formula equivalence. |
@@ -42,26 +42,21 @@ The serial/OpenMP tolerance companion check is
 `scripts/inventory_irregular_serial_omp_tolerance.py --check`, with the
 narrative snapshot in
 `docs/irregular_serial_omp_tolerance_characterization.md`. It records the
-current synthetic split-reduction tolerance envelope without changing
-production OpenMP behavior.
+synthetic split-reduction envelope and the approved closed valence-5 actual
+serial/OpenMP executable comparison without changing production OpenMP
+behavior.
 
 ## Evidence Gaps Worth Filling Next
 
-1. Representative irregular fixtures beyond the synthetic 11-control patch.
-   The next useful evidence is a fixture-discovery report or fixture generator
-   that finds real non-ghost irregular faces in production-like meshes without
-   changing setup behavior. The approved checked-in mesh now has explicit
-   production ghost characterization, but it contains no physical irregular
-   face. A positive fixture therefore still requires reviewed coordinates and
-   connectivity, or a scientific waiver for the generated valence-5 topology.
+1. Broader-valence representative fixtures. The narrow positive-depth
+   11-control fixture gate is resolved by the approved serialized closed
+   valence-5 stand-in. Unsupported broader valences still need their own
+   reviewed coordinates, route contract, and scientific expectations.
 
-2. Serial/OpenMP tolerance policy for supported 11-control outputs. The
-   synthetic reduction-order lane now compares area, volume,
-   curvature-energy sums, and per-vertex curvature/area/volume force
-   components under a stated tolerance. Face-local normals and mean curvature
-   are still covered by the existing single-face route comparison; executable
-   serial/OpenMP baselines remain blocked on a stable production irregular
-   fixture.
+2. Preserve the supported 11-control executable baseline. The approved stand-in
+   now covers energy, all force components, normals, area, legacy volume, and
+   mean curvature in actual serial/OpenMP builds with a maximum observed delta
+   of `1.4210854715202004e-14` under the `1.0e-10` policy.
 
 3. Unsupported-route inventory. Zero-depth 11-control requests are already
    guarded. Broader valence cases need a documented matrix of expected
@@ -77,20 +72,19 @@ production OpenMP behavior.
    reviewer and scientific signoff, and rollback/fallback behavior. It should
    not be mixed with the representative-fixture evidence lane.
 
-The evidence standard should stay cautious. Synthetic route checks,
+The evidence standard should stay cautious. The approved stand-in resolves the
+narrow 11-control claim only. Synthetic route checks,
 regular-equivalence reports, aggregate OpenSubdiv source coverage, and toy
 transpose identities are mechanical evidence. They are not physics validation
-unless a representative physical fixture exists and passes a reviewed
-comparison plan.
+for unsupported broader valences or an OpenSubdiv irregular route without a
+separate representative fixture and reviewed comparison plan.
 
 ## Safe Follow-Up PR Shapes
 
-- Docs/scripts-only fixture discovery: add an inert inventory command that
-  scans checked-in or generated mesh fixtures and reports physical face
-  one-ring sizes, ghost/boundary status, and candidate irregular faces.
-- Tests-only tolerance characterization: extend the synthetic
-  serial/OpenMP-compatible reduction checks only after a stable fixture or
-  explicit scientific fixture decision exists.
+- Docs/scripts-only broader-valence inventory: record exact unsupported
+  one-ring shapes and diagnostics without changing routing.
+- Tests/experiments-only preservation: retain the approved 11-control fixture
+  and serial/OpenMP executable comparison as regression gates.
 - Docs-only backend criteria: refine the OpenSubdiv replacement checklist after
   a dependency policy decision, without adding build files or production
   routing.
@@ -98,12 +92,9 @@ comparison plan.
 ## Recommended Next Prompt
 
 ```text
-Provide or approve a positive physical irregular mesh fixture for SLIMED with
-reviewed coordinates, connectivity, boundary condition, and expected non-ghost
-face identity. Run it through production mesh setup and map its one-ring to the
-existing supported/guarded irregular route matrix. If no such mesh is
-available, explicitly decide whether the generated closed valence-5 topology
-is an acceptable scientific stand-in for the narrow 11-control claim. Do not
+Inventory the exact unsupported broader-valence one-ring shapes and current
+diagnostics without enabling a route. Keep the approved closed valence-5
+fixture as the regression gate for the existing narrow 11-control path. Do not
 change routing, formulas, default dependencies, OpenMP reductions,
-checkpoint/output, or propagation in the fixture decision lane.
+checkpoint/output, or propagation in the inventory lane.
 ```

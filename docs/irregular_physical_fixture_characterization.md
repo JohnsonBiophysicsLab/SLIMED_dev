@@ -23,17 +23,17 @@ The approved mesh is therefore a negative irregular fixture. It resolves the
 old uncertainty about the mixed-valence leads: they are periodic boundary
 scaffolding, not physical irregular membrane faces.
 
-## Exact Remaining Blocker
+## Narrow Positive Fixture Resolution
 
-The repository still lacks a positive representative physical fixture with a
-reviewed non-ghost irregular face. To validate the existing positive-depth
-11-control route on physical data, a future fixture must provide reviewed
-coordinates and connectivity that production setup classifies as non-ghost
-and maps to the 11-control predicate. Broader-valence OpenSubdiv validation
-needs the same physical status plus an independently approved route contract.
+The user explicitly approved the generated closed valence-5 topology as the
+scientific stand-in for narrow 11-control validation. Its coordinates and
+connectivity are now serialized under `data/fixtures/closed_valence5`, and the
+production-setup and serial/OpenMP results are recorded in
+`docs/irregular_valence5_scientific_fixture.md`.
 
-The generated closed valence-5 topology remains a topology-only sanity check.
-Using it as scientific validation would require an explicit scientific waiver.
+This resolves the positive fixture gate only for the existing positive-depth
+11-control route. Broader-valence OpenSubdiv validation still needs an
+independently approved route and scientific contract.
 
 This characterization does not change production routing, default dependency
 behavior, force formulas, scatter order, OpenMP reductions, checkpoint/output,

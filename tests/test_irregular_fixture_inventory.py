@@ -60,6 +60,23 @@ class IrregularFixtureInventoryTest(unittest.TestCase):
         self.assertEqual(summary["route_counts"][inventory.ZERO_DEPTH_GUARD], 20)
         self.assertEqual(summary["errors"], [])
 
+    def test_approved_closed_valence5_fixture_maps_to_supported_11_route(self):
+        meshes, _ = inventory.checked_in_mesh_inputs(inventory.repo_root())
+        mesh = next(
+            mesh
+            for mesh in meshes
+            if mesh.label == "data/fixtures/closed_valence5"
+        )
+        summary = inventory.summarize_mesh(mesh, candidate_limit=2)
+
+        self.assertIn("approved closed fixed-boundary", summary["ghost_status"])
+        self.assertEqual(summary["vertex_count"], 12)
+        self.assertEqual(summary["face_count"], 20)
+        self.assertEqual(summary["derived_one_ring_size_counts"], {"11": 20})
+        self.assertEqual(summary["route_counts"][inventory.SUPPORTED_11_ROUTE], 20)
+        self.assertEqual(summary["route_counts"][inventory.ZERO_DEPTH_GUARD], 20)
+        self.assertEqual(summary["errors"], [])
+
     def test_boundary_faces_are_not_physical_irregular_candidates(self):
         mesh = inventory.MeshInput(
             label="single_triangle",

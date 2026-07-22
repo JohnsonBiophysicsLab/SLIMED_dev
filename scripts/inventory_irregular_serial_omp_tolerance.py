@@ -19,6 +19,8 @@ IMPLEMENTATION_PATH = Path("src/energy_force/Compute_energy_and_force_on_mesh.cp
 SURFACE_TEST_PATH = Path("tests/test_surface_geometry_characterization.cpp")
 FIXTURE_DISCOVERY_DOC_PATH = Path("docs/irregular_fixture_discovery_report.md")
 TOLERANCE_DOC_PATH = Path("docs/irregular_serial_omp_tolerance_characterization.md")
+PARITY_SCRIPT_PATH = Path("scripts/compare_irregular_valence5_fixture_parity.py")
+PARITY_WRAPPER_PATH = Path("scripts/run_irregular_valence5_fixture_parity.sh")
 
 
 @dataclass(frozen=True)
@@ -82,23 +84,23 @@ ANCHORS: tuple[Anchor, ...] = (
     ),
     Anchor(
         "fixture boundary",
-        "no checked-in physical 11-control fixture",
+        "approved narrow scientific stand-in",
         FIXTURE_DISCOVERY_DOC_PATH,
-        "No checked-in physical 11-control candidate is currently discoverable",
-        "The current lane cannot claim a representative production scientific fixture.",
+        "The user-approved narrow scientific stand-in is now checked in",
+        "The serialized closed valence-5 fixture resolves the narrow positive fixture gate.",
     ),
     Anchor(
         "fixture boundary",
-        "generated topology is not production fixture",
+        "waiver does not broaden routing",
         FIXTURE_DISCOVERY_DOC_PATH,
-        "This generated probe is not a production scientific fixture.",
-        "The generated closed icosahedron remains topology-only evidence.",
+        "This approval does not approve",
+        "The scientific waiver is explicitly limited to the existing positive-depth 11-control route.",
     ),
     Anchor(
         "documentation",
         "tolerance characterization report",
         TOLERANCE_DOC_PATH,
-        "This is a tests/docs/scripts-only characterization lane.",
+        "This is a tests/docs/scripts/experiments-only characterization lane.",
         "The report states the non-production scope and the evidence limits.",
     ),
     Anchor(
@@ -107,6 +109,20 @@ ANCHORS: tuple[Anchor, ...] = (
         TOLERANCE_DOC_PATH,
         "No production C++ behavior, build policy, dependencies, OpenSubdiv integration,",
         "The report explicitly records the boundaries requested for this lane.",
+    ),
+    Anchor(
+        "executable evidence",
+        "serial/OpenMP wrapper",
+        PARITY_WRAPPER_PATH,
+        "compare_irregular_valence5_fixture_parity.py",
+        "The opt-in wrapper compiles and compares actual serial and OpenMP production evaluators.",
+    ),
+    Anchor(
+        "executable evidence",
+        "serial/OpenMP tolerance",
+        PARITY_SCRIPT_PATH,
+        'default=1.0e-10',
+        "The executable comparison enforces the reviewed absolute tolerance.",
     ),
 )
 

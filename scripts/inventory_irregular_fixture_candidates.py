@@ -176,6 +176,22 @@ def approved_example_ghost_contract(
     )
 
 
+def approved_closed_valence5_ghost_contract(
+    label: str,
+    vertex_count: int,
+    faces: Sequence[tuple[int, int, int]],
+) -> tuple[str, tuple[bool | None, ...]] | None:
+    """Return the reviewed fixed-boundary contract for the narrow stand-in."""
+    if label != "data/fixtures/closed_valence5":
+        return None
+    if vertex_count != 12 or len(faces) != 20:
+        return None
+    return (
+        "approved closed fixed-boundary scientific stand-in; all faces are non-ghost",
+        tuple(False for _ in faces),
+    )
+
+
 def checked_in_mesh_inputs(root: Path) -> tuple[list[MeshInput], list[SkippedSource]]:
     meshes: list[MeshInput] = []
     skipped: list[SkippedSource] = []
@@ -199,6 +215,10 @@ def checked_in_mesh_inputs(root: Path) -> tuple[list[MeshInput], list[SkippedSou
         ghost_contract = approved_example_ghost_contract(
             root, label, len(vertices), faces
         )
+        if ghost_contract is None:
+            ghost_contract = approved_closed_valence5_ghost_contract(
+                label, len(vertices), faces
+            )
         if ghost_contract is None:
             ghost_status = "not serialized in CSV fixture"
             ghost_flags: tuple[bool | None, ...] = tuple(None for _ in faces)
@@ -535,6 +555,8 @@ def check_inventory(
     labels = {summary["label"] for summary in inventory["mesh_summaries"]}
     if include_checked_in and "data/example" not in labels:
         failures.append("expected checked-in data/example face/vertex CSV pair was not inventoried")
+    if include_checked_in and "data/fixtures/closed_valence5" not in labels:
+        failures.append("expected approved closed valence-5 fixture was not inventoried")
     if include_generated and "generated/closed_icosahedron_valence5" not in labels:
         failures.append("expected generated icosahedron probe was not inventoried")
     for summary in inventory["mesh_summaries"]:
@@ -556,6 +578,12 @@ def check_inventory(
                 failures.append("generated icosahedron should expose twenty positive-depth 11-control faces")
             if route_counts.get(ZERO_DEPTH_GUARD) != 20:
                 failures.append("generated icosahedron should map all 11-control faces to the zero-depth guard")
+        if summary["label"] == "data/fixtures/closed_valence5":
+            route_counts = summary["route_counts"]
+            if route_counts.get(SUPPORTED_11_ROUTE) != 20:
+                failures.append("approved closed valence-5 fixture should expose twenty positive-depth 11-control faces")
+            if route_counts.get(ZERO_DEPTH_GUARD) != 20:
+                failures.append("approved closed valence-5 fixture should map all faces to the zero-depth guard")
     return failures
 
 
