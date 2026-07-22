@@ -37,6 +37,7 @@
 #include "energy_force/Energy.hpp"
 #include "energy_force/Force.hpp"
 #include "mesh/Gauss_quadrature.hpp"
+#include "mesh/Regular_limit_surface_row_cache.hpp"
 // matrix math
 #include "linalg/Linear_algebra.hpp"
 // parameters
@@ -751,6 +752,10 @@ public:
     friend std::ostream &operator<<(std::ostream &stream, const Mesh &mesh);
     friend OpenSubdivRegularProductionParityRecheck
     diagnose_opensubdiv_regular_production_call_parity(Mesh &mesh);
+    friend std::shared_ptr<const RegularLimitSurfaceRowTable>
+    cached_opensubdiv_regular_shape_functions_by_face(const Mesh &mesh);
+    friend RegularLimitSurfaceRowCacheStats
+    regular_limit_surface_row_cache_stats(const Mesh &mesh);
 
 protected:
     /**
@@ -796,4 +801,7 @@ protected:
      *
      */
     double get_squared_distance_sp_and_v(const Matrix &scaffoldingPoint, const Vertex &vertex);
+
+private:
+    mutable RegularLimitSurfaceRowCache regularLimitSurfaceRowCache_;
 };

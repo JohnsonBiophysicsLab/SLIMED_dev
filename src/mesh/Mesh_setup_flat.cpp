@@ -2,6 +2,7 @@
 
 void Mesh::setup_flat()
 {
+    regularLimitSurfaceRowCache_.invalidate();
     if (param.VERBOSE_MODE)
     {
         std::cout << "[Mesh::setup_flat] Setting up flat membrane." << std::endl;
@@ -140,4 +141,3 @@ void Mesh::set_vertices_faces_flat()
         std::cout << "[Mesh::set_vertices_faces_flat] Assigned vertices and faces in the member of current mesh object." << std::endl;
     }
 }
-

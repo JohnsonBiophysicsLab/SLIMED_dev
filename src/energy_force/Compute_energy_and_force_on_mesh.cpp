@@ -105,8 +105,9 @@ void refresh_energy_force_geometry(Mesh &mesh)
 void accumulate_membrane_face_energy_and_forces(Mesh &mesh)
 {
     assert_supported_membrane_force_routing(mesh);
-    const std::vector<std::vector<Matrix>> routedRegularShapeFunctions =
-        build_opensubdiv_regular_shape_functions_by_face(mesh);
+    const std::shared_ptr<const RegularLimitSurfaceRowTable>
+        routedRegularShapeFunctions =
+            cached_opensubdiv_regular_shape_functions_by_face(mesh);
 
     const int nVertices = static_cast<int>(mesh.vertices.size());
 #ifdef OMP
@@ -158,10 +159,11 @@ void accumulate_membrane_face_energy_and_forces(Mesh &mesh)
         {
 //cout << "CEAF 75" << endl;
             const std::vector<Matrix> *shapeFunctionsOverride = nullptr;
-            if (!routedRegularShapeFunctions.empty() &&
-                !routedRegularShapeFunctions[face.index].empty())
+            if (routedRegularShapeFunctions &&
+                !(*routedRegularShapeFunctions)[face.index].empty())
             {
-                shapeFunctionsOverride = &routedRegularShapeFunctions[face.index];
+                shapeFunctionsOverride =
+                    &(*routedRegularShapeFunctions)[face.index];
             }
             mesh.element_energy_force_regular(coordOneRingVertices,
                                               face,
