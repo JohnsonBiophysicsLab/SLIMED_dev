@@ -15,10 +15,11 @@ import re
 import statistics
 import subprocess
 import sys
+import tempfile
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, Iterable, List, Sequence
+from typing import Dict, Iterable, List, Optional, Sequence
 
 
 L_FACE_PATTERN = re.compile(r"^(\s*lFace\s*=\s*)[^#\s]+(.*)$", re.MULTILINE)
@@ -55,6 +56,12 @@ def summarize(values: Iterable[float]) -> Dict[str, float]:
         "max_seconds": max(samples),
         "stdev_seconds": statistics.stdev(samples) if len(samples) > 1 else 0.0,
     }
+
+
+def create_session_root(work_root: Path, now: Optional[datetime] = None) -> Path:
+    work_root.mkdir(parents=True, exist_ok=True)
+    timestamp = (now or datetime.now(timezone.utc)).strftime("%Y%m%dT%H%M%SZ")
+    return Path(tempfile.mkdtemp(prefix=f"{timestamp}-", dir=work_root))
 
 
 def run_once(
@@ -137,14 +144,14 @@ def main(argv: Sequence[str]) -> int:
         raise SystemExit(f"params fixture not found: {params}")
 
     params_text = params.read_text(encoding="utf-8")
-    session_root = args.work_root / datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    session_root = create_session_root(args.work_root)
     raw_runs: List[Dict[str, object]] = []
     summaries: List[Dict[str, object]] = []
 
     for l_face in args.l_face:
         for threads in args.threads:
             workdir = session_root / f"lface-{l_face:g}" / f"threads-{threads}"
-            workdir.mkdir(parents=True, exist_ok=True)
+            workdir.mkdir(parents=True, exist_ok=False)
             staged_params = rewrite_l_face(params_text, l_face)
             samples: Dict[str, List[float]] = {"direct": [], "routed": []}
             total_rounds = args.warmups + args.repeats
@@ -153,7 +160,7 @@ def main(argv: Sequence[str]) -> int:
                 for mode in modes:
                     phase = "warmup" if round_index < args.warmups else "measured"
                     run_dir = workdir / f"{phase}-{round_index + 1}-{mode}"
-                    run_dir.mkdir(parents=True, exist_ok=True)
+                    run_dir.mkdir(parents=True, exist_ok=False)
                     (run_dir / "input.params").write_text(staged_params, encoding="utf-8")
                     log_path = run_dir / "run.log"
                     elapsed = run_once(executable, run_dir, mode, threads, log_path)
