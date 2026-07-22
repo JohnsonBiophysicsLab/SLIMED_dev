@@ -81,6 +81,11 @@ sample-plan changes must produce a cache miss and rebuild before publication.
 - Published row tables are immutable and may be read concurrently.
 - At most one build for a fingerprint may publish; competing readers either
   wait for that build or use an already published matching table.
+- Fingerprinting detects public topology or sample-plan mutation only between
+  evaluations. Mutation of `Mesh::vertices`, `Mesh::faces`, one-ring state, or
+  sample-plan inputs must be serialized against cache lookup, construction,
+  publication, and readers; the cache does not make concurrent container
+  mutation safe.
 - No OpenMP worker mutates shared row matrices, topology state, diagnostics, or
   fallback state.
 - Build counters and diagnostics must be synchronized and must not affect
@@ -100,7 +105,9 @@ cache PR is proposed:
 3. Every topology/sample-plan mutation listed above causes a miss; direct
    public-container mutation is detected by the fingerprint.
 4. Copy, move, destruction, two simultaneous meshes, and concurrent readers do
-   not share stale or mutable backend state.
+   not share stale or mutable backend state. A serialized mutation/read test
+   confirms that mutation produces a miss before readers resume; concurrent
+   public-container mutation is explicitly unsupported.
 5. Runtime opt-out, unsupported-face fallback, dependency-absent builds, and
    current serial/OpenMP reduction behavior remain unchanged.
 6. The active regular route is benchmarked again with the same harness and

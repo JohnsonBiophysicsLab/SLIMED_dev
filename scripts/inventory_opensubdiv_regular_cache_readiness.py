@@ -47,6 +47,7 @@ CONCURRENCY_RULES = (
     "published row tables are immutable",
     "one publisher per fingerprint",
     "concurrent readers do not mutate rows or diagnostics",
+    "topology and sample-plan mutation is serialized against cache access",
     "OpenMP reduction order remains unchanged",
 )
 
@@ -83,6 +84,7 @@ ANCHORS = (
     Anchor("global registry rejection", CACHE_DOC, "global map keyed by `Mesh*` is rejected", "Lifetime is mesh-scoped."),
     Anchor("copy contract", CACHE_DOC, "a copied mesh starts with an empty cache", "Copy behavior is explicit."),
     Anchor("concurrent publication", CACHE_DOC, "At most one build for a fingerprint may publish", "Concurrent construction is defined."),
+    Anchor("serialized mutation boundary", CACHE_DOC, "must be serialized against cache lookup", "Fingerprinting does not make concurrent public mutation safe."),
     Anchor("production gate", CACHE_DOC, "A production cache remains a separate reviewer and", "Production remains separately gated."),
     Anchor("measured performance basis", PERFORMANCE_DOC, "PR #105 baseline measurement", "The design follows measured active-route cost."),
     Anchor("current refiner construction", EVALUATOR_IMPL, "create_refiner_for_mesh(mesh)", "The current route reconstructs a refiner."),

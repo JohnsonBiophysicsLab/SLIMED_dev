@@ -40,6 +40,10 @@ class OpenSubdivRegularCacheReadinessInventoryTest(unittest.TestCase):
     def test_concurrency_preserves_existing_reduction(self):
         self.assertIn("published row tables are immutable", inventory.CONCURRENCY_RULES)
         self.assertIn("one publisher per fingerprint", inventory.CONCURRENCY_RULES)
+        self.assertIn(
+            "topology and sample-plan mutation is serialized against cache access",
+            inventory.CONCURRENCY_RULES,
+        )
         self.assertIn("OpenMP reduction order remains unchanged", inventory.CONCURRENCY_RULES)
 
     def test_prototype_gates_cover_reuse_invalidation_and_isolation(self):
