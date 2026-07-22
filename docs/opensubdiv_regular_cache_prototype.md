@@ -17,7 +17,9 @@ The harness proves:
 
 - one build for repeated unchanged evaluations;
 - two repeated area/force helper evaluations with that single build;
-- coordinate-only reuse with a fresh cached-versus-direct observable comparison;
+- coordinate-only reuse after mutating a non-ghost source used by an eligible
+  face, with a confirmed observable change and fresh cached-versus-direct
+  comparison;
 - misses after direct one-ring, adjacent-topology, face-index, boundary/ghost
   eligibility, quadrature, frozen-reference-row, and coherent sample-plan
   mutation;

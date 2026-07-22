@@ -458,6 +458,7 @@ struct ProofResult
 {
     bool oneBuildForUnchanged = false;
     bool coordinateOnlyHit = false;
+    bool coordinateMutationIsObservable = false;
     bool coordinateOnlyObservableParity = false;
     bool topologyMutationMiss = false;
     bool samplePlanMutationMiss = false;
@@ -511,21 +512,6 @@ ProofResult run_proof()
         std::isfinite(result.maxObservableDifference) &&
         result.maxObservableDifference <= 5.0e-6;
 
-    fixture.mesh.vertices.front().coord.set(
-        2, 0, fixture.mesh.vertices.front().coord.get(2, 0) + 0.125);
-    result.coordinateOnlyHit =
-        cache.get(fixture.mesh) == initial && cache.build_count() == 1;
-    const ObservableSnapshot coordinateCached =
-        run_regular_observables(fixture.mesh, initial.get());
-    MeshFixture coordinateDirectFixture;
-    coordinateDirectFixture.mesh.vertices.front().coord.set(
-        2, 0,
-        coordinateDirectFixture.mesh.vertices.front().coord.get(2, 0) + 0.125);
-    const ObservableSnapshot coordinateDirect =
-        run_regular_observables(coordinateDirectFixture.mesh, nullptr);
-    result.coordinateOnlyObservableParity =
-        max_observable_difference(coordinateCached, coordinateDirect) <= 5.0e-6;
-
     const auto faceIterator = std::find_if(
         fixture.mesh.faces.begin(), fixture.mesh.faces.end(),
         [](const Face &face) {
@@ -536,6 +522,38 @@ ProofResult run_proof()
     {
         return result;
     }
+    const auto coordinateSourceIterator = std::find_if(
+        faceIterator->oneRingVertices.begin(),
+        faceIterator->oneRingVertices.end(),
+        [&fixture](int source) {
+            return source >= 0 &&
+                   source < static_cast<int>(fixture.mesh.vertices.size()) &&
+                   !fixture.mesh.vertices[source].isGhost;
+        });
+    if (coordinateSourceIterator == faceIterator->oneRingVertices.end())
+    {
+        return result;
+    }
+    const int coordinateSource = *coordinateSourceIterator;
+    fixture.mesh.vertices[coordinateSource].coord.set(
+        2, 0,
+        fixture.mesh.vertices[coordinateSource].coord.get(2, 0) + 0.125);
+    result.coordinateOnlyHit =
+        cache.get(fixture.mesh) == initial && cache.build_count() == 1;
+    const ObservableSnapshot coordinateCached =
+        run_regular_observables(fixture.mesh, initial.get());
+    MeshFixture coordinateDirectFixture;
+    coordinateDirectFixture.mesh.vertices[coordinateSource].coord.set(
+        2, 0,
+        coordinateDirectFixture.mesh.vertices[coordinateSource].coord.get(2, 0) +
+            0.125);
+    const ObservableSnapshot coordinateDirect =
+        run_regular_observables(coordinateDirectFixture.mesh, nullptr);
+    result.coordinateMutationIsObservable =
+        max_observable_difference(coordinateCached, cachedFirst) > 1.0e-12;
+    result.coordinateOnlyObservableParity =
+        max_observable_difference(coordinateCached, coordinateDirect) <= 5.0e-6;
+
     Face &mutableFace = *faceIterator;
     std::swap(mutableFace.oneRingVertices[0], mutableFace.oneRingVertices[1]);
     const std::shared_ptr<const RegularRowTable> topologyMutation =
@@ -729,6 +747,7 @@ ProofResult run_proof()
 bool passed(const ProofResult &result)
 {
     return result.oneBuildForUnchanged && result.coordinateOnlyHit &&
+           result.coordinateMutationIsObservable &&
            result.coordinateOnlyObservableParity &&
            result.topologyMutationMiss && result.samplePlanMutationMiss &&
            result.adjacentTopologyMutationMiss &&
@@ -761,6 +780,8 @@ int main()
     print_bool("passed", success);
     print_bool("one_build_for_unchanged", result.oneBuildForUnchanged);
     print_bool("coordinate_only_hit", result.coordinateOnlyHit);
+    print_bool("coordinate_mutation_is_observable",
+               result.coordinateMutationIsObservable);
     print_bool("coordinate_only_observable_parity",
                result.coordinateOnlyObservableParity);
     print_bool("topology_mutation_miss", result.topologyMutationMiss);

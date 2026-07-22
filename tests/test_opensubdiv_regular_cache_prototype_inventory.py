@@ -38,6 +38,7 @@ class OpenSubdivRegularCachePrototypeInventoryTest(unittest.TestCase):
         for needle in (
             "oneBuildForUnchanged",
             "coordinateOnlyHit",
+            "coordinateMutationIsObservable",
             "coordinateOnlyObservableParity",
             "topologyMutationMiss",
             "samplePlanMutationMiss",
