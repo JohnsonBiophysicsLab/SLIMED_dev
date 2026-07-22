@@ -1,7 +1,9 @@
 #include "mesh/Mesh.hpp"
+#include "mesh/Gauss_quadrature.hpp"
 #include "mesh/OpenSubdiv_regular_evaluator.hpp"
 
 #include <opensubdiv/version.h>
+#include <opensubdiv/sdc/options.h>
 
 #include <algorithm>
 #include <cmath>
@@ -95,7 +97,8 @@ std::uint64_t regular_cache_fingerprint(const Mesh &mesh)
     fingerprint.add_string("slimed-opensubdiv-regular-cache-schema-v1");
     fingerprint.add_int(OPENSUBDIV_VERSION_NUMBER);
     fingerprint.add_string("loop");
-    fingerprint.add_string("edge-and-corner-boundary");
+    fingerprint.add_int(
+        static_cast<int>(OpenSubdiv::Sdc::Options::VTX_BOUNDARY_EDGE_ONLY));
     fingerprint.add_int(3);
     fingerprint.add_bool(true);
     fingerprint.add_bool(true);
@@ -457,6 +460,12 @@ struct ProofResult
     bool coordinateOnlyHit = false;
     bool topologyMutationMiss = false;
     bool samplePlanMutationMiss = false;
+    bool adjacentTopologyMutationMiss = false;
+    bool faceIndexMutationMiss = false;
+    bool eligibilityFlagsMutationMiss = false;
+    bool quadratureMutationMiss = false;
+    bool referenceRowsMutationMiss = false;
+    bool serializedMutationReadersSeeRebuild = false;
     bool copyStartsEmpty = false;
     bool moveTransfersMatchingTable = false;
     bool twoMeshIsolation = false;
@@ -525,14 +534,123 @@ ProofResult run_proof()
     std::swap(mutableFace.oneRingVertices[0], mutableFace.oneRingVertices[1]);
     cache.get(fixture.mesh);
 
-    const double originalSample = fixture.param.VWU.get(0, 0);
-    fixture.param.VWU.set(0, 0, originalSample + 0.01);
+    std::rotate(mutableFace.adjacentVertices.begin(),
+                mutableFace.adjacentVertices.begin() + 1,
+                mutableFace.adjacentVertices.end());
+    int buildsBeforeMutation = cache.build_count();
+    const std::shared_ptr<const RegularRowTable> adjacentTopologyMutation =
+        cache.get(fixture.mesh);
+    result.adjacentTopologyMutationMiss =
+        adjacentTopologyMutation &&
+        cache.build_count() == buildsBeforeMutation + 1;
+    std::rotate(mutableFace.adjacentVertices.begin(),
+                mutableFace.adjacentVertices.end() - 1,
+                mutableFace.adjacentVertices.end());
+    cache.get(fixture.mesh);
+
+    const auto secondFaceIterator = std::find_if(
+        std::next(faceIterator), fixture.mesh.faces.end(),
+        [](const Face &face) {
+            return !face.isBoundary && !face.isGhost &&
+                   face.oneRingVertices.size() == 12u;
+        });
+    if (secondFaceIterator == fixture.mesh.faces.end())
+    {
+        return result;
+    }
+    Face &secondMutableFace = *secondFaceIterator;
+    std::swap(mutableFace.index, secondMutableFace.index);
+    buildsBeforeMutation = cache.build_count();
+    const std::shared_ptr<const RegularRowTable> faceIndexMutation =
+        cache.get(fixture.mesh);
+    result.faceIndexMutationMiss =
+        faceIndexMutation && cache.build_count() == buildsBeforeMutation + 1;
+    std::swap(mutableFace.index, secondMutableFace.index);
+    cache.get(fixture.mesh);
+
+    mutableFace.isBoundary = true;
+    buildsBeforeMutation = cache.build_count();
+    const std::shared_ptr<const RegularRowTable> boundaryMutation =
+        cache.get(fixture.mesh);
+    const bool boundaryMutationMiss =
+        boundaryMutation && cache.build_count() == buildsBeforeMutation + 1;
+    mutableFace.isBoundary = false;
+    cache.get(fixture.mesh);
+
+    mutableFace.isGhost = true;
+    buildsBeforeMutation = cache.build_count();
+    const std::shared_ptr<const RegularRowTable> ghostMutation =
+        cache.get(fixture.mesh);
+    const bool ghostMutationMiss =
+        ghostMutation && cache.build_count() == buildsBeforeMutation + 1;
+    mutableFace.isGhost = false;
+    cache.get(fixture.mesh);
+    result.eligibilityFlagsMutationMiss =
+        boundaryMutationMiss && ghostMutationMiss;
+
+    const double originalQuadrature =
+        fixture.param.gaussQuadratureCoeff.get(0, 0);
+    fixture.param.gaussQuadratureCoeff.set(
+        0, 0, originalQuadrature + 0.01);
+    buildsBeforeMutation = cache.build_count();
+    const std::shared_ptr<const RegularRowTable> quadratureMutation =
+        cache.get(fixture.mesh);
+    result.quadratureMutationMiss =
+        quadratureMutation && cache.build_count() == buildsBeforeMutation + 1;
+
+    PrototypeRegularRowCache serializedMutationCache;
+    std::vector<std::shared_ptr<const RegularRowTable>> mutationReaders(6);
+    std::vector<std::thread> mutationReaderThreads;
+    for (std::size_t index = 0; index < mutationReaders.size(); ++index)
+    {
+        mutationReaderThreads.emplace_back(
+            [&fixture, &serializedMutationCache, &mutationReaders, index]() {
+                mutationReaders[index] = serializedMutationCache.get(fixture.mesh);
+            });
+    }
+    for (std::thread &reader : mutationReaderThreads)
+    {
+        reader.join();
+    }
+    result.serializedMutationReadersSeeRebuild =
+        serializedMutationCache.build_count() == 1 &&
+        mutationReaders.front() &&
+        std::all_of(mutationReaders.begin(), mutationReaders.end(),
+                    [&mutationReaders](const auto &table) {
+                        return table == mutationReaders.front();
+                    });
+    fixture.param.gaussQuadratureCoeff.set(0, 0, originalQuadrature);
+    cache.get(fixture.mesh);
+
+    const double originalReference =
+        fixture.param.shapeFunctions.front().get(0, 0);
+    fixture.param.shapeFunctions.front().set(
+        0, 0, originalReference + 1.0e-8);
+    buildsBeforeMutation = cache.build_count();
+    const std::shared_ptr<const RegularRowTable> referenceRowsMutation =
+        cache.get(fixture.mesh);
+    result.referenceRowsMutationMiss =
+        referenceRowsMutation &&
+        populated_face_count(*referenceRowsMutation) > 0 &&
+        cache.build_count() == buildsBeforeMutation + 1;
+    fixture.param.shapeFunctions.front().set(0, 0, originalReference);
+    cache.get(fixture.mesh);
+
+    const Matrix originalVWU = fixture.param.VWU;
+    const std::vector<Matrix> originalShapeFunctions =
+        fixture.param.shapeFunctions;
+    fixture.param.VWU.set(0, 0, originalVWU.get(0, 0) + 1.0e-4);
+    fixture.param.VWU.set(0, 2, originalVWU.get(0, 2) - 1.0e-4);
+    get_shapefunction_vector(fixture.param.VWU,
+                             fixture.param.shapeFunctions);
     const int buildsBeforeSampleMutation = cache.build_count();
     const std::shared_ptr<const RegularRowTable> sampleMutation =
         cache.get(fixture.mesh);
     result.samplePlanMutationMiss =
-        sampleMutation && cache.build_count() == buildsBeforeSampleMutation + 1;
-    fixture.param.VWU.set(0, 0, originalSample);
+        sampleMutation && populated_face_count(*sampleMutation) > 0 &&
+        cache.build_count() == buildsBeforeSampleMutation + 1;
+    fixture.param.VWU = originalVWU;
+    fixture.param.shapeFunctions = originalShapeFunctions;
     cache.get(fixture.mesh);
 
     PrototypeRegularRowCache copied(cache);
@@ -598,6 +716,12 @@ bool passed(const ProofResult &result)
 {
     return result.oneBuildForUnchanged && result.coordinateOnlyHit &&
            result.topologyMutationMiss && result.samplePlanMutationMiss &&
+           result.adjacentTopologyMutationMiss &&
+           result.faceIndexMutationMiss &&
+           result.eligibilityFlagsMutationMiss &&
+           result.quadratureMutationMiss &&
+           result.referenceRowsMutationMiss &&
+           result.serializedMutationReadersSeeRebuild &&
            result.copyStartsEmpty && result.moveTransfersMatchingTable &&
            result.twoMeshIsolation && result.concurrentReadersOnePublisher &&
            result.runtimeOptOutIgnoresPopulatedCache &&
@@ -624,6 +748,16 @@ int main()
     print_bool("coordinate_only_hit", result.coordinateOnlyHit);
     print_bool("topology_mutation_miss", result.topologyMutationMiss);
     print_bool("sample_plan_mutation_miss", result.samplePlanMutationMiss);
+    print_bool("adjacent_topology_mutation_miss",
+               result.adjacentTopologyMutationMiss);
+    print_bool("face_index_mutation_miss", result.faceIndexMutationMiss);
+    print_bool("eligibility_flags_mutation_miss",
+               result.eligibilityFlagsMutationMiss);
+    print_bool("quadrature_mutation_miss", result.quadratureMutationMiss);
+    print_bool("reference_rows_mutation_miss",
+               result.referenceRowsMutationMiss);
+    print_bool("serialized_mutation_readers_see_rebuild",
+               result.serializedMutationReadersSeeRebuild);
     print_bool("copy_starts_empty", result.copyStartsEmpty);
     print_bool("move_transfers_matching_table", result.moveTransfersMatchingTable);
     print_bool("two_mesh_isolation", result.twoMeshIsolation);

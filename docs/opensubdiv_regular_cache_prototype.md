@@ -18,10 +18,13 @@ The harness proves:
 - one build for repeated unchanged evaluations;
 - two repeated area/force helper evaluations with that single build;
 - coordinate-only reuse;
-- misses after direct topology and sample-plan mutation;
+- misses after direct one-ring, adjacent-topology, face-index, boundary/ghost
+  eligibility, quadrature, frozen-reference-row, and coherent sample-plan
+  mutation;
 - copy-empty and matching move-transfer behavior;
 - isolation between two meshes;
 - one publisher for concurrent readers;
+- readers resumed after a serialized mutation observe one rebuilt table;
 - runtime opt-out ignores a populated cache and preserves direct semantics;
 - unsupported-face fallback remains empty; and
 - cached rows retain the frozen regular-row tolerance.
