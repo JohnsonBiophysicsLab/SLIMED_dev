@@ -16,6 +16,7 @@ version. Vertex coordinates are intentionally excluded.
 The harness proves:
 
 - one build for repeated unchanged evaluations;
+- two repeated area/force helper evaluations with that single build;
 - coordinate-only reuse;
 - misses after direct topology and sample-plan mutation;
 - copy-empty and matching move-transfer behavior;
@@ -24,6 +25,12 @@ The harness proves:
 - runtime opt-out ignores a populated cache and preserves direct semantics;
 - unsupported-face fallback remains empty; and
 - cached rows retain the frozen regular-row tolerance.
+
+The observable comparison calls the same regular area/volume and
+`element_energy_force_regular` helpers used by production, performs the
+`Face::oneRingVertices` scatter, and compares total/constraint/bending energy,
+force components, normals, area, legacy volume, and mean curvature against the
+direct regular rows.
 
 Topology or sample-plan mutation is serialized against lookup/build/readers in
 this prototype. Concurrent public-container mutation remains unsupported.

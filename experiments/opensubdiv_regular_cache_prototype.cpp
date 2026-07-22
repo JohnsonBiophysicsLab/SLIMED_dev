@@ -229,10 +229,18 @@ class PrototypeRegularRowCache
     int missCount_ = 0;
 };
 
+class ProofMesh : public Mesh
+{
+  public:
+    using Mesh::Mesh;
+    using Mesh::enumerate_regular_patch_area_volume_with_limit_surface_evaluator;
+    using Mesh::get_one_ring_vertex_matrix;
+};
+
 struct MeshFixture
 {
     Param param;
-    Mesh mesh;
+    ProofMesh mesh;
 
     MeshFixture() : mesh(param)
     {
@@ -240,10 +248,142 @@ struct MeshFixture
         param.boundaryCondition = BoundaryType::Periodic;
         param.sideX = 40.0;
         param.sideY = 10.0 * std::sqrt(3.0) / 2.0 * param.lFace;
+        param.kCurv = 47.5;
+        param.kReg = 0.0;
+        param.uSurf = 130.0;
+        param.uVol = 65.0;
+        param.area0 = 2.75;
+        param.vol0 = 0.82;
         ScopedCoutSilencer silence;
         mesh.setup_flat();
+        for (Vertex &vertex : mesh.vertices)
+        {
+            const double index = static_cast<double>(vertex.index);
+            vertex.coord.set(2, 0, 0.03 * std::sin(0.7 * index) +
+                                       0.01 * std::cos(0.3 * index));
+        }
     }
 };
+
+struct ObservableSnapshot
+{
+    std::vector<double> values;
+};
+
+void append_matrix(ObservableSnapshot &snapshot, const Matrix &matrix)
+{
+    for (int row = 0; row < matrix.nrow(); ++row)
+    {
+        for (int column = 0; column < matrix.ncol(); ++column)
+        {
+            snapshot.values.push_back(matrix.get(row, column));
+        }
+    }
+}
+
+const std::vector<Matrix> *rows_for_face(const RegularRowTable *table,
+                                         const Face &face)
+{
+    if (table == nullptr || face.index < 0 ||
+        face.index >= static_cast<int>(table->size()) ||
+        (*table)[face.index].empty())
+    {
+        return nullptr;
+    }
+    return &(*table)[face.index];
+}
+
+ObservableSnapshot run_regular_observables(ProofMesh &mesh,
+                                           const RegularRowTable *table)
+{
+    for (Face &face : mesh.faces)
+    {
+        if (face.isGhost || face.oneRingVertices.size() != 12u)
+        {
+            continue;
+        }
+        double area = 0.0;
+        double volume = 0.0;
+        const Matrix coordinates = mesh.get_one_ring_vertex_matrix(face);
+        mesh.enumerate_regular_patch_area_volume_with_limit_surface_evaluator(
+            coordinates, area, volume, rows_for_face(table, face));
+        face.elementArea = area;
+        face.elementVolume = volume;
+    }
+    mesh.sum_membrane_area_and_volume(mesh.param.area, mesh.param.vol);
+
+    ObservableSnapshot snapshot;
+    double curvatureEnergy = 0.0;
+    std::vector<double> scatteredForces(mesh.vertices.size() * 9u, 0.0);
+    for (Face &face : mesh.faces)
+    {
+        if (face.isBoundary || face.oneRingVertices.size() != 12u)
+        {
+            continue;
+        }
+        std::vector<Matrix> coordinates(face.oneRingVertices.size());
+        std::transform(face.oneRingVertices.begin(), face.oneRingVertices.end(),
+                       coordinates.begin(),
+                       [&mesh](int vertex) { return mesh.vertices[vertex].coord; });
+        double meanCurvature = 0.0;
+        double bendingEnergy = 0.0;
+        Matrix normal = mat_calloc(3, 1);
+        Matrix bendingForce = mat_calloc(12, 3);
+        Matrix areaForce = mat_calloc(12, 3);
+        Matrix volumeForce = mat_calloc(12, 3);
+        mesh.element_energy_force_regular(
+            coordinates, face, face.spontCurvature, meanCurvature, normal,
+            bendingEnergy, bendingForce, areaForce, volumeForce, true,
+            rows_for_face(table, face));
+
+        curvatureEnergy += bendingEnergy;
+        snapshot.values.push_back(face.elementArea);
+        snapshot.values.push_back(face.elementVolume);
+        snapshot.values.push_back(meanCurvature);
+        snapshot.values.push_back(bendingEnergy);
+        append_matrix(snapshot, normal);
+        for (std::size_t local = 0; local < face.oneRingVertices.size(); ++local)
+        {
+            const int source = face.oneRingVertices[local];
+            for (int axis = 0; axis < 3; ++axis)
+            {
+                scatteredForces[source * 9 + axis] += bendingForce(local, axis);
+                scatteredForces[source * 9 + 3 + axis] += areaForce(local, axis);
+                scatteredForces[source * 9 + 6 + axis] += volumeForce(local, axis);
+            }
+        }
+    }
+
+    const double areaEnergy =
+        0.5 * mesh.param.uSurf / mesh.param.area0 *
+        std::pow(mesh.param.area - mesh.param.area0, 2.0);
+    const double volumeEnergy =
+        0.5 * mesh.param.uVol / mesh.param.vol0 *
+        std::pow(mesh.param.vol - mesh.param.vol0, 2.0);
+    snapshot.values.insert(snapshot.values.begin(),
+                           {mesh.param.area, mesh.param.vol, curvatureEnergy,
+                            areaEnergy, volumeEnergy,
+                            curvatureEnergy + areaEnergy + volumeEnergy});
+    snapshot.values.insert(snapshot.values.end(), scatteredForces.begin(),
+                           scatteredForces.end());
+    return snapshot;
+}
+
+double max_observable_difference(const ObservableSnapshot &left,
+                                 const ObservableSnapshot &right)
+{
+    if (left.values.size() != right.values.size())
+    {
+        return std::numeric_limits<double>::infinity();
+    }
+    double maximum = 0.0;
+    for (std::size_t index = 0; index < left.values.size(); ++index)
+    {
+        maximum = std::max(maximum,
+                           std::abs(left.values[index] - right.values[index]));
+    }
+    return maximum;
+}
 
 double max_row_difference(const RegularRowTable &table,
                           const std::vector<Matrix> &reference)
@@ -324,11 +464,14 @@ struct ProofResult
     bool runtimeOptOutIgnoresPopulatedCache = false;
     bool unsupportedFallbackPreserved = false;
     bool rowsMatchFrozenRegular = false;
+    bool repeatedAreaForceOneBuild = false;
+    bool fullObservableParity = false;
     int populatedFaceCount = 0;
     int buildCount = 0;
     int hitCount = 0;
     int missCount = 0;
     double maxRowDifference = 0.0;
+    double maxObservableDifference = 0.0;
 };
 
 ProofResult run_proof()
@@ -337,11 +480,26 @@ ProofResult run_proof()
     MeshFixture fixture;
     PrototypeRegularRowCache cache;
     const std::shared_ptr<const RegularRowTable> initial = cache.get(fixture.mesh);
+    const ObservableSnapshot cachedFirst =
+        run_regular_observables(fixture.mesh, initial.get());
     const std::shared_ptr<const RegularRowTable> unchanged = cache.get(fixture.mesh);
+    const ObservableSnapshot cachedSecond =
+        run_regular_observables(fixture.mesh, unchanged.get());
+
+    MeshFixture directFixture;
+    const ObservableSnapshot direct =
+        run_regular_observables(directFixture.mesh, nullptr);
 
     ProofResult result;
     result.oneBuildForUnchanged =
         initial && initial == unchanged && cache.build_count() == 1;
+    result.repeatedAreaForceOneBuild = result.oneBuildForUnchanged;
+    result.maxObservableDifference = std::max(
+        max_observable_difference(cachedFirst, cachedSecond),
+        max_observable_difference(cachedFirst, direct));
+    result.fullObservableParity =
+        std::isfinite(result.maxObservableDifference) &&
+        result.maxObservableDifference <= 5.0e-6;
 
     fixture.mesh.vertices.front().coord.set(
         2, 0, fixture.mesh.vertices.front().coord.get(2, 0) + 0.125);
@@ -443,7 +601,8 @@ bool passed(const ProofResult &result)
            result.copyStartsEmpty && result.moveTransfersMatchingTable &&
            result.twoMeshIsolation && result.concurrentReadersOnePublisher &&
            result.runtimeOptOutIgnoresPopulatedCache &&
-           result.unsupportedFallbackPreserved && result.rowsMatchFrozenRegular;
+           result.unsupportedFallbackPreserved && result.rowsMatchFrozenRegular &&
+           result.repeatedAreaForceOneBuild && result.fullObservableParity;
 }
 
 void print_bool(const char *name, bool value)
@@ -473,11 +632,15 @@ int main()
                result.runtimeOptOutIgnoresPopulatedCache);
     print_bool("unsupported_fallback_preserved", result.unsupportedFallbackPreserved);
     print_bool("rows_match_frozen_regular", result.rowsMatchFrozenRegular);
+    print_bool("repeated_area_force_one_build", result.repeatedAreaForceOneBuild);
+    print_bool("full_observable_parity", result.fullObservableParity);
     std::cout << "\"populated_face_count\":" << result.populatedFaceCount << ',';
     std::cout << "\"build_count\":" << result.buildCount << ',';
     std::cout << "\"hit_count\":" << result.hitCount << ',';
     std::cout << "\"miss_count\":" << result.missCount << ',';
-    std::cout << "\"max_row_difference\":" << result.maxRowDifference;
+    std::cout << "\"max_row_difference\":" << result.maxRowDifference << ',';
+    std::cout << "\"max_observable_difference\":"
+              << result.maxObservableDifference;
     std::cout << "}\n";
     return success ? 0 : 1;
 }
