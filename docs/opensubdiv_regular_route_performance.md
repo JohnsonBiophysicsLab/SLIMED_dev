@@ -69,6 +69,7 @@ Measured evidence should be reviewed before choosing a cache lifetime. This
 document and its harness do not approve a particular ownership model.
 
 The cache ownership, fingerprint, invalidation, copy/move, and concurrency
-contract is recorded in `docs/opensubdiv_regular_cache_readiness.md`. Its next
-step is an experimental or test-only prototype. Production ownership changes
-remain a separate PR after that evidence is accepted.
+contract is recorded in `docs/opensubdiv_regular_cache_readiness.md`. PR #108
+accepted the test-only prototype. The separate production implementation and
+its post-cache benchmark, now measuring 1.10x to 1.91x routed/direct, are
+recorded in `docs/opensubdiv_regular_production_cache.md`.

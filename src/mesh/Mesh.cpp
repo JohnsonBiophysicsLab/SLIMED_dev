@@ -63,6 +63,7 @@ Mesh::Mesh(const std::vector<Vertex> &srcVertices,
 void Mesh::setup_from_vertices_faces(const std::vector<std::vector<double>>& verticesData, 
                                    const std::vector<std::vector<int>>& facesData)
 {
+    regularLimitSurfaceRowCache_.invalidate();
     if (param.VERBOSE_MODE)
     {
         std::cout << "[Mesh::setup_from_vertices_faces] Setting up membrane from vertices and faces data." << std::endl;
@@ -263,8 +264,9 @@ Matrix Mesh::get_one_ring_vertex_matrix(const Face &face)
 
 void Mesh::calculate_element_area_volume()
 {
-    const std::vector<std::vector<Matrix>> routedRegularShapeFunctions =
-        build_opensubdiv_regular_shape_functions_by_face(*this);
+    const std::shared_ptr<const RegularLimitSurfaceRowTable>
+        routedRegularShapeFunctions =
+            cached_opensubdiv_regular_shape_functions_by_face(*this);
     // five matrix used for subdivision of the irregular patch
     // M(17,11), M1(12,17), M2(12,17), M3(12,17), M4(11,17);
     // alias for subMatrix - does not cause
@@ -299,10 +301,11 @@ void Mesh::calculate_element_area_volume()
                 // The matrix representing the coordinates of the one ring vertices.
                 Matrix matOneRingVertex = get_one_ring_vertex_matrix(face);
                 const std::vector<Matrix> *shapeFunctionsOverride = nullptr;
-                if (!routedRegularShapeFunctions.empty() &&
-                    !routedRegularShapeFunctions[face.index].empty())
+                if (routedRegularShapeFunctions &&
+                    !(*routedRegularShapeFunctions)[face.index].empty())
                 {
-                    shapeFunctionsOverride = &routedRegularShapeFunctions[face.index];
+                    shapeFunctionsOverride =
+                        &(*routedRegularShapeFunctions)[face.index];
                 }
 
                 // Use Gaussian quadrature with 3 points to compute area and volume

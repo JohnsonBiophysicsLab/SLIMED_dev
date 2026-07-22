@@ -2,8 +2,10 @@
 #include <algorithm>
 #include <cstdlib>
 #include <cmath>
+#include <limits>
 #include <string>
 #include <stdexcept>
+#include <thread>
 #include <vector>
 
 #include <gtest/gtest.h>
@@ -1696,6 +1698,8 @@ TEST(OpenSubdivRegularProductionRoutingGuard,
 
     EXPECT_FALSE(opensubdiv_regular_production_routing_requested());
     EXPECT_TRUE(build_opensubdiv_regular_shape_functions_by_face(mesh).empty());
+    EXPECT_FALSE(cached_opensubdiv_regular_shape_functions_by_face(mesh));
+    EXPECT_FALSE(regular_limit_surface_row_cache_stats(mesh).populated);
 }
 
 TEST(OpenSubdivRegularProductionRoutingGuard,
@@ -1730,6 +1734,8 @@ TEST(OpenSubdivRegularProductionRoutingGuard,
 
     EXPECT_TRUE(opensubdiv_regular_production_routing_requested());
     EXPECT_THROW(build_opensubdiv_regular_shape_functions_by_face(mesh),
+                 std::runtime_error);
+    EXPECT_THROW(cached_opensubdiv_regular_shape_functions_by_face(mesh),
                  std::runtime_error);
 }
 
@@ -1785,6 +1791,73 @@ TEST(OpenSubdivRegularProductionRoutingGuard,
                  std::runtime_error);
 }
 #else
+struct RegularProductionObservableSnapshot
+{
+    std::vector<double> values;
+};
+
+void append_observable_matrix(RegularProductionObservableSnapshot &snapshot,
+                              const Matrix &matrix)
+{
+    for (int row = 0; row < matrix.nrow(); ++row)
+    {
+        for (int column = 0; column < matrix.ncol(); ++column)
+        {
+            snapshot.values.push_back(matrix.get(row, column));
+        }
+    }
+}
+
+RegularProductionObservableSnapshot
+capture_regular_production_observables(const Mesh &mesh)
+{
+    RegularProductionObservableSnapshot snapshot;
+    snapshot.values = {
+        mesh.param.area,
+        mesh.param.vol,
+        mesh.param.energy.energyCurvature,
+        mesh.param.energy.energyArea,
+        mesh.param.energy.energyVolume,
+        mesh.param.energy.energyTotal,
+    };
+    for (const Face &face : mesh.faces)
+    {
+        if (face.isGhost)
+        {
+            continue;
+        }
+        snapshot.values.push_back(face.elementArea);
+        snapshot.values.push_back(face.elementVolume);
+        snapshot.values.push_back(face.meanCurvature);
+        append_observable_matrix(snapshot, face.normVector);
+    }
+    for (const Vertex &vertex : mesh.vertices)
+    {
+        append_observable_matrix(snapshot, vertex.force.forceCurvature);
+        append_observable_matrix(snapshot, vertex.force.forceArea);
+        append_observable_matrix(snapshot, vertex.force.forceVolume);
+        append_observable_matrix(snapshot, vertex.force.forceTotal);
+    }
+    return snapshot;
+}
+
+double max_regular_production_observable_difference(
+    const RegularProductionObservableSnapshot &left,
+    const RegularProductionObservableSnapshot &right)
+{
+    if (left.values.size() != right.values.size())
+    {
+        return std::numeric_limits<double>::infinity();
+    }
+    double maximum = 0.0;
+    for (std::size_t index = 0; index < left.values.size(); ++index)
+    {
+        maximum =
+            std::max(maximum, std::abs(left.values[index] - right.values[index]));
+    }
+    return maximum;
+}
+
 TEST(OpenSubdivRegularProductionRoutingGuard,
      OptInBuildRoutesSupportedRegularFaces)
 {
@@ -2230,6 +2303,238 @@ TEST(OpenSubdivRegularProductionRoutingGuard,
                                "routed total force");
         }
     }
+}
+
+TEST(OpenSubdivRegularProductionRowCache,
+     ReusesOneImmutableTableAcrossAreaForceAndCoordinateUpdates)
+{
+    auto configure_param = [](Param &param) {
+        param.VERBOSE_MODE = false;
+        param.boundaryCondition = BoundaryType::Periodic;
+        param.sideX = 40.0;
+        param.sideY = 10.0 * std::sqrt(3.0) / 2.0 * param.lFace;
+    };
+    auto setup_mesh = [](Mesh &mesh) {
+        ::testing::internal::CaptureStdout();
+        mesh.setup_flat();
+        mesh.calculate_element_area_volume();
+        mesh.sum_membrane_area_and_volume(mesh.param.area0, mesh.param.vol0);
+        mesh.update_previous_coord_for_vertex();
+        mesh.update_reference_coord_from_previous_coord();
+        ::testing::internal::GetCapturedStdout();
+    };
+
+    Param param;
+    configure_param(param);
+    Param directParam;
+    configure_param(directParam);
+
+    Mesh mesh(param);
+    Mesh directMesh(directParam);
+    RegularProductionObservableSnapshot directBeforeMutation;
+    {
+        ScopedEnvVar disabledEnv("SLIMED_USE_OPENSUBDIV_REGULAR", nullptr);
+        setup_mesh(mesh);
+        setup_mesh(directMesh);
+        evaluate_energy_force(directMesh);
+        directBeforeMutation =
+            capture_regular_production_observables(directMesh);
+    }
+
+    ScopedEnvVar enabledEnv("SLIMED_USE_OPENSUBDIV_REGULAR", "1");
+    EXPECT_FALSE(regular_limit_surface_row_cache_stats(mesh).populated);
+
+    mesh.calculate_element_area_volume();
+    RegularLimitSurfaceRowCacheStats stats =
+        regular_limit_surface_row_cache_stats(mesh);
+    EXPECT_TRUE(stats.populated);
+    EXPECT_EQ(stats.buildCount, 1);
+    EXPECT_EQ(stats.missCount, 1);
+    EXPECT_EQ(stats.hitCount, 0);
+    const std::uint64_t fingerprint = stats.fingerprint;
+
+    evaluate_energy_force(mesh);
+    stats = regular_limit_surface_row_cache_stats(mesh);
+    EXPECT_EQ(stats.buildCount, 1);
+    EXPECT_EQ(stats.missCount, 1);
+    EXPECT_EQ(stats.hitCount, 2);
+    EXPECT_EQ(stats.fingerprint, fingerprint);
+
+    const auto regularFace = std::find_if(
+        mesh.faces.begin(), mesh.faces.end(), [](const Face &face) {
+            return !face.isGhost && !face.isBoundary &&
+                   face.oneRingVertices.size() == 12u;
+        });
+    ASSERT_NE(regularFace, mesh.faces.end());
+    const auto coordinateSource = std::find_if(
+        regularFace->oneRingVertices.begin(),
+        regularFace->oneRingVertices.end(),
+        [&mesh](int source) {
+            return source >= 0 &&
+                   source < static_cast<int>(mesh.vertices.size()) &&
+                   !mesh.vertices[source].isGhost;
+        });
+    ASSERT_NE(coordinateSource, regularFace->oneRingVertices.end());
+    const int source = *coordinateSource;
+    constexpr double coordinateDelta = 0.125;
+    mesh.vertices[source].coord.set(
+        2, 0, mesh.vertices[source].coord.get(2, 0) + coordinateDelta);
+    directMesh.vertices[source].coord.set(
+        2, 0,
+        directMesh.vertices[source].coord.get(2, 0) + coordinateDelta);
+
+    RegularProductionObservableSnapshot directAfterMutation;
+    {
+        ScopedEnvVar disabledEnv("SLIMED_USE_OPENSUBDIV_REGULAR", nullptr);
+        evaluate_energy_force(directMesh);
+        directAfterMutation =
+            capture_regular_production_observables(directMesh);
+    }
+    evaluate_energy_force(mesh);
+    const RegularProductionObservableSnapshot cachedAfterMutation =
+        capture_regular_production_observables(mesh);
+    stats = regular_limit_surface_row_cache_stats(mesh);
+    EXPECT_EQ(stats.buildCount, 1);
+    EXPECT_EQ(stats.missCount, 1);
+    EXPECT_EQ(stats.hitCount, 4);
+    EXPECT_EQ(stats.fingerprint, fingerprint);
+    EXPECT_GT(max_regular_production_observable_difference(
+                  directBeforeMutation, directAfterMutation),
+              1.0e-12);
+    EXPECT_LE(max_regular_production_observable_difference(
+                  cachedAfterMutation, directAfterMutation),
+              5.0e-6);
+}
+
+TEST(OpenSubdivRegularProductionRowCache,
+     FingerprintRebuildsForTopologyAndSamplePlanMutation)
+{
+    ScopedEnvVar enabledEnv("SLIMED_USE_OPENSUBDIV_REGULAR", "1");
+    Param param;
+    param.VERBOSE_MODE = false;
+    param.boundaryCondition = BoundaryType::Periodic;
+    param.sideX = 40.0;
+    param.sideY = 10.0 * std::sqrt(3.0) / 2.0 * param.lFace;
+    Mesh mesh(param);
+    ::testing::internal::CaptureStdout();
+    mesh.setup_flat();
+    ::testing::internal::GetCapturedStdout();
+
+    ASSERT_TRUE(cached_opensubdiv_regular_shape_functions_by_face(mesh));
+    const RegularLimitSurfaceRowCacheStats initial =
+        regular_limit_surface_row_cache_stats(mesh);
+    ASSERT_EQ(initial.buildCount, 1);
+
+    auto regularFace = std::find_if(
+        mesh.faces.begin(), mesh.faces.end(), [](const Face &face) {
+            return !face.isGhost && !face.isBoundary &&
+                   face.oneRingVertices.size() == 12u;
+        });
+    ASSERT_NE(regularFace, mesh.faces.end());
+    std::swap(regularFace->oneRingVertices[0], regularFace->oneRingVertices[1]);
+    ASSERT_TRUE(cached_opensubdiv_regular_shape_functions_by_face(mesh));
+    RegularLimitSurfaceRowCacheStats stats =
+        regular_limit_surface_row_cache_stats(mesh);
+    EXPECT_EQ(stats.buildCount, 2);
+    EXPECT_EQ(stats.missCount, 2);
+    EXPECT_NE(stats.fingerprint, initial.fingerprint);
+
+    mesh.param.VWU.set(0, 0, mesh.param.VWU.get(0, 0) + 1.0e-12);
+    ASSERT_TRUE(cached_opensubdiv_regular_shape_functions_by_face(mesh));
+    stats = regular_limit_surface_row_cache_stats(mesh);
+    EXPECT_EQ(stats.buildCount, 3);
+    EXPECT_EQ(stats.missCount, 3);
+}
+
+TEST(OpenSubdivRegularProductionRowCache,
+     SetupInvalidatesWhileCopyStartsEmptyAndMoveTransfers)
+{
+    ScopedEnvVar enabledEnv("SLIMED_USE_OPENSUBDIV_REGULAR", "1");
+    Param param;
+    param.VERBOSE_MODE = false;
+    param.boundaryCondition = BoundaryType::Periodic;
+    param.sideX = 40.0;
+    param.sideY = 10.0 * std::sqrt(3.0) / 2.0 * param.lFace;
+    Mesh emptySource(param);
+    Mesh copied(emptySource);
+    EXPECT_FALSE(regular_limit_surface_row_cache_stats(copied).populated);
+
+    Mesh mesh(param);
+    ::testing::internal::CaptureStdout();
+    mesh.setup_flat();
+    ::testing::internal::GetCapturedStdout();
+    ASSERT_TRUE(cached_opensubdiv_regular_shape_functions_by_face(mesh));
+
+    EXPECT_EQ(regular_limit_surface_row_cache_stats(mesh).buildCount, 1);
+
+    Mesh moved(std::move(mesh));
+    EXPECT_TRUE(regular_limit_surface_row_cache_stats(moved).populated);
+    EXPECT_EQ(regular_limit_surface_row_cache_stats(moved).buildCount, 1);
+    EXPECT_FALSE(regular_limit_surface_row_cache_stats(mesh).populated);
+
+    ::testing::internal::CaptureStdout();
+    moved.setup_flat();
+    ::testing::internal::GetCapturedStdout();
+    RegularLimitSurfaceRowCacheStats stats =
+        regular_limit_surface_row_cache_stats(moved);
+    EXPECT_FALSE(stats.populated);
+    EXPECT_EQ(stats.buildCount, 1);
+    ASSERT_TRUE(cached_opensubdiv_regular_shape_functions_by_face(moved));
+    EXPECT_EQ(regular_limit_surface_row_cache_stats(moved).buildCount, 2);
+}
+
+TEST(OpenSubdivRegularProductionRowCache,
+     ConcurrentReadersPublishOnceAndRuntimeOptOutBypassesCache)
+{
+    ScopedEnvVar enabledEnv("SLIMED_USE_OPENSUBDIV_REGULAR", "1");
+    Param param;
+    param.VERBOSE_MODE = false;
+    param.boundaryCondition = BoundaryType::Periodic;
+    param.sideX = 40.0;
+    param.sideY = 10.0 * std::sqrt(3.0) / 2.0 * param.lFace;
+    Mesh mesh(param);
+    ::testing::internal::CaptureStdout();
+    mesh.setup_flat();
+    ::testing::internal::GetCapturedStdout();
+
+    constexpr int readerCount = 8;
+    std::array<std::shared_ptr<const RegularLimitSurfaceRowTable>, readerCount>
+        tables;
+    std::vector<std::thread> readers;
+    for (int reader = 0; reader < readerCount; ++reader)
+    {
+        readers.emplace_back([&mesh, &tables, reader]() {
+            tables[reader] =
+                cached_opensubdiv_regular_shape_functions_by_face(mesh);
+        });
+    }
+    for (std::thread &reader : readers)
+    {
+        reader.join();
+    }
+
+    for (const auto &table : tables)
+    {
+        ASSERT_TRUE(table);
+        EXPECT_EQ(table.get(), tables.front().get());
+    }
+    const RegularLimitSurfaceRowCacheStats populated =
+        regular_limit_surface_row_cache_stats(mesh);
+    EXPECT_EQ(populated.buildCount, 1);
+    EXPECT_EQ(populated.missCount, 1);
+    EXPECT_EQ(populated.hitCount, readerCount - 1);
+
+    {
+        ScopedEnvVar disabledEnv("SLIMED_USE_OPENSUBDIV_REGULAR", nullptr);
+        EXPECT_FALSE(cached_opensubdiv_regular_shape_functions_by_face(mesh));
+        mesh.calculate_element_area_volume();
+    }
+    const RegularLimitSurfaceRowCacheStats bypassed =
+        regular_limit_surface_row_cache_stats(mesh);
+    EXPECT_EQ(bypassed.fingerprint, populated.fingerprint);
+    EXPECT_EQ(bypassed.buildCount, populated.buildCount);
+    EXPECT_EQ(bypassed.hitCount, populated.hitCount);
+    EXPECT_EQ(bypassed.missCount, populated.missCount);
 }
 #endif
 

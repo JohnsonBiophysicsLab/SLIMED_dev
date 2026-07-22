@@ -1,19 +1,22 @@
 # OpenSubdiv regular route cache readiness
 
-This document defines the evidence and ownership contract required before the
-guarded regular OpenSubdiv route may cache topology-derived rows. It is a
-design/readiness artifact only. It does not add a cache, change the active
-route, alter default dependency behavior, or expand supported topology.
+This document records the evidence and ownership contract that was required
+before the guarded regular OpenSubdiv route could cache topology-derived rows.
+PR #109 implements that cache without changing the active route, default
+dependency behavior, or supported topology.
 
-## Why a cache is the next lane
+## Why a cache was the next lane
 
 The post-activation benchmark in
 `docs/opensubdiv_regular_route_performance.md` measures the guarded route at
-roughly 4x to 25x the direct path on the recorded fixture matrix. The current
-implementation calls `build_opensubdiv_regular_shape_functions_by_face()`
-from both area/volume evaluation and force accumulation. Each call creates and
-adaptively refines an OpenSubdiv topology refiner, then creates per-face limit
-stencil tables.
+roughly 4x to 25x the direct path on the recorded fixture matrix. Before PR
+#109, area/volume evaluation and force accumulation each called
+`build_opensubdiv_regular_shape_functions_by_face()`, creating and adaptively
+refining an OpenSubdiv topology refiner and then creating per-face limit
+stencil tables on every call. The current guarded implementation calls
+`cached_opensubdiv_regular_shape_functions_by_face()` at both production call
+sites and reuses the mesh-owned immutable row table when its exact identity
+still matches.
 
 The resulting regular row matrices depend on mesh topology, face/source-id
 order, eligibility flags, and the frozen sample plan. They do not depend on
@@ -117,16 +120,15 @@ cache PR is proposed:
 
 ## Explicitly out of scope
 
-This readiness lane does not approve production cache ownership, public
-signatures, default OpenSubdiv linkage, broader-valence routing, formula or
-scatter changes, OpenMP scheduling/reductions, checkpoint/output behavior, or
-propagation changes. The next implementation should be an experimental or
-test-only cache prototype. A production cache remains a separate reviewer and
-user-gated PR.
+This readiness lane did not itself approve production cache ownership. It
+also excluded public signature changes, default OpenSubdiv linkage,
+broader-valence routing, formula or scatter changes, OpenMP
+scheduling/reductions, checkpoint/output behavior, and propagation changes.
 
-The standalone proof in `docs/opensubdiv_regular_cache_prototype.md` is the
-next gate; it must satisfy the acceptance criteria above before production
-ownership is proposed.
+The standalone proof in `docs/opensubdiv_regular_cache_prototype.md` satisfied
+these gates in PR #108. The separately reviewed production implementation now
+uses mesh-owned immutable rows and exact cache-key verification; changes to
+that ownership or identity contract remain reviewer/user-gated.
 
 ## Inventory
 

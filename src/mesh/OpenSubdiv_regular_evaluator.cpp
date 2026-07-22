@@ -4,6 +4,8 @@
 #include "mesh/Mesh.hpp"
 
 #include <cstdlib>
+#include <cstdint>
+#include <cstring>
 #include <array>
 #include <algorithm>
 #include <cmath>
@@ -41,6 +43,7 @@ bool opensubdiv_regular_production_routing_requested()
 #include <opensubdiv/far/stencilTableFactory.h>
 #include <opensubdiv/far/topologyDescriptor.h>
 #include <opensubdiv/far/topologyRefinerFactory.h>
+#include <opensubdiv/version.h>
 
 #include <memory>
 
@@ -55,6 +58,107 @@ constexpr int kDerivativeRowCount = 7;
 constexpr bool kOpenSubdivRegularProductionRouteEnabled = true;
 constexpr double kOpenSubdivRegularRowTolerance = 5.0e-6;
 constexpr double kOpenSubdivRegularResidualScaleFloor = 1.0e-12;
+
+class RegularCacheFingerprintBuilder
+{
+  public:
+    void add_uint64(std::uint64_t value)
+    {
+        for (int shift = 0; shift < 64; shift += 8)
+        {
+            const std::uint8_t byte =
+                static_cast<std::uint8_t>((value >> shift) & 0xffu);
+            identity_.push_back(byte);
+            hash_ ^= byte;
+            hash_ *= 1099511628211ull;
+        }
+    }
+
+    void add_int(int value)
+    {
+        add_uint64(static_cast<std::uint64_t>(static_cast<std::int64_t>(value)));
+    }
+
+    void add_bool(bool value) { add_uint64(value ? 1u : 0u); }
+
+    void add_double(double value)
+    {
+        std::uint64_t bits = 0;
+        static_assert(sizeof(bits) == sizeof(value), "double fingerprint width");
+        std::memcpy(&bits, &value, sizeof(bits));
+        add_uint64(bits);
+    }
+
+    void add_matrix(const Matrix &matrix)
+    {
+        add_int(matrix.nrow());
+        add_int(matrix.ncol());
+        for (int row = 0; row < matrix.nrow(); ++row)
+        {
+            for (int column = 0; column < matrix.ncol(); ++column)
+            {
+                add_double(matrix.get(row, column));
+            }
+        }
+    }
+
+    std::uint64_t fingerprint() const { return hash_; }
+    std::vector<std::uint8_t> identity() && { return std::move(identity_); }
+
+  private:
+    std::uint64_t hash_ = 1469598103934665603ull;
+    std::vector<std::uint8_t> identity_;
+};
+
+struct RegularCacheKey
+{
+    std::uint64_t fingerprint = 0;
+    std::vector<std::uint8_t> identity;
+};
+
+RegularCacheKey regular_limit_surface_cache_key(const Mesh &mesh)
+{
+    RegularCacheFingerprintBuilder fingerprint;
+    fingerprint.add_uint64(1u); // Cache schema version.
+    fingerprint.add_int(OPENSUBDIV_VERSION_NUMBER);
+    fingerprint.add_int(static_cast<int>(Sdc::SCHEME_LOOP));
+    fingerprint.add_int(
+        static_cast<int>(Sdc::Options::VTX_BOUNDARY_EDGE_ONLY));
+    fingerprint.add_int(3); // Adaptive refinement depth.
+    fingerprint.add_bool(true); // First derivatives.
+    fingerprint.add_bool(true); // Second derivatives.
+    fingerprint.add_int(static_cast<int>(sizeof(double)));
+    fingerprint.add_double(kOpenSubdivRegularRowTolerance);
+
+    fingerprint.add_uint64(mesh.vertices.size());
+    fingerprint.add_uint64(mesh.faces.size());
+    for (const Face &face : mesh.faces)
+    {
+        fingerprint.add_int(face.index);
+        fingerprint.add_bool(face.isBoundary);
+        fingerprint.add_bool(face.isGhost);
+        fingerprint.add_uint64(face.adjacentVertices.size());
+        for (int source : face.adjacentVertices)
+        {
+            fingerprint.add_int(source);
+        }
+        fingerprint.add_uint64(face.oneRingVertices.size());
+        for (int source : face.oneRingVertices)
+        {
+            fingerprint.add_int(source);
+        }
+    }
+
+    fingerprint.add_matrix(mesh.param.VWU);
+    fingerprint.add_matrix(mesh.param.gaussQuadratureCoeff);
+    fingerprint.add_uint64(mesh.param.shapeFunctions.size());
+    for (const Matrix &rows : mesh.param.shapeFunctions)
+    {
+        fingerprint.add_matrix(rows);
+    }
+    const std::uint64_t value = fingerprint.fingerprint();
+    return {value, std::move(fingerprint).identity()};
+}
 
 struct RefinerDeleter
 {
@@ -796,6 +900,33 @@ build_opensubdiv_regular_shape_functions_by_face(const Mesh &mesh)
     return routedShapeFunctions;
 }
 
+std::shared_ptr<const RegularLimitSurfaceRowTable>
+cached_opensubdiv_regular_shape_functions_by_face(const Mesh &mesh)
+{
+    if (!opensubdiv_regular_production_routing_requested())
+    {
+        return {};
+    }
+
+    RegularCacheKey requestedKey = regular_limit_surface_cache_key(mesh);
+    RegularLimitSurfaceRowCache &cache = mesh.regularLimitSurfaceRowCache_;
+    std::lock_guard<std::mutex> lock(cache.mutex_);
+    if (cache.table_ && cache.fingerprint_ == requestedKey.fingerprint &&
+        cache.identity_ == requestedKey.identity)
+    {
+        ++cache.hitCount_;
+        return cache.table_;
+    }
+
+    ++cache.missCount_;
+    cache.table_ = std::make_shared<const RegularLimitSurfaceRowTable>(
+        build_opensubdiv_regular_shape_functions_by_face(mesh));
+    cache.fingerprint_ = requestedKey.fingerprint;
+    cache.identity_ = std::move(requestedKey.identity);
+    ++cache.buildCount_;
+    return cache.table_;
+}
+
 OpenSubdivRegularRowDiagnostics
 diagnose_opensubdiv_regular_row_semantics(const Mesh &mesh)
 {
@@ -1143,6 +1274,17 @@ build_opensubdiv_regular_shape_functions_by_face(const Mesh &mesh)
     return {};
 }
 
+std::shared_ptr<const RegularLimitSurfaceRowTable>
+cached_opensubdiv_regular_shape_functions_by_face(const Mesh &mesh)
+{
+    if (!opensubdiv_regular_production_routing_requested())
+    {
+        return {};
+    }
+    (void)build_opensubdiv_regular_shape_functions_by_face(mesh);
+    return {};
+}
+
 OpenSubdivRegularRowDiagnostics
 diagnose_opensubdiv_regular_row_semantics(const Mesh &mesh)
 {
@@ -1175,3 +1317,18 @@ diagnose_opensubdiv_regular_production_call_parity(Mesh &mesh)
 }
 
 #endif
+
+RegularLimitSurfaceRowCacheStats
+regular_limit_surface_row_cache_stats(const Mesh &mesh)
+{
+    const RegularLimitSurfaceRowCache &cache =
+        mesh.regularLimitSurfaceRowCache_;
+    std::lock_guard<std::mutex> lock(cache.mutex_);
+    RegularLimitSurfaceRowCacheStats stats;
+    stats.fingerprint = cache.fingerprint_;
+    stats.buildCount = cache.buildCount_;
+    stats.hitCount = cache.hitCount_;
+    stats.missCount = cache.missCount_;
+    stats.populated = static_cast<bool>(cache.table_);
+    return stats;
+}

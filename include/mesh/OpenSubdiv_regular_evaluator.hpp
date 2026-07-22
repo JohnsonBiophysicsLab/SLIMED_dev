@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "linalg/Linear_algebra.hpp"
+#include "mesh/Regular_limit_surface_row_cache.hpp"
 
 class Mesh;
 class Face;
@@ -127,6 +128,18 @@ struct OpenSubdivRegularProductionParityRecheck
  */
 std::vector<std::vector<Matrix>>
 build_opensubdiv_regular_shape_functions_by_face(const Mesh &mesh);
+
+/**
+ * @brief Return the mesh-owned immutable regular row table for this topology.
+ *
+ * Runtime opt-out bypasses lookup, reuse, and construction. Empty entries keep
+ * unsupported faces on their existing direct or subdivision paths.
+ */
+std::shared_ptr<const RegularLimitSurfaceRowTable>
+cached_opensubdiv_regular_shape_functions_by_face(const Mesh &mesh);
+
+RegularLimitSurfaceRowCacheStats
+regular_limit_surface_row_cache_stats(const Mesh &mesh);
 
 /**
  * @brief Compare opt-in OpenSubdiv regular rows against SLIMED's current
