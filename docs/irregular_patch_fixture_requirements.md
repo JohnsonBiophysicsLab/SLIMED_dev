@@ -29,7 +29,13 @@ matrix contract. It does not add OpenSubdiv, broaden valence support, change
 regular 12-control formulas, or define a new extraordinary-patch backend
 policy.
 
-## Fixture Added
+The narrow representative-fixture and serial/OpenMP evidence gaps are now
+closed by the explicitly approved stand-in in
+`data/fixtures/closed_valence5`. Production setup gives all 20 physical faces
+an ordered 11-slot one-ring with nine unique source IDs and deterministic
+duplicate aggregation through `Face::oneRingVertices`.
+
+## Fixtures And Evidence
 
 `SurfaceSubdivisionCharacterization.SyntheticIrregularPatchAreaVolumeUsesSubdivisionFixture`
 constructs a synthetic non-ghost face with exactly 11 ordered one-ring control
@@ -55,6 +61,17 @@ uses the fixture with `Param::subDivideTimes = 2` to verify that the production
 11-control route matches an independent test-side child-regular-force
 transpose back onto the original one-ring force rows.
 
+`SurfaceIrregularFixtureCharacterization.ApprovedClosedValenceFiveFixtureExercisesAllPositiveDepthElevenControlFaces`
+loads the serialized closed valence-5 stand-in through production mesh setup.
+It checks independent subdivision, transpose back-projection, and force
+scatter for all 20 physical faces, including the repeated local source slots.
+
+`scripts/run_irregular_valence5_fixture_parity.sh` compares actual serial and
+OpenMP executables for energy, force components, normals, area, legacy volume,
+mean curvature, face identity, and all 220 ordered local source slots. The
+reviewed absolute policy is `1.0e-10`, with a maximum observed absolute delta
+of `1.4210854715202004e-14`.
+
 ## Fixture Requirements
 
 A robust 11-neighbor fixture needs these inputs to be explicit:
@@ -67,22 +84,22 @@ A robust 11-neighbor fixture needs these inputs to be explicit:
 - `Param::subDivideTimes` must be greater than zero. The current default is
   zero, which leaves the irregular area/volume branch with no accumulated
   regular child patches.
-- The test should construct or assert coordinates directly. Current flat-mesh
-  helpers reliably produce regular 12-control physical faces; they are not a
-  stable way to discover an interior 11-control face.
+- The approved fixture serializes coordinates and connectivity directly.
+  Current flat-mesh helpers still reliably produce regular 12-control physical
+  faces and are not substitutes for this reviewed 11-control contract.
 
 ## Remaining Energy/Force Review Surface
 
-This lane adds a default energy/force success test for the documented
-subdivision/back-projection route, but it does not resolve every broader
-irregular-surface decision. Remaining review items include:
+The approved stand-in resolves the narrow positive-depth 11-control fixture
+and serial/OpenMP executable-evidence requirements. Remaining review items are
+outside that route:
 
-- scientific approval of the existing subdivision-depth approximation as the
-  intended 11-control force law;
-- tolerance and baseline policy beyond the synthetic 11-control fixture for
-  serial and OpenMP force accumulation;
-- broader extraordinary-valence support, if any; and
-- any future OpenSubdiv-backed sample plan or backend policy.
+- preserve the approved fixture, ordered-source, duplicate-aggregation, and
+  `1.0e-10` executable baselines when the implementation changes;
+- define broader extraordinary-valence fixtures and support policy, if any;
+  and
+- separately review any future OpenSubdiv-backed irregular sample plan,
+  source mapping, force equivalence, and backend policy.
 
 The committed guard test checks the production diagnostic message for
 zero-depth 11-control requests instead of characterizing GSL/BLAS
@@ -91,12 +108,9 @@ dimension-mismatch handling.
 ## Recommended Next Prompt
 
 ```text
-Extend validation for the production 11-control subdivision/back-projection
-route without changing dependency policy. Preserve regular 12-control
-behavior, force scatter order, OpenMP reduction shape, boundary/ghost policy,
-volume semantics, output/checkpoint formats, evaluator signatures, and default
-dependencies. Add serial/OpenMP numerical evidence beyond the synthetic
-fixture for area, volume, face curvature energy, mean curvature, normals,
-per-vertex force components, and total energy. Do not broaden valence support
-or introduce OpenSubdiv in the same PR.
+Inventory exact unsupported broader-valence one-ring shapes and current
+diagnostics without enabling a route. Preserve the approved closed valence-5
+fixture and serial/OpenMP baseline for the existing narrow 11-control path.
+Do not change routing, formulas, default dependencies, OpenMP reductions,
+checkpoint/output, or propagation.
 ```
