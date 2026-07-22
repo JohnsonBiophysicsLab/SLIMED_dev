@@ -124,6 +124,10 @@ propagation changes. The next implementation should be an experimental or
 test-only cache prototype. A production cache remains a separate reviewer and
 user-gated PR.
 
+The standalone proof in `docs/opensubdiv_regular_cache_prototype.md` is the
+next gate; it must satisfy the acceptance criteria above before production
+ownership is proposed.
+
 ## Inventory
 
 Run the dependency-free source inventory with:
