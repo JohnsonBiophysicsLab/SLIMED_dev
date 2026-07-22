@@ -26,7 +26,7 @@ shared backend state to it. Moving a populated mesh is covered directly.
 
 ## Fingerprint and invalidation
 
-Lookup recomputes a fingerprint from:
+Lookup recomputes a canonical identity snapshot and a 64-bit fingerprint from:
 
 - the cache schema, OpenSubdiv version, Loop scheme, boundary option,
   refinement depth, derivative options, row precision, and parity tolerance;
@@ -39,6 +39,9 @@ updates reuse the table. `setup_flat()` and
 `setup_from_vertices_faces()` explicitly clear the published table.
 Public topology or sample-plan mutation is caught by the next fingerprint
 comparison. Such mutation must remain serialized against lookup and readers.
+The fingerprint is only a fast prefilter. Reuse also requires byte-for-byte
+equality of the complete canonical identity snapshot, so a hash collision
+cannot select rows for different topology or sample data.
 
 Runtime opt-out returns before fingerprinting, lookup, reuse, or construction,
 even when a prior opted-in evaluation populated the cache. Builds without
@@ -49,7 +52,9 @@ loud failure when runtime opt-in is requested.
 
 The OpenSubdiv-enabled characterization covers:
 
-- one build across area, force, repeated evaluation, and coordinate updates;
+- one build across area, force, repeated evaluation, and a non-ghost
+  coordinate update that changes production observables while retaining full
+  cached-versus-direct parity;
 - topology and sample-plan misses;
 - setup invalidation with a monotonically increasing build count;
 - empty cache state on copy construction and populated-cache move transfer;
@@ -72,12 +77,12 @@ modes.
 
 | `lFace` | Threads | Direct (s) | Routed (s) | Routed/direct |
 |---:|---:|---:|---:|---:|
-| 12.5 | 1 | 0.0711 | 0.0786 | 1.10x |
-| 12.5 | 4 | 0.0505 | 0.0617 | 1.22x |
-| 7.5 | 1 | 0.4118 | 0.5049 | 1.23x |
-| 7.5 | 4 | 0.1952 | 0.2889 | 1.48x |
-| 5.0 | 1 | 1.3236 | 1.7989 | 1.36x |
-| 5.0 | 4 | 0.5188 | 0.9884 | 1.91x |
+| 12.5 | 1 | 0.0730 | 0.0839 | 1.15x |
+| 12.5 | 4 | 0.0524 | 0.0635 | 1.21x |
+| 7.5 | 1 | 0.4239 | 0.5256 | 1.24x |
+| 7.5 | 4 | 0.2253 | 0.3014 | 1.34x |
+| 5.0 | 1 | 1.3569 | 1.8566 | 1.37x |
+| 5.0 | 4 | 0.5259 | 1.0269 | 1.95x |
 
 The uncached PR #106 baseline ranged from 4.02x to 25.11x. These local timing
 results are performance characterization, not scientific acceptance

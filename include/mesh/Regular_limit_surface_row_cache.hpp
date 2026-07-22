@@ -64,6 +64,7 @@ class RegularLimitSurfaceRowCache
     {
         std::lock_guard<std::mutex> lock(mutex_);
         table_.reset();
+        identity_.clear();
         fingerprint_ = 0;
     }
 
@@ -71,10 +72,12 @@ class RegularLimitSurfaceRowCache
     void transfer_from(RegularLimitSurfaceRowCache &other)
     {
         table_ = std::move(other.table_);
+        identity_ = std::move(other.identity_);
         fingerprint_ = other.fingerprint_;
         buildCount_ = other.buildCount_;
         hitCount_ = other.hitCount_;
         missCount_ = other.missCount_;
+        other.identity_.clear();
         other.fingerprint_ = 0;
         other.buildCount_ = 0;
         other.hitCount_ = 0;
@@ -88,6 +91,7 @@ class RegularLimitSurfaceRowCache
 
     mutable std::mutex mutex_;
     std::shared_ptr<const RegularLimitSurfaceRowTable> table_;
+    std::vector<std::uint8_t> identity_;
     std::uint64_t fingerprint_ = 0;
     int buildCount_ = 0;
     int hitCount_ = 0;

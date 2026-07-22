@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <cstdlib>
 #include <cmath>
+#include <limits>
 #include <string>
 #include <stdexcept>
 #include <thread>
@@ -1790,6 +1791,73 @@ TEST(OpenSubdivRegularProductionRoutingGuard,
                  std::runtime_error);
 }
 #else
+struct RegularProductionObservableSnapshot
+{
+    std::vector<double> values;
+};
+
+void append_observable_matrix(RegularProductionObservableSnapshot &snapshot,
+                              const Matrix &matrix)
+{
+    for (int row = 0; row < matrix.nrow(); ++row)
+    {
+        for (int column = 0; column < matrix.ncol(); ++column)
+        {
+            snapshot.values.push_back(matrix.get(row, column));
+        }
+    }
+}
+
+RegularProductionObservableSnapshot
+capture_regular_production_observables(const Mesh &mesh)
+{
+    RegularProductionObservableSnapshot snapshot;
+    snapshot.values = {
+        mesh.param.area,
+        mesh.param.vol,
+        mesh.param.energy.energyCurvature,
+        mesh.param.energy.energyArea,
+        mesh.param.energy.energyVolume,
+        mesh.param.energy.energyTotal,
+    };
+    for (const Face &face : mesh.faces)
+    {
+        if (face.isGhost)
+        {
+            continue;
+        }
+        snapshot.values.push_back(face.elementArea);
+        snapshot.values.push_back(face.elementVolume);
+        snapshot.values.push_back(face.meanCurvature);
+        append_observable_matrix(snapshot, face.normVector);
+    }
+    for (const Vertex &vertex : mesh.vertices)
+    {
+        append_observable_matrix(snapshot, vertex.force.forceCurvature);
+        append_observable_matrix(snapshot, vertex.force.forceArea);
+        append_observable_matrix(snapshot, vertex.force.forceVolume);
+        append_observable_matrix(snapshot, vertex.force.forceTotal);
+    }
+    return snapshot;
+}
+
+double max_regular_production_observable_difference(
+    const RegularProductionObservableSnapshot &left,
+    const RegularProductionObservableSnapshot &right)
+{
+    if (left.values.size() != right.values.size())
+    {
+        return std::numeric_limits<double>::infinity();
+    }
+    double maximum = 0.0;
+    for (std::size_t index = 0; index < left.values.size(); ++index)
+    {
+        maximum =
+            std::max(maximum, std::abs(left.values[index] - right.values[index]));
+    }
+    return maximum;
+}
+
 TEST(OpenSubdivRegularProductionRoutingGuard,
      OptInBuildRoutesSupportedRegularFaces)
 {
@@ -2240,15 +2308,13 @@ TEST(OpenSubdivRegularProductionRoutingGuard,
 TEST(OpenSubdivRegularProductionRowCache,
      ReusesOneImmutableTableAcrossAreaForceAndCoordinateUpdates)
 {
-    Param param;
-    param.VERBOSE_MODE = false;
-    param.boundaryCondition = BoundaryType::Periodic;
-    param.sideX = 40.0;
-    param.sideY = 10.0 * std::sqrt(3.0) / 2.0 * param.lFace;
-
-    Mesh mesh(param);
-    {
-        ScopedEnvVar disabledEnv("SLIMED_USE_OPENSUBDIV_REGULAR", nullptr);
+    auto configure_param = [](Param &param) {
+        param.VERBOSE_MODE = false;
+        param.boundaryCondition = BoundaryType::Periodic;
+        param.sideX = 40.0;
+        param.sideY = 10.0 * std::sqrt(3.0) / 2.0 * param.lFace;
+    };
+    auto setup_mesh = [](Mesh &mesh) {
         ::testing::internal::CaptureStdout();
         mesh.setup_flat();
         mesh.calculate_element_area_volume();
@@ -2256,6 +2322,23 @@ TEST(OpenSubdivRegularProductionRowCache,
         mesh.update_previous_coord_for_vertex();
         mesh.update_reference_coord_from_previous_coord();
         ::testing::internal::GetCapturedStdout();
+    };
+
+    Param param;
+    configure_param(param);
+    Param directParam;
+    configure_param(directParam);
+
+    Mesh mesh(param);
+    Mesh directMesh(directParam);
+    RegularProductionObservableSnapshot directBeforeMutation;
+    {
+        ScopedEnvVar disabledEnv("SLIMED_USE_OPENSUBDIV_REGULAR", nullptr);
+        setup_mesh(mesh);
+        setup_mesh(directMesh);
+        evaluate_energy_force(directMesh);
+        directBeforeMutation =
+            capture_regular_production_observables(directMesh);
     }
 
     ScopedEnvVar enabledEnv("SLIMED_USE_OPENSUBDIV_REGULAR", "1");
@@ -2277,14 +2360,50 @@ TEST(OpenSubdivRegularProductionRowCache,
     EXPECT_EQ(stats.hitCount, 2);
     EXPECT_EQ(stats.fingerprint, fingerprint);
 
-    mesh.vertices.front().coord.set(
-        2, 0, mesh.vertices.front().coord.get(2, 0) + 0.03125);
+    const auto regularFace = std::find_if(
+        mesh.faces.begin(), mesh.faces.end(), [](const Face &face) {
+            return !face.isGhost && !face.isBoundary &&
+                   face.oneRingVertices.size() == 12u;
+        });
+    ASSERT_NE(regularFace, mesh.faces.end());
+    const auto coordinateSource = std::find_if(
+        regularFace->oneRingVertices.begin(),
+        regularFace->oneRingVertices.end(),
+        [&mesh](int source) {
+            return source >= 0 &&
+                   source < static_cast<int>(mesh.vertices.size()) &&
+                   !mesh.vertices[source].isGhost;
+        });
+    ASSERT_NE(coordinateSource, regularFace->oneRingVertices.end());
+    const int source = *coordinateSource;
+    constexpr double coordinateDelta = 0.125;
+    mesh.vertices[source].coord.set(
+        2, 0, mesh.vertices[source].coord.get(2, 0) + coordinateDelta);
+    directMesh.vertices[source].coord.set(
+        2, 0,
+        directMesh.vertices[source].coord.get(2, 0) + coordinateDelta);
+
+    RegularProductionObservableSnapshot directAfterMutation;
+    {
+        ScopedEnvVar disabledEnv("SLIMED_USE_OPENSUBDIV_REGULAR", nullptr);
+        evaluate_energy_force(directMesh);
+        directAfterMutation =
+            capture_regular_production_observables(directMesh);
+    }
     evaluate_energy_force(mesh);
+    const RegularProductionObservableSnapshot cachedAfterMutation =
+        capture_regular_production_observables(mesh);
     stats = regular_limit_surface_row_cache_stats(mesh);
     EXPECT_EQ(stats.buildCount, 1);
     EXPECT_EQ(stats.missCount, 1);
     EXPECT_EQ(stats.hitCount, 4);
     EXPECT_EQ(stats.fingerprint, fingerprint);
+    EXPECT_GT(max_regular_production_observable_difference(
+                  directBeforeMutation, directAfterMutation),
+              1.0e-12);
+    EXPECT_LE(max_regular_production_observable_difference(
+                  cachedAfterMutation, directAfterMutation),
+              5.0e-6);
 }
 
 TEST(OpenSubdivRegularProductionRowCache,

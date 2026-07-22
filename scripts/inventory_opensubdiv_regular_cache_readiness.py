@@ -86,12 +86,12 @@ ANCHORS = (
     Anchor("copy contract", CACHE_DOC, "a copied mesh starts with an empty cache", "Copy behavior is explicit."),
     Anchor("concurrent publication", CACHE_DOC, "At most one build for a fingerprint may publish", "Concurrent construction is defined."),
     Anchor("serialized mutation boundary", CACHE_DOC, "must be serialized against cache lookup", "Fingerprinting does not make concurrent public mutation safe."),
-    Anchor("production gate", CACHE_DOC, "A production cache remains a separate reviewer and", "Production remains separately gated."),
+    Anchor("production gate", CACHE_DOC, "identity contract remain reviewer/user-gated", "Production cache changes remain separately gated."),
     Anchor("measured performance basis", PERFORMANCE_DOC, "PR #105 baseline measurement", "The design follows measured active-route cost."),
     Anchor("current refiner construction", EVALUATOR_IMPL, "create_refiner_for_mesh(mesh)", "The current route reconstructs a refiner."),
     Anchor("current stencil construction", EVALUATOR_IMPL, "DoubleFactory::Create(refiner, locations", "The current route constructs limit stencils."),
-    Anchor("area call site", MESH_IMPL, "build_opensubdiv_regular_shape_functions_by_face(*this)", "Area and volume request route rows."),
-    Anchor("force call site", FORCE_IMPL, "build_opensubdiv_regular_shape_functions_by_face(mesh)", "Force accumulation requests route rows."),
+    Anchor("area cached call site", MESH_IMPL, "cached_opensubdiv_regular_shape_functions_by_face(*this)", "Area and volume reuse the mesh-owned row cache."),
+    Anchor("force cached call site", FORCE_IMPL, "cached_opensubdiv_regular_shape_functions_by_face(mesh)", "Force accumulation reuses the same mesh-owned row cache."),
     Anchor("existing ownership gate", READINESS_DOC, "caching or lifetime changes require a", "Existing readiness keeps caching separately reviewed."),
 )
 
@@ -125,8 +125,8 @@ def collect_anchors(root: Path):
 def as_dicts(located: Sequence[LocatedAnchor], missing: Sequence[Anchor]):
     return {
         "status": "passed" if not missing else "failed",
-        "cache_implemented": False,
-        "production_cache_approved": False,
+        "cache_implemented": True,
+        "production_cache_approved": True,
         "broader_valence_in_scope": False,
         "cache_components": list(CACHE_COMPONENTS),
         "invalidation_rules": list(INVALIDATION_RULES),

@@ -34,10 +34,10 @@ class OpenSubdivRegularProductionCacheInventoryTest(unittest.TestCase):
         self.assertFalse(result["formula_or_scatter_change"])
         self.assertFalse(result["openmp_reduction_change"])
 
-    def test_fingerprint_excludes_vertex_coordinates(self):
+    def test_exact_identity_excludes_vertex_coordinates(self):
         source = (ROOT / inventory.EVALUATOR).read_text(encoding="utf-8")
         fingerprint = source[
-            source.index("regular_limit_surface_cache_fingerprint"):
+            source.index("regular_limit_surface_cache_key"):
             source.index("struct RefinerDeleter")
         ]
         self.assertNotIn("vertex.coord", fingerprint)
@@ -51,6 +51,11 @@ class OpenSubdivRegularProductionCacheInventoryTest(unittest.TestCase):
             "VTX_BOUNDARY_EDGE_ONLY",
         ):
             self.assertIn(needle, fingerprint)
+
+    def test_hash_is_only_a_prefilter_for_exact_identity(self):
+        source = (ROOT / inventory.EVALUATOR).read_text(encoding="utf-8")
+        self.assertIn("cache.fingerprint_ == requestedKey.fingerprint", source)
+        self.assertIn("cache.identity_ == requestedKey.identity", source)
 
 
 if __name__ == "__main__":

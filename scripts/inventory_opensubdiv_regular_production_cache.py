@@ -28,6 +28,7 @@ ANCHORS = {
     "copy starts empty": (CACHE, "A copied mesh starts without backend state."),
     "move transfers state": (CACHE, "transfer_from(other)"),
     "synchronized cache": (CACHE, "mutable std::mutex mutex_"),
+    "exact identity snapshot": (CACHE, "std::vector<std::uint8_t> identity_"),
     "schema key": (EVALUATOR, "Cache schema version."),
     "OpenSubdiv version key": (EVALUATOR, "OPENSUBDIV_VERSION_NUMBER"),
     "Loop scheme key": (EVALUATOR, "Sdc::SCHEME_LOOP"),
@@ -42,6 +43,10 @@ ANCHORS = {
         "if (!opensubdiv_regular_production_routing_requested())",
     ),
     "one publisher lock": (EVALUATOR, "std::lock_guard<std::mutex> lock(cache.mutex_)"),
+    "collision-safe identity check": (
+        EVALUATOR,
+        "cache.identity_ == requestedKey.identity",
+    ),
     "area cache lookup": (
         AREA,
         "cached_opensubdiv_regular_shape_functions_by_face(*this)",
@@ -56,6 +61,15 @@ ANCHORS = {
         TEST,
         "ReusesOneImmutableTableAcrossAreaForceAndCoordinateUpdates",
     ),
+    "non-ghost coordinate source": (TEST, "!mesh.vertices[source].isGhost"),
+    "coordinate mutation observable": (
+        TEST,
+        "directBeforeMutation, directAfterMutation",
+    ),
+    "coordinate direct parity": (
+        TEST,
+        "cachedAfterMutation, directAfterMutation",
+    ),
     "mutation rebuild test": (
         TEST,
         "FingerprintRebuildsForTopologyAndSamplePlanMutation",
@@ -68,7 +82,7 @@ ANCHORS = {
         TEST,
         "ConcurrentReadersPublishOnceAndRuntimeOptOutBypassesCache",
     ),
-    "performance evidence": (DOC, "1.91x"),
+    "performance evidence": (DOC, "1.95x"),
     "scope boundary": (DOC, "does not add a"),
 }
 

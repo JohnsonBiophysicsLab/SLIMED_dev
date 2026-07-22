@@ -117,16 +117,15 @@ cache PR is proposed:
 
 ## Explicitly out of scope
 
-This readiness lane does not approve production cache ownership, public
-signatures, default OpenSubdiv linkage, broader-valence routing, formula or
-scatter changes, OpenMP scheduling/reductions, checkpoint/output behavior, or
-propagation changes. The next implementation should be an experimental or
-test-only cache prototype. A production cache remains a separate reviewer and
-user-gated PR.
+This readiness lane did not itself approve production cache ownership. It
+also excluded public signature changes, default OpenSubdiv linkage,
+broader-valence routing, formula or scatter changes, OpenMP
+scheduling/reductions, checkpoint/output behavior, and propagation changes.
 
 The standalone proof in `docs/opensubdiv_regular_cache_prototype.md` satisfied
-these gates in PR #108. Production cache ownership is implemented separately
-and remains reviewer/user-gated.
+these gates in PR #108. The separately reviewed production implementation now
+uses mesh-owned immutable rows and exact cache-key verification; changes to
+that ownership or identity contract remain reviewer/user-gated.
 
 ## Inventory
 

@@ -63,12 +63,12 @@ class OpenSubdivRegularCacheReadinessInventoryTest(unittest.TestCase):
         self.assertFalse(missing)
         self.assertEqual(len(located), len(inventory.ANCHORS))
 
-    def test_payload_keeps_production_and_broader_valence_blocked(self):
+    def test_payload_records_production_cache_and_keeps_broader_valence_blocked(self):
         located, missing = inventory.collect_anchors(inventory.repo_root())
         payload = inventory.as_dicts(located, missing)
         self.assertEqual(payload["status"], "passed")
-        self.assertFalse(payload["cache_implemented"])
-        self.assertFalse(payload["production_cache_approved"])
+        self.assertTrue(payload["cache_implemented"])
+        self.assertTrue(payload["production_cache_approved"])
         self.assertFalse(payload["broader_valence_in_scope"])
 
 

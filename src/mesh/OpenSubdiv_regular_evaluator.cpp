@@ -66,7 +66,10 @@ class RegularCacheFingerprintBuilder
     {
         for (int shift = 0; shift < 64; shift += 8)
         {
-            hash_ ^= static_cast<unsigned char>((value >> shift) & 0xffu);
+            const std::uint8_t byte =
+                static_cast<std::uint8_t>((value >> shift) & 0xffu);
+            identity_.push_back(byte);
+            hash_ ^= byte;
             hash_ *= 1099511628211ull;
         }
     }
@@ -99,13 +102,21 @@ class RegularCacheFingerprintBuilder
         }
     }
 
-    std::uint64_t value() const { return hash_; }
+    std::uint64_t fingerprint() const { return hash_; }
+    std::vector<std::uint8_t> identity() && { return std::move(identity_); }
 
   private:
     std::uint64_t hash_ = 1469598103934665603ull;
+    std::vector<std::uint8_t> identity_;
 };
 
-std::uint64_t regular_limit_surface_cache_fingerprint(const Mesh &mesh)
+struct RegularCacheKey
+{
+    std::uint64_t fingerprint = 0;
+    std::vector<std::uint8_t> identity;
+};
+
+RegularCacheKey regular_limit_surface_cache_key(const Mesh &mesh)
 {
     RegularCacheFingerprintBuilder fingerprint;
     fingerprint.add_uint64(1u); // Cache schema version.
@@ -145,7 +156,8 @@ std::uint64_t regular_limit_surface_cache_fingerprint(const Mesh &mesh)
     {
         fingerprint.add_matrix(rows);
     }
-    return fingerprint.value();
+    const std::uint64_t value = fingerprint.fingerprint();
+    return {value, std::move(fingerprint).identity()};
 }
 
 struct RefinerDeleter
@@ -896,11 +908,11 @@ cached_opensubdiv_regular_shape_functions_by_face(const Mesh &mesh)
         return {};
     }
 
-    const std::uint64_t requestedFingerprint =
-        regular_limit_surface_cache_fingerprint(mesh);
+    RegularCacheKey requestedKey = regular_limit_surface_cache_key(mesh);
     RegularLimitSurfaceRowCache &cache = mesh.regularLimitSurfaceRowCache_;
     std::lock_guard<std::mutex> lock(cache.mutex_);
-    if (cache.table_ && cache.fingerprint_ == requestedFingerprint)
+    if (cache.table_ && cache.fingerprint_ == requestedKey.fingerprint &&
+        cache.identity_ == requestedKey.identity)
     {
         ++cache.hitCount_;
         return cache.table_;
@@ -909,7 +921,8 @@ cached_opensubdiv_regular_shape_functions_by_face(const Mesh &mesh)
     ++cache.missCount_;
     cache.table_ = std::make_shared<const RegularLimitSurfaceRowTable>(
         build_opensubdiv_regular_shape_functions_by_face(mesh));
-    cache.fingerprint_ = requestedFingerprint;
+    cache.fingerprint_ = requestedKey.fingerprint;
+    cache.identity_ = std::move(requestedKey.identity);
     ++cache.buildCount_;
     return cache.table_;
 }
