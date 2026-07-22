@@ -288,6 +288,29 @@ int populated_face_count(const RegularRowTable &table)
         [](const std::vector<Matrix> &rows) { return !rows.empty(); }));
 }
 
+bool unsupported_fallback_preserved(const Mesh &mesh,
+                                    const RegularRowTable &table)
+{
+    bool foundUnsupported = false;
+    for (const Face &face : mesh.faces)
+    {
+        const bool unsupported =
+            face.isBoundary || face.isGhost || face.oneRingVertices.size() != 12u;
+        if (!unsupported)
+        {
+            continue;
+        }
+        foundUnsupported = true;
+        if (face.index < 0 ||
+            face.index >= static_cast<int>(table.size()) ||
+            !table[face.index].empty())
+        {
+            return false;
+        }
+    }
+    return foundUnsupported;
+}
+
 struct ProofResult
 {
     bool oneBuildForUnchanged = false;
@@ -327,7 +350,10 @@ ProofResult run_proof()
 
     const auto faceIterator = std::find_if(
         fixture.mesh.faces.begin(), fixture.mesh.faces.end(),
-        [](const Face &face) { return face.oneRingVertices.size() == 12u; });
+        [](const Face &face) {
+            return !face.isBoundary && !face.isGhost &&
+                   face.oneRingVertices.size() == 12u;
+        });
     if (faceIterator == fixture.mesh.faces.end())
     {
         return result;
@@ -398,7 +424,7 @@ ProofResult run_proof()
     result.populatedFaceCount = initial ? populated_face_count(*initial) : 0;
     result.unsupportedFallbackPreserved =
         initial && result.populatedFaceCount > 0 &&
-        result.populatedFaceCount < static_cast<int>(initial->size());
+        unsupported_fallback_preserved(fixture.mesh, *initial);
     result.maxRowDifference =
         initial ? max_row_difference(*initial, fixture.param.shapeFunctions)
                 : std::numeric_limits<double>::infinity();

@@ -47,6 +47,7 @@ class OpenSubdivRegularCachePrototypeInventoryTest(unittest.TestCase):
             "runtimeOptOutIgnoresPopulatedCache",
             "unsupportedFallbackPreserved",
             "rowsMatchFrozenRegular",
+            "face.isBoundary || face.isGhost || face.oneRingVertices.size() != 12u",
         ):
             self.assertIn(needle, source)
 

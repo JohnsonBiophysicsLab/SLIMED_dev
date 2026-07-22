@@ -26,7 +26,7 @@ ANCHORS = {
     "two-mesh isolation": (SOURCE, "twoMeshIsolation"),
     "one publisher": (SOURCE, "concurrentReadersOnePublisher"),
     "opt-out populated cache": (SOURCE, "runtimeOptOutIgnoresPopulatedCache"),
-    "fallback": (SOURCE, "unsupportedFallbackPreserved"),
+    "fallback": (SOURCE, "unsupported_fallback_preserved"),
     "row parity": (SOURCE, "rowsMatchFrozenRegular"),
     "dependency gate": (WRAPPER, "OPENSUBDIV_ROOT"),
     "no production cache": (DOC, "does not add cache ownership to `Mesh`"),
