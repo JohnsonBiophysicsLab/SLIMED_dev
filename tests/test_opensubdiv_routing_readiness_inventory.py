@@ -58,6 +58,8 @@ class OpenSubdivRoutingReadinessInventoryTest(unittest.TestCase):
 
         self.assertFalse(missing)
         self.assertGreaterEqual(len(located), len(inventory.ANCHORS))
+        located_names = {item.anchor.name for item in located}
+        self.assertIn("regular complete before expansion", located_names)
 
     def test_residual_policy_anchors_cover_required_tolerance_metrics(self):
         anchor_names = {anchor.name for anchor in inventory.ANCHORS}
