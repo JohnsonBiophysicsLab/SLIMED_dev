@@ -16,6 +16,36 @@ SPEC.loader.exec_module(inventory)
 
 
 class IrregularFixtureInventoryTest(unittest.TestCase):
+    def test_approved_example_mesh_uses_production_periodic_ghost_contract(self):
+        meshes, _ = inventory.checked_in_mesh_inputs(inventory.repo_root())
+        mesh = next(mesh for mesh in meshes if mesh.label == "data/example")
+        summary = inventory.summarize_mesh(mesh, candidate_limit=2)
+
+        self.assertIn("production periodic ghost policy", summary["ghost_status"])
+        self.assertEqual(sum(flag is True for flag in mesh.face_ghost_flags), 960)
+        self.assertEqual(
+            summary["route_counts"],
+            {
+                inventory.BOUNDARY_ROUTE: 960,
+                inventory.REGULAR_ROUTE: 2720,
+            },
+        )
+        self.assertNotIn(inventory.SUPPORTED_11_ROUTE, summary["route_counts"])
+        self.assertNotIn(inventory.OPENSUBDIV_GAP, summary["route_counts"])
+
+    def test_flat_grid_and_periodic_ghost_policy_match_fixture_shape(self):
+        root = inventory.repo_root()
+        faces = inventory.parse_faces_csv(root / "data/example/faces_flat.csv")
+        vertices = inventory.parse_vertices_csv(root / "data/example/vertices_flat.csv")
+
+        self.assertEqual(
+            inventory.infer_flat_grid_divisions(len(vertices), faces),
+            (40, 46),
+        )
+        flags = inventory.periodic_ghost_face_flags(40, 46)
+        self.assertEqual(len(flags), 3680)
+        self.assertEqual(sum(flags), 960)
+
     def test_generated_icosahedron_maps_to_supported_11_route(self):
         mesh = inventory.generated_icosahedron()
         summary = inventory.summarize_mesh(mesh, candidate_limit=2)

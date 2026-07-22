@@ -27,9 +27,13 @@ physical triangular mesh into the current `11 = 4+3+4` route bucket.
 | Unsupported broader valence | Non-boundary face outside the current regular-12 and 11-control predicates. | Unsupported; regular fallback remains disabled. |
 | OpenSubdiv-replacement gap | Unsupported physical irregular topology needing a future backend policy. | Not production. |
 
-CSV fixtures do not serialize `Face::isGhost`, so the checked-in CSV inventory
-reports ghost status as unavailable and uses topology boundary status only.
-Generated probes can report non-ghost status directly.
+CSV fixtures do not serialize `Face::isGhost`. For the now-approved
+`data/example` physical mesh, the companion `example.params` declares periodic
+boundaries and the row-major face topology resolves to `nFaceX=40` and
+`nFaceY=46`. The inventory therefore applies the exact face-index policy from
+`Mesh::determine_ghost_vertices_faces()`. A production-setup C++ test verifies
+the same classification. Other CSV inputs continue to report ghost status as
+unavailable unless they carry an equally explicit reviewed contract.
 
 ## Current Inventory Snapshot
 
@@ -38,19 +42,17 @@ checked-in triangulated mesh fixture discovered by the command:
 
 - 1,927 vertices and 3,680 faces.
 - Edge incidence counts: 172 boundary edges and 5,434 two-face edges.
-- Derived one-ring sizes: 3,344 regular 12-control faces and 336 unavailable
-  faces.
-- Route counts: 3,344 regular faces, 170 boundary-excluded faces, and 166
-  non-boundary faces outside the current regular/11-control predicates.
-- No checked-in physical 11-control candidate is currently discoverable from
-  serialized mesh CSVs because no face has an all-valence-5 interior one-ring
-  predicate.
+- Production ghost classification: 960 ghost faces and 2,720 physical faces.
+- Every physical face has the regular 12-control one-ring.
+- All 336 mixed-valence faces are in the periodic ghost band; none is an
+  eligible physical irregular face.
+- No checked-in physical 11-control candidate is present because no physical
+  face has an all-valence-5 interior one-ring predicate.
 
-The non-boundary unsupported examples in `data/example` occur where topology
-shows mixed valence triplets such as `4/6/6` or `5/6/6`. Because ghost flags
-are not serialized, these are evidence-discovery candidates only; promoting
-them into production tests needs an approved fixture with explicit
-boundary/ghost status and expected behavior.
+The topology-only mixed-valence leads such as `4/6/6` and `5/6/6` are now
+resolved: production setup classifies all of them as ghosts. The approved mesh
+is a useful negative physical fixture, but it cannot validate the supported
+11-control route or any broader-valence OpenSubdiv route.
 
 Coordinate-only Gag and shape CSVs under `data/` are reported as skipped
 sources because they do not include face connectivity. They cannot establish
@@ -73,15 +75,16 @@ topology-only sanity check that the discovery command can identify physical
 
 ## Resulting Gap Status
 
-The representative fixture gap is narrowed but not closed:
+The representative fixture decision is resolved for `data/example`, but the
+positive irregular fixture gap remains open:
 
 - The repo now has an inert command and report for discovering candidate
   irregular fixtures.
-- The checked-in triangulated mesh inventory currently provides regular
-  12-control evidence and unsupported mixed-valence discovery leads, but no
-  serialized physical 11-control fixture with explicit ghost status.
-- A future fixture PR can use this command to verify that a proposed mesh
-  includes non-ghost 11-control candidates before adding numerical expectations.
+- The approved checked-in mesh provides explicit production ghost status and
+  proves that it has no physical irregular face.
+- A future positive fixture still needs reviewed coordinates/connectivity with
+  at least one non-ghost 11-control candidate, or an explicit scientific waiver
+  allowing the generated closed valence-5 mesh to stand in for that claim.
 
 The serial/OpenMP tolerance policy, broader valence policy, and OpenSubdiv
 replacement criteria remain separate lanes.

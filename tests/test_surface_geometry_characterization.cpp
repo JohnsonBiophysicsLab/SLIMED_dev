@@ -12,6 +12,7 @@
 
 #include "Parameters.hpp"
 #include "energy_force/Energy_force_evaluator.hpp"
+#include "io/io.hpp"
 #include "mesh/Gauss_quadrature.hpp"
 #include "mesh/Limit_surface_evaluator.hpp"
 #include "mesh/Mesh.hpp"
@@ -1685,6 +1686,71 @@ TEST(SurfaceFlatMeshCharacterization, PeriodicFlatMeshKeepsInteriorRegularAndPla
             EXPECT_NEAR(face.elementVolume, 0.0, 1.0e-11);
         }
     }
+}
+
+TEST(SurfaceIrregularFixtureCharacterization,
+     ApprovedExampleMeshHasNoPhysicalIrregularFaceAfterProductionSetup)
+{
+    Param param;
+    param.VERBOSE_MODE = false;
+    param.boundaryCondition = BoundaryType::Periodic;
+    param.nFaceX = 40;
+    param.nFaceY = 46;
+    param.subDivideTimes = 2;
+
+    const auto verticesData =
+        read_data_from_csv<double>("./data/example/vertices_flat.csv");
+    const auto facesData =
+        read_data_from_csv<int>("./data/example/faces_flat.csv");
+    Mesh mesh(param);
+    mesh.setup_from_vertices_faces(verticesData, facesData);
+
+    ASSERT_EQ(mesh.vertices.size(), 1927u);
+    ASSERT_EQ(mesh.faces.size(), 3680u);
+
+    int ghostFaces = 0;
+    int physicalRegularFaces = 0;
+    int physicalElevenControlFaces = 0;
+    int physicalUnsupportedFaces = 0;
+    int ghostMixedValenceFaces = 0;
+    for (const Face &face : mesh.faces)
+    {
+        const bool allValenceSix = std::all_of(
+            face.adjacentVertices.begin(),
+            face.adjacentVertices.end(),
+            [&mesh](const int vertex) {
+                return mesh.vertices[vertex].adjacentVertices.size() == 6u;
+            });
+        if (face.isGhost)
+        {
+            ++ghostFaces;
+            if (!allValenceSix)
+            {
+                ++ghostMixedValenceFaces;
+            }
+            EXPECT_TRUE(face.oneRingVertices.empty());
+            continue;
+        }
+
+        if (face.oneRingVertices.size() == 12u)
+        {
+            ++physicalRegularFaces;
+        }
+        else if (face.oneRingVertices.size() == 11u)
+        {
+            ++physicalElevenControlFaces;
+        }
+        else
+        {
+            ++physicalUnsupportedFaces;
+        }
+    }
+
+    EXPECT_EQ(ghostFaces, 960);
+    EXPECT_EQ(ghostMixedValenceFaces, 336);
+    EXPECT_EQ(physicalRegularFaces, 2720);
+    EXPECT_EQ(physicalElevenControlFaces, 0);
+    EXPECT_EQ(physicalUnsupportedFaces, 0);
 }
 
 TEST(OpenSubdivRegularProductionRoutingGuard,
