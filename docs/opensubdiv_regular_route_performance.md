@@ -1,8 +1,9 @@
 # Guarded regular OpenSubdiv route performance
 
-This lane characterizes the cost of the guarded regular OpenSubdiv production
-route after PR #105. It does not change routing, evaluator ownership, formulas,
-scatter order, OpenMP reductions, output, checkpointing, or propagation.
+This document records the cost of the guarded regular OpenSubdiv production
+route after PR #105 and the cache correction completed by PR #109. It does not
+change routing, formulas, scatter order, OpenMP reductions, output,
+checkpointing, or propagation.
 
 ## Reproducible comparison
 
@@ -51,11 +52,11 @@ OpenSubdiv topology/refiner construction dominating the measured workload.
 The guarded route is correct but is not yet a performance replacement for the
 direct regular evaluator.
 
-## Ownership boundary
+## Historical ownership boundary
 
-The active route currently constructs OpenSubdiv topology/refiner state during
-regular-row requests. Any caching proposal is a separate production change and
-must answer, before implementation:
+At the PR #105 baseline, the active route constructed OpenSubdiv
+topology/refiner state during every regular-row request. The later cache work
+therefore had to answer, before implementation:
 
 - Which mesh object owns topology, stencil tables, and source-id remapping?
 - Which topology mutations invalidate the cache?
@@ -65,11 +66,26 @@ must answer, before implementation:
 - How is direct fallback preserved for boundary, ghost, irregular,
   non-equivalent, and otherwise unsupported faces?
 
-Measured evidence should be reviewed before choosing a cache lifetime. This
-document and its harness do not approve a particular ownership model.
+That evidence was reviewed before choosing the cache lifetime. This historical
+section records the questions that PR #107 through PR #109 answered; it is not
+the current uncached implementation state.
 
 The cache ownership, fingerprint, invalidation, copy/move, and concurrency
 contract is recorded in `docs/opensubdiv_regular_cache_readiness.md`. PR #108
 accepted the test-only prototype. The separate production implementation and
 its post-cache benchmark, now measuring 1.10x to 1.91x routed/direct, are
 recorded in `docs/opensubdiv_regular_production_cache.md`.
+
+## Completion
+
+PR #109 installs the reviewed mesh-owned immutable row cache with exact
+identity verification. Both regular area/volume and force evaluation reuse the
+same published row table while coordinates change, and rebuild when topology
+or the frozen sample plan changes. The corrected-head benchmark measures
+`1.15x` to `1.95x` routed/direct instead of the uncached `4.02x` to `25.11x`.
+
+The regular 12-control performance correction is complete. Default builds
+remain OpenSubdiv-free, and boundary, ghost, irregular, unsupported, and
+non-equivalent faces retain their existing fallback. Irregular or
+broader-valence routing requires a separate scientific and implementation
+plan.

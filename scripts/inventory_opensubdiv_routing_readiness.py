@@ -49,8 +49,8 @@ class LocatedAnchor:
 REGULAR_READINESS_CRITERIA: tuple[dict[str, str], ...] = (
     {
         "criterion": "OpenSubdiv-derived sample identity",
-        "current_status": "regular row/integrand probe, C++ proof evidence, and guarded route tests",
-        "remaining_gap": "keep installed route on frozen samples and quadrature points",
+        "current_status": "guarded regular route consumes the frozen samples and passes row/integrand tests",
+        "remaining_gap": "preserve installed frozen samples and quadrature points",
     },
     {
         "criterion": "seven-row derivative mapping",
@@ -59,8 +59,8 @@ REGULAR_READINESS_CRITERIA: tuple[dict[str, str], ...] = (
     },
     {
         "criterion": "source-id ordering",
-        "current_status": "backend-neutral seam, regular tests, and proof harness cover source ids",
-        "remaining_gap": "prove installed route matches Face::oneRingVertices order",
+        "current_status": "installed backend-neutral route and tests match Face::oneRingVertices source ids",
+        "remaining_gap": "preserve installed Face::oneRingVertices order",
     },
     {
         "criterion": "duplicate aggregation",
@@ -69,8 +69,8 @@ REGULAR_READINESS_CRITERIA: tuple[dict[str, str], ...] = (
     },
     {
         "criterion": "quadrature/sample identity",
-        "current_status": "force/scatter contract records current quadrature order",
-        "remaining_gap": "prove routed backend uses identical samples or reviewed change",
+        "current_status": "installed route and force/scatter contract preserve current quadrature order",
+        "remaining_gap": "preserve identical samples or require a reviewed change",
     },
     {
         "criterion": "actual fBend/fArea/fVolume comparison",
@@ -165,11 +165,11 @@ ANCHORS: tuple[Anchor, ...] = (
     ),
     Anchor(
         "readiness map",
-        "regular first",
+        "regular complete before expansion",
         READINESS_DOC_PATH,
-        "Regular 12-control routing first",
-        "staged readiness",
-        "The map prioritizes the regular route before irregular or broader-valence routing.",
+        "Regular 12-control routing is complete",
+        "completed regular boundary",
+        "The map closes the regular route before irregular or broader-valence expansion.",
     ),
     Anchor(
         "readiness map",
@@ -184,7 +184,7 @@ ANCHORS: tuple[Anchor, ...] = (
         "production route boundary",
         READINESS_DOC_PATH,
         "a tiny production route selection boundary",
-        "remaining gate",
+        "guarded boundary",
         "The map names the smallest reviewed production routing boundary.",
     ),
     Anchor(
@@ -297,7 +297,7 @@ ANCHORS: tuple[Anchor, ...] = (
         READINESS_DOC_PATH,
         "Reviewer/user gate",
         "regular criterion",
-        "The map records that a separate reviewed PR is required before routing.",
+        "The map records that future route expansion or policy changes require a separate reviewed PR.",
     ),
     Anchor(
         "future boundary",

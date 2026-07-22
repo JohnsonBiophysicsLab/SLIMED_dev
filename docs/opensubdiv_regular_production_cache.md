@@ -88,6 +88,11 @@ The uncached PR #106 baseline ranged from 4.02x to 25.11x. These local timing
 results are performance characterization, not scientific acceptance
 thresholds.
 
+The post-PR #109 baseline passed the dependency-free inventories, default
+75/75 GTests, OpenSubdiv-enabled 79/79 GTests, ABI-matched
+`serial`/`omp`/`dyna`/`dyna_omp` builds, and the 13-step default verifier at
+merge commit `3854dd4c12985171a9a89c2b5244a7d506bdbafc`.
+
 ## Remaining boundaries
 
 Boundary, ghost, irregular, unsupported, and non-equivalent faces retain
