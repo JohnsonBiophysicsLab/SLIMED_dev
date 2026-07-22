@@ -32,6 +32,12 @@ snapshot in `docs/irregular_fixture_discovery_report.md`. It inventories
 checked-in face/vertex CSV meshes and a generated closed-valence-5 topology
 probe without executing production C++.
 
+The approved `data/example` physical mesh is now also exercised through
+production `Mesh::setup_from_vertices_faces()` by
+`SurfaceIrregularFixtureCharacterization.ApprovedExampleMeshHasNoPhysicalIrregularFaceAfterProductionSetup`.
+The result is negative but definitive: all 2,720 physical faces are regular,
+and all 336 mixed-valence faces belong to the 960-face periodic ghost band.
+
 The serial/OpenMP tolerance companion check is
 `scripts/inventory_irregular_serial_omp_tolerance.py --check`, with the
 narrative snapshot in
@@ -44,9 +50,10 @@ production OpenMP behavior.
 1. Representative irregular fixtures beyond the synthetic 11-control patch.
    The next useful evidence is a fixture-discovery report or fixture generator
    that finds real non-ghost irregular faces in production-like meshes without
-   changing setup behavior. The current discovery report adds the inert
-   command and shows that checked-in mesh CSVs do not yet serialize a physical
-   11-control fixture with explicit ghost status.
+   changing setup behavior. The approved checked-in mesh now has explicit
+   production ghost characterization, but it contains no physical irregular
+   face. A positive fixture therefore still requires reviewed coordinates and
+   connectivity, or a scientific waiver for the generated valence-5 topology.
 
 2. Serial/OpenMP tolerance policy for supported 11-control outputs. The
    synthetic reduction-order lane now compares area, volume,
@@ -91,11 +98,12 @@ comparison plan.
 ## Recommended Next Prompt
 
 ```text
-Add a docs/scripts-only irregular fixture discovery report for SLIMED. Do not
-change production C++ behavior, build files, dependencies, OpenSubdiv policy,
-or broader valence support. Inventory checked-in/generated meshes for
-non-ghost irregular faces, record face one-ring sizes and boundary/ghost status,
-and map any candidate fixtures to the existing supported/guarded irregular
-route matrix. Validate with Python compile/checks, git diff --check, make test,
-./bin/test_main if feasible, and focused irregular route filters.
+Provide or approve a positive physical irregular mesh fixture for SLIMED with
+reviewed coordinates, connectivity, boundary condition, and expected non-ghost
+face identity. Run it through production mesh setup and map its one-ring to the
+existing supported/guarded irregular route matrix. If no such mesh is
+available, explicitly decide whether the generated closed valence-5 topology
+is an acceptable scientific stand-in for the narrow 11-control claim. Do not
+change routing, formulas, default dependencies, OpenMP reductions,
+checkpoint/output, or propagation in the fixture decision lane.
 ```

@@ -112,6 +112,70 @@ def parse_faces_csv(path: Path) -> tuple[tuple[int, int, int], ...]:
     return tuple(faces)
 
 
+def infer_flat_grid_divisions(
+    vertex_count: int,
+    faces: Sequence[tuple[int, int, int]],
+) -> tuple[int, int] | None:
+    """Recognize the row-major topology emitted by Mesh::set_vertices_faces_flat."""
+    if not faces:
+        return None
+    first = faces[0]
+    if first[2] != 0 or first[1] != first[0] + 1:
+        return None
+    n_face_x = first[0] - 1
+    if n_face_x <= 0 or len(faces) % (2 * n_face_x) != 0:
+        return None
+    n_face_y = len(faces) // (2 * n_face_x)
+    if (n_face_x + 1) * (n_face_y + 1) != vertex_count:
+        return None
+    return n_face_x, n_face_y
+
+
+def periodic_ghost_face_flags(n_face_x: int, n_face_y: int) -> tuple[bool, ...]:
+    """Mirror Mesh::determine_ghost_vertices_faces for periodic flat faces."""
+    flags = [False] * (2 * n_face_x * n_face_y)
+    ghost_rows = {0, 1, 2, n_face_y - 3, n_face_y - 2, n_face_y - 1}
+    ghost_columns = {0, 1, 2, n_face_x - 3, n_face_x - 2, n_face_x - 1}
+    for row in ghost_rows:
+        for column in range(n_face_x):
+            face = 2 * n_face_x * row + 2 * column
+            flags[face] = True
+            flags[face + 1] = True
+    for column in ghost_columns:
+        for row in range(n_face_y):
+            face = 2 * n_face_x * row + 2 * column
+            flags[face] = True
+            flags[face + 1] = True
+    return tuple(flags)
+
+
+def approved_example_ghost_contract(
+    root: Path,
+    label: str,
+    vertex_count: int,
+    faces: Sequence[tuple[int, int, int]],
+) -> tuple[str, tuple[bool | None, ...]] | None:
+    """Return the reviewed production ghost contract for data/example."""
+    if label != "data/example":
+        return None
+    params_path = root / label / "example.params"
+    if (
+        not params_path.is_file()
+        or "boundaryType = Periodic"
+        not in params_path.read_text(encoding="utf-8")
+    ):
+        return None
+    divisions = infer_flat_grid_divisions(vertex_count, faces)
+    if divisions is None:
+        return None
+    n_face_x, n_face_y = divisions
+    return (
+        "production periodic ghost policy from data/example/example.params "
+        f"(nFaceX={n_face_x}, nFaceY={n_face_y})",
+        periodic_ghost_face_flags(n_face_x, n_face_y),
+    )
+
+
 def checked_in_mesh_inputs(root: Path) -> tuple[list[MeshInput], list[SkippedSource]]:
     meshes: list[MeshInput] = []
     skipped: list[SkippedSource] = []
@@ -132,14 +196,22 @@ def checked_in_mesh_inputs(root: Path) -> tuple[list[MeshInput], list[SkippedSou
         faces = parse_faces_csv(face_path)
         vertices = parse_vertices_csv(vertex_path)
         label = face_path.parent.relative_to(root).as_posix()
+        ghost_contract = approved_example_ghost_contract(
+            root, label, len(vertices), faces
+        )
+        if ghost_contract is None:
+            ghost_status = "not serialized in CSV fixture"
+            ghost_flags: tuple[bool | None, ...] = tuple(None for _ in faces)
+        else:
+            ghost_status, ghost_flags = ghost_contract
         meshes.append(
             MeshInput(
                 label=label,
                 vertices=vertices,
                 faces=faces,
                 source=f"{vertex_path.relative_to(root).as_posix()} + {face_path.relative_to(root).as_posix()}",
-                ghost_status="not serialized in CSV fixture",
-                face_ghost_flags=tuple(None for _ in faces),
+                ghost_status=ghost_status,
+                face_ghost_flags=ghost_flags,
             )
         )
 
@@ -468,8 +540,16 @@ def check_inventory(
     for summary in inventory["mesh_summaries"]:
         if summary["label"] == "data/example":
             route_counts = summary["route_counts"]
-            if route_counts.get(REGULAR_ROUTE, 0) <= 0:
-                failures.append("data/example should contain regular 12-control interior faces")
+            expected_routes = {BOUNDARY_ROUTE: 960, REGULAR_ROUTE: 2720}
+            if route_counts != expected_routes:
+                failures.append(
+                    "data/example production ghost contract should expose exactly "
+                    f"{expected_routes}, got {route_counts}"
+                )
+            if route_counts.get(SUPPORTED_11_ROUTE, 0) != 0:
+                failures.append("data/example should not expose a physical 11-control face")
+            if route_counts.get(OPENSUBDIV_GAP, 0) != 0:
+                failures.append("data/example mixed-valence faces should all be production ghosts")
         if summary["label"] == "generated/closed_icosahedron_valence5":
             route_counts = summary["route_counts"]
             if route_counts.get(SUPPORTED_11_ROUTE) != 20:
