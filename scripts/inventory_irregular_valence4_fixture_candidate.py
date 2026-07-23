@@ -39,6 +39,11 @@ ANCHORS = {
         "candidate, not an approved scientific fixture",
         "routing remains disabled",
     ),
+    Path("docs/irregular_valence4_opensubdiv_mapping_proof.md"): (
+        "approved_for_mapping_sample_transpose_proof: true",
+        "scientifically_approved: false",
+        "production_route_enabled: false",
+    ),
 }
 
 
@@ -233,6 +238,14 @@ def collect(root: Path) -> dict[str, object]:
         errors.append("metadata must set scientifically_approved to false")
     if metadata.get("scientific_approval") != "required":
         errors.append("metadata must require scientific approval")
+    if metadata.get("approved_for_mapping_sample_transpose_proof") is not True:
+        errors.append("metadata must record the narrow mapping proof approval")
+    if not metadata.get("approved_scope"):
+        errors.append("metadata must record the narrow approved scope")
+    if metadata.get("proof_only") is not True:
+        errors.append("metadata must label the approved lane proof_only")
+    if metadata.get("not_production_routing") is not True:
+        errors.append("metadata must label the approved lane not_production_routing")
     if metadata.get("production_route_enabled") is not False:
         errors.append("metadata must set production_route_enabled to false")
     if (
@@ -282,6 +295,12 @@ def collect(root: Path) -> dict[str, object]:
         "scientific_approval_required": (
             metadata.get("scientific_approval") == "required"
         ),
+        "approved_for_mapping_sample_transpose_proof": metadata.get(
+            "approved_for_mapping_sample_transpose_proof"
+        ),
+        "approved_scope": metadata.get("approved_scope"),
+        "proof_only": metadata.get("proof_only"),
+        "not_production_routing": metadata.get("not_production_routing"),
         "production_route_enabled": metadata.get("production_route_enabled"),
         "vertex_count": len(vertices),
         "unique_finite_vertex_count": len(set(vertices))
