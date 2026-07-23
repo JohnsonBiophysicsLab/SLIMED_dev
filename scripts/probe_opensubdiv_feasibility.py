@@ -31,11 +31,13 @@ PROBE_SOURCE = r"""
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <fstream>
 #include <iomanip>
 #include <iostream>
 #include <map>
 #include <queue>
 #include <set>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -71,6 +73,10 @@ using namespace OpenSubdiv;
 
 #ifndef SLIMED_BROADER_VALENCE_COVERAGE_REPORT
 #define SLIMED_BROADER_VALENCE_COVERAGE_REPORT 0
+#endif
+
+#ifndef SLIMED_VALENCE4_MAPPING_PROOF_REPORT
+#define SLIMED_VALENCE4_MAPPING_PROOF_REPORT 0
 #endif
 
 struct Point {
@@ -313,6 +319,55 @@ static MeshCase make_extraordinary_valence_fan_case(int valence) {
 
     return mesh;
 }
+
+#if SLIMED_VALENCE4_MAPPING_PROOF_REPORT
+static MeshCase load_serialized_valence4_fixture(char const *verticesPath,
+                                                 char const *facesPath) {
+    MeshCase mesh;
+    mesh.name = "approved_closed_valence4_regular_octahedron";
+    mesh.sampleFace = 0;
+    mesh.extraordinaryValence = 4;
+
+    std::ifstream vertices(verticesPath);
+    std::string line;
+    while (std::getline(vertices, line)) {
+        if (line.empty()) {
+            continue;
+        }
+        std::replace(line.begin(), line.end(), ',', ' ');
+        std::istringstream row(line);
+        Point point;
+        if (!(row >> point.x >> point.y >> point.z)) {
+            mesh.numVertices = -1;
+            return mesh;
+        }
+        mesh.points.push_back(point);
+    }
+
+    std::ifstream faces(facesPath);
+    while (std::getline(faces, line)) {
+        if (line.empty()) {
+            continue;
+        }
+        std::replace(line.begin(), line.end(), ',', ' ');
+        std::istringstream row(line);
+        int a = -1;
+        int b = -1;
+        int c = -1;
+        if (!(row >> a >> b >> c)) {
+            mesh.numVertices = -1;
+            return mesh;
+        }
+        append_face(mesh, a, b, c);
+    }
+
+    mesh.numVertices = static_cast<int>(mesh.points.size());
+    for (int id = 0; id < mesh.numVertices; ++id) {
+        mesh.expectedLocalControlIds.push_back(id);
+    }
+    return mesh;
+}
+#endif
 
 static char const *patch_type_name(Far::PatchDescriptor::Type type) {
     switch (type) {
@@ -1017,7 +1072,7 @@ static void print_regular_equivalence_sample(
 }
 #endif
 
-#if SLIMED_FORCE_TRANSPOSE_REPORT || SLIMED_IRREGULAR_TRANSPOSE_PROOF_MAP_REPORT
+#if SLIMED_FORCE_TRANSPOSE_REPORT || SLIMED_IRREGULAR_TRANSPOSE_PROOF_MAP_REPORT || SLIMED_VALENCE4_MAPPING_PROOF_REPORT
 static constexpr double kTransposeTolerance = 1.0e-5;
 
 static double deterministic_gradient(int row, int axis) {
@@ -2137,7 +2192,690 @@ static bool print_irregular_transpose_proof_map(
     std::cout << "}";
 
     delete stencils;
-    return identityPassed;
+    return proofMapPassed;
+}
+#endif
+
+#if SLIMED_VALENCE4_MAPPING_PROOF_REPORT
+static char const *kValence4RowNames[7] = {
+    "value",
+    "du",
+    "dv",
+    "duu",
+    "dvv",
+    "duv",
+    "duv",
+};
+
+static std::map<int, double> aggregate_row_entries(
+    std::vector<std::pair<int, double>> const &entries) {
+    std::map<int, double> result;
+    for (std::pair<int, double> const &entry : entries) {
+        result[entry.first] += entry.second;
+    }
+    return result;
+}
+
+static double max_row_difference(std::map<int, double> const &left,
+                                 std::map<int, double> const &right) {
+    std::set<int> ids;
+    for (std::pair<int const, double> const &entry : left) {
+        ids.insert(entry.first);
+    }
+    for (std::pair<int const, double> const &entry : right) {
+        ids.insert(entry.first);
+    }
+
+    double result = 0.0;
+    for (int id : ids) {
+        std::map<int, double>::const_iterator lhs = left.find(id);
+        std::map<int, double>::const_iterator rhs = right.find(id);
+        double const leftValue = lhs == left.end() ? 0.0 : lhs->second;
+        double const rightValue = rhs == right.end() ? 0.0 : rhs->second;
+        result = std::max(result, std::abs(leftValue - rightValue));
+    }
+    return result;
+}
+
+static bool row_maps_to_fixture(std::map<int, double> const &row,
+                                int vertexCount) {
+    for (std::pair<int const, double> const &entry : row) {
+        if (entry.first < 0 || entry.first >= vertexCount) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool expand_patch_row_to_fixture(
+    Far::ConstIndexArray const &patchVertices,
+    float const *basisWeights,
+    int controlCount,
+    Far::StencilTable const *cvStencils,
+    int originalVertexCount,
+    std::array<double, 6> &denseRow) {
+    denseRow.fill(0.0);
+    for (int basisIndex = 0; basisIndex < controlCount; ++basisIndex) {
+        int const patchVertex = patchVertices[basisIndex];
+        double const basisWeight = static_cast<double>(basisWeights[basisIndex]);
+        if (patchVertex < 0 || patchVertex >= cvStencils->GetNumStencils()) {
+            return false;
+        }
+        Far::Stencil stencil = cvStencils->GetStencil(patchVertex);
+        for (int stencilIndex = 0; stencilIndex < stencil.GetSize();
+             ++stencilIndex) {
+            int const sourceId = stencil.GetVertexIndices()[stencilIndex];
+            if (sourceId < 0 || sourceId >= originalVertexCount) {
+                return false;
+            }
+            denseRow[sourceId] +=
+                basisWeight *
+                static_cast<double>(stencil.GetWeights()[stencilIndex]);
+        }
+    }
+    return true;
+}
+
+static double proof_gradient(int face, int sample, int row, int axis) {
+    return 0.071 * static_cast<double>(face + 1) +
+           0.037 * static_cast<double>(sample + 1) +
+           0.019 * static_cast<double>(row + 1) +
+           0.011 * static_cast<double>(axis + 1) +
+           0.003 * static_cast<double>((face + 1) * (row + 2)) +
+           0.001 * static_cast<double>((sample + 2) * (axis + 3));
+}
+
+static double diagnostic_control_component(int sourceId, int axis) {
+    return 0.23 + 0.17 * static_cast<double>(sourceId + 1) +
+           0.031 * static_cast<double>(axis + 1) +
+           0.007 * static_cast<double>((sourceId + 2) * (axis + 1)) +
+           0.002 * static_cast<double>((sourceId + 1) * (sourceId + 1));
+}
+
+static double diagnostic_control_dot(
+    std::vector<double> const &backProjection) {
+    double result = 0.0;
+    for (int sourceId = 0; sourceId < 6; ++sourceId) {
+        for (int axis = 0; axis < 3; ++axis) {
+            result += diagnostic_control_component(sourceId, axis) *
+                      backProjection[3 * sourceId + axis];
+        }
+    }
+    return result;
+}
+
+static bool print_valence4_mapping_proof(MeshCase const &mesh) {
+    constexpr double kRowTolerance = 5.0e-6;
+    constexpr double kAggregationTolerance = 1.0e-12;
+    constexpr double kTransposeRelativeTolerance = 1.0e-12;
+    constexpr int kSampleCountPerFace = 3;
+    float const s[kSampleCountPerFace] = {
+        1.0f / 6.0f,
+        1.0f / 6.0f,
+        4.0f / 6.0f,
+    };
+    float const t[kSampleCountPerFace] = {
+        1.0f / 6.0f,
+        4.0f / 6.0f,
+        1.0f / 6.0f,
+    };
+    float const barycentricU[kSampleCountPerFace] = {
+        4.0f / 6.0f,
+        1.0f / 6.0f,
+        1.0f / 6.0f,
+    };
+    double const quadratureWeight[kSampleCountPerFace] = {
+        1.0 / 3.0,
+        1.0 / 3.0,
+        1.0 / 3.0,
+    };
+
+    bool const fixtureLoaded =
+        mesh.numVertices == 6 && mesh.points.size() == 6 &&
+        mesh.vertsPerFace.size() == 8 && mesh.vertIndices.size() == 24;
+    if (!fixtureLoaded) {
+        std::cerr << "failed to load the approved valence-4 fixture\n";
+        return false;
+    }
+
+    Far::TopologyRefiner *refiner = create_refiner(mesh);
+    if (!refiner) {
+        std::cerr << "failed to create valence-4 fixture refiner\n";
+        return false;
+    }
+
+    Far::PatchTableFactory::Options patchOptions(5);
+    refiner->RefineAdaptive(patchOptions.GetRefineAdaptiveOptions());
+    Far::PatchTable *patchTable =
+        Far::PatchTableFactory::Create(*refiner, patchOptions);
+
+    Far::StencilTableFactory::Options cvOptions;
+    cvOptions.generateControlVerts = true;
+    cvOptions.generateIntermediateLevels = true;
+    cvOptions.factorizeIntermediateLevels = true;
+    cvOptions.maxLevel = 5;
+    Far::StencilTable const *cvStencils =
+        Far::StencilTableFactory::Create(*refiner, cvOptions);
+
+    if (!patchTable || !cvStencils) {
+        std::cerr << "failed to create valence-4 patch/control tables\n";
+        delete cvStencils;
+        delete patchTable;
+        delete refiner;
+        return false;
+    }
+
+    int const ptexFaceCount = patchTable->GetNumPtexFaces();
+    std::vector<std::vector<float>> sValues(
+        ptexFaceCount, std::vector<float>(s, s + kSampleCountPerFace));
+    std::vector<std::vector<float>> tValues(
+        ptexFaceCount, std::vector<float>(t, t + kSampleCountPerFace));
+    Far::LimitStencilTableFactory::LocationArrayVec locations;
+    for (int ptexFace = 0; ptexFace < ptexFaceCount; ++ptexFace) {
+        Far::LimitStencilTableFactory::LocationArray location;
+        location.ptexIdx = ptexFace;
+        location.numLocations = kSampleCountPerFace;
+        location.s = sValues[ptexFace].data();
+        location.t = tValues[ptexFace].data();
+        locations.push_back(location);
+    }
+
+    Far::LimitStencilTableFactory::Options stencilOptions;
+    stencilOptions.generate1stDerivatives = true;
+    stencilOptions.generate2ndDerivatives = true;
+    Far::LimitStencilTable const *stencils =
+        Far::LimitStencilTableFactory::Create(
+            *refiner, locations, cvStencils, patchTable, stencilOptions);
+    if (!stencils) {
+        std::cerr << "failed to create valence-4 limit stencils\n";
+        delete cvStencils;
+        delete patchTable;
+        delete refiner;
+        return false;
+    }
+
+    Far::PatchMap patchMap(*patchTable);
+    bool faceIdentityPassed = ptexFaceCount == 8;
+    bool allRowsFinite = true;
+    bool allRowsMapped = true;
+    bool rowSumChecksPassed = true;
+    bool patchBasisComparisonPassed = true;
+    bool duplicateAggregationPassed = true;
+    bool permutationOrderStabilityPassed = true;
+    double maxRowSumDifference = 0.0;
+    double maxPatchBasisDifference = 0.0;
+    double maxDuplicateAggregationDifference = 0.0;
+    std::set<int> aggregateSourceIds;
+    std::set<int> valueSourceIds;
+    std::set<int> firstDerivativeSourceIds;
+    std::set<int> secondDerivativeSourceIds;
+    std::vector<double> stackedBackProjection(mesh.numVertices * 3, 0.0);
+    double stackedSampleDot = 0.0;
+    bool allSampleTransposePassed = true;
+
+    std::cout << "{\"case\":\"" << mesh.name << "\"";
+    std::cout << ",\"approved_fixture\":true";
+    std::cout << ",\"scientifically_approved\":false";
+    std::cout << ",\"approved_for_mapping_sample_transpose_proof\":true";
+    std::cout << ",\"approved_scope\":\"mechanical OpenSubdiv Ptex identity, "
+                 "sample ordering, source-row mapping, and linear transpose "
+                 "evidence for the serialized octahedron stand-in\"";
+    std::cout << ",\"proof_only\":true";
+    std::cout << ",\"not_production_routing\":true";
+    std::cout << ",\"production_route_enabled\":false";
+    std::cout << ",\"fixture_loaded_from_serialized_csv\":true";
+    std::cout << ",\"fixture_vertex_count\":" << mesh.numVertices;
+    std::cout << ",\"fixture_face_count\":" << mesh.vertsPerFace.size();
+    std::cout << ",\"expected_original_fixture_vertex_ids\":";
+    print_int_array(mesh.expectedLocalControlIds);
+    std::cout << ",\"coordinate_mapping\":\"s=v,t=w,u=1-v-w\"";
+    std::cout << ",\"row_order\":[";
+    for (int row = 0; row < 7; ++row) {
+        if (row > 0) {
+            std::cout << ",";
+        }
+        std::cout << "\"" << kValence4RowNames[row] << "\"";
+    }
+    std::cout << "]";
+    std::cout << ",\"mixed_derivative_policy\":\"OpenSubdiv duv is duplicated "
+                 "into SLIMED mixed rows vw and wv\"";
+    std::cout << ",\"sample_ordering\":\"fixture faces.csv row order, then "
+                 "sample indices 0,1,2\"";
+    std::cout << ",\"per_face_samples\":[";
+    for (int sample = 0; sample < kSampleCountPerFace; ++sample) {
+        if (sample > 0) {
+            std::cout << ",";
+        }
+        std::cout << "{\"sample_index\":" << sample;
+        std::cout << ",\"v\":" << std::setprecision(17) << s[sample];
+        std::cout << ",\"w\":" << t[sample];
+        std::cout << ",\"u\":" << barycentricU[sample];
+        std::cout << ",\"opensubdiv_s\":" << s[sample];
+        std::cout << ",\"opensubdiv_t\":" << t[sample];
+        std::cout << ",\"quadrature_weight\":"
+                  << quadratureWeight[sample];
+        std::cout << ",\"formula_factor\":"
+                  << 0.5 * quadratureWeight[sample] << "}";
+    }
+    std::cout << "]";
+    std::cout << ",\"ptex_face_count\":" << ptexFaceCount;
+    std::cout << ",\"faces\":[";
+
+    for (int face = 0; face < ptexFaceCount; ++face) {
+        if (face > 0) {
+            std::cout << ",";
+        }
+        bool currentFaceIdentityPassed = face < 8;
+        std::set<int> currentFaceSourceIds;
+        std::cout << "{\"fixture_face_index\":" << face;
+        std::cout << ",\"oriented_fixture_vertex_ids\":["
+                  << mesh.vertIndices[3 * face] << ","
+                  << mesh.vertIndices[3 * face + 1] << ","
+                  << mesh.vertIndices[3 * face + 2] << "]";
+        std::cout << ",\"ptex_face_index\":" << face;
+        std::cout << ",\"samples\":[";
+
+        for (int sample = 0; sample < kSampleCountPerFace; ++sample) {
+            int const stencilIndex = face * kSampleCountPerFace + sample;
+            Far::LimitStencil stencil = stencils->GetLimitStencil(stencilIndex);
+            std::vector<float const *> rowPtrs = {
+                stencil.GetWeights(),
+                stencil.GetDuWeights(),
+                stencil.GetDvWeights(),
+                stencil.GetDuuWeights(),
+                stencil.GetDvvWeights(),
+                stencil.GetDuvWeights(),
+                stencil.GetDuvWeights(),
+            };
+            Far::PatchMap::Handle const *handle =
+                patchMap.FindPatch(face, s[sample], t[sample]);
+            int const patchParamFaceId =
+                handle ? patchTable->GetPatchParam(*handle).GetFaceId() : -1;
+            bool const sampleFaceIdentityPassed =
+                handle && patchParamFaceId == face;
+            currentFaceIdentityPassed =
+                currentFaceIdentityPassed && sampleFaceIdentityPassed;
+            std::array<std::array<double, 6>, 7> denseRows{};
+            std::array<std::array<double, 6>, 7> patchRows{};
+            bool patchRowsAvailable = false;
+            if (handle) {
+                Far::PatchDescriptor descriptor =
+                    patchTable->GetPatchDescriptor(*handle);
+                int const controlCount = descriptor.GetNumControlVertices();
+                Far::ConstIndexArray patchVertices =
+                    patchTable->GetPatchVertices(*handle);
+                std::vector<float> basis(controlCount);
+                std::vector<float> du(controlCount);
+                std::vector<float> dv(controlCount);
+                std::vector<float> duu(controlCount);
+                std::vector<float> duv(controlCount);
+                std::vector<float> dvv(controlCount);
+                patchTable->EvaluateBasis(
+                    *handle, s[sample], t[sample], basis.data(), du.data(),
+                    dv.data(), duu.data(), duv.data(), dvv.data());
+                std::vector<float const *> patchRowPtrs = {
+                    basis.data(),
+                    du.data(),
+                    dv.data(),
+                    duu.data(),
+                    dvv.data(),
+                    duv.data(),
+                    duv.data(),
+                };
+                patchRowsAvailable = true;
+                for (int row = 0; row < 7; ++row) {
+                    patchRowsAvailable =
+                        expand_patch_row_to_fixture(
+                            patchVertices, patchRowPtrs[row], controlCount,
+                            cvStencils, mesh.numVertices, patchRows[row]) &&
+                        patchRowsAvailable;
+                }
+            }
+
+            if (sample > 0) {
+                std::cout << ",";
+            }
+            std::cout << "{\"sample_index\":" << sample;
+            std::cout << ",\"limit_stencil_index\":" << stencilIndex;
+            std::cout << ",\"patch_found\":"
+                      << (handle ? "true" : "false");
+            std::cout << ",\"patch_index\":"
+                      << (handle ? handle->patchIndex : -1);
+            std::cout << ",\"patch_type\":\""
+                      << (handle
+                              ? patch_type_name(
+                                    patchTable->GetPatchDescriptor(*handle).GetType())
+                              : "NONE")
+                      << "\"";
+            std::cout << ",\"patch_param_face_id\":" << patchParamFaceId;
+            std::cout << ",\"ptex_identity_passed\":"
+                      << (sampleFaceIdentityPassed ? "true" : "false");
+            std::cout << ",\"rows\":[";
+
+            for (int row = 0; row < 7; ++row) {
+                std::vector<std::pair<int, double>> directEntries;
+                std::vector<std::pair<int, double>> duplicateEntries;
+                for (int entry = 0; entry < stencil.GetSize(); ++entry) {
+                    int const sourceId = stencil.GetVertexIndices()[entry];
+                    double const coefficient =
+                        static_cast<double>(rowPtrs[row][entry]);
+                    directEntries.push_back({sourceId, coefficient});
+                    duplicateEntries.push_back({sourceId, 0.25 * coefficient});
+                    duplicateEntries.push_back({sourceId, 0.75 * coefficient});
+                }
+                std::map<int, double> const aggregated =
+                    aggregate_row_entries(directEntries);
+                std::reverse(duplicateEntries.begin(), duplicateEntries.end());
+                std::map<int, double> const duplicateAggregated =
+                    aggregate_row_entries(duplicateEntries);
+                double const duplicateDifference =
+                    max_row_difference(aggregated, duplicateAggregated);
+                bool const rowDuplicatePassed =
+                    duplicateDifference <= kAggregationTolerance;
+
+                double rowSum = 0.0;
+                bool rowFinite = true;
+                for (std::pair<int const, double> const &entry : aggregated) {
+                    rowSum += entry.second;
+                    rowFinite = rowFinite && std::isfinite(entry.second);
+                    if (std::abs(entry.second) > 1.0e-8) {
+                        aggregateSourceIds.insert(entry.first);
+                        currentFaceSourceIds.insert(entry.first);
+                        if (row == 0) {
+                            valueSourceIds.insert(entry.first);
+                        } else if (row <= 2) {
+                            firstDerivativeSourceIds.insert(entry.first);
+                        } else {
+                            secondDerivativeSourceIds.insert(entry.first);
+                        }
+                    }
+                }
+                for (int sourceId = 0; sourceId < mesh.numVertices; ++sourceId) {
+                    std::map<int, double>::const_iterator entry =
+                        aggregated.find(sourceId);
+                    denseRows[row][sourceId] =
+                        entry == aggregated.end() ? 0.0 : entry->second;
+                }
+                double const expectedSum = row == 0 ? 1.0 : 0.0;
+                double const rowSumDifference = std::abs(rowSum - expectedSum);
+                bool const rowSumPassed =
+                    rowSumDifference <= kRowTolerance;
+                bool const rowMapped =
+                    row_maps_to_fixture(aggregated, mesh.numVertices);
+                double rowPatchDifference = 0.0;
+                if (patchRowsAvailable) {
+                    for (int sourceId = 0; sourceId < mesh.numVertices;
+                         ++sourceId) {
+                        rowPatchDifference = std::max(
+                            rowPatchDifference,
+                            std::abs(denseRows[row][sourceId] -
+                                     patchRows[row][sourceId]));
+                    }
+                }
+                bool const rowPatchPassed =
+                    patchRowsAvailable && rowPatchDifference <= kRowTolerance;
+                maxRowSumDifference =
+                    std::max(maxRowSumDifference, rowSumDifference);
+                maxPatchBasisDifference =
+                    std::max(maxPatchBasisDifference, rowPatchDifference);
+                maxDuplicateAggregationDifference =
+                    std::max(maxDuplicateAggregationDifference,
+                             duplicateDifference);
+                allRowsFinite = allRowsFinite && rowFinite;
+                allRowsMapped = allRowsMapped && rowMapped;
+                rowSumChecksPassed = rowSumChecksPassed && rowSumPassed;
+                patchBasisComparisonPassed =
+                    patchBasisComparisonPassed && rowPatchPassed;
+                duplicateAggregationPassed =
+                    duplicateAggregationPassed && rowDuplicatePassed;
+                permutationOrderStabilityPassed =
+                    permutationOrderStabilityPassed && rowDuplicatePassed;
+
+                if (row > 0) {
+                    std::cout << ",";
+                }
+                std::cout << "{\"row_index\":" << row;
+                std::cout << ",\"name\":\"" << kValence4RowNames[row]
+                          << "\"";
+                std::cout << ",\"entries\":[";
+                for (int sourceId = 0; sourceId < mesh.numVertices;
+                     ++sourceId) {
+                    if (sourceId > 0) {
+                        std::cout << ",";
+                    }
+                    std::cout << "{\"source_id\":" << sourceId
+                              << ",\"coefficient\":" << std::setprecision(17)
+                              << denseRows[row][sourceId] << "}";
+                }
+                std::cout << "]";
+                std::cout << ",\"dense_source_id_order\":[0,1,2,3,4,5]";
+                std::cout << ",\"finite_coefficients\":"
+                          << (rowFinite ? "true" : "false");
+                std::cout << ",\"mapped_to_original_fixture_vertex_ids\":"
+                          << (rowMapped ? "true" : "false");
+                std::cout << ",\"coefficient_sum\":" << rowSum;
+                std::cout << ",\"expected_sum\":" << expectedSum;
+                std::cout << ",\"sum_check_mathematically_applicable\":true";
+                std::cout << ",\"sum_check_passed\":"
+                          << (rowSumPassed ? "true" : "false");
+                std::cout << ",\"patch_basis_expansion_available\":"
+                          << (patchRowsAvailable ? "true" : "false");
+                std::cout << ",\"patch_basis_limit_stencil_max_abs_difference\":"
+                          << rowPatchDifference;
+                std::cout << ",\"patch_basis_limit_stencil_match_passed\":"
+                          << (rowPatchPassed ? "true" : "false");
+                std::cout << ",\"duplicate_aggregation_rule\":\"ascending "
+                             "original source id with additive coefficient sum\"";
+                std::cout << ",\"duplicate_aggregation_probe\":\"split each "
+                             "raw entry into 1/4 and 3/4 contributions, reverse "
+                             "entry order, aggregate\"";
+                std::cout << ",\"duplicate_aggregation_max_abs_difference\":"
+                          << duplicateDifference;
+                std::cout << ",\"duplicate_aggregation_passed\":"
+                          << (rowDuplicatePassed ? "true" : "false");
+                std::cout << "}";
+            }
+            bool const mixedRowsIdentical =
+                denseRows[5] == denseRows[6];
+            std::vector<double> sampleBackProjection(18, 0.0);
+            double sampleRowDot = 0.0;
+            for (int row = 0; row < 7; ++row) {
+                for (int axis = 0; axis < 3; ++axis) {
+                    double rowValue = 0.0;
+                    for (int sourceId = 0; sourceId < mesh.numVertices;
+                         ++sourceId) {
+                        rowValue +=
+                            denseRows[row][sourceId] *
+                            diagnostic_control_component(sourceId, axis);
+                        sampleBackProjection[3 * sourceId + axis] +=
+                            quadratureWeight[sample] *
+                            denseRows[row][sourceId] *
+                            proof_gradient(face, sample, row, axis);
+                    }
+                    sampleRowDot +=
+                        quadratureWeight[sample] *
+                        proof_gradient(face, sample, row, axis) * rowValue;
+                }
+            }
+            double const sampleControlDot =
+                diagnostic_control_dot(sampleBackProjection);
+            double const sampleResidual =
+                std::abs(sampleRowDot - sampleControlDot);
+            double const sampleScale =
+                std::max(1.0,
+                         std::max(std::abs(sampleRowDot),
+                                  std::abs(sampleControlDot)));
+            bool const sampleTransposePassed =
+                sampleResidual <= kTransposeRelativeTolerance * sampleScale;
+            allSampleTransposePassed =
+                allSampleTransposePassed && sampleTransposePassed;
+            stackedSampleDot += sampleRowDot;
+            for (int component = 0; component < 18; ++component) {
+                stackedBackProjection[component] +=
+                    sampleBackProjection[component];
+            }
+            std::cout << "]";
+            std::cout << ",\"mixed_rows_identical\":"
+                      << (mixedRowsIdentical ? "true" : "false");
+            std::cout << ",\"weighted_transpose\":{";
+            std::cout << "\"sample_dot\":" << sampleRowDot;
+            std::cout << ",\"control_dot\":" << sampleControlDot;
+            std::cout << ",\"abs_residual\":" << sampleResidual;
+            std::cout << ",\"scale\":" << sampleScale;
+            std::cout << ",\"relative_tolerance\":"
+                      << kTransposeRelativeTolerance;
+            std::cout << ",\"passed\":"
+                      << (sampleTransposePassed ? "true" : "false");
+            std::cout << "}}";
+        }
+        faceIdentityPassed =
+            faceIdentityPassed && currentFaceIdentityPassed;
+        std::cout << "]";
+        std::cout << ",\"all_samples_map_to_same_ptex_face_identity\":"
+                  << (currentFaceIdentityPassed ? "true" : "false");
+        std::cout << ",\"source_coverage_union\":";
+        print_int_set(currentFaceSourceIds);
+        std::cout << ",\"source_coverage_union_contains_all_six\":"
+                  << (currentFaceSourceIds.size() == 6 ? "true" : "false");
+        std::cout << "}";
+    }
+    std::cout << "]";
+
+    double const stackedControlDot =
+        diagnostic_control_dot(stackedBackProjection);
+    double const stackedTransposeResidual =
+        std::abs(stackedSampleDot - stackedControlDot);
+    double const stackedTransposeScale =
+        std::max(1.0,
+                 std::max(std::abs(stackedSampleDot),
+                          std::abs(stackedControlDot)));
+    bool const stackedTransposePassed =
+        stackedTransposeResidual <=
+        kTransposeRelativeTolerance * stackedTransposeScale;
+    std::set<int> backProjectionSourceIds;
+    for (int sourceId = 0; sourceId < mesh.numVertices; ++sourceId) {
+        for (int axis = 0; axis < 3; ++axis) {
+            if (stackedBackProjection[3 * sourceId + axis] != 0.0) {
+                backProjectionSourceIds.insert(sourceId);
+            }
+        }
+    }
+    bool const backProjectionSupportPassed =
+        stackedBackProjection.size() == 18 &&
+        backProjectionSourceIds.size() == 6;
+    bool const sourceCoveragePassed =
+        aggregateSourceIds.size() == 6 &&
+        missing_expected_ids(aggregateSourceIds,
+                             mesh.expectedLocalControlIds).empty();
+    bool const derivativeCoveragePassed =
+        missing_expected_ids(valueSourceIds,
+                             mesh.expectedLocalControlIds).empty() &&
+        missing_expected_ids(firstDerivativeSourceIds,
+                             mesh.expectedLocalControlIds).empty() &&
+        missing_expected_ids(secondDerivativeSourceIds,
+                             mesh.expectedLocalControlIds).empty();
+    bool const stencilCountPassed =
+        stencils->GetNumStencils() == 8 * kSampleCountPerFace;
+    bool const passed =
+        faceIdentityPassed && stencilCountPassed && allRowsFinite &&
+        allRowsMapped && rowSumChecksPassed && patchBasisComparisonPassed &&
+        duplicateAggregationPassed && permutationOrderStabilityPassed &&
+        sourceCoveragePassed && derivativeCoveragePassed &&
+        allSampleTransposePassed && stackedTransposePassed &&
+        backProjectionSupportPassed;
+
+    std::cout << ",\"mapping_summary\":{";
+    std::cout << "\"all_eight_oriented_faces_map_deterministically\":"
+              << (faceIdentityPassed ? "true" : "false");
+    std::cout << ",\"expected_limit_stencil_count\":24";
+    std::cout << ",\"actual_limit_stencil_count\":"
+              << stencils->GetNumStencils();
+    std::cout << ",\"stencil_count_passed\":"
+              << (stencilCountPassed ? "true" : "false");
+    std::cout << "}";
+    std::cout << ",\"row_checks\":{";
+    std::cout << "\"all_coefficients_finite\":"
+              << (allRowsFinite ? "true" : "false");
+    std::cout << ",\"all_entries_map_to_original_fixture_vertex_ids\":"
+              << (allRowsMapped ? "true" : "false");
+    std::cout << ",\"position_partition_of_unity_and_derivative_sum_checks_passed\":"
+              << (rowSumChecksPassed ? "true" : "false");
+    std::cout << ",\"max_abs_row_sum_difference\":" << maxRowSumDifference;
+    std::cout << ",\"row_sum_tolerance\":" << kRowTolerance;
+    std::cout << ",\"patch_basis_limit_stencil_comparison_passed\":"
+              << (patchBasisComparisonPassed ? "true" : "false");
+    std::cout << ",\"max_abs_patch_basis_limit_stencil_difference\":"
+              << maxPatchBasisDifference;
+    std::cout << ",\"patch_basis_limit_stencil_tolerance\":"
+              << kRowTolerance;
+    std::cout << ",\"duplicate_aggregation_passed\":"
+              << (duplicateAggregationPassed ? "true" : "false");
+    std::cout << ",\"permutation_order_stability_passed\":"
+              << (permutationOrderStabilityPassed ? "true" : "false");
+    std::cout << ",\"max_abs_duplicate_aggregation_difference\":"
+              << maxDuplicateAggregationDifference;
+    std::cout << ",\"duplicate_aggregation_tolerance\":"
+              << kAggregationTolerance;
+    std::cout << "}";
+    std::cout << ",\"aggregate_source_coverage\":{";
+    std::cout << "\"original_fixture_vertex_ids\":";
+    print_int_set(aggregateSourceIds);
+    std::cout << ",\"value_source_ids\":";
+    print_int_set(valueSourceIds);
+    std::cout << ",\"first_derivative_source_ids\":";
+    print_int_set(firstDerivativeSourceIds);
+    std::cout << ",\"second_derivative_source_ids\":";
+    print_int_set(secondDerivativeSourceIds);
+    std::cout << ",\"all_six_fixture_vertices_covered\":"
+              << (sourceCoveragePassed ? "true" : "false");
+    std::cout << ",\"value_first_second_category_unions_cover_all_six\":"
+              << (derivativeCoveragePassed ? "true" : "false");
+    std::cout << ",\"no_claim_that_each_individual_row_covers_all_six\":true";
+    std::cout << "}";
+    std::cout << ",\"transpose_backprojection\":{";
+    std::cout << "\"identity\":\"sum_face_samples weight*g dot (W p) == "
+                 "p dot sum_face_samples weight*(W^T g)\"";
+    std::cout << ",\"diagnostic\":\"asymmetric source/axis scalar controls "
+                 "with face/sample/row/axis-dependent gradients\"";
+    std::cout << ",\"sample_row_component_count\":"
+              << 8 * kSampleCountPerFace * 7 * 3;
+    std::cout << ",\"original_source_component_count\":"
+              << mesh.numVertices * 3;
+    std::cout << ",\"backprojection_component_count\":"
+              << stackedBackProjection.size();
+    std::cout << ",\"backprojected_original_source_ids\":";
+    print_int_set(backProjectionSourceIds);
+    std::cout << ",\"all_per_sample_weighted_transposes_passed\":"
+              << (allSampleTransposePassed ? "true" : "false");
+    std::cout << ",\"stacked_sample_dot\":" << stackedSampleDot;
+    std::cout << ",\"stacked_control_dot\":" << stackedControlDot;
+    std::cout << ",\"stacked_abs_residual\":"
+              << stackedTransposeResidual;
+    std::cout << ",\"stacked_scale\":" << stackedTransposeScale;
+    std::cout << ",\"relative_tolerance\":"
+              << kTransposeRelativeTolerance;
+    std::cout << ",\"backprojection_has_exactly_18_components_with_all_six_support\":"
+              << (backProjectionSupportPassed ? "true" : "false");
+    std::cout << ",\"passed\":"
+              << (allSampleTransposePassed && stackedTransposePassed &&
+                          backProjectionSupportPassed
+                      ? "true"
+                      : "false");
+    std::cout << "}";
+    std::cout << ",\"claims_not_proven\":[";
+    std::cout << "\"production geometry\",";
+    std::cout << "\"production fBend/fArea/fVolume\",";
+    std::cout << "\"production scatter/OpenMP parity\",";
+    std::cout << "\"broader-valence production route readiness\"";
+    std::cout << "]";
+    std::cout << ",\"passed\":" << (passed ? "true" : "false");
+    std::cout << "}" << std::endl;
+
+    delete stencils;
+    delete cvStencils;
+    delete patchTable;
+    delete refiner;
+    return passed;
 }
 #endif
 
@@ -2438,7 +3176,17 @@ static int run_case(MeshCase const &mesh) {
     return 0;
 }
 
-int main() {
+int main(int argc, char **argv) {
+#if SLIMED_VALENCE4_MAPPING_PROOF_REPORT
+    if (argc != 3) {
+        std::cerr << "valence-4 mapping proof requires vertices.csv and faces.csv\n";
+        return 11;
+    }
+    return print_valence4_mapping_proof(
+               load_serialized_valence4_fixture(argv[1], argv[2]))
+               ? 0
+               : 12;
+#else
     int status = run_case(make_regular_lattice_case());
     if (status != 0) {
         return status;
@@ -2476,6 +3224,7 @@ int main() {
     }
 #endif
     return 0;
+#endif
 }
 """
 
@@ -2570,6 +3319,14 @@ def parse_args() -> argparse.Namespace:
             "Opt into report-only aggregate source coverage for synthetic "
             "extraordinary-valence fan topologies beyond SLIMED's current "
             "supported irregular route."
+        ),
+    )
+    parser.add_argument(
+        "--valence4-mapping-sample-transpose-report",
+        action="store_true",
+        help=(
+            "Opt into the approved serialized valence-4 octahedron proof-only "
+            "Ptex/sample/source-row/transpose report."
         ),
     )
     parser.add_argument(
@@ -2693,6 +3450,8 @@ def main() -> int:
             command.append("-DSLIMED_IRREGULAR_TRANSPOSE_PROOF_MAP_REPORT=1")
         if args.broader_valence_coverage_report:
             command.append("-DSLIMED_BROADER_VALENCE_COVERAGE_REPORT=1")
+        if args.valence4_mapping_sample_transpose_report:
+            command.append("-DSLIMED_VALENCE4_MAPPING_PROOF_REPORT=1")
         command.extend(shlex.split(os.environ.get("OPENSUBDIV_CXXFLAGS", "")))
         command.extend(
             [
@@ -2720,7 +3479,19 @@ def main() -> int:
             emit(payload, args.json)
             return compile_result.returncode
 
-        run_result = run_command([str(binary_path)])
+        run_command_line = [str(binary_path)]
+        if args.valence4_mapping_sample_transpose_report:
+            fixture_dir = (
+                Path(__file__).resolve().parents[1]
+                / "data/fixtures/candidates/closed_valence4_octahedron"
+            )
+            run_command_line.extend(
+                [
+                    str(fixture_dir / "vertices.csv"),
+                    str(fixture_dir / "faces.csv"),
+                ]
+            )
+        run_result = run_command(run_command_line)
         if run_result.returncode != 0:
             payload = status_payload(
                 "run_failed",
@@ -2733,14 +3504,49 @@ def main() -> int:
             emit(payload, args.json)
             return run_result.returncode
 
-    payload = status_payload(
-        "passed",
-        {
-            "include_dir": str(include_dir),
-            "lib_dir": str(lib_dir),
-            "prototype_output": run_result.stdout.strip().splitlines(),
-        },
-    )
+        deterministic_repeat_match = None
+        if args.valence4_mapping_sample_transpose_report:
+            repeat_result = run_command(run_command_line)
+            deterministic_repeat_match = (
+                repeat_result.returncode == 0
+                and repeat_result.stdout == run_result.stdout
+                and repeat_result.stderr == run_result.stderr
+            )
+            if not deterministic_repeat_match:
+                payload = status_payload(
+                    "run_failed",
+                    {
+                        "reason": "canonical valence-4 proof JSON changed across identical runs",
+                        "first_stdout": run_result.stdout,
+                        "repeat_stdout": repeat_result.stdout,
+                        "repeat_stderr": repeat_result.stderr,
+                    },
+                )
+                emit(payload, args.json)
+                return 1
+
+    details: dict[str, object] = {
+        "include_dir": str(include_dir),
+        "lib_dir": str(lib_dir),
+        "prototype_output": run_result.stdout.strip().splitlines(),
+    }
+    if args.valence4_mapping_sample_transpose_report:
+        details.update(
+            {
+                "approved_fixture": True,
+                "approved_for_mapping_sample_transpose_proof": True,
+                "approved_scope": (
+                "mechanical OpenSubdiv Ptex identity, sample ordering, "
+                "source-row mapping, and linear transpose evidence"
+                ),
+                "deterministic_repeat_match": deterministic_repeat_match,
+                "not_production_routing": True,
+                "production_route_enabled": False,
+                "proof_only": True,
+                "scientifically_approved": False,
+            }
+        )
+    payload = status_payload("passed", details)
     emit(payload, args.json)
     return 0
 

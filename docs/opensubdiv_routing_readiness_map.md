@@ -54,7 +54,7 @@ regular route through separately reviewed production changes.
 | Regular 12-control membrane force | Supported through the direct evaluator by default. OpenSubdiv-enabled binaries may route supported non-boundary, non-ghost regular faces only when runtime opt-in is explicit. | The guarded double-row route passes regular row, production-call force/scatter, geometry, output-visible, and serial/OpenMP executable parity under the current tolerance. | Guarded regular route active; preserve parity gates and direct fallback. |
 | Positive-depth `11 = 4+3+4` membrane force | Supported narrowly through dependency-free subdivision matrices and child-force back-projection. | OpenSubdiv aggregate source/transpose reports are observational only. | Keep current route; do not replace with OpenSubdiv in the regular readiness lane. |
 | Zero-depth 11-control and unsupported irregular topologies | Guarded unsupported cases. | No production approval. | Must continue to fail loudly or use only reviewed diagnostics. |
-| Broader extraordinary valence | Not production supported. | Synthetic broader-valence coverage can inform planning only. | Future-only until representative fixtures and scientific approval are available. |
+| Broader extraordinary valence | Not production supported. | The approved octahedron stand-in has proof-only Ptex/sample/source-row/linear-transpose evidence; synthetic broader-valence coverage remains planning evidence. | Future-only until membrane outputs, production formula/scatter/OpenMP evidence, generic scientific approval, and route review are complete. |
 
 Default validation remains dependency-free. OpenSubdiv-present checks stay
 opt-in through `OPENSUBDIV_ROOT`, `scripts/run_opensubdiv_probe.sh`, and
@@ -212,7 +212,9 @@ Irregular OpenSubdiv routing starts after regular production readiness, not
 beside it. For the current supported 11-control class, any OpenSubdiv
 replacement must compare against the dependency-free subdivision-matrix route
 where that route applies. For broader valence, no production claim is available
-until representative fixtures and scientific approval exist.
+until expected membrane outputs, generic scientific approval, and production
+route evidence exist. The octahedron's narrow mapping/sample/transpose approval
+does not satisfy these gates.
 
 Future irregular or broader-valence production work must establish:
 

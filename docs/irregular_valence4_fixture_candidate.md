@@ -3,11 +3,15 @@
 The serialized regular octahedron under
 `data/fixtures/candidates/closed_valence4_octahedron` is a candidate packet
 for a broader-valence physical fixture contract. It is not an approved
-scientific fixture. It requires explicit scientific approval before it can
-support any physics, backend, or routing claim.
+scientific fixture. The user has approved it narrowly as a stand-in for the
+mechanical OpenSubdiv mapping/sample/transpose proof documented in
+`docs/irregular_valence4_opensubdiv_mapping_proof.md`. That approval does not
+extend to physics, production backend behavior, or routing.
+Those broader claims still require explicit scientific approval.
 
 The metadata makes this state machine-readable with
-`scientifically_approved: false` and `production_route_enabled: false`.
+`approved_for_mapping_sample_transpose_proof: true`,
+`scientifically_approved: false`, and `production_route_enabled: false`.
 
 ## Candidate Contract
 
@@ -53,7 +57,8 @@ checkpoint/output, propagation, OpenSubdiv routing, dependencies, or builds.
 
 The exact Euclidean polyhedral quantities above do not validate SLIMED
 membrane geometry, limit-surface behavior, OpenSubdiv behavior, energy, or
-force. This lane makes no membrane-force or OpenSubdiv-force correctness claim.
-A later lane needs explicit scientific approval plus separately reviewed
-expected outputs and source-mapping/backend policy before this candidate can be
-promoted or routed.
+force. The narrow proof lane validates mechanical Ptex identity, frozen sample
+ordering, source-keyed stencil rows, deterministic aggregation, coverage
+unions, and a linear transpose only. Production geometry, force formulas,
+scatter/OpenMP parity, and route readiness still require separate scientific
+and production review before this candidate can be promoted or routed.

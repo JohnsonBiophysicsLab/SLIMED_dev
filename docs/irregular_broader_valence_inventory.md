@@ -65,17 +65,19 @@ Production setup coverage confirms that all eight faces are physical, have
 valence triplet `4/4/4`, and retain empty one-rings. The PR114 guard rejects the
 first unsupported face before any seeded area or volume is mutated.
 
-This prepares one candidate packet for review; it is not a scientifically
-approved fixture. Explicit scientific approval, expected membrane/backend
-outputs, and source-mapping policy are still required. Broader-valence routing
-remains disabled.
+This candidate packet remains a candidate, not a scientifically approved
+fixture. Generic scientific approval is still absent. It is now
+approved narrowly as a stand-in for the proof-only mapping/sample/transpose
+lane in `docs/irregular_valence4_opensubdiv_mapping_proof.md`. That report
+freezes the 24 OpenSubdiv samples, dense source rows, Ptex identities, and a
+linear transpose without approving membrane/backend outputs. Broader-valence
+routing remains disabled.
 
 ## Remaining Gate
 
-Any broader-valence backend or physics work still needs promotion of a
-candidate through explicit scientific approval, expected membrane
-geometry/force outputs, source mapping, and an explicit route contract. The
-regular-octahedron analytical metadata covers Euclidean polyhedral geometry
-only; it does not approve membrane or OpenSubdiv force correctness. The guard
-must remain active until that separate work passes reviewer and scientific
-approval.
+Any broader-valence backend or physics work still needs generic scientific
+approval, expected membrane geometry/force outputs, production scatter and
+OpenMP evidence, and an explicit route contract. The regular-octahedron proof
+closes only the mechanical mapping/sample/transpose evidence slice. The guard
+must remain active until separate production and scientific review approves a
+route.

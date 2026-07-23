@@ -59,7 +59,10 @@ The regular octahedron is also serialized under
 its closed oriented manifold topology, all-valence-4 triplets, and exact
 polyhedral geometry metadata. Production setup and preflight behavior are
 covered in C++. This is a candidate, not an approved scientific fixture, and
-broader-valence routing remains disabled.
+broader-valence routing remains disabled. The narrow
+`approved_for_mapping_sample_transpose_proof` decision is exercised by
+`scripts/run_irregular_valence4_opensubdiv_mapping_proof.sh`; it closes only
+the Ptex/sample/source-row/linear-transpose evidence slice.
 
 ## Evidence Gaps Worth Filling Next
 
@@ -67,10 +70,10 @@ broader-valence routing remains disabled.
    positive-depth 11-control fixture gate is resolved by the approved
    serialized closed valence-5 stand-in, and unsupported physical one-rings
    now fail loudly. One closed valence-4 candidate packet now has
-   machine-checked coordinates, connectivity, and analytical polyhedral
-   metadata. Actual
-   broader support still needs explicit scientific approval, expected membrane
-   and backend outputs, source mapping, and route policy.
+   machine-checked coordinates, connectivity, analytical polyhedral metadata,
+   and proof-only OpenSubdiv mapping/sample/transpose evidence. Actual broader
+   support still needs generic scientific approval, expected membrane and
+   backend outputs, production scatter/OpenMP evidence, and route policy.
 
 2. Preserve the supported 11-control executable baseline. The approved stand-in
    now covers energy, all force components, normals, area, legacy volume, and
@@ -100,8 +103,9 @@ separate representative fixture and reviewed comparison plan.
 
 ## Safe Follow-Up PR Shapes
 
-- Candidate-review follow-up: obtain explicit scientific approval or rejection
-  for the closed valence-4 regular-octahedron packet without changing routing.
+- Production-decision follow-up: define expected membrane outputs and route
+  policy for the closed valence-4 regular-octahedron packet without weakening
+  the current guard.
 - Tests/experiments-only preservation: retain the approved 11-control fixture
   and serial/OpenMP executable comparison as regression gates.
 - Docs-only backend criteria: refine the OpenSubdiv replacement checklist after

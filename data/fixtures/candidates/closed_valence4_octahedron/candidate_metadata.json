@@ -5,6 +5,10 @@
   "purpose": "broader_valence_physical_fixture_contract_candidate",
   "scientifically_approved": false,
   "scientific_approval": "required",
+  "approved_for_mapping_sample_transpose_proof": true,
+  "approved_scope": "mechanical OpenSubdiv Ptex identity, sample ordering, source-row mapping, and linear transpose evidence for this serialized stand-in",
+  "proof_only": true,
+  "not_production_routing": true,
   "production_route_enabled": false,
   "coordinate_model": "six unit coordinate-axis vertices centered at the origin",
   "topology": {

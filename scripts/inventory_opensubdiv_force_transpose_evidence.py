@@ -95,6 +95,12 @@ EVIDENCE_MATRIX: tuple[dict[str, str], ...] = (
         "anchor": "--irregular-transpose-proof-map-report",
         "remaining_gap": "no face-level sample plan or actual force formulas",
     },
+    {
+        "claim": "approved valence-4 mapping/sample/transpose proof",
+        "current_status": "opt-in proof-only mechanical evidence",
+        "anchor": "--valence4-mapping-sample-transpose-report",
+        "remaining_gap": "no production geometry, force formulas, scatter/OpenMP parity, or routing",
+    },
 )
 
 
@@ -178,6 +184,14 @@ ANCHORS: tuple[Anchor, ...] = (
         "kind: observational_all_ptex_grid_toy_transpose",
         "current evidence",
         "The irregular proof-map report is documented as aggregate observational evidence.",
+    ),
+    Anchor(
+        "evidence map",
+        "valence-4 proof-only evidence",
+        EVIDENCE_DOC_PATH,
+        "Approved valence-4 mapping/sample/transpose proof",
+        "opt-in proof-only mechanical evidence",
+        "The map records the approved stand-in without claiming force or routing readiness.",
     ),
     Anchor(
         "evidence map",
@@ -290,6 +304,14 @@ ANCHORS: tuple[Anchor, ...] = (
         "--irregular-transpose-proof-map-report",
         "opt-in OpenSubdiv evidence",
         "The probe can report irregular aggregate source visibility and toy transpose shape.",
+    ),
+    Anchor(
+        "probe",
+        "valence-4 mapping/sample/transpose option",
+        PROBE_PATH,
+        "--valence4-mapping-sample-transpose-report",
+        "opt-in proof-only mechanical evidence",
+        "The probe can report the serialized octahedron mapping/sample/transpose proof.",
     ),
     Anchor(
         "probe",

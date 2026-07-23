@@ -540,6 +540,23 @@ source visibility for broader valence can depend on the selected ptex/sample
 plan. A production backend would need to justify exactly which ptex faces and
 sample locations represent one SLIMED face before any force scatter claim.
 
+The approved valence-4 stand-in now has a separate proof-only report:
+
+```bash
+OPENSUBDIV_ROOT=/tmp/slimed-opensubdiv-install \
+OPENSUBDIV_CXXFLAGS='-arch arm64' \
+scripts/run_irregular_valence4_opensubdiv_mapping_proof.sh \
+  --json --require-opensubdiv
+```
+
+It loads the serialized octahedron CSVs, maps oriented fixture face rows to
+Ptex IDs `0..7`, freezes three SLIMED samples per face in face-major order,
+emits dense `7 x 6` rows keyed by source IDs `0..5`, compares patch-basis and
+limit-stencil rows, checks deterministic duplicate aggregation and coverage
+unions, and proves per-sample plus stacked linear transpose identities. The
+approval is limited to this mechanical evidence; `scientifically_approved`
+and `production_route_enabled` remain false.
+
 ## Feasibility Questions
 
 1. Can a Loop-scheme OpenSubdiv Far topology be built from SLIMED-style
