@@ -37,9 +37,10 @@ unavailable unless they carry an equally explicit reviewed contract.
 
 ## Current Inventory Snapshot
 
-The command discovers the negative `data/example` physical fixture and the
-approved narrow positive stand-in under `data/fixtures/closed_valence5`.
-For `data/example`:
+The command discovers the negative `data/example` physical fixture, the
+approved narrow positive stand-in under `data/fixtures/closed_valence5`, and
+the candidate-only broader-valence packet under
+`data/fixtures/candidates/closed_valence4_octahedron`. For `data/example`:
 
 - 1,927 vertices and 3,680 faces.
 - Edge incidence counts: 172 boundary edges and 5,434 two-face edges.
@@ -76,6 +77,12 @@ setup confirms 20 physical 11-control faces and executable serial/OpenMP
 evidence is recorded separately. This approval does not approve
 broader-valence or OpenSubdiv irregular routing.
 
+The serialized regular-octahedron candidate reports six all-valence-4 vertices,
+eight `4/4/4` faces, twelve two-face edges, and eight unsupported broader-
+valence/OpenSubdiv-gap candidates. Its dedicated inventory records exact
+polyhedral geometry and its production setup/guard contract. It remains
+candidate-only pending explicit scientific approval; routing is disabled.
+
 ## Resulting Gap Status
 
 The representative fixture decisions are now resolved for the negative
@@ -86,8 +93,10 @@ physical fixture and the narrow positive stand-in:
 - The approved checked-in mesh provides explicit production ghost status and
   proves that it has no physical irregular face.
 - The serialized closed valence-5 stand-in supplies the approved positive
-  11-control fixture contract. Broader-valence fixture requirements remain
-  open and separate.
+  11-control fixture contract.
+- The serialized closed valence-4 octahedron supplies a candidate packet only.
+  Broader-valence scientific approval and route requirements remain open and
+  separate.
 
 The serial/OpenMP tolerance policy, broader valence policy, and OpenSubdiv
 replacement criteria remain separate lanes.

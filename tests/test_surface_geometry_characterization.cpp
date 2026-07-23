@@ -1910,6 +1910,111 @@ TEST(SurfaceIrregularFixtureCharacterization,
     EXPECT_TRUE(hasNonzeroForce);
 }
 
+TEST(SurfaceIrregularFixtureCharacterization,
+     CandidateClosedValenceFourFixtureRemainsUnsupportedBeforeGeometryMutation)
+{
+    Param param;
+    param.VERBOSE_MODE = false;
+    param.boundaryCondition = BoundaryType::Fixed;
+    param.subDivideTimes = 2;
+
+    const auto verticesData = read_data_from_csv<double>(
+        "./data/fixtures/candidates/closed_valence4_octahedron/vertices.csv");
+    const auto facesData = read_data_from_csv<int>(
+        "./data/fixtures/candidates/closed_valence4_octahedron/faces.csv");
+    Mesh mesh(param);
+    mesh.setup_from_vertices_faces(verticesData, facesData);
+
+    ASSERT_EQ(mesh.vertices.size(), 6u);
+    ASSERT_EQ(mesh.faces.size(), 8u);
+    for (const Vertex &vertex : mesh.vertices)
+    {
+        EXPECT_EQ(vertex.adjacentVertices.size(), 4u);
+    }
+
+    std::vector<double> expectedAreas(mesh.faces.size());
+    std::vector<double> expectedVolumes(mesh.faces.size());
+    for (Face &face : mesh.faces)
+    {
+        EXPECT_FALSE(face.isGhost);
+        EXPECT_FALSE(face.isBoundary);
+        EXPECT_TRUE(face.oneRingVertices.empty());
+        expectedAreas[face.index] = 10.0 + static_cast<double>(face.index);
+        expectedVolumes[face.index] = -20.0 - static_cast<double>(face.index);
+        face.elementArea = expectedAreas[face.index];
+        face.elementVolume = expectedVolumes[face.index];
+    }
+
+    try
+    {
+        mesh.calculate_element_area_volume();
+        FAIL() << "Expected candidate valence-4 geometry routing to throw";
+    }
+    catch (const std::runtime_error &error)
+    {
+        const std::string message = error.what();
+        EXPECT_NE(message.find("Unsupported membrane geometry routing for face 0"),
+                  std::string::npos);
+        EXPECT_NE(message.find("11- or 12-control Face::oneRingVertices entry; found 0"),
+                  std::string::npos);
+        EXPECT_NE(message.find("Broader-valence routing remains disabled"),
+                  std::string::npos);
+    }
+
+    for (const Face &face : mesh.faces)
+    {
+        EXPECT_DOUBLE_EQ(face.elementArea, expectedAreas[face.index]);
+        EXPECT_DOUBLE_EQ(face.elementVolume, expectedVolumes[face.index]);
+    }
+
+    mesh.param.area = 101.25;
+    mesh.param.vol = -202.5;
+    for (Face &face : mesh.faces)
+    {
+        face.energy.energyCurvature =
+            30.0 + static_cast<double>(face.index);
+        face.meanCurvature = -40.0 - static_cast<double>(face.index);
+    }
+    for (Vertex &vertex : mesh.vertices)
+    {
+        for (int axis = 0; axis < 3; ++axis)
+        {
+            const double sentinel =
+                50.0 + 10.0 * static_cast<double>(vertex.index) + axis;
+            vertex.force.forceCurvature.set(axis, 0, sentinel);
+            vertex.force.forceArea.set(axis, 0, -sentinel);
+            vertex.force.forceVolume.set(axis, 0, 2.0 * sentinel);
+        }
+    }
+
+    EXPECT_THROW(mesh.Compute_Energy_And_Force(), std::runtime_error);
+
+    EXPECT_DOUBLE_EQ(mesh.param.area, 101.25);
+    EXPECT_DOUBLE_EQ(mesh.param.vol, -202.5);
+    for (const Face &face : mesh.faces)
+    {
+        EXPECT_DOUBLE_EQ(face.elementArea, expectedAreas[face.index]);
+        EXPECT_DOUBLE_EQ(face.elementVolume, expectedVolumes[face.index]);
+        EXPECT_DOUBLE_EQ(face.energy.energyCurvature,
+                         30.0 + static_cast<double>(face.index));
+        EXPECT_DOUBLE_EQ(face.meanCurvature,
+                         -40.0 - static_cast<double>(face.index));
+    }
+    for (const Vertex &vertex : mesh.vertices)
+    {
+        for (int axis = 0; axis < 3; ++axis)
+        {
+            const double sentinel =
+                50.0 + 10.0 * static_cast<double>(vertex.index) + axis;
+            EXPECT_DOUBLE_EQ(vertex.force.forceCurvature.get(axis, 0),
+                             sentinel);
+            EXPECT_DOUBLE_EQ(vertex.force.forceArea.get(axis, 0), -sentinel);
+            EXPECT_DOUBLE_EQ(vertex.force.forceVolume.get(axis, 0),
+                             2.0 * sentinel);
+        }
+    }
+}
+
 TEST(OpenSubdivRegularProductionRoutingGuard,
      DefaultRouteIsInactiveWithoutRuntimeOptIn)
 {

@@ -96,7 +96,11 @@ outside that route:
 
 - preserve the approved fixture, ordered-source, duplicate-aggregation, and
   `1.0e-10` executable baselines when the implementation changes;
-- define broader extraordinary-valence fixtures and support policy, if any;
+- review the candidate-only closed valence-4 regular octahedron under
+  `data/fixtures/candidates/closed_valence4_octahedron`; its exact polyhedral
+  metadata and fail-loud production contract do not constitute scientific
+  approval or membrane/OpenSubdiv force validation;
+- define broader extraordinary-valence support policy, if any;
   and
 - separately review any future OpenSubdiv-backed irregular sample plan,
   source mapping, force equivalence, and backend policy.
@@ -108,10 +112,11 @@ dimension-mismatch handling.
 ## Recommended Next Prompt
 
 ```text
-Identify and approve a representative physical broader-valence fixture before
-designing any route. Define expected geometry/force outputs and source mapping,
-while preserving the fail-loud unsupported-topology guard, the approved closed
+Review the candidate-only closed valence-4 regular-octahedron packet for
+explicit scientific approval before designing any route. If approved, define
+expected membrane/backend geometry and force outputs plus source mapping while
+preserving the fail-loud unsupported-topology guard, the approved closed
 valence-5 fixture, and its serial/OpenMP baseline. Do not enable
 broader-valence routing or change formulas, default dependencies, scatter,
-OpenMP reductions, checkpoint/output, or propagation in the fixture lane.
+OpenMP reductions, checkpoint/output, or propagation in the approval lane.
 ```

@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "fixture_id": "candidate_closed_valence4_regular_octahedron",
+  "status": "candidate_only",
+  "purpose": "broader_valence_physical_fixture_contract_candidate",
+  "scientifically_approved": false,
+  "scientific_approval": "required",
+  "production_route_enabled": false,
+  "coordinate_model": "six unit coordinate-axis vertices centered at the origin",
+  "topology": {
+    "vertex_count": 6,
+    "edge_count": 12,
+    "face_count": 8,
+    "vertex_valence": 4,
+    "face_valence_triplet": "4/4/4",
+    "closed_two_face_edge_manifold": true,
+    "faces_oriented_outward": true
+  },
+  "geometry_scope": "straight_sided_input_polyhedron_not_slimed_output",
+  "input_polyhedron_geometry": {
+    "circumradius": {
+      "exact": "1",
+      "value": 1.0
+    },
+    "edge_length": {
+      "exact": "sqrt(2)",
+      "value": 1.4142135623730951
+    },
+    "single_face_area": {
+      "exact": "sqrt(3)/2",
+      "value": 0.8660254037844386
+    },
+    "total_polyhedral_surface_area": {
+      "exact": "4*sqrt(3)",
+      "value": 6.928203230275509
+    },
+    "signed_enclosed_polyhedral_volume": {
+      "exact": "4/3",
+      "value": 1.3333333333333333
+    }
+  },
+  "expected_current_production_contract": {
+    "boundary_condition": "Fixed",
+    "all_faces_physical": true,
+    "one_ring_size_per_face": 0,
+    "geometry_preflight": "runtime_error before area or volume mutation"
+  },
+  "claims_not_made": [
+    "scientific fixture approval",
+    "broader-valence production routing",
+    "membrane geometry correctness",
+    "membrane force correctness",
+    "OpenSubdiv force correctness"
+  ]
+}
