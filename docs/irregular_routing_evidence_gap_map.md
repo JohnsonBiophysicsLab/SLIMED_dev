@@ -53,13 +53,24 @@ records closed generated valence triplets whose production one-ring remains
 empty and verifies the fail-loud diagnostic. It does not approve a broader
 route or a scientific fixture.
 
+The regular octahedron is also serialized under
+`data/fixtures/candidates/closed_valence4_octahedron`. The companion
+`scripts/inventory_irregular_valence4_fixture_candidate.py --check` verifies
+its closed oriented manifold topology, all-valence-4 triplets, and exact
+polyhedral geometry metadata. Production setup and preflight behavior are
+covered in C++. This is a candidate, not an approved scientific fixture, and
+broader-valence routing remains disabled.
+
 ## Evidence Gaps Worth Filling Next
 
 1. Broader-valence representative fixtures and policy. The narrow
    positive-depth 11-control fixture gate is resolved by the approved
    serialized closed valence-5 stand-in, and unsupported physical one-rings
-   now fail loudly. Actual broader support still needs reviewed coordinates,
-   expected outputs, source mapping, and scientific approval.
+   now fail loudly. One closed valence-4 candidate packet now has
+   machine-checked coordinates, connectivity, and analytical polyhedral
+   metadata. Actual
+   broader support still needs explicit scientific approval, expected membrane
+   and backend outputs, source mapping, and route policy.
 
 2. Preserve the supported 11-control executable baseline. The approved stand-in
    now covers energy, all force components, normals, area, legacy volume, and
@@ -89,8 +100,8 @@ separate representative fixture and reviewed comparison plan.
 
 ## Safe Follow-Up PR Shapes
 
-- Docs/scripts-only broader-valence inventory: record exact unsupported
-  one-ring shapes and diagnostics without changing routing.
+- Candidate-review follow-up: obtain explicit scientific approval or rejection
+  for the closed valence-4 regular-octahedron packet without changing routing.
 - Tests/experiments-only preservation: retain the approved 11-control fixture
   and serial/OpenMP executable comparison as regression gates.
 - Docs-only backend criteria: refine the OpenSubdiv replacement checklist after

@@ -47,9 +47,35 @@ These generated cases characterize topology predicates only. They are not
 scientifically approved broader-valence fixtures and do not establish an
 OpenSubdiv ptex/sample/source-id or force-transpose contract.
 
+## Serialized Valence-4 Candidate
+
+The regular octahedron is now also serialized under the clearly candidate-only
+path `data/fixtures/candidates/closed_valence4_octahedron`. Its candidate
+metadata records coordinates, outward-oriented connectivity, exact edge
+length, circumradius, face and total polyhedral area, and signed enclosed
+polyhedral volume. These are straight-sided input-polyhedron values, not
+SLIMED outputs.
+The inert companion inventory is:
+
+```text
+python3 scripts/inventory_irregular_valence4_fixture_candidate.py --check
+```
+
+Production setup coverage confirms that all eight faces are physical, have
+valence triplet `4/4/4`, and retain empty one-rings. The PR114 guard rejects the
+first unsupported face before any seeded area or volume is mutated.
+
+This prepares one candidate packet for review; it is not a scientifically
+approved fixture. Explicit scientific approval, expected membrane/backend
+outputs, and source-mapping policy are still required. Broader-valence routing
+remains disabled.
+
 ## Remaining Gate
 
-Any broader-valence backend or physics work still needs a scientifically
-approved fixture, expected geometry/force outputs, source mapping, and an
-explicit route contract. The guard must remain active until that separate work
-passes reviewer and scientific approval.
+Any broader-valence backend or physics work still needs promotion of a
+candidate through explicit scientific approval, expected membrane
+geometry/force outputs, source mapping, and an explicit route contract. The
+regular-octahedron analytical metadata covers Euclidean polyhedral geometry
+only; it does not approve membrane or OpenSubdiv force correctness. The guard
+must remain active until that separate work passes reviewer and scientific
+approval.
