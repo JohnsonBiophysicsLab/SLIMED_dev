@@ -12,7 +12,7 @@ behavior, scatter order, or broader valence support.
 | Regular 12-control membrane force | Supported. | Regular evaluator, force formula, and scatter characterization tests. | Preserve serial/OpenMP baselines if a future backend changes row weights or force scatter. |
 | 11-control `4+3+4` membrane force with `Param::subDivideTimes > 0` | Supported narrowly through existing subdivision matrices and transpose back-projection. | Synthetic route tests plus the approved closed valence-5 stand-in exercise all 20 physical faces through production setup. Actual serial/OpenMP executables compare energy, force, normals, area, legacy volume, and mean curvature within `1.0e-10`. | Preserve the fixture and tolerance baselines; no narrow route evidence gap remains. |
 | 11-control membrane force with `Param::subDivideTimes <= 0` | Guarded unsupported. | Zero-depth diagnostic test verifies the route fails before regular fallback. | None for the current guard; changing this policy needs production review. |
-| Other irregular force topologies | Unsupported. | Documentation explicitly limits support to the existing `11 = 4+3+4` matrix contract. | Backend or valence policy, fixtures, expected outputs, and review criteria. |
+| Other irregular force topologies | Unsupported and currently silent. | Generated closed topologies retain an empty production one-ring and therefore contribute zero geometry/force state without an explicit diagnostic. | Add a fail-loud preflight diagnostic, then define any future backend/valence policy with reviewed scientific fixtures and expected outputs. |
 | OpenSubdiv-backed irregular replacement | Not production. | Existing OpenSubdiv docs/probe remain observational only. | Dependency/build policy, sample selection, source-id mapping, and force-formula equivalence. |
 
 The supported positive-depth 11-control route and a future OpenSubdiv backend
@@ -46,21 +46,30 @@ synthetic split-reduction envelope and the approved closed valence-5 actual
 serial/OpenMP executable comparison without changing production OpenMP
 behavior.
 
+The broader-valence companion check is
+`scripts/inventory_irregular_broader_valence.py --check`, with the current
+source-policy snapshot in `docs/irregular_broader_valence_inventory.md`. It
+records closed generated valence triplets whose production one-ring remains
+empty and identifies the missing explicit diagnostic. It does not approve a
+broader route or a scientific fixture.
+
 ## Evidence Gaps Worth Filling Next
 
-1. Broader-valence representative fixtures. The narrow positive-depth
+1. Explicit broader-valence diagnostic. The narrow positive-depth
    11-control fixture gate is resolved by the approved serialized closed
-   valence-5 stand-in. Unsupported broader valences still need their own
-   reviewed coordinates, route contract, and scientific expectations.
+   valence-5 stand-in. Unsupported broader-valence faces currently retain an
+   empty one-ring and silently contribute zero geometry/force state. A
+   separate production PR should fail loudly before any route is considered.
 
 2. Preserve the supported 11-control executable baseline. The approved stand-in
    now covers energy, all force components, normals, area, legacy volume, and
    mean curvature in actual serial/OpenMP builds with a maximum observed delta
    of `1.4210854715202004e-14` under the `1.0e-10` policy.
 
-3. Unsupported-route inventory. Zero-depth 11-control requests are already
-   guarded. Broader valence cases need a documented matrix of expected
-   diagnostics before any route is broadened.
+3. Broader-valence representative fixtures and policy. The generated closed
+   topology inventory is mechanical evidence only; actual support still needs
+   reviewed coordinates, expected outputs, source mapping, and scientific
+   approval.
 
 4. OpenSubdiv replacement criteria. Any backend lane should first satisfy the
    consolidated criteria in
@@ -92,9 +101,9 @@ separate representative fixture and reviewed comparison plan.
 ## Recommended Next Prompt
 
 ```text
-Inventory the exact unsupported broader-valence one-ring shapes and current
-diagnostics without enabling a route. Keep the approved closed valence-5
-fixture as the regression gate for the existing narrow 11-control path. Do not
-change routing, formulas, default dependencies, OpenMP reductions,
-checkpoint/output, or propagation in the inventory lane.
+Add an explicit preflight diagnostic for non-boundary, non-ghost faces whose
+stored one-ring size is neither 11 nor 12. Preserve the approved closed
+valence-5 fixture and regular route, and do not enable broader-valence routing
+or change formulas, default dependencies, scatter, OpenMP reductions,
+checkpoint/output, or propagation.
 ```

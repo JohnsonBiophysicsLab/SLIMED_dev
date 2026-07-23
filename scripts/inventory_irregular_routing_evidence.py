@@ -21,6 +21,7 @@ LIMIT_SURFACE_PATH = Path("include/mesh/Limit_surface_evaluator.hpp")
 SURFACE_TEST_PATH = Path("tests/test_surface_geometry_characterization.cpp")
 FIXTURE_DOC_PATH = Path("docs/irregular_patch_fixture_requirements.md")
 PROOF_MAP_DOC_PATH = Path("docs/irregular_subdivision_transpose_proof_map.md")
+BROADER_VALENCE_DOC_PATH = Path("docs/irregular_broader_valence_inventory.md")
 
 
 @dataclass(frozen=True)
@@ -132,10 +133,10 @@ ANCHORS: tuple[Anchor, ...] = (
     Anchor(
         "documented gap",
         "broader extraordinary-valence gap",
-        FIXTURE_DOC_PATH,
-        "broader extraordinary-valence fixtures",
+        BROADER_VALENCE_DOC_PATH,
+        "This silent zero contribution is the exact blocker.",
         "remaining evidence gap",
-        "Support remains limited to the existing 11 = 4+3+4 matrix contract.",
+        "Generated closed topologies expose the missing diagnostic without approving a broader route.",
     ),
     Anchor(
         "documented gap",
@@ -186,8 +187,8 @@ ROUTE_MATRIX: tuple[dict[str, str], ...] = (
     {
         "route": "other irregular force topologies",
         "current_behavior": "unsupported/not broadened",
-        "evidence": "documented as outside the 11 = 4+3+4 route",
-        "remaining_gap": "backend or valence policy plus fixtures",
+        "evidence": "generated closed topology inventory records empty one-rings and silent zero contributions",
+        "remaining_gap": "explicit unsupported-topology diagnostic, then separate scientific fixture/backend policy",
     },
     {
         "route": "OpenSubdiv-backed irregular replacement",
