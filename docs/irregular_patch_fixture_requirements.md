@@ -108,9 +108,10 @@ dimension-mismatch handling.
 ## Recommended Next Prompt
 
 ```text
-Inventory exact unsupported broader-valence one-ring shapes and current
-diagnostics without enabling a route. Preserve the approved closed valence-5
-fixture and serial/OpenMP baseline for the existing narrow 11-control path.
-Do not change routing, formulas, default dependencies, OpenMP reductions,
-checkpoint/output, or propagation.
+Add an explicit preflight diagnostic for non-boundary, non-ghost faces whose
+stored one-ring size is neither 11 nor 12. Preserve the approved closed
+valence-5 fixture and serial/OpenMP baseline for the existing narrow
+11-control path. Do not enable broader-valence routing or change formulas,
+default dependencies, scatter, OpenMP reductions, checkpoint/output, or
+propagation.
 ```
