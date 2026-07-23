@@ -1473,6 +1473,62 @@ TEST(SurfaceSubdivisionCharacterization, SyntheticIrregularPatchAreaVolumeUsesSu
     EXPECT_NEAR(volume, expected.volume, 1.0e-12);
 }
 
+TEST(SurfaceSubdivisionCharacterization, UnsupportedBroaderValenceFailsBeforeGeometryMutation)
+{
+    Param param;
+    param.VERBOSE_MODE = false;
+    param.subDivideTimes = 2;
+    Mesh mesh(param);
+    populate_synthetic_irregular_patch_mesh(mesh);
+
+    Face &face = mesh.faces.front();
+    face.oneRingVertices.clear();
+    face.elementArea = 3.25;
+    face.elementVolume = -1.75;
+
+    try
+    {
+        mesh.calculate_element_area_volume();
+        FAIL() << "Expected unsupported broader-valence geometry routing to throw";
+    }
+    catch (const std::runtime_error &error)
+    {
+        const std::string message = error.what();
+        EXPECT_NE(message.find("Unsupported membrane geometry routing for face 0"),
+                  std::string::npos);
+        EXPECT_NE(message.find("11- or 12-control Face::oneRingVertices entry; found 0"),
+                  std::string::npos);
+        EXPECT_NE(message.find("Broader-valence routing remains disabled"),
+                  std::string::npos);
+    }
+
+    EXPECT_DOUBLE_EQ(face.elementArea, 3.25);
+    EXPECT_DOUBLE_EQ(face.elementVolume, -1.75);
+}
+
+TEST(SurfaceSubdivisionCharacterization,
+     FixedBoundaryIncompleteOneRingsRemainOnLegacyBoundaryPath)
+{
+    Param param;
+    param.VERBOSE_MODE = false;
+    param.boundaryCondition = BoundaryType::Fixed;
+    param.sideX = 40.0;
+    param.sideY = 10.0 * std::sqrt(3.0) / 2.0 * param.lFace;
+    Mesh mesh(param);
+
+    ::testing::internal::CaptureStdout();
+    mesh.setup_flat();
+    ::testing::internal::GetCapturedStdout();
+
+    const std::size_t incompleteNonGhostFaces = std::count_if(
+        mesh.faces.begin(), mesh.faces.end(), [](const Face &face) {
+            return !face.isGhost && face.oneRingVertices.size() != 11u &&
+                   face.oneRingVertices.size() != 12u;
+        });
+    ASSERT_GT(incompleteNonGhostFaces, 0u);
+    EXPECT_NO_THROW(mesh.calculate_element_area_volume());
+}
+
 TEST(SurfaceSubdivisionCharacterization, SyntheticIrregularPatchEnergyForceRequiresSubdivisionDepth)
 {
     Param param;
