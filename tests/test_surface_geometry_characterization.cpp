@@ -3,6 +3,7 @@
 #include <cstdlib>
 #include <cmath>
 #include <limits>
+#include <set>
 #include <string>
 #include <stdexcept>
 #include <thread>
@@ -1751,6 +1752,106 @@ TEST(SurfaceIrregularFixtureCharacterization,
     EXPECT_EQ(physicalRegularFaces, 2720);
     EXPECT_EQ(physicalElevenControlFaces, 0);
     EXPECT_EQ(physicalUnsupportedFaces, 0);
+}
+
+TEST(SurfaceIrregularFixtureCharacterization,
+     ApprovedClosedValenceFiveFixtureExercisesAllPositiveDepthElevenControlFaces)
+{
+    Param param;
+    param.VERBOSE_MODE = false;
+    param.boundaryCondition = BoundaryType::Fixed;
+    param.subDivideTimes = 2;
+    param.kCurv = 47.5;
+    param.uSurf = 130.0;
+    param.uVol = 65.0;
+
+    const auto verticesData = read_data_from_csv<double>(
+        "./data/fixtures/closed_valence5/vertices.csv");
+    const auto facesData = read_data_from_csv<int>(
+        "./data/fixtures/closed_valence5/faces.csv");
+    Mesh mesh(param);
+    mesh.setup_from_vertices_faces(verticesData, facesData);
+
+    ASSERT_EQ(mesh.vertices.size(), 12u);
+    ASSERT_EQ(mesh.faces.size(), 20u);
+    for (const Vertex &vertex : mesh.vertices)
+    {
+        EXPECT_EQ(vertex.adjacentVertices.size(), 5u);
+    }
+    for (const Face &face : mesh.faces)
+    {
+        EXPECT_FALSE(face.isGhost);
+        EXPECT_FALSE(face.isBoundary);
+        ASSERT_EQ(face.oneRingVertices.size(), 11u);
+        const std::set<int> uniqueSources(face.oneRingVertices.begin(),
+                                          face.oneRingVertices.end());
+        EXPECT_EQ(uniqueSources.size(), 9u);
+    }
+
+    for (Vertex &vertex : mesh.vertices)
+    {
+        const double index = static_cast<double>(vertex.index + 1);
+        vertex.coord.set(0, 0, vertex.coord(0, 0) + 0.017 * std::sin(0.37 * index));
+        vertex.coord.set(1, 0, vertex.coord(1, 0) - 0.013 * std::cos(0.29 * index));
+        vertex.coord.set(2, 0, vertex.coord(2, 0) + 0.019 * std::sin(0.41 * index));
+    }
+    mesh.update_previous_coord_for_vertex();
+    mesh.update_reference_coord_from_previous_coord();
+    mesh.calculate_element_area_volume();
+    mesh.sum_membrane_area_and_volume(mesh.param.area, mesh.param.vol);
+    mesh.param.area0 = 0.91 * mesh.param.area;
+    mesh.param.vol0 = 0.93 * mesh.param.vol;
+
+    std::vector<IrregularForceRouteResult> expected(mesh.faces.size());
+    std::vector<double> expectedForceComponents(mesh.vertices.size() * 9, 0.0);
+    for (Face &face : mesh.faces)
+    {
+        expected[face.index] = direct_irregular_patch_energy_force(mesh, face);
+        scatter_irregular_force_rows(expected[face.index],
+                                     face.oneRingVertices,
+                                     expectedForceComponents);
+    }
+
+    mesh.Compute_Energy_And_Force();
+
+    EXPECT_TRUE(std::isfinite(mesh.param.area));
+    EXPECT_TRUE(std::isfinite(mesh.param.vol));
+    EXPECT_GT(mesh.param.area, 0.0);
+    EXPECT_GT(std::abs(mesh.param.vol), 1.0e-12);
+    for (const Face &face : mesh.faces)
+    {
+        const IrregularForceRouteResult &faceExpected = expected[face.index];
+        EXPECT_NEAR(face.energy.energyCurvature, faceExpected.eBend, 1.0e-10);
+        EXPECT_NEAR(face.meanCurvature, faceExpected.meanCurv, 1.0e-12);
+        expect_matrix_near(face.normVector,
+                           faceExpected.normVector,
+                           1.0e-12,
+                           "closed valence-5 normal");
+    }
+
+    bool hasNonzeroForce = false;
+    for (const Vertex &vertex : mesh.vertices)
+    {
+        const int base = vertex.index * 9;
+        for (int axis = 0; axis < 3; ++axis)
+        {
+            EXPECT_NEAR(vertex.force.forceCurvature.get(axis, 0),
+                        expectedForceComponents[base + axis],
+                        1.0e-10);
+            EXPECT_NEAR(vertex.force.forceArea.get(axis, 0),
+                        expectedForceComponents[base + 3 + axis],
+                        1.0e-10);
+            EXPECT_NEAR(vertex.force.forceVolume.get(axis, 0),
+                        expectedForceComponents[base + 6 + axis],
+                        1.0e-10);
+            hasNonzeroForce =
+                hasNonzeroForce ||
+                std::abs(expectedForceComponents[base + axis]) > 1.0e-12 ||
+                std::abs(expectedForceComponents[base + 3 + axis]) > 1.0e-12 ||
+                std::abs(expectedForceComponents[base + 6 + axis]) > 1.0e-12;
+        }
+    }
+    EXPECT_TRUE(hasNonzeroForce);
 }
 
 TEST(OpenSubdivRegularProductionRoutingGuard,

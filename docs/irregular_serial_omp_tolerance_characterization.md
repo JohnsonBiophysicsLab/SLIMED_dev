@@ -1,8 +1,8 @@
 # Irregular Serial/OpenMP Tolerance Characterization
 
-This is a tests/docs/scripts-only characterization lane. It records what can
-be checked today for the supported positive-depth 11-control `4+3+4` route
-without expanding the scientific or production contract.
+This is a tests/docs/scripts/experiments-only characterization lane. It records
+serial/OpenMP behavior for the supported positive-depth 11-control `4+3+4`
+route without expanding the scientific or production contract.
 
 No production C++ behavior, build policy, dependencies, OpenSubdiv integration,
 routing formula, scatter order, OpenMP scheduling, reduction behavior, output
@@ -10,24 +10,24 @@ format, checkpoint format, or propagation behavior changes.
 
 ## Current Fixture Boundary
 
-The current repository still has no checked-in physical 11-control fixture
-with explicit non-ghost status and reviewed scientific expectations. The
-fixture discovery lane found:
+The repository now contains the explicitly approved narrow scientific
+stand-in under `data/fixtures/closed_valence5`. The fixture decision is:
 
 - checked-in `data/example` topology has regular 12-control faces and mixed
   valence discovery leads, but no physical all-valence-5 11-control candidate;
 - coordinate-only Gag and shape CSV files do not include face connectivity;
-- the generated closed icosahedron topology maps all faces to 11-control, but
-  it is topology-only evidence, not a production scientific fixture.
+- the generated closed icosahedron coordinates/connectivity are serialized as
+  a fixed-boundary fixture with 20 physical 11-control faces;
+- the waiver is limited to the existing positive-depth 11-control route and
+  does not approve broader valences or OpenSubdiv irregular routing.
 
-Because of that, this lane does not compare serial and OpenMP executables on a
-representative production irregular mesh. Doing so would require either a
-reviewed fixture or production hooks/fixture decisions outside the approved
-low-risk scope.
+Production setup gives every face an ordered 11-slot one-ring with nine unique
+source IDs. The two duplicate local source slots are preserved and aggregated
+through `Face::oneRingVertices`.
 
 ## Characterized Outputs
 
-The focused test
+The original focused test
 `SurfaceSubdivisionCharacterization.SyntheticIrregularPatchSerialOpenMpReductionToleranceEnvelope`
 uses the existing synthetic positive-depth 11-control route to produce
 deterministic area, volume, curvature-energy, and force-row outputs for
@@ -47,6 +47,13 @@ Existing route tests still use tighter local tolerances where they compare a
 single production face directly to independent test-side subdivision and
 transpose math.
 
+The approved fixture now adds an actual executable comparison through
+`scripts/run_irregular_valence5_fixture_parity.sh`. It compiles the real
+production evaluator in serial and OpenMP modes and compares global/face
+energy, all vertex force components, normals, area, legacy volume, and mean
+curvature. The maximum observed absolute delta was
+`1.4210854715202004e-14`, below the retained `1.0e-10` policy.
+
 ## What This Does Not Claim
 
 This characterization does not make scheduler assignment portable. OpenMP may
@@ -55,11 +62,9 @@ floating-point addition order. The current production contract remains the
 thread-local buffer shape and ascending thread-buffer reduction order described
 in `docs/force_formula_scatter_equivalence.md`.
 
-This characterization also does not validate scientific correctness for a real
-irregular membrane fixture. It is mechanical evidence that the current
-supported 11-control route outputs remain stable under the documented
-serial-like and OpenMP-compatible reduction shapes within the stated synthetic
-tolerance.
+This characterization validates the existing route only against the approved
+closed valence-5 stand-in. It does not establish broader-valence physics or an
+OpenSubdiv irregular routing contract.
 
 ## Companion Check
 
