@@ -108,10 +108,10 @@ dimension-mismatch handling.
 ## Recommended Next Prompt
 
 ```text
-Add an explicit preflight diagnostic for non-boundary, non-ghost faces whose
-stored one-ring size is neither 11 nor 12. Preserve the approved closed
-valence-5 fixture and serial/OpenMP baseline for the existing narrow
-11-control path. Do not enable broader-valence routing or change formulas,
-default dependencies, scatter, OpenMP reductions, checkpoint/output, or
-propagation.
+Identify and approve a representative physical broader-valence fixture before
+designing any route. Define expected geometry/force outputs and source mapping,
+while preserving the fail-loud unsupported-topology guard, the approved closed
+valence-5 fixture, and its serial/OpenMP baseline. Do not enable
+broader-valence routing or change formulas, default dependencies, scatter,
+OpenMP reductions, checkpoint/output, or propagation in the fixture lane.
 ```

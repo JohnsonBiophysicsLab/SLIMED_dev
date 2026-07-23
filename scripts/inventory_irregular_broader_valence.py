@@ -13,6 +13,7 @@ from pathlib import Path
 MESH_SETUP_PATH = Path("src/mesh/Mesh_setup_geometry.cpp")
 MESH_PATH = Path("src/mesh/Mesh.cpp")
 FORCE_PATH = Path("src/energy_force/Compute_energy_and_force_on_mesh.cpp")
+SURFACE_TEST_PATH = Path("tests/test_surface_geometry_characterization.cpp")
 
 
 @dataclass(frozen=True)
@@ -37,6 +38,18 @@ ANCHORS = (
         "Only faces whose three vertices all have valence 5 receive the 11-slot irregular one-ring.",
     ),
     Anchor(
+        "broader-valence geometry preflight",
+        MESH_PATH,
+        "Broader-valence routing remains disabled.",
+        "Unsupported topologically interior physical one-rings fail before area/volume mutation.",
+    ),
+    Anchor(
+        "fixed-boundary compatibility regression",
+        SURFACE_TEST_PATH,
+        "FixedBoundaryIncompleteOneRingsRemainOnLegacyBoundaryPath",
+        "Incomplete one-rings incident to an open fixed boundary remain on the legacy boundary path.",
+    ),
+    Anchor(
         "area-volume regular branch",
         MESH_PATH,
         "case 12:",
@@ -52,13 +65,13 @@ ANCHORS = (
         "area assignment after switch",
         MESH_PATH,
         "face.elementArea = area;",
-        "Unsupported empty one-rings retain the initialized zero area.",
+        "Supported routes still store the computed area after the guarded switch.",
     ),
     Anchor(
         "volume assignment after switch",
         MESH_PATH,
         "face.elementVolume = volume;",
-        "Unsupported empty one-rings retain the initialized zero legacy volume.",
+        "Supported routes still store the computed legacy volume after the guarded switch.",
     ),
     Anchor(
         "zero-depth 11-control preflight",
@@ -180,9 +193,13 @@ def summarize_topology(
         "face_valence_triplet_counts": dict(sorted(triplets.items())),
         "production_stored_one_ring_size_counts": dict(sorted(stored_sizes.items())),
         "route_counts": dict(sorted(route_counts.items())),
-        "current_diagnostic": "none" if unsupported else "not applicable",
+        "current_diagnostic": (
+            "runtime_error before geometry/force evaluation"
+            if unsupported
+            else "not applicable"
+        ),
         "current_unsupported_effect": (
-            "empty one-ring; zero area/legacy volume and no membrane force rows"
+            "empty one-ring rejected; no geometry or membrane force mutation"
             if unsupported
             else "not applicable"
         ),
@@ -222,7 +239,7 @@ def collect_inventory(root: Path) -> dict[str, object]:
         "production_behavior": {
             "supported_stored_one_ring_sizes": [11, 12],
             "unsupported_stored_one_ring_size": 0,
-            "unsupported_preflight_diagnostic": False,
+            "unsupported_preflight_diagnostic": True,
             "regular_fallback_used": False,
             "broader_valence_route_enabled": False,
         },
@@ -253,8 +270,8 @@ def check_inventory(report: dict[str, object]) -> list[str]:
             failures.append(f"{name} should expose {face_count} faces with triplet {triplet}")
         if case["production_stored_one_ring_size_counts"] != {"0": face_count}:
             failures.append(f"{name} should retain empty production one-rings")
-        if case["current_diagnostic"] != "none":
-            failures.append(f"{name} should record the current missing diagnostic")
+        if case["current_diagnostic"] != "runtime_error before geometry/force evaluation":
+            failures.append(f"{name} should record the fail-loud production diagnostic")
         if not case["closed_two_face_edges"]:
             failures.append(f"{name} should be a closed two-face-edge topology")
 

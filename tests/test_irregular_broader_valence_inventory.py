@@ -23,7 +23,7 @@ class IrregularBroaderValenceInventoryTest(unittest.TestCase):
         result = self.run_inventory("--check")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
-    def test_payload_records_unsupported_shapes_and_missing_diagnostic(self):
+    def test_payload_records_unsupported_shapes_and_fail_loud_diagnostic(self):
         result = self.run_inventory("--json", "--check")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         payload = json.loads(result.stdout)
@@ -31,7 +31,7 @@ class IrregularBroaderValenceInventoryTest(unittest.TestCase):
         behavior = payload["production_behavior"]
         self.assertEqual(behavior["supported_stored_one_ring_sizes"], [11, 12])
         self.assertEqual(behavior["unsupported_stored_one_ring_size"], 0)
-        self.assertFalse(behavior["unsupported_preflight_diagnostic"])
+        self.assertTrue(behavior["unsupported_preflight_diagnostic"])
         self.assertFalse(behavior["regular_fallback_used"])
         self.assertFalse(behavior["broader_valence_route_enabled"])
 
@@ -45,7 +45,10 @@ class IrregularBroaderValenceInventoryTest(unittest.TestCase):
             "closed heptagonal bipyramid",
             "closed nonagonal bipyramid",
         ):
-            self.assertEqual(cases[name]["current_diagnostic"], "none")
+            self.assertEqual(
+                cases[name]["current_diagnostic"],
+                "runtime_error before geometry/force evaluation",
+            )
             self.assertEqual(set(cases[name]["production_stored_one_ring_size_counts"]), {"0"})
             self.assertFalse(cases[name]["route_enabled"])
 

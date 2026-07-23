@@ -17,6 +17,7 @@ from typing import Sequence
 
 
 IMPLEMENTATION_PATH = Path("src/energy_force/Compute_energy_and_force_on_mesh.cpp")
+MESH_PATH = Path("src/mesh/Mesh.cpp")
 LIMIT_SURFACE_PATH = Path("include/mesh/Limit_surface_evaluator.hpp")
 SURFACE_TEST_PATH = Path("tests/test_surface_geometry_characterization.cpp")
 FIXTURE_DOC_PATH = Path("docs/irregular_patch_fixture_requirements.md")
@@ -131,12 +132,20 @@ ANCHORS: tuple[Anchor, ...] = (
         "The approved 11-control stand-in has an actual serial/OpenMP executable baseline under the reviewed tolerance.",
     ),
     Anchor(
-        "documented gap",
-        "broader extraordinary-valence gap",
-        BROADER_VALENCE_DOC_PATH,
-        "This silent zero contribution is the exact blocker.",
-        "remaining evidence gap",
-        "Generated closed topologies expose the missing diagnostic without approving a broader route.",
+        "guard",
+        "broader extraordinary-valence diagnostic",
+        MESH_PATH,
+        "Broader-valence routing remains disabled.",
+        "guarded unsupported route",
+        "Unsupported physical one-rings fail before geometry or force state is mutated.",
+    ),
+    Anchor(
+        "test evidence",
+        "broader extraordinary-valence diagnostic test",
+        SURFACE_TEST_PATH,
+        "UnsupportedBroaderValenceFailsBeforeGeometryMutation",
+        "guard characterized by test",
+        "The public geometry entry point rejects an empty physical one-ring before mutation.",
     ),
     Anchor(
         "documented gap",
@@ -186,9 +195,9 @@ ROUTE_MATRIX: tuple[dict[str, str], ...] = (
     },
     {
         "route": "other irregular force topologies",
-        "current_behavior": "unsupported/not broadened",
-        "evidence": "generated closed topology inventory records empty one-rings and silent zero contributions",
-        "remaining_gap": "explicit unsupported-topology diagnostic, then separate scientific fixture/backend policy",
+        "current_behavior": "guarded unsupported/not broadened",
+        "evidence": "generated closed topology inventory plus fail-loud production geometry preflight",
+        "remaining_gap": "separate scientific fixture, expected outputs, source mapping, and backend policy",
     },
     {
         "route": "OpenSubdiv-backed irregular replacement",

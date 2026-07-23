@@ -3,9 +3,81 @@
 #include "mesh/Limit_surface_evaluator.hpp"
 #include "mesh/OpenSubdiv_regular_evaluator.hpp"
 
+#include <sstream>
+#include <stdexcept>
+
 namespace
 {
 constexpr double kLegacyVolumeQuadratureFactor = 0.16666666666;
+
+bool vertex_touches_open_mesh_boundary(const Mesh &mesh,
+                                       const int vertexIndex)
+{
+    const Vertex &vertex = mesh.vertices[vertexIndex];
+    for (const int adjacentVertexIndex : vertex.adjacentVertices)
+    {
+        int incidentFaceCount = 0;
+        for (const int adjacentFaceIndex : vertex.adjacentFaces)
+        {
+            const Face &adjacentFace = mesh.faces[adjacentFaceIndex];
+            for (const int faceVertexIndex : adjacentFace.adjacentVertices)
+            {
+                if (faceVertexIndex == adjacentVertexIndex)
+                {
+                    ++incidentFaceCount;
+                    break;
+                }
+            }
+        }
+        if (incidentFaceCount == 1)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool face_touches_open_mesh_boundary(const Mesh &mesh, const Face &face)
+{
+    for (const int vertexIndex : face.adjacentVertices)
+    {
+        if (vertex_touches_open_mesh_boundary(mesh, vertexIndex))
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+void assert_supported_membrane_geometry_routing(const Mesh &mesh)
+{
+    for (const Face &face : mesh.faces)
+    {
+        if (face.isGhost || face.isBoundary)
+        {
+            continue;
+        }
+
+        const std::size_t oneRingSize = face.oneRingVertices.size();
+        if (oneRingSize == 11 || oneRingSize == 12)
+        {
+            continue;
+        }
+        if (face_touches_open_mesh_boundary(mesh, face))
+        {
+            continue;
+        }
+
+        std::ostringstream message;
+        message << "Unsupported membrane geometry routing for face "
+                << face.index
+                << ": physical topologically interior non-ghost faces require an "
+                << "11- or 12-control Face::oneRingVertices entry; found "
+                << oneRingSize
+                << ". Broader-valence routing remains disabled.";
+        throw std::runtime_error(message.str());
+    }
+}
 } // namespace
 
 Mesh::Mesh(Param &srcParam) : param(srcParam)
@@ -264,6 +336,7 @@ Matrix Mesh::get_one_ring_vertex_matrix(const Face &face)
 
 void Mesh::calculate_element_area_volume()
 {
+    assert_supported_membrane_geometry_routing(*this);
     const std::shared_ptr<const RegularLimitSurfaceRowTable>
         routedRegularShapeFunctions =
             cached_opensubdiv_regular_shape_functions_by_face(*this);
