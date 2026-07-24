@@ -31,6 +31,12 @@ ALLOWED_PATHS = {
     Path("scripts/run_irregular_valence4_opensubdiv_scatter_openmp_proof.py"),
     Path("scripts/run_irregular_valence4_opensubdiv_scatter_openmp_proof.sh"),
     Path("tests/test_irregular_valence4_scatter_openmp_proof_inventory.py"),
+    Path("docs/irregular_valence4_production_openmp_shadow.md"),
+    Path("experiments/irregular_valence4_production_openmp_shadow.cpp"),
+    Path("scripts/inventory_irregular_valence4_production_openmp_shadow.py"),
+    Path("scripts/run_irregular_valence4_production_openmp_shadow.py"),
+    Path("scripts/run_irregular_valence4_production_openmp_shadow.sh"),
+    Path("tests/test_irregular_valence4_production_openmp_shadow_inventory.py"),
 }
 
 ANCHORS = {

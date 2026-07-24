@@ -3850,6 +3850,43 @@ static void print_valence4_force_rows(
     std::cout << "]";
 }
 
+static void print_valence4_face_force_contributions(
+    Valence4FormulaEvaluation const &evaluation) {
+    std::cout << "[";
+    for (int face = 0;
+         face < static_cast<int>(evaluation.faceFBend.size());
+         ++face) {
+        if (face > 0) {
+            std::cout << ",";
+        }
+        std::cout << "{\"face\":" << face << ",\"source_forces\":[";
+        for (int sourceId = 0; sourceId < 6; ++sourceId) {
+            if (sourceId > 0) {
+                std::cout << ",";
+            }
+            std::cout << "{\"source_id\":" << sourceId;
+            std::cout << ",\"fBend\":";
+            print_valence4_vec3(
+                make_vec(evaluation.faceFBend[face][3 * sourceId],
+                         evaluation.faceFBend[face][3 * sourceId + 1],
+                         evaluation.faceFBend[face][3 * sourceId + 2]));
+            std::cout << ",\"fArea\":";
+            print_valence4_vec3(
+                make_vec(evaluation.faceFArea[face][3 * sourceId],
+                         evaluation.faceFArea[face][3 * sourceId + 1],
+                         evaluation.faceFArea[face][3 * sourceId + 2]));
+            std::cout << ",\"fVolume\":";
+            print_valence4_vec3(
+                make_vec(evaluation.faceFVolume[face][3 * sourceId],
+                         evaluation.faceFVolume[face][3 * sourceId + 1],
+                         evaluation.faceFVolume[face][3 * sourceId + 2]));
+            std::cout << "}";
+        }
+        std::cout << "]}";
+    }
+    std::cout << "]";
+}
+
 static void print_valence4_finite_difference_summary(
     Valence4FiniteDifferenceSummary const &summary,
     double absoluteTolerance,
@@ -4392,6 +4429,8 @@ static bool print_valence4_force_formula_proof(MeshCase const &mesh) {
     std::cout << "]";
     std::cout << ",\"source_forces\":";
     print_valence4_force_rows(directEvaluation);
+    std::cout << ",\"face_force_contributions\":";
+    print_valence4_face_force_contributions(directEvaluation);
     std::cout << ",\"source_force_contract\":{";
     std::cout << "\"source_ids\":";
     print_int_set(coveredSourceIds);

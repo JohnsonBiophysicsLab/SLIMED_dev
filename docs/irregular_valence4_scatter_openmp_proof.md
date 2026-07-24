@@ -82,7 +82,10 @@ This is a production-*shape* proof, not production execution:
   reductions, dependency policy, output, checkpoints, propagation, or fixture
   files.
 
-The next meaningful step, if this proof is reviewed and merged, is a separate
-decision about whether an experimental topology adapter can populate a
-production-call shadow without enabling routing. Actual broader-valence
-production routing remains unapproved.
+The follow-up proof in
+`docs/irregular_valence4_production_openmp_shadow.md` now loads the approved
+fixture through production `Mesh` setup, confirms that valence-4 production
+one-rings remain empty, and exercises the proposed source mapping through a
+real OpenMP runtime. It is still a proof-local production-call shadow, not a
+production route. Actual broader-valence production routing remains
+unapproved.
