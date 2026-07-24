@@ -13,10 +13,13 @@ production_route_enabled: false
 scientifically_approved: false
 ```
 
-It is not physics validation. It does not establish production geometry or
-output parity, `Face::oneRingVertices` scatter, serial/OpenMP parity, route
-readiness, broader-valence routing, or scientific equivalence beyond this
-proof.
+It is not physics validation. The follow-up proof in
+`docs/irregular_valence4_scatter_openmp_proof.md` now characterizes a
+proof-local nine-component scatter and simulated thread-buffer reduction
+shape. Neither proof establishes actual production `Face::oneRingVertices`
+population/scatter, real serial/OpenMP executable parity, production geometry
+or output parity, route readiness, broader-valence routing, or scientific
+equivalence.
 
 ## Formula Bridge
 
@@ -110,6 +113,16 @@ Translation and rotational checks pass their emitted scale-aware tolerances.
 
 The probe executes the canonical energy/force report twice and requires
 byte-identical output.
+
+## Scatter And Simulated OpenMP Companion
+
+The report now retains all eight face-local source-force contributions and
+emits `production_scatter_openmp_shape_proof`. That companion evidence
+scatters into a proof-local `6 * 9` source buffer, exercises multi-face
+collisions on every source ID, and compares serial accumulation with three
+simulated thread buffers reduced in source/component/thread order. See
+`docs/irregular_valence4_scatter_openmp_proof.md` for the exact contract and
+its non-production boundaries.
 
 ## Run
 

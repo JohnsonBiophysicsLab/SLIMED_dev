@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Inventory the approved proof-only valence-4 force-formula lane."""
+"""Inventory the proof-only valence-4 scatter/OpenMP shape lane."""
 
 from __future__ import annotations
 
@@ -9,66 +9,64 @@ from pathlib import Path
 import subprocess
 
 
-BASE = "286bbc1de871ec29f85ddd1d037536631768ec4c"
+BASE = "ee5b3b34005f4dea9ec50ac738421479cf3b2b9e"
 PROBE = Path("scripts/probe_opensubdiv_feasibility.py")
-RUNNER = Path("scripts/run_irregular_valence4_opensubdiv_force_formula_proof.py")
-WRAPPER = Path("scripts/run_irregular_valence4_opensubdiv_force_formula_proof.sh")
-DOC = Path("docs/irregular_valence4_force_formula_proof.md")
-TEST = Path("tests/test_irregular_valence4_force_formula_proof_inventory.py")
+RUNNER = Path(
+    "scripts/run_irregular_valence4_opensubdiv_scatter_openmp_proof.py"
+)
+WRAPPER = Path(
+    "scripts/run_irregular_valence4_opensubdiv_scatter_openmp_proof.sh"
+)
+DOC = Path("docs/irregular_valence4_scatter_openmp_proof.md")
+TEST = Path("tests/test_irregular_valence4_scatter_openmp_proof_inventory.py")
 
 ALLOWED_PATHS = {
     PROBE,
     RUNNER,
     WRAPPER,
-    Path("scripts/inventory_irregular_valence4_force_formula_proof.py"),
-    Path("scripts/inventory_opensubdiv_force_transpose_evidence.py"),
     DOC,
-    Path("docs/opensubdiv_force_transpose_evidence.md"),
     TEST,
-    Path("tests/test_irregular_valence4_mapping_proof_inventory.py"),
-    Path("docs/irregular_valence4_scatter_openmp_proof.md"),
     Path("scripts/inventory_irregular_valence4_scatter_openmp_proof.py"),
-    Path("scripts/run_irregular_valence4_opensubdiv_scatter_openmp_proof.py"),
-    Path("scripts/run_irregular_valence4_opensubdiv_scatter_openmp_proof.sh"),
-    Path("tests/test_irregular_valence4_scatter_openmp_proof_inventory.py"),
+    Path("scripts/inventory_irregular_valence4_force_formula_proof.py"),
+    Path("docs/irregular_valence4_force_formula_proof.md"),
+    Path("docs/opensubdiv_force_transpose_evidence.md"),
+    Path("scripts/inventory_opensubdiv_force_transpose_evidence.py"),
 }
 
 ANCHORS = {
     PROBE: (
-        "SLIMED_VALENCE4_FORCE_FORMULA_PROOF_REPORT",
-        "evaluate_valence4_scalar_energies",
-        "compare_valence4_force_to_finite_difference",
-        "force_formula_proof_only",
-        "scientifically_approved",
-        "legacy visible-volume position.x*cross.x",
-        "all_54_source_axis_comparisons_passed",
-        "allMixedRowsIdentical",
+        "Valence4ScatterOpenMpSummary",
+        "valence4_scatter_openmp_summary",
+        "production_scatter_openmp_shape_proof",
+        "sources_with_multi_face_collisions",
+        "matches_nine_component_scatter_shape",
+        "matches_simulated_serial_openmp_accumulation",
+        "production_topology_one_rings_populated",
+        "real OpenMP runtime or executable parity",
     ),
     RUNNER: (
-        "run_opensubdiv_regular_cpp_adapter_proof.sh",
-        "matches_proof_local_formula_rows",
-        "deterministic_energy_force_repeat_match",
-        '"force_formula_proof_only": True',
-        '"production_route_enabled": False',
-        '"scientifically_approved": False',
+        "run_irregular_valence4_opensubdiv_force_formula_proof.sh",
+        "scatter_openmp_shape_proof_only",
+        "actual_face_one_ring_scatter_proven",
+        "actual_openmp_runtime_proven",
+        "max_serial_simulated_openmp_difference",
     ),
     WRAPPER: (
-        "run_irregular_valence4_opensubdiv_force_formula_proof.py",
+        "run_irregular_valence4_opensubdiv_scatter_openmp_proof.py",
     ),
     DOC: (
-        "approved_for_mapping_sample_transpose_proof: true",
         "proof_only: true",
-        "force_formula_proof_only: true",
-        "not_production_routing: true",
+        "scatter_openmp_shape_proof_only: true",
         "production_route_enabled: false",
         "scientifically_approved: false",
-        "position.x * cross.x",
-        "7.353244912078338e-06",
+        "source_id * 9",
+        "absolute `1e-12` tolerance",
+        "does not invoke an OpenMP runtime",
     ),
     TEST: (
-        "all_54_source_axis_comparisons_passed",
-        "deterministic_energy_force_repeat_match",
-        "test_mapping_mixed_rows_are_a_binding_pass_condition",
+        "test_dependency_absent_wrapper_skips",
+        "test_present_dependency_scatter_openmp_shape_proof",
+        "sources_with_multi_face_collisions",
     ),
 }
 
@@ -98,13 +96,14 @@ def changed_paths(root: Path) -> tuple[list[str], str | None]:
     )
     if untracked.returncode != 0:
         return [], untracked.stderr.strip() or "git ls-files failed"
-    paths = {
-        line
-        for output in (tracked.stdout, untracked.stdout)
-        for line in output.splitlines()
-        if line
-    }
-    return sorted(paths), None
+    return sorted(
+        {
+            line
+            for output in (tracked.stdout, untracked.stdout)
+            for line in output.splitlines()
+            if line
+        }
+    ), None
 
 
 def collect(root: Path) -> dict[str, object]:
@@ -132,36 +131,35 @@ def collect(root: Path) -> dict[str, object]:
     )
     if unexpected:
         errors.append(
-            "proof lane changed paths outside its allowlist: "
+            "scatter/OpenMP lane changed paths outside its allowlist: "
             + ", ".join(unexpected)
         )
 
-    fixture_csvs_changed = any(
-        path.endswith("/vertices.csv") or path.endswith("/faces.csv")
-        for path in paths
-    )
     production_paths_changed = any(
         path.startswith(("src/", "include/", "EXEs/", ".github/"))
         or path == "Makefile"
         for path in paths
     )
-    if fixture_csvs_changed:
-        errors.append("fixture CSVs must remain unchanged")
+    fixture_csvs_changed = any(
+        path.endswith("/vertices.csv") or path.endswith("/faces.csv")
+        for path in paths
+    )
     if production_paths_changed:
         errors.append("production/build/runtime paths must remain unchanged")
+    if fixture_csvs_changed:
+        errors.append("fixture CSVs must remain unchanged")
 
     return {
         "status": "passed" if not errors else "failed",
         "exact_base": BASE,
-        "approved_for_mapping_sample_transpose_proof": True,
         "proof_only": True,
-        "force_formula_proof_only": True,
+        "scatter_openmp_shape_proof_only": True,
         "not_production_routing": True,
         "production_route_enabled": False,
         "scientifically_approved": False,
-        "changed_paths": paths,
-        "fixture_csvs_changed": fixture_csvs_changed,
         "production_paths_changed": production_paths_changed,
+        "fixture_csvs_changed": fixture_csvs_changed,
+        "changed_paths": paths,
         "anchors": {"located": located, "expected": expected},
         "errors": errors,
     }
