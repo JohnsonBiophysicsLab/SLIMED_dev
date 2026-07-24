@@ -38,7 +38,19 @@ source_id * 9 + [fBend.x, fBend.y, fBend.z,
 
 All eight faces contribute to shared source slots, so the check exercises
 multi-face collision accumulation on all six source IDs. The serial buffer is
-compared against the direct source-keyed force result from PR #117.
+compared against the direct source-keyed force result from PR #117. The direct
+54-component expected buffer is packed without calling the scatter helper.
+
+An additional exact-index oracle fills `fBend`, `fArea`, and `fVolume` with
+distinct integer sentinels for every source and axis, invokes the scatter
+helper once, and checks every destination slot independently. This prevents a
+shared source/component-offset mistake from false-passing the numerical
+regrouping comparisons.
+
+The proof also requires all eight allocated face buffers to be finite and to
+contain at least one force component above the fixed `1e-12` threshold.
+Allocated-but-empty face slots therefore cannot satisfy the face-participation
+claim.
 
 The same eight contributions are assigned deterministically to three
 proof-local thread buffers. Reduction proceeds in source, force-component,

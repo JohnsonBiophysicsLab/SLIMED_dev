@@ -54,6 +54,30 @@ class ValenceFourScatterOpenMpProofInventoryTest(unittest.TestCase):
             proof_source,
         )
 
+    def test_scatter_layout_has_an_independent_exact_index_oracle(self):
+        source = PROBE.read_text(encoding="utf-8")
+        pack_start = source.index(
+            "static std::vector<double> pack_valence4_source_forces("
+        )
+        oracle_start = source.index(
+            "static bool valence4_scatter_layout_oracle_passed()",
+            pack_start,
+        )
+        summary_start = source.index(
+            "static Valence4ScatterOpenMpSummary",
+            oracle_start,
+        )
+        pack_source = source[pack_start:oracle_start]
+        oracle_source = source[oracle_start:summary_start]
+        self.assertNotIn("scatter_valence4_face_forces(", pack_source)
+        self.assertIn("1000.0 + 100.0 * sourceId + axis", oracle_source)
+        self.assertIn("2000.0 + 100.0 * sourceId + axis", oracle_source)
+        self.assertIn("3000.0 + 100.0 * sourceId + axis", oracle_source)
+        self.assertIn(
+            "scattered[9 * sourceId + 6 + axis]",
+            oracle_source,
+        )
+
     def test_dependency_absent_wrapper_skips(self):
         env = os.environ.copy()
         env.pop("OPENSUBDIV_ROOT", None)
@@ -100,12 +124,16 @@ class ValenceFourScatterOpenMpProofInventoryTest(unittest.TestCase):
 
         proof = payload["proof"]
         self.assertEqual(proof["face_contribution_count"], 8)
+        self.assertEqual(proof["nonzero_face_contribution_count"], 8)
+        self.assertTrue(proof["all_face_contributions_finite"])
+        self.assertTrue(proof["all_eight_faces_contribute"])
         self.assertEqual(proof["source_count"], 6)
         self.assertEqual(proof["force_components_per_source"], 9)
         self.assertEqual(proof["total_force_components"], 54)
         self.assertEqual(proof["sources_with_multi_face_collisions"], 6)
         self.assertTrue(proof["collision_coverage_passed"])
         self.assertTrue(proof["source_order_passed"])
+        self.assertTrue(proof["independent_layout_oracle_passed"])
         self.assertTrue(proof["matches_nine_component_scatter_shape"])
         self.assertTrue(
             proof["matches_simulated_serial_openmp_accumulation"]

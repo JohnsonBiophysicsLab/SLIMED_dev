@@ -96,12 +96,16 @@ def main() -> int:
         and not scatter.get("production_topology_one_rings_populated")
         and not scatter.get("production_route_enabled")
         and scatter.get("face_contribution_count") == 8
+        and scatter.get("nonzero_face_contribution_count") == 8
+        and scatter.get("all_face_contributions_finite")
+        and scatter.get("all_eight_faces_contribute")
         and scatter.get("source_count") == 6
         and scatter.get("force_components_per_source") == 9
         and scatter.get("total_force_components") == 54
         and scatter.get("sources_with_multi_face_collisions") == 6
         and scatter.get("collision_coverage_passed")
         and scatter.get("source_order_passed")
+        and scatter.get("independent_layout_oracle_passed")
         and scatter.get("matches_nine_component_scatter_shape")
         and scatter.get("matches_simulated_serial_openmp_accumulation")
         and scatter.get("duplicate_aggregation_preserves_scatter")

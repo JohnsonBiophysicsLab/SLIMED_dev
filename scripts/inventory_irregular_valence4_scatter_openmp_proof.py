@@ -38,6 +38,10 @@ ANCHORS = {
         "Valence4ScatterOpenMpSummary",
         "valence4_scatter_openmp_summary",
         "production_scatter_openmp_shape_proof",
+        "valence4_scatter_layout_oracle_passed",
+        "independent_layout_oracle_passed",
+        "nonzero_face_contribution_count",
+        "all_eight_faces_contribute",
         "sources_with_multi_face_collisions",
         "matches_nine_component_scatter_shape",
         "matches_simulated_serial_openmp_accumulation",
@@ -67,6 +71,8 @@ ANCHORS = {
         "test_dependency_absent_wrapper_skips",
         "test_present_dependency_scatter_openmp_shape_proof",
         "sources_with_multi_face_collisions",
+        "independent_layout_oracle_passed",
+        "all_eight_faces_contribute",
     ),
 }
 
