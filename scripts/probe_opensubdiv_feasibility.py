@@ -34,6 +34,7 @@ PROBE_SOURCE = r"""
 #include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <limits>
 #include <map>
 #include <queue>
 #include <set>
@@ -2940,6 +2941,9 @@ struct Valence4FormulaEvaluation {
     std::vector<double> fBend;
     std::vector<double> fArea;
     std::vector<double> fVolume;
+    std::vector<std::vector<double>> faceFBend;
+    std::vector<std::vector<double>> faceFArea;
+    std::vector<std::vector<double>> faceFVolume;
     std::vector<Valence4SampleEvidence> samples;
     bool finite = true;
 };
@@ -2988,6 +2992,29 @@ struct Valence4InvarianceSummary {
     double torqueTolerance = 0.0;
     bool translationPassed = false;
     bool rotationPassed = false;
+};
+
+struct Valence4ScatterOpenMpSummary {
+    int sourceCount = 0;
+    int forceComponentsPerSource = 0;
+    int faceContributionCount = 0;
+    int nonzeroFaceContributionCount = 0;
+    int simulatedThreadBufferCount = 0;
+    int sourcesWithCollisions = 0;
+    double maxDirectScatterDifference = 0.0;
+    double maxSerialOpenMpDifference = 0.0;
+    double maxDuplicateScatterDifference = 0.0;
+    double tolerance = 0.0;
+    bool finite = false;
+    bool allFaceContributionsFinite = false;
+    bool faceContributionCoveragePassed = false;
+    bool collisionCoveragePassed = false;
+    bool sourceOrderPassed = false;
+    bool independentLayoutOraclePassed = false;
+    bool scatterShapePassed = false;
+    bool serialOpenMpShapePassed = false;
+    bool duplicateScatterPassed = false;
+    bool passed = false;
 };
 
 static Vec3d weighted_dense_row(
@@ -3171,6 +3198,21 @@ static void accumulate_valence4_formula_sample(
         add_force(result.fBend, sourceId, bendingForce, halfCoefficient);
         add_force(result.fArea, sourceId, areaForce, halfCoefficient);
         add_force(result.fVolume, sourceId, volumeForce, halfCoefficient);
+        if (sample.face >= 0 &&
+            sample.face < static_cast<int>(result.faceFBend.size())) {
+            add_force(result.faceFBend[sample.face],
+                      sourceId,
+                      bendingForce,
+                      halfCoefficient);
+            add_force(result.faceFArea[sample.face],
+                      sourceId,
+                      areaForce,
+                      halfCoefficient);
+            add_force(result.faceFVolume[sample.face],
+                      sourceId,
+                      volumeForce,
+                      halfCoefficient);
+        }
         evidence.maxAbsBendingForceContribution =
             std::max(evidence.maxAbsBendingForceContribution,
                      halfCoefficient * max_abs_vec(bendingForce));
@@ -3193,6 +3235,16 @@ static Valence4FormulaEvaluation evaluate_valence4_formula(
     result.fBend.assign(18, 0.0);
     result.fArea.assign(18, 0.0);
     result.fVolume.assign(18, 0.0);
+    int faceCount = 0;
+    for (Valence4ProofSample const &sample : samples) {
+        faceCount = std::max(faceCount, sample.face + 1);
+    }
+    result.faceFBend.assign(
+        faceCount, std::vector<double>(18, 0.0));
+    result.faceFArea.assign(
+        faceCount, std::vector<double>(18, 0.0));
+    result.faceFVolume.assign(
+        faceCount, std::vector<double>(18, 0.0));
     std::vector<Valence4SampleGeometry> geometries(samples.size());
 
     for (int index = 0; index < static_cast<int>(samples.size()); ++index) {
@@ -3269,6 +3321,12 @@ static Valence4FormulaEvaluation evaluate_valence4_formula(
         std::isfinite(result.volumeEnergy) &&
         all_finite(result.fBend) && all_finite(result.fArea) &&
         all_finite(result.fVolume);
+    for (int face = 0; face < faceCount; ++face) {
+        result.finite =
+            result.finite && all_finite(result.faceFBend[face]) &&
+            all_finite(result.faceFArea[face]) &&
+            all_finite(result.faceFVolume[face]);
+    }
     return result;
 }
 
@@ -3511,7 +3569,242 @@ static double max_valence4_evaluation_difference(
     difference =
         std::max(difference,
                  max_abs_component_delta(left.fVolume, right.fVolume));
+    if (left.faceFBend.size() != right.faceFBend.size() ||
+        left.faceFArea.size() != right.faceFArea.size() ||
+        left.faceFVolume.size() != right.faceFVolume.size()) {
+        return std::numeric_limits<double>::infinity();
+    }
+    for (int face = 0;
+         face < static_cast<int>(left.faceFBend.size());
+         ++face) {
+        difference = std::max(
+            difference,
+            max_abs_component_delta(
+                left.faceFBend[face], right.faceFBend[face]));
+        difference = std::max(
+            difference,
+            max_abs_component_delta(
+                left.faceFArea[face], right.faceFArea[face]));
+        difference = std::max(
+            difference,
+            max_abs_component_delta(
+                left.faceFVolume[face], right.faceFVolume[face]));
+    }
     return difference;
+}
+
+static void scatter_valence4_face_forces(
+    std::vector<double> &buffer,
+    std::vector<double> const &fBend,
+    std::vector<double> const &fArea,
+    std::vector<double> const &fVolume) {
+    for (int sourceId = 0; sourceId < 6; ++sourceId) {
+        int const sourceBase = 9 * sourceId;
+        int const forceBase = 3 * sourceId;
+        for (int axis = 0; axis < 3; ++axis) {
+            buffer[sourceBase + axis] += fBend[forceBase + axis];
+            buffer[sourceBase + 3 + axis] +=
+                fArea[forceBase + axis];
+            buffer[sourceBase + 6 + axis] +=
+                fVolume[forceBase + axis];
+        }
+    }
+}
+
+static std::vector<double> pack_valence4_source_forces(
+    Valence4FormulaEvaluation const &evaluation) {
+    std::vector<double> packed(6 * 9, 0.0);
+    for (int sourceId = 0; sourceId < 6; ++sourceId) {
+        for (int axis = 0; axis < 3; ++axis) {
+            int const forceIndex = 3 * sourceId + axis;
+            packed[9 * sourceId + axis] =
+                evaluation.fBend[forceIndex];
+            packed[9 * sourceId + 3 + axis] =
+                evaluation.fArea[forceIndex];
+            packed[9 * sourceId + 6 + axis] =
+                evaluation.fVolume[forceIndex];
+        }
+    }
+    return packed;
+}
+
+static bool valence4_scatter_layout_oracle_passed() {
+    std::vector<double> fBend(18, 0.0);
+    std::vector<double> fArea(18, 0.0);
+    std::vector<double> fVolume(18, 0.0);
+    for (int sourceId = 0; sourceId < 6; ++sourceId) {
+        for (int axis = 0; axis < 3; ++axis) {
+            int const forceIndex = 3 * sourceId + axis;
+            fBend[forceIndex] = 1000.0 + 100.0 * sourceId + axis;
+            fArea[forceIndex] = 2000.0 + 100.0 * sourceId + axis;
+            fVolume[forceIndex] = 3000.0 + 100.0 * sourceId + axis;
+        }
+    }
+
+    std::vector<double> scattered(6 * 9, 0.0);
+    scatter_valence4_face_forces(
+        scattered, fBend, fArea, fVolume);
+    for (int sourceId = 0; sourceId < 6; ++sourceId) {
+        for (int axis = 0; axis < 3; ++axis) {
+            int const forceIndex = 3 * sourceId + axis;
+            if (scattered[9 * sourceId + axis] !=
+                    fBend[forceIndex] ||
+                scattered[9 * sourceId + 3 + axis] !=
+                    fArea[forceIndex] ||
+                scattered[9 * sourceId + 6 + axis] !=
+                    fVolume[forceIndex]) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+static Valence4ScatterOpenMpSummary
+valence4_scatter_openmp_summary(
+    Valence4FormulaEvaluation const &direct,
+    Valence4FormulaEvaluation const &duplicate,
+    double tolerance) {
+    constexpr int kSources = 6;
+    constexpr int kComponentsPerSource = 9;
+    constexpr int kSimulatedThreads = 3;
+
+    Valence4ScatterOpenMpSummary summary;
+    summary.sourceCount = kSources;
+    summary.forceComponentsPerSource = kComponentsPerSource;
+    summary.faceContributionCount =
+        static_cast<int>(direct.faceFBend.size());
+    summary.simulatedThreadBufferCount = kSimulatedThreads;
+    summary.tolerance = tolerance;
+    summary.independentLayoutOraclePassed =
+        valence4_scatter_layout_oracle_passed();
+    summary.sourceOrderPassed =
+        direct.fBend.size() == 18 &&
+        direct.fArea.size() == 18 &&
+        direct.fVolume.size() == 18 &&
+        duplicate.fBend.size() == 18 &&
+        duplicate.fArea.size() == 18 &&
+        duplicate.fVolume.size() == 18 &&
+        direct.faceFBend.size() == direct.faceFArea.size() &&
+        direct.faceFBend.size() == direct.faceFVolume.size() &&
+        duplicate.faceFBend.size() == direct.faceFBend.size() &&
+        duplicate.faceFArea.size() == direct.faceFArea.size() &&
+        duplicate.faceFVolume.size() == direct.faceFVolume.size();
+    if (!summary.sourceOrderPassed) {
+        return summary;
+    }
+
+    std::vector<double> serial(kSources * kComponentsPerSource, 0.0);
+    std::vector<double> duplicateSerial(
+        kSources * kComponentsPerSource, 0.0);
+    std::vector<std::vector<double>> threadBuffers(
+        kSimulatedThreads,
+        std::vector<double>(
+            kSources * kComponentsPerSource, 0.0));
+    std::array<int, kSources> contributingFaces{};
+    summary.allFaceContributionsFinite = true;
+
+    for (int face = 0;
+         face < static_cast<int>(direct.faceFBend.size());
+         ++face) {
+        bool const faceFinite =
+            all_finite(direct.faceFBend[face]) &&
+            all_finite(direct.faceFArea[face]) &&
+            all_finite(direct.faceFVolume[face]);
+        summary.allFaceContributionsFinite =
+            summary.allFaceContributionsFinite && faceFinite;
+        bool faceNonzero = false;
+        for (int index = 0; index < 18; ++index) {
+            faceNonzero =
+                faceNonzero ||
+                std::abs(direct.faceFBend[face][index]) > tolerance ||
+                std::abs(direct.faceFArea[face][index]) > tolerance ||
+                std::abs(direct.faceFVolume[face][index]) > tolerance;
+        }
+        summary.nonzeroFaceContributionCount += faceNonzero ? 1 : 0;
+        scatter_valence4_face_forces(
+            serial,
+            direct.faceFBend[face],
+            direct.faceFArea[face],
+            direct.faceFVolume[face]);
+        scatter_valence4_face_forces(
+            duplicateSerial,
+            duplicate.faceFBend[face],
+            duplicate.faceFArea[face],
+            duplicate.faceFVolume[face]);
+        scatter_valence4_face_forces(
+            threadBuffers[face % kSimulatedThreads],
+            direct.faceFBend[face],
+            direct.faceFArea[face],
+            direct.faceFVolume[face]);
+        for (int sourceId = 0; sourceId < kSources; ++sourceId) {
+            bool nonzero = false;
+            for (int axis = 0; axis < 3; ++axis) {
+                int const index = 3 * sourceId + axis;
+                nonzero =
+                    nonzero ||
+                    std::abs(direct.faceFBend[face][index]) >
+                        tolerance ||
+                    std::abs(direct.faceFArea[face][index]) >
+                        tolerance ||
+                    std::abs(direct.faceFVolume[face][index]) >
+                        tolerance;
+            }
+            contributingFaces[sourceId] += nonzero ? 1 : 0;
+        }
+    }
+
+    std::vector<double> reduced(
+        kSources * kComponentsPerSource, 0.0);
+    for (int sourceId = 0; sourceId < kSources; ++sourceId) {
+        int const base = sourceId * kComponentsPerSource;
+        for (int component = 0;
+             component < kComponentsPerSource;
+             ++component) {
+            for (int thread = 0; thread < kSimulatedThreads; ++thread) {
+                reduced[base + component] +=
+                    threadBuffers[thread][base + component];
+            }
+        }
+        if (contributingFaces[sourceId] > 1) {
+            ++summary.sourcesWithCollisions;
+        }
+    }
+
+    std::vector<double> const directPacked =
+        pack_valence4_source_forces(direct);
+    summary.maxDirectScatterDifference =
+        max_abs_component_delta(serial, directPacked);
+    summary.maxSerialOpenMpDifference =
+        max_abs_component_delta(serial, reduced);
+    summary.maxDuplicateScatterDifference =
+        max_abs_component_delta(serial, duplicateSerial);
+    summary.finite =
+        all_finite(serial) && all_finite(reduced) &&
+        all_finite(duplicateSerial) && all_finite(directPacked) &&
+        summary.allFaceContributionsFinite;
+    summary.faceContributionCoveragePassed =
+        summary.faceContributionCount == 8 &&
+        summary.nonzeroFaceContributionCount == 8;
+    summary.collisionCoveragePassed =
+        summary.sourcesWithCollisions == kSources;
+    summary.scatterShapePassed =
+        summary.independentLayoutOraclePassed &&
+        serial.size() ==
+            static_cast<std::size_t>(
+                kSources * kComponentsPerSource) &&
+        summary.maxDirectScatterDifference <= tolerance;
+    summary.serialOpenMpShapePassed =
+        summary.maxSerialOpenMpDifference <= tolerance;
+    summary.duplicateScatterPassed =
+        summary.maxDuplicateScatterDifference <= tolerance;
+    summary.passed =
+        summary.finite && summary.faceContributionCoveragePassed &&
+        summary.collisionCoveragePassed && summary.sourceOrderPassed &&
+        summary.scatterShapePassed &&
+        summary.serialOpenMpShapePassed &&
+        summary.duplicateScatterPassed;
+    return summary;
 }
 
 static bool all_sources_have_nonzero_vectors(
@@ -3649,6 +3942,7 @@ static bool print_valence4_force_formula_proof(MeshCase const &mesh) {
     constexpr double kFiniteDifferenceAbsoluteTolerance = 2.0e-5;
     constexpr double kFiniteDifferenceRelativeTolerance = 2.0e-6;
     constexpr double kNonzeroTolerance = 1.0e-10;
+    constexpr double kScatterTolerance = 1.0e-12;
 
     bool const fixtureLoaded =
         mesh.numVertices == 6 && mesh.points.size() == 6 &&
@@ -3857,6 +4151,11 @@ static bool print_valence4_force_formula_proof(MeshCase const &mesh) {
             directEvaluation, duplicateEvaluation);
     bool const duplicateEvaluationPassed =
         duplicateEvaluationDifference <= kAggregationTolerance;
+    Valence4ScatterOpenMpSummary const scatterOpenMp =
+        valence4_scatter_openmp_summary(
+            directEvaluation,
+            duplicateEvaluation,
+            kScatterTolerance);
 
     Valence4FiniteDifferenceSummary const bendFiniteDifference =
         compare_valence4_force_to_finite_difference(
@@ -3939,7 +4238,7 @@ static bool print_valence4_force_formula_proof(MeshCase const &mesh) {
         sampleCoveragePassed && allSampleEvidenceFinite &&
         directEvaluation.finite && nonzeroForcesPassed &&
         scatterShapePassed && finiteDifferencePassed &&
-        invariancePassed;
+        invariancePassed && scatterOpenMp.passed;
 
     std::cout << std::setprecision(17);
     std::cout << "{\"case\":\"" << mesh.name << "\"";
@@ -4163,13 +4462,85 @@ static bool print_valence4_force_formula_proof(MeshCase const &mesh) {
     std::cout << ",\"all_translation_and_rotation_checks_passed\":"
               << (invariancePassed ? "true" : "false")
               << "}";
+    std::cout << ",\"production_scatter_openmp_shape_proof\":{";
+    std::cout << "\"proof_only\":true";
+    std::cout << ",\"production_topology_one_rings_populated\":false";
+    std::cout << ",\"production_route_enabled\":false";
+    std::cout << ",\"source_identity\":\"original fixture source ids "
+                 "0..5 in ascending order\"";
+    std::cout << ",\"face_one_ring_model\":\"proof-local synthetic "
+                 "six-source identity per face; not production "
+                 "Face::oneRingVertices population\"";
+    std::cout << ",\"scatter_layout\":\"source_id*9 plus "
+                 "[fBend xyz,fArea xyz,fVolume xyz]\"";
+    std::cout << ",\"reduction_order\":\"source, force component, "
+                 "then ascending simulated thread index\"";
+    std::cout << ",\"face_contribution_count\":"
+              << scatterOpenMp.faceContributionCount;
+    std::cout << ",\"nonzero_face_contribution_count\":"
+              << scatterOpenMp.nonzeroFaceContributionCount;
+    std::cout << ",\"all_face_contributions_finite\":"
+              << (scatterOpenMp.allFaceContributionsFinite
+                      ? "true"
+                      : "false");
+    std::cout << ",\"all_eight_faces_contribute\":"
+              << (scatterOpenMp.faceContributionCoveragePassed
+                      ? "true"
+                      : "false");
+    std::cout << ",\"source_count\":"
+              << scatterOpenMp.sourceCount;
+    std::cout << ",\"force_components_per_source\":"
+              << scatterOpenMp.forceComponentsPerSource;
+    std::cout << ",\"total_force_components\":"
+              << scatterOpenMp.sourceCount *
+                     scatterOpenMp.forceComponentsPerSource;
+    std::cout << ",\"simulated_openmp_thread_buffers\":"
+              << scatterOpenMp.simulatedThreadBufferCount;
+    std::cout << ",\"sources_with_multi_face_collisions\":"
+              << scatterOpenMp.sourcesWithCollisions;
+    std::cout << ",\"collision_coverage_passed\":"
+              << (scatterOpenMp.collisionCoveragePassed
+                      ? "true"
+                      : "false");
+    std::cout << ",\"source_order_passed\":"
+              << (scatterOpenMp.sourceOrderPassed ? "true" : "false");
+    std::cout << ",\"independent_layout_oracle_passed\":"
+              << (scatterOpenMp.independentLayoutOraclePassed
+                      ? "true"
+                      : "false");
+    std::cout << ",\"max_direct_scatter_difference\":"
+              << scatterOpenMp.maxDirectScatterDifference;
+    std::cout << ",\"max_serial_simulated_openmp_difference\":"
+              << scatterOpenMp.maxSerialOpenMpDifference;
+    std::cout << ",\"max_duplicate_scatter_difference\":"
+              << scatterOpenMp.maxDuplicateScatterDifference;
+    std::cout << ",\"absolute_tolerance\":"
+              << scatterOpenMp.tolerance;
+    std::cout << ",\"finite\":"
+              << (scatterOpenMp.finite ? "true" : "false");
+    std::cout << ",\"matches_nine_component_scatter_shape\":"
+              << (scatterOpenMp.scatterShapePassed
+                      ? "true"
+                      : "false");
+    std::cout << ",\"matches_simulated_serial_openmp_accumulation\":"
+              << (scatterOpenMp.serialOpenMpShapePassed
+                      ? "true"
+                      : "false");
+    std::cout << ",\"duplicate_aggregation_preserves_scatter\":"
+              << (scatterOpenMp.duplicateScatterPassed
+                      ? "true"
+                      : "false");
+    std::cout << ",\"passed\":"
+              << (scatterOpenMp.passed ? "true" : "false")
+              << "}";
     std::cout << ",\"determinism_contract\":\"wrapper executes the "
                  "compiled proof twice and requires byte-identical "
                  "canonical JSON, covering energies and forces\"";
     std::cout << ",\"claims_not_proven\":[";
     std::cout << "\"production geometry or output parity\",";
-    std::cout << "\"Face::oneRingVertices scatter\",";
-    std::cout << "\"serial/OpenMP parity\",";
+    std::cout << "\"actual production Face::oneRingVertices "
+                 "population or scatter\",";
+    std::cout << "\"real OpenMP runtime or executable parity\",";
     std::cout << "\"production route readiness\",";
     std::cout << "\"scientific equivalence beyond this proof\",";
     std::cout << "\"broader-valence routing\"";

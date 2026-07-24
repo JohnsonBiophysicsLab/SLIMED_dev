@@ -110,6 +110,15 @@ EVIDENCE_MATRIX: tuple[dict[str, str], ...] = (
             "Face::oneRingVertices scatter, serial/OpenMP parity, or routing"
         ),
     },
+    {
+        "claim": "proof-only valence-4 scatter/OpenMP shape",
+        "current_status": "opt-in proof-only accumulation-shape evidence",
+        "anchor": "production_scatter_openmp_shape_proof",
+        "remaining_gap": (
+            "not production Face::oneRingVertices population, real OpenMP "
+            "runtime/executable parity, route activation, or physics validation"
+        ),
+    },
 )
 
 
@@ -209,6 +218,14 @@ ANCHORS: tuple[Anchor, ...] = (
         "Approved proof-only valence-4 force-formula lane",
         "opt-in proof-only algebra evidence",
         "The map records finite-difference force algebra evidence without extending it to physics, production output, scatter, parity, or routing.",
+    ),
+    Anchor(
+        "evidence map",
+        "valence-4 scatter OpenMP shape proof",
+        EVIDENCE_DOC_PATH,
+        "Proof-only valence-4 scatter/OpenMP shape lane",
+        "opt-in proof-only accumulation-shape evidence",
+        "The map records collision, nine-component scatter, and simulated thread-buffer reduction evidence without claiming production execution.",
     ),
     Anchor(
         "evidence map",
@@ -337,6 +354,14 @@ ANCHORS: tuple[Anchor, ...] = (
         "--valence4-force-formula-proof-report",
         "opt-in proof-only algebra evidence",
         "The probe can report source-keyed force algebra and its independent scalar-energy finite-difference oracle.",
+    ),
+    Anchor(
+        "probe",
+        "valence-4 scatter OpenMP shape section",
+        PROBE_PATH,
+        "production_scatter_openmp_shape_proof",
+        "opt-in proof-only accumulation-shape evidence",
+        "The valence-4 proof reports source collisions, nine-component scatter, and simulated thread-buffer reduction.",
     ),
     Anchor(
         "probe",
