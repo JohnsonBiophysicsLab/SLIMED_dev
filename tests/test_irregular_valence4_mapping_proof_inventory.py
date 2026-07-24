@@ -132,6 +132,9 @@ class ValenceFourMappingProofInventoryTest(unittest.TestCase):
             proof["row_checks"]["patch_basis_limit_stencil_comparison_passed"]
         )
         self.assertTrue(
+            proof["row_checks"]["all_mixed_derivative_rows_identical"]
+        )
+        self.assertTrue(
             proof["row_checks"][
                 "position_partition_of_unity_and_derivative_sum_checks_passed"
             ]

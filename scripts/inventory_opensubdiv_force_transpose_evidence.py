@@ -101,6 +101,15 @@ EVIDENCE_MATRIX: tuple[dict[str, str], ...] = (
         "anchor": "--valence4-mapping-sample-transpose-report",
         "remaining_gap": "no production geometry, force formulas, scatter/OpenMP parity, or routing",
     },
+    {
+        "claim": "approved proof-only valence-4 force formula",
+        "current_status": "opt-in proof-only algebra evidence",
+        "anchor": "--valence4-force-formula-proof-report",
+        "remaining_gap": (
+            "not physics validation, production geometry/output parity, "
+            "Face::oneRingVertices scatter, serial/OpenMP parity, or routing"
+        ),
+    },
 )
 
 
@@ -192,6 +201,14 @@ ANCHORS: tuple[Anchor, ...] = (
         "Approved valence-4 mapping/sample/transpose proof",
         "opt-in proof-only mechanical evidence",
         "The map records the approved stand-in without claiming force or routing readiness.",
+    ),
+    Anchor(
+        "evidence map",
+        "valence-4 force-formula proof-only evidence",
+        EVIDENCE_DOC_PATH,
+        "Approved proof-only valence-4 force-formula lane",
+        "opt-in proof-only algebra evidence",
+        "The map records finite-difference force algebra evidence without extending it to physics, production output, scatter, parity, or routing.",
     ),
     Anchor(
         "evidence map",
@@ -312,6 +329,14 @@ ANCHORS: tuple[Anchor, ...] = (
         "--valence4-mapping-sample-transpose-report",
         "opt-in proof-only mechanical evidence",
         "The probe can report the serialized octahedron mapping/sample/transpose proof.",
+    ),
+    Anchor(
+        "probe",
+        "valence-4 force-formula proof option",
+        PROBE_PATH,
+        "--valence4-force-formula-proof-report",
+        "opt-in proof-only algebra evidence",
+        "The probe can report source-keyed force algebra and its independent scalar-energy finite-difference oracle.",
     ),
     Anchor(
         "probe",

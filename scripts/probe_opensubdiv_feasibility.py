@@ -79,6 +79,10 @@ using namespace OpenSubdiv;
 #define SLIMED_VALENCE4_MAPPING_PROOF_REPORT 0
 #endif
 
+#ifndef SLIMED_VALENCE4_FORCE_FORMULA_PROOF_REPORT
+#define SLIMED_VALENCE4_FORCE_FORMULA_PROOF_REPORT 0
+#endif
+
 struct Point {
     float x;
     float y;
@@ -320,7 +324,7 @@ static MeshCase make_extraordinary_valence_fan_case(int valence) {
     return mesh;
 }
 
-#if SLIMED_VALENCE4_MAPPING_PROOF_REPORT
+#if SLIMED_VALENCE4_MAPPING_PROOF_REPORT || SLIMED_VALENCE4_FORCE_FORMULA_PROOF_REPORT
 static MeshCase load_serialized_valence4_fixture(char const *verticesPath,
                                                  char const *facesPath) {
     MeshCase mesh;
@@ -1230,7 +1234,7 @@ static bool print_force_transpose_report(MeshCase const &mesh,
 }
 #endif
 
-#if SLIMED_REGULAR_ACTUAL_FORCE_REPORT || SLIMED_REGULAR_ADAPTER_PROOF_REPORT
+#if SLIMED_REGULAR_ACTUAL_FORCE_REPORT || SLIMED_REGULAR_ADAPTER_PROOF_REPORT || SLIMED_VALENCE4_FORCE_FORMULA_PROOF_REPORT
 static constexpr double kActualForceTolerance = 1.0e-8;
 
 struct Vec3d {
@@ -2196,7 +2200,7 @@ static bool print_irregular_transpose_proof_map(
 }
 #endif
 
-#if SLIMED_VALENCE4_MAPPING_PROOF_REPORT
+#if SLIMED_VALENCE4_MAPPING_PROOF_REPORT || SLIMED_VALENCE4_FORCE_FORMULA_PROOF_REPORT
 static char const *kValence4RowNames[7] = {
     "value",
     "du",
@@ -2402,6 +2406,7 @@ static bool print_valence4_mapping_proof(MeshCase const &mesh) {
     bool patchBasisComparisonPassed = true;
     bool duplicateAggregationPassed = true;
     bool permutationOrderStabilityPassed = true;
+    bool allMixedRowsIdentical = true;
     double maxRowSumDifference = 0.0;
     double maxPatchBasisDifference = 0.0;
     double maxDuplicateAggregationDifference = 0.0;
@@ -2677,6 +2682,8 @@ static bool print_valence4_mapping_proof(MeshCase const &mesh) {
             }
             bool const mixedRowsIdentical =
                 denseRows[5] == denseRows[6];
+            allMixedRowsIdentical =
+                allMixedRowsIdentical && mixedRowsIdentical;
             std::vector<double> sampleBackProjection(18, 0.0);
             double sampleRowDot = 0.0;
             for (int row = 0; row < 7; ++row) {
@@ -2780,6 +2787,7 @@ static bool print_valence4_mapping_proof(MeshCase const &mesh) {
         faceIdentityPassed && stencilCountPassed && allRowsFinite &&
         allRowsMapped && rowSumChecksPassed && patchBasisComparisonPassed &&
         duplicateAggregationPassed && permutationOrderStabilityPassed &&
+        allMixedRowsIdentical &&
         sourceCoveragePassed && derivativeCoveragePassed &&
         allSampleTransposePassed && stackedTransposePassed &&
         backProjectionSupportPassed;
@@ -2812,6 +2820,8 @@ static bool print_valence4_mapping_proof(MeshCase const &mesh) {
               << (duplicateAggregationPassed ? "true" : "false");
     std::cout << ",\"permutation_order_stability_passed\":"
               << (permutationOrderStabilityPassed ? "true" : "false");
+    std::cout << ",\"all_mixed_derivative_rows_identical\":"
+              << (allMixedRowsIdentical ? "true" : "false");
     std::cout << ",\"max_abs_duplicate_aggregation_difference\":"
               << maxDuplicateAggregationDifference;
     std::cout << ",\"duplicate_aggregation_tolerance\":"
@@ -2877,6 +2887,1303 @@ static bool print_valence4_mapping_proof(MeshCase const &mesh) {
     delete refiner;
     return passed;
 }
+
+#if SLIMED_VALENCE4_FORCE_FORMULA_PROOF_REPORT
+struct Valence4ProofSample {
+    int face = -1;
+    int sample = -1;
+    double quadratureWeight = 0.0;
+    std::array<std::array<double, 6>, 7> rows{};
+};
+
+struct Valence4SampleGeometry {
+    Vec3d x;
+    Vec3d a_1;
+    Vec3d a_2;
+    Vec3d a_11;
+    Vec3d a_22;
+    Vec3d a_12;
+    Vec3d a_21;
+    Vec3d a_3;
+    Vec3d a_31;
+    Vec3d a_32;
+    Vec3d a1;
+    Vec3d a2;
+    Vec3d a11;
+    Vec3d a12;
+    Vec3d a21;
+    Vec3d a22;
+    double sqa = 0.0;
+    double meanCurvature = 0.0;
+};
+
+struct Valence4SampleEvidence {
+    int face = -1;
+    int sample = -1;
+    double areaContribution = 0.0;
+    double volumeContribution = 0.0;
+    double bendingEnergyContribution = 0.0;
+    double sqa = 0.0;
+    double meanCurvature = 0.0;
+    double maxAbsBendingForceContribution = 0.0;
+    double maxAbsAreaForceContribution = 0.0;
+    double maxAbsVolumeForceContribution = 0.0;
+    bool finite = false;
+};
+
+struct Valence4FormulaEvaluation {
+    double area = 0.0;
+    double volume = 0.0;
+    double bendingEnergy = 0.0;
+    double areaEnergy = 0.0;
+    double volumeEnergy = 0.0;
+    std::vector<double> fBend;
+    std::vector<double> fArea;
+    std::vector<double> fVolume;
+    std::vector<Valence4SampleEvidence> samples;
+    bool finite = true;
+};
+
+struct Valence4FiniteDifferenceSummary {
+    struct Step {
+        double hOverL = 0.0;
+        double step = 0.0;
+        double maxAbsResidual = 0.0;
+        double maxNorm = 0.0;
+        double tolerance = 0.0;
+        int worstSourceId = -1;
+        int worstAxis = -1;
+        double worstAnalyticForce = 0.0;
+        double worstFiniteDifferenceForce = 0.0;
+        bool passed = true;
+    };
+    std::vector<Step> steps;
+    double maxAbsResidual = 0.0;
+    double maxScaledResidual = 0.0;
+    int worstSourceId = -1;
+    int worstAxis = -1;
+    double worstAnalyticForce = 0.0;
+    double worstFiniteDifferenceForce = 0.0;
+    bool plateauPassed = false;
+    bool passed = true;
+};
+
+struct Valence4ScalarEnergies {
+    double area = 0.0;
+    double volume = 0.0;
+    double bending = 0.0;
+    double areaConstraint = 0.0;
+    double volumeConstraint = 0.0;
+    bool finite = true;
+};
+
+struct Valence4InvarianceSummary {
+    Vec3d netForce;
+    Vec3d torque;
+    double maxAbsNetForce = 0.0;
+    double maxAbsTorque = 0.0;
+    double normalizedNetForce = 0.0;
+    double normalizedTorque = 0.0;
+    double netForceTolerance = 0.0;
+    double torqueTolerance = 0.0;
+    bool translationPassed = false;
+    bool rotationPassed = false;
+};
+
+static Vec3d weighted_dense_row(
+    std::array<Vec3d, 6> const &coordinates,
+    std::array<double, 6> const &row) {
+    Vec3d result;
+    for (int sourceId = 0; sourceId < 6; ++sourceId) {
+        result += coordinates[sourceId] * row[sourceId];
+    }
+    return result;
+}
+
+static bool evaluate_valence4_sample_geometry(
+    std::array<Vec3d, 6> const &coordinates,
+    Valence4ProofSample const &sample,
+    Valence4SampleGeometry &geometry) {
+    geometry.x = weighted_dense_row(coordinates, sample.rows[0]);
+    geometry.a_1 = weighted_dense_row(coordinates, sample.rows[1]);
+    geometry.a_2 = weighted_dense_row(coordinates, sample.rows[2]);
+    geometry.a_11 = weighted_dense_row(coordinates, sample.rows[3]);
+    geometry.a_22 = weighted_dense_row(coordinates, sample.rows[4]);
+    geometry.a_12 = weighted_dense_row(coordinates, sample.rows[5]);
+    geometry.a_21 = weighted_dense_row(coordinates, sample.rows[6]);
+
+    Vec3d const xa = cross(geometry.a_1, geometry.a_2);
+    geometry.sqa = norm(xa);
+    if (!std::isfinite(geometry.sqa) || geometry.sqa <= 1.0e-14) {
+        return false;
+    }
+    double const inverseSqaSquared =
+        1.0 / geometry.sqa / geometry.sqa;
+    Vec3d const xa_1 =
+        cross(geometry.a_11, geometry.a_2) +
+        cross(geometry.a_1, geometry.a_21);
+    Vec3d const xa_2 =
+        cross(geometry.a_12, geometry.a_2) +
+        cross(geometry.a_1, geometry.a_22);
+    double const sqa_1 = dot(xa, xa_1) / geometry.sqa;
+    double const sqa_2 = dot(xa, xa_2) / geometry.sqa;
+    geometry.a_3 = xa * (1.0 / geometry.sqa);
+    geometry.a_31 =
+        (xa_1 * geometry.sqa - xa * sqa_1) * inverseSqaSquared;
+    geometry.a_32 =
+        (xa_2 * geometry.sqa - xa * sqa_2) * inverseSqaSquared;
+
+    Vec3d const a2CrossA3 = cross(geometry.a_2, geometry.a_3);
+    Vec3d const a3CrossA1 = cross(geometry.a_3, geometry.a_1);
+    geometry.a1 = a2CrossA3 * (1.0 / geometry.sqa);
+    geometry.a2 = a3CrossA1 * (1.0 / geometry.sqa);
+    geometry.a11 =
+        ((cross(geometry.a_21, geometry.a_3) +
+          cross(geometry.a_2, geometry.a_31)) *
+             geometry.sqa -
+         a2CrossA3 * sqa_1) *
+        inverseSqaSquared;
+    geometry.a12 =
+        ((cross(geometry.a_22, geometry.a_3) +
+          cross(geometry.a_2, geometry.a_32)) *
+             geometry.sqa -
+         a2CrossA3 * sqa_2) *
+        inverseSqaSquared;
+    geometry.a21 =
+        ((cross(geometry.a_31, geometry.a_1) +
+          cross(geometry.a_3, geometry.a_11)) *
+             geometry.sqa -
+         a3CrossA1 * sqa_1) *
+        inverseSqaSquared;
+    geometry.a22 =
+        ((cross(geometry.a_32, geometry.a_1) +
+          cross(geometry.a_3, geometry.a_12)) *
+             geometry.sqa -
+         a3CrossA1 * sqa_2) *
+        inverseSqaSquared;
+    geometry.meanCurvature =
+        0.5 * (dot(geometry.a1, geometry.a_31) +
+               dot(geometry.a2, geometry.a_32));
+
+    return finite_vec(geometry.x) && finite_vec(geometry.a_1) &&
+           finite_vec(geometry.a_2) && finite_vec(geometry.a_11) &&
+           finite_vec(geometry.a_22) && finite_vec(geometry.a_12) &&
+           finite_vec(geometry.a_3) && finite_vec(geometry.a_31) &&
+           finite_vec(geometry.a_32) && finite_vec(geometry.a1) &&
+           finite_vec(geometry.a2) &&
+           std::isfinite(geometry.meanCurvature);
+}
+
+static double max_abs_vec(Vec3d const &value) {
+    return std::max(std::abs(value.x),
+                    std::max(std::abs(value.y), std::abs(value.z)));
+}
+
+static void print_valence4_vec3(Vec3d const &value) {
+    std::cout << "[" << std::setprecision(17) << value.x << ","
+              << value.y << "," << value.z << "]";
+}
+
+static void accumulate_valence4_formula_sample(
+    Valence4ProofSample const &sample,
+    Valence4SampleGeometry const &geometry,
+    ActualForceParams const &params,
+    Valence4FormulaEvaluation &result,
+    Valence4SampleEvidence &evidence) {
+    double const curvatureDelta =
+        2.0 * geometry.meanCurvature - params.spontCurv;
+    double const bendingScale = -params.kCurv * curvatureDelta;
+    double const bendingDensity =
+        0.5 * params.kCurv * curvatureDelta * curvatureDelta;
+    Vec3d const n1Bend =
+        (geometry.a_31 * dot(geometry.a1, geometry.a1) +
+         geometry.a_32 * dot(geometry.a1, geometry.a2)) *
+            bendingScale +
+        geometry.a1 * bendingDensity;
+    Vec3d const n2Bend =
+        (geometry.a_31 * dot(geometry.a2, geometry.a1) +
+         geometry.a_32 * dot(geometry.a2, geometry.a2)) *
+            bendingScale +
+        geometry.a2 * bendingDensity;
+    Vec3d const m1Bend = geometry.a1 * (-bendingScale);
+    Vec3d const m2Bend = geometry.a2 * (-bendingScale);
+
+    double const areaScale =
+        (params.uSurf == 0.0 || params.area0 == 0.0)
+            ? 0.0
+            : (params.uSurf / params.area0) *
+                  (params.area - params.area0);
+    Vec3d const n1Area = geometry.a1 * areaScale;
+    Vec3d const n2Area = geometry.a2 * areaScale;
+
+    double const volumeScale =
+        (params.uVol == 0.0 || params.vol0 == 0.0)
+            ? 0.0
+            : (params.uVol / params.vol0) *
+                  (params.vol - params.vol0) / 3.0;
+    Vec3d const n1Volume =
+        (geometry.a1 * dot(geometry.x, geometry.a_3) -
+         geometry.a_3 * dot(geometry.x, geometry.a1)) *
+        volumeScale;
+    Vec3d const n2Volume =
+        (geometry.a2 * dot(geometry.x, geometry.a_3) -
+         geometry.a_3 * dot(geometry.x, geometry.a2)) *
+        volumeScale;
+
+    double const halfCoefficient = 0.5 * sample.quadratureWeight;
+    for (int sourceId = 0; sourceId < 6; ++sourceId) {
+        double const sf0 = sample.rows[0][sourceId];
+        double const sf1 = sample.rows[1][sourceId];
+        double const sf2 = sample.rows[2][sourceId];
+        double const sf3 = sample.rows[3][sourceId];
+        double const sf4 = sample.rows[4][sourceId];
+        double const sf5 = sample.rows[5][sourceId];
+        double const sf6 = sample.rows[6][sourceId];
+
+        Mat3d da1;
+        da1 += kron(geometry.a1, geometry.a_3) * -sf3;
+        da1 += kron(geometry.a11, geometry.a_3) * -sf1;
+        da1 += kron(geometry.a1, geometry.a_31) * -sf1;
+        da1 += kron(geometry.a2, geometry.a_3) * -sf6;
+        da1 += kron(geometry.a21, geometry.a_3) * -sf2;
+        da1 += kron(geometry.a2, geometry.a_31) * -sf2;
+
+        Mat3d da2;
+        da2 += kron(geometry.a1, geometry.a_3) * -sf5;
+        da2 += kron(geometry.a12, geometry.a_3) * -sf1;
+        da2 += kron(geometry.a1, geometry.a_32) * -sf1;
+        da2 += kron(geometry.a2, geometry.a_3) * -sf4;
+        da2 += kron(geometry.a22, geometry.a_3) * -sf2;
+        da2 += kron(geometry.a2, geometry.a_32) * -sf2;
+
+        Vec3d bendingForce =
+            row_vec_times_matrix(m1Bend, da1) +
+            row_vec_times_matrix(m2Bend, da2) +
+            n1Bend * sf1 + n2Bend * sf2;
+        bendingForce = bendingForce * -geometry.sqa;
+        Vec3d const areaForce =
+            (n1Area * sf1 + n2Area * sf2) * -geometry.sqa;
+        Vec3d const volumeForce =
+            (n1Volume * sf1 + n2Volume * sf2 +
+             geometry.a_3 * (volumeScale * sf0)) *
+            -geometry.sqa;
+
+        add_force(result.fBend, sourceId, bendingForce, halfCoefficient);
+        add_force(result.fArea, sourceId, areaForce, halfCoefficient);
+        add_force(result.fVolume, sourceId, volumeForce, halfCoefficient);
+        evidence.maxAbsBendingForceContribution =
+            std::max(evidence.maxAbsBendingForceContribution,
+                     halfCoefficient * max_abs_vec(bendingForce));
+        evidence.maxAbsAreaForceContribution =
+            std::max(evidence.maxAbsAreaForceContribution,
+                     halfCoefficient * max_abs_vec(areaForce));
+        evidence.maxAbsVolumeForceContribution =
+            std::max(evidence.maxAbsVolumeForceContribution,
+                     halfCoefficient * max_abs_vec(volumeForce));
+    }
+}
+
+static Valence4FormulaEvaluation evaluate_valence4_formula(
+    std::array<Vec3d, 6> const &coordinates,
+    std::vector<Valence4ProofSample> const &samples,
+    bool captureSampleEvidence) {
+    ActualForceParams params;
+    params.spontCurv = 0.0;
+    Valence4FormulaEvaluation result;
+    result.fBend.assign(18, 0.0);
+    result.fArea.assign(18, 0.0);
+    result.fVolume.assign(18, 0.0);
+    std::vector<Valence4SampleGeometry> geometries(samples.size());
+
+    for (int index = 0; index < static_cast<int>(samples.size()); ++index) {
+        bool const finite =
+            evaluate_valence4_sample_geometry(
+                coordinates, samples[index], geometries[index]);
+        result.finite = result.finite && finite;
+        if (!finite) {
+            continue;
+        }
+        double const halfCoefficient =
+            0.5 * samples[index].quadratureWeight;
+        result.area += halfCoefficient * geometries[index].sqa;
+        result.volume +=
+            (1.0 / 6.0) * samples[index].quadratureWeight *
+            dot(geometries[index].x,
+                cross(geometries[index].a_1,
+                      geometries[index].a_2));
+    }
+    params.area = result.area;
+    params.vol = result.volume;
+    result.areaEnergy =
+        (params.uSurf == 0.0 || params.area0 == 0.0)
+            ? 0.0
+            : 0.5 * (params.uSurf / params.area0) *
+                  (result.area - params.area0) *
+                  (result.area - params.area0);
+    result.volumeEnergy =
+        (params.uVol == 0.0 || params.vol0 == 0.0)
+            ? 0.0
+            : 0.5 * (params.uVol / params.vol0) *
+                  (result.volume - params.vol0) *
+                  (result.volume - params.vol0);
+
+    for (int index = 0; index < static_cast<int>(samples.size()); ++index) {
+        Valence4SampleEvidence evidence;
+        evidence.face = samples[index].face;
+        evidence.sample = samples[index].sample;
+        evidence.finite = result.finite;
+        if (result.finite) {
+            double const halfCoefficient =
+                0.5 * samples[index].quadratureWeight;
+            double const curvatureDelta =
+                2.0 * geometries[index].meanCurvature -
+                params.spontCurv;
+            evidence.areaContribution =
+                halfCoefficient * geometries[index].sqa;
+            evidence.volumeContribution =
+                (1.0 / 6.0) * samples[index].quadratureWeight *
+                dot(geometries[index].x,
+                    cross(geometries[index].a_1,
+                          geometries[index].a_2));
+            evidence.bendingEnergyContribution =
+                halfCoefficient * 0.5 * params.kCurv *
+                geometries[index].sqa *
+                curvatureDelta * curvatureDelta;
+            evidence.sqa = geometries[index].sqa;
+            evidence.meanCurvature =
+                geometries[index].meanCurvature;
+            result.bendingEnergy +=
+                evidence.bendingEnergyContribution;
+            accumulate_valence4_formula_sample(
+                samples[index], geometries[index], params, result, evidence);
+        }
+        if (captureSampleEvidence) {
+            result.samples.push_back(evidence);
+        }
+    }
+    result.finite =
+        result.finite && std::isfinite(result.area) &&
+        std::isfinite(result.volume) &&
+        std::isfinite(result.bendingEnergy) &&
+        std::isfinite(result.areaEnergy) &&
+        std::isfinite(result.volumeEnergy) &&
+        all_finite(result.fBend) && all_finite(result.fArea) &&
+        all_finite(result.fVolume);
+    return result;
+}
+
+static Valence4ScalarEnergies evaluate_valence4_scalar_energies(
+    std::array<Vec3d, 6> const &coordinates,
+    std::vector<Valence4ProofSample> const &samples) {
+    ActualForceParams params;
+    params.spontCurv = 0.0;
+    Valence4ScalarEnergies result;
+    for (Valence4ProofSample const &sample : samples) {
+        Valence4SampleGeometry geometry;
+        bool const sampleFinite =
+            evaluate_valence4_sample_geometry(
+                coordinates, sample, geometry);
+        result.finite = result.finite && sampleFinite;
+        if (!sampleFinite) {
+            continue;
+        }
+        double const halfCoefficient =
+            0.5 * sample.quadratureWeight;
+        double const curvatureDelta =
+            2.0 * geometry.meanCurvature - params.spontCurv;
+        result.area += halfCoefficient * geometry.sqa;
+        result.volume +=
+            (1.0 / 6.0) * sample.quadratureWeight *
+            dot(geometry.x, cross(geometry.a_1, geometry.a_2));
+        result.bending +=
+            halfCoefficient * 0.5 * params.kCurv *
+            geometry.sqa * curvatureDelta * curvatureDelta;
+    }
+    result.areaConstraint =
+        0.5 * (params.uSurf / params.area0) *
+        (result.area - params.area0) *
+        (result.area - params.area0);
+    result.volumeConstraint =
+        0.5 * (params.uVol / params.vol0) *
+        (result.volume - params.vol0) *
+        (result.volume - params.vol0);
+    result.finite =
+        result.finite && std::isfinite(result.area) &&
+        std::isfinite(result.volume) &&
+        std::isfinite(result.bending) &&
+        std::isfinite(result.areaConstraint) &&
+        std::isfinite(result.volumeConstraint);
+    return result;
+}
+
+static double valence4_energy_component(
+    Valence4ScalarEnergies const &evaluation,
+    int energyKind) {
+    if (energyKind == 0) {
+        return evaluation.bending;
+    }
+    return energyKind == 1 ? evaluation.areaConstraint
+                           : evaluation.volumeConstraint;
+}
+
+static std::vector<double> const &valence4_force_component(
+    Valence4FormulaEvaluation const &evaluation,
+    int energyKind) {
+    if (energyKind == 0) {
+        return evaluation.fBend;
+    }
+    return energyKind == 1 ? evaluation.fArea
+                           : evaluation.fVolume;
+}
+
+static Valence4FiniteDifferenceSummary
+compare_valence4_force_to_finite_difference(
+    std::array<Vec3d, 6> const &coordinates,
+    std::vector<Valence4ProofSample> const &samples,
+    Valence4FormulaEvaluation const &baseline,
+    int energyKind,
+    double absoluteTolerance,
+    double relativeTolerance) {
+    Valence4FiniteDifferenceSummary summary;
+    std::vector<double> const &forces =
+        valence4_force_component(baseline, energyKind);
+    double characteristicLength = 0.0;
+    for (int left = 0; left < 6; ++left) {
+        for (int right = left + 1; right < 6; ++right) {
+            characteristicLength =
+                std::max(characteristicLength,
+                         norm(coordinates[left] -
+                              coordinates[right]));
+        }
+    }
+    double const hOverLValues[5] = {
+        1.0e-4, 3.0e-5, 1.0e-5, 3.0e-6, 1.0e-6};
+    for (double hOverL : hOverLValues) {
+        Valence4FiniteDifferenceSummary::Step stepSummary;
+        stepSummary.hOverL = hOverL;
+        stepSummary.step = hOverL * characteristicLength;
+        for (int sourceId = 0; sourceId < 6; ++sourceId) {
+            for (int axis = 0; axis < 3; ++axis) {
+                double const coordinate =
+                    get_axis(coordinates[sourceId], axis);
+                std::array<Vec3d, 6> plus = coordinates;
+                std::array<Vec3d, 6> minus = coordinates;
+                set_axis(plus[sourceId],
+                         axis,
+                         coordinate + stepSummary.step);
+                set_axis(minus[sourceId],
+                         axis,
+                         coordinate - stepSummary.step);
+                Valence4ScalarEnergies const plusEnergies =
+                    evaluate_valence4_scalar_energies(plus, samples);
+                Valence4ScalarEnergies const minusEnergies =
+                    evaluate_valence4_scalar_energies(minus, samples);
+                double const plusEnergy =
+                    valence4_energy_component(
+                        plusEnergies, energyKind);
+                double const minusEnergy =
+                    valence4_energy_component(
+                        minusEnergies, energyKind);
+                double const gradient =
+                    (plusEnergy - minusEnergy) /
+                    (2.0 * stepSummary.step);
+                double const finiteDifferenceForce = -gradient;
+                double const analyticForce =
+                    forces[3 * sourceId + axis];
+                double const residual =
+                    std::abs(analyticForce -
+                             finiteDifferenceForce);
+                stepSummary.maxNorm =
+                    std::max(stepSummary.maxNorm,
+                             std::max(std::abs(analyticForce),
+                                      std::abs(
+                                          finiteDifferenceForce)));
+                stepSummary.passed =
+                    stepSummary.passed &&
+                    plusEnergies.finite && minusEnergies.finite;
+                if (residual > stepSummary.maxAbsResidual) {
+                    stepSummary.maxAbsResidual = residual;
+                    stepSummary.worstSourceId = sourceId;
+                    stepSummary.worstAxis = axis;
+                    stepSummary.worstAnalyticForce =
+                        analyticForce;
+                    stepSummary.worstFiniteDifferenceForce =
+                        finiteDifferenceForce;
+                }
+            }
+        }
+        stepSummary.tolerance =
+            absoluteTolerance +
+            relativeTolerance * stepSummary.maxNorm;
+        stepSummary.passed =
+            stepSummary.passed &&
+            stepSummary.maxAbsResidual <=
+                stepSummary.tolerance;
+        summary.steps.push_back(stepSummary);
+        summary.passed = summary.passed && stepSummary.passed;
+        double const scaledResidual =
+            stepSummary.maxAbsResidual /
+            std::max(1.0, stepSummary.maxNorm);
+        summary.maxScaledResidual =
+            std::max(summary.maxScaledResidual, scaledResidual);
+        if (stepSummary.maxAbsResidual >
+            summary.maxAbsResidual) {
+            summary.maxAbsResidual =
+                stepSummary.maxAbsResidual;
+            summary.worstSourceId =
+                stepSummary.worstSourceId;
+            summary.worstAxis = stepSummary.worstAxis;
+            summary.worstAnalyticForce =
+                stepSummary.worstAnalyticForce;
+            summary.worstFiniteDifferenceForce =
+                stepSummary.worstFiniteDifferenceForce;
+        }
+    }
+    summary.plateauPassed =
+        summary.steps.size() == 5 && summary.passed;
+    summary.passed =
+        summary.passed && summary.plateauPassed;
+    return summary;
+}
+
+static Valence4InvarianceSummary valence4_invariance_summary(
+    std::array<Vec3d, 6> const &coordinates,
+    std::vector<double> const &forces) {
+    constexpr double kAbsoluteTolerance = 2.0e-7;
+    constexpr double kRelativeTolerance = 5.0e-6;
+    Valence4InvarianceSummary summary;
+    double forceL1 = 0.0;
+    double coordinateScale = 1.0;
+    for (int sourceId = 0; sourceId < 6; ++sourceId) {
+        Vec3d const force =
+            make_vec(forces[3 * sourceId],
+                     forces[3 * sourceId + 1],
+                     forces[3 * sourceId + 2]);
+        summary.netForce += force;
+        summary.torque += cross(coordinates[sourceId], force);
+        forceL1 += std::abs(force.x) +
+                   std::abs(force.y) +
+                   std::abs(force.z);
+        coordinateScale =
+            std::max(coordinateScale, norm(coordinates[sourceId]));
+    }
+    summary.maxAbsNetForce = max_abs_vec(summary.netForce);
+    summary.maxAbsTorque = max_abs_vec(summary.torque);
+    summary.normalizedNetForce =
+        summary.maxAbsNetForce / std::max(1.0, forceL1);
+    summary.normalizedTorque =
+        summary.maxAbsTorque /
+        std::max(1.0, forceL1 * coordinateScale);
+    summary.netForceTolerance =
+        kAbsoluteTolerance + kRelativeTolerance * forceL1;
+    summary.torqueTolerance =
+        kAbsoluteTolerance +
+        kRelativeTolerance * forceL1 * coordinateScale;
+    summary.translationPassed =
+        summary.maxAbsNetForce <= summary.netForceTolerance;
+    summary.rotationPassed =
+        summary.maxAbsTorque <= summary.torqueTolerance;
+    return summary;
+}
+
+static double max_valence4_evaluation_difference(
+    Valence4FormulaEvaluation const &left,
+    Valence4FormulaEvaluation const &right) {
+    double difference = 0.0;
+    difference =
+        std::max(difference, std::abs(left.area - right.area));
+    difference =
+        std::max(difference, std::abs(left.volume - right.volume));
+    difference = std::max(
+        difference,
+        std::abs(left.bendingEnergy - right.bendingEnergy));
+    difference = std::max(
+        difference, std::abs(left.areaEnergy - right.areaEnergy));
+    difference = std::max(
+        difference,
+        std::abs(left.volumeEnergy - right.volumeEnergy));
+    difference =
+        std::max(difference,
+                 max_abs_component_delta(left.fBend, right.fBend));
+    difference =
+        std::max(difference,
+                 max_abs_component_delta(left.fArea, right.fArea));
+    difference =
+        std::max(difference,
+                 max_abs_component_delta(left.fVolume, right.fVolume));
+    return difference;
+}
+
+static bool all_sources_have_nonzero_vectors(
+    std::vector<double> const &forces,
+    double tolerance) {
+    for (int sourceId = 0; sourceId < 6; ++sourceId) {
+        Vec3d const force =
+            make_vec(forces[3 * sourceId],
+                     forces[3 * sourceId + 1],
+                     forces[3 * sourceId + 2]);
+        if (norm(force) <= tolerance) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static void print_valence4_force_rows(
+    Valence4FormulaEvaluation const &evaluation) {
+    std::cout << "[";
+    for (int sourceId = 0; sourceId < 6; ++sourceId) {
+        if (sourceId > 0) {
+            std::cout << ",";
+        }
+        std::cout << "{\"source_id\":" << sourceId;
+        std::cout << ",\"fBend\":";
+        print_valence4_vec3(
+            make_vec(evaluation.fBend[3 * sourceId],
+                     evaluation.fBend[3 * sourceId + 1],
+                     evaluation.fBend[3 * sourceId + 2]));
+        std::cout << ",\"fArea\":";
+        print_valence4_vec3(
+            make_vec(evaluation.fArea[3 * sourceId],
+                     evaluation.fArea[3 * sourceId + 1],
+                     evaluation.fArea[3 * sourceId + 2]));
+        std::cout << ",\"fVolume\":";
+        print_valence4_vec3(
+            make_vec(evaluation.fVolume[3 * sourceId],
+                     evaluation.fVolume[3 * sourceId + 1],
+                     evaluation.fVolume[3 * sourceId + 2]));
+        std::cout << "}";
+    }
+    std::cout << "]";
+}
+
+static void print_valence4_finite_difference_summary(
+    Valence4FiniteDifferenceSummary const &summary,
+    double absoluteTolerance,
+    double relativeTolerance) {
+    std::cout << "{\"component_count\":18";
+    std::cout << ",\"sign_convention\":\"force = -dE/dx; residual = "
+                 "abs(analytic_force - centered_finite_difference_force)\"";
+    std::cout << ",\"characteristic_length\":\"maximum pairwise "
+                 "proof-source distance\"";
+    std::cout << ",\"h_over_L_sweep\":[0.0001,0.00003,0.00001,"
+                 "0.000003,0.000001]";
+    std::cout << ",\"absolute_tolerance\":" << absoluteTolerance;
+    std::cout << ",\"relative_tolerance\":" << relativeTolerance;
+    std::cout << ",\"acceptance\":\"step max_abs_residual <= "
+                 "absolute_tolerance + relative_tolerance * "
+                 "max_norm(analytic_force, finite_difference_force)\"";
+    std::cout << ",\"steps\":[";
+    for (int index = 0;
+         index < static_cast<int>(summary.steps.size());
+         ++index) {
+        if (index > 0) {
+            std::cout << ",";
+        }
+        Valence4FiniteDifferenceSummary::Step const &step =
+            summary.steps[index];
+        std::cout << "{\"h_over_L\":" << step.hOverL;
+        std::cout << ",\"h\":" << step.step;
+        std::cout << ",\"max_abs_residual\":"
+                  << step.maxAbsResidual;
+        std::cout << ",\"max_norm\":" << step.maxNorm;
+        std::cout << ",\"tolerance\":" << step.tolerance;
+        std::cout << ",\"worst_source_id\":"
+                  << step.worstSourceId;
+        std::cout << ",\"worst_axis\":" << step.worstAxis;
+        std::cout << ",\"worst_signed_analytic_force\":"
+                  << step.worstAnalyticForce;
+        std::cout << ",\"worst_signed_finite_difference_force\":"
+                  << step.worstFiniteDifferenceForce;
+        std::cout << ",\"passed\":"
+                  << (step.passed ? "true" : "false") << "}";
+    }
+    std::cout << "]";
+    std::cout << ",\"max_abs_residual\":" << summary.maxAbsResidual;
+    std::cout << ",\"max_scaled_residual\":"
+              << summary.maxScaledResidual;
+    std::cout << ",\"worst_source_id\":" << summary.worstSourceId;
+    std::cout << ",\"worst_axis\":" << summary.worstAxis;
+    std::cout << ",\"worst_signed_analytic_force\":"
+              << summary.worstAnalyticForce;
+    std::cout << ",\"worst_signed_finite_difference_force\":"
+              << summary.worstFiniteDifferenceForce;
+    std::cout << ",\"plateau_definition\":\"all five h/L steps "
+                 "satisfy the same scale-aware force tolerance\"";
+    std::cout << ",\"plateau_passed\":"
+              << (summary.plateauPassed ? "true" : "false");
+    std::cout << ",\"passed\":"
+              << (summary.passed ? "true" : "false") << "}";
+}
+
+static void print_valence4_invariance_summary(
+    Valence4InvarianceSummary const &summary) {
+    std::cout << "{\"net_force\":";
+    print_valence4_vec3(summary.netForce);
+    std::cout << ",\"max_abs_net_force\":"
+              << summary.maxAbsNetForce;
+    std::cout << ",\"normalized_net_force\":"
+              << summary.normalizedNetForce;
+    std::cout << ",\"net_force_tolerance\":"
+              << summary.netForceTolerance;
+    std::cout << ",\"translation_invariance_passed\":"
+              << (summary.translationPassed ? "true" : "false");
+    std::cout << ",\"torque_about_fixture_origin\":";
+    print_valence4_vec3(summary.torque);
+    std::cout << ",\"max_abs_torque\":"
+              << summary.maxAbsTorque;
+    std::cout << ",\"normalized_torque\":"
+              << summary.normalizedTorque;
+    std::cout << ",\"torque_tolerance\":"
+              << summary.torqueTolerance;
+    std::cout << ",\"rotation_invariance_mathematically_applicable\":true";
+    std::cout << ",\"rotation_invariance_passed\":"
+              << (summary.rotationPassed ? "true" : "false") << "}";
+}
+
+static bool print_valence4_force_formula_proof(MeshCase const &mesh) {
+    constexpr int kFaces = 8;
+    constexpr int kSamplesPerFace = 3;
+    constexpr double kQuadratureWeight = 1.0 / 3.0;
+    constexpr double kAggregationTolerance = 1.0e-12;
+    constexpr double kFiniteDifferenceAbsoluteTolerance = 2.0e-5;
+    constexpr double kFiniteDifferenceRelativeTolerance = 2.0e-6;
+    constexpr double kNonzeroTolerance = 1.0e-10;
+
+    bool const fixtureLoaded =
+        mesh.numVertices == 6 && mesh.points.size() == 6 &&
+        mesh.vertsPerFace.size() == kFaces &&
+        mesh.vertIndices.size() == 3 * kFaces;
+    if (!fixtureLoaded) {
+        std::cerr << "failed to load the approved valence-4 fixture\n";
+        return false;
+    }
+
+    Far::TopologyRefiner *refiner = create_refiner(mesh);
+    if (!refiner) {
+        std::cerr << "failed to create valence-4 fixture refiner\n";
+        return false;
+    }
+    Far::PatchTableFactory::Options patchOptions(5);
+    refiner->RefineAdaptive(patchOptions.GetRefineAdaptiveOptions());
+    Far::PatchTable *patchTable =
+        Far::PatchTableFactory::Create(*refiner, patchOptions);
+    Far::StencilTableFactory::Options cvOptions;
+    cvOptions.generateControlVerts = true;
+    cvOptions.generateIntermediateLevels = true;
+    cvOptions.factorizeIntermediateLevels = true;
+    cvOptions.maxLevel = 5;
+    Far::StencilTable const *cvStencils =
+        Far::StencilTableFactory::Create(*refiner, cvOptions);
+    if (!patchTable || !cvStencils) {
+        std::cerr << "failed to create valence-4 patch/control tables\n";
+        delete cvStencils;
+        delete patchTable;
+        delete refiner;
+        return false;
+    }
+
+    float const sampleS[kSamplesPerFace] = {
+        1.0f / 6.0f, 1.0f / 6.0f, 4.0f / 6.0f};
+    float const sampleT[kSamplesPerFace] = {
+        1.0f / 6.0f, 4.0f / 6.0f, 1.0f / 6.0f};
+    int const ptexFaceCount = patchTable->GetNumPtexFaces();
+    std::vector<std::vector<float>> sValues(
+        ptexFaceCount,
+        std::vector<float>(sampleS, sampleS + kSamplesPerFace));
+    std::vector<std::vector<float>> tValues(
+        ptexFaceCount,
+        std::vector<float>(sampleT, sampleT + kSamplesPerFace));
+    Far::LimitStencilTableFactory::LocationArrayVec locations;
+    for (int face = 0; face < ptexFaceCount; ++face) {
+        Far::LimitStencilTableFactory::LocationArray location;
+        location.ptexIdx = face;
+        location.numLocations = kSamplesPerFace;
+        location.s = sValues[face].data();
+        location.t = tValues[face].data();
+        locations.push_back(location);
+    }
+    Far::LimitStencilTableFactory::Options stencilOptions;
+    stencilOptions.generate1stDerivatives = true;
+    stencilOptions.generate2ndDerivatives = true;
+    Far::LimitStencilTable const *stencils =
+        Far::LimitStencilTableFactory::Create(
+            *refiner, locations, cvStencils, patchTable, stencilOptions);
+    if (!stencils) {
+        std::cerr << "failed to create valence-4 limit stencils\n";
+        delete cvStencils;
+        delete patchTable;
+        delete refiner;
+        return false;
+    }
+
+    Far::PatchMap patchMap(*patchTable);
+    std::vector<Valence4ProofSample> directSamples;
+    std::vector<Valence4ProofSample> duplicateSamples;
+    std::set<int> coveredSourceIds;
+    bool ptexIdentityPassed = ptexFaceCount == kFaces;
+    bool rowsMapped = true;
+    bool rowsFinite = true;
+    bool mixedRowsIdentical = true;
+    bool duplicateAggregationPassed = true;
+    double maxDuplicateAggregationDifference = 0.0;
+    for (int face = 0; face < ptexFaceCount; ++face) {
+        for (int sampleIndex = 0;
+             sampleIndex < kSamplesPerFace;
+             ++sampleIndex) {
+            int const stencilIndex =
+                face * kSamplesPerFace + sampleIndex;
+            Far::LimitStencil stencil =
+                stencils->GetLimitStencil(stencilIndex);
+            Far::PatchMap::Handle const *handle =
+                patchMap.FindPatch(
+                    face, sampleS[sampleIndex], sampleT[sampleIndex]);
+            ptexIdentityPassed =
+                ptexIdentityPassed && handle &&
+                patchTable->GetPatchParam(*handle).GetFaceId() == face;
+            std::vector<float const *> rowPointers = {
+                stencil.GetWeights(),
+                stencil.GetDuWeights(),
+                stencil.GetDvWeights(),
+                stencil.GetDuuWeights(),
+                stencil.GetDvvWeights(),
+                stencil.GetDuvWeights(),
+                stencil.GetDuvWeights(),
+            };
+            Valence4ProofSample direct;
+            Valence4ProofSample duplicate;
+            direct.face = duplicate.face = face;
+            direct.sample = duplicate.sample = sampleIndex;
+            direct.quadratureWeight =
+                duplicate.quadratureWeight = kQuadratureWeight;
+            for (int row = 0; row < 7; ++row) {
+                std::vector<std::pair<int, double>> directEntries;
+                std::vector<std::pair<int, double>> duplicateEntries;
+                for (int entry = 0; entry < stencil.GetSize(); ++entry) {
+                    int const sourceId =
+                        stencil.GetVertexIndices()[entry];
+                    double const coefficient =
+                        static_cast<double>(rowPointers[row][entry]);
+                    directEntries.push_back({sourceId, coefficient});
+                    duplicateEntries.push_back(
+                        {sourceId, 0.25 * coefficient});
+                    duplicateEntries.push_back(
+                        {sourceId, 0.75 * coefficient});
+                }
+                std::reverse(
+                    duplicateEntries.begin(), duplicateEntries.end());
+                std::map<int, double> const directAggregated =
+                    aggregate_row_entries(directEntries);
+                std::map<int, double> const duplicateAggregated =
+                    aggregate_row_entries(duplicateEntries);
+                rowsMapped =
+                    rowsMapped &&
+                    row_maps_to_fixture(directAggregated, 6) &&
+                    row_maps_to_fixture(duplicateAggregated, 6);
+                double const aggregationDifference =
+                    max_row_difference(
+                        directAggregated, duplicateAggregated);
+                maxDuplicateAggregationDifference =
+                    std::max(maxDuplicateAggregationDifference,
+                             aggregationDifference);
+                duplicateAggregationPassed =
+                    duplicateAggregationPassed &&
+                    aggregationDifference <=
+                        kAggregationTolerance;
+                for (int sourceId = 0; sourceId < 6; ++sourceId) {
+                    std::map<int, double>::const_iterator directEntry =
+                        directAggregated.find(sourceId);
+                    std::map<int, double>::const_iterator duplicateEntry =
+                        duplicateAggregated.find(sourceId);
+                    direct.rows[row][sourceId] =
+                        directEntry == directAggregated.end()
+                            ? 0.0
+                            : directEntry->second;
+                    duplicate.rows[row][sourceId] =
+                        duplicateEntry == duplicateAggregated.end()
+                            ? 0.0
+                            : duplicateEntry->second;
+                    rowsFinite =
+                        rowsFinite &&
+                        std::isfinite(direct.rows[row][sourceId]) &&
+                        std::isfinite(
+                            duplicate.rows[row][sourceId]);
+                    if (std::abs(direct.rows[row][sourceId]) >
+                        1.0e-8) {
+                        coveredSourceIds.insert(sourceId);
+                    }
+                }
+            }
+            mixedRowsIdentical =
+                mixedRowsIdentical &&
+                direct.rows[5] == direct.rows[6] &&
+                duplicate.rows[5] == duplicate.rows[6];
+            directSamples.push_back(direct);
+            duplicateSamples.push_back(duplicate);
+        }
+    }
+
+    std::array<Vec3d, 6> proofCoordinates;
+    std::array<Vec3d, 6> perturbations;
+    for (int sourceId = 0; sourceId < 6; ++sourceId) {
+        Vec3d fixtureCoordinate =
+            make_vec(mesh.points[sourceId].x,
+                     mesh.points[sourceId].y,
+                     mesh.points[sourceId].z);
+        for (int axis = 0; axis < 3; ++axis) {
+            double const id =
+                static_cast<double>(sourceId + 1);
+            double const offset =
+                axis == 0
+                    ? 0.017 * std::sin(0.37 * id)
+                    : (axis == 1
+                           ? -0.013 * std::cos(0.29 * id)
+                           : 0.019 * std::sin(0.41 * id));
+            set_axis(perturbations[sourceId], axis, offset);
+            set_axis(proofCoordinates[sourceId],
+                     axis,
+                     get_axis(fixtureCoordinate, axis) + offset);
+        }
+    }
+
+    Valence4FormulaEvaluation const directEvaluation =
+        evaluate_valence4_formula(
+            proofCoordinates, directSamples, true);
+    Valence4FormulaEvaluation const duplicateEvaluation =
+        evaluate_valence4_formula(
+            proofCoordinates, duplicateSamples, false);
+    double const duplicateEvaluationDifference =
+        max_valence4_evaluation_difference(
+            directEvaluation, duplicateEvaluation);
+    bool const duplicateEvaluationPassed =
+        duplicateEvaluationDifference <= kAggregationTolerance;
+
+    Valence4FiniteDifferenceSummary const bendFiniteDifference =
+        compare_valence4_force_to_finite_difference(
+            proofCoordinates,
+            directSamples,
+            directEvaluation,
+            0,
+            kFiniteDifferenceAbsoluteTolerance,
+            kFiniteDifferenceRelativeTolerance);
+    Valence4FiniteDifferenceSummary const areaFiniteDifference =
+        compare_valence4_force_to_finite_difference(
+            proofCoordinates,
+            directSamples,
+            directEvaluation,
+            1,
+            kFiniteDifferenceAbsoluteTolerance,
+            kFiniteDifferenceRelativeTolerance);
+    Valence4FiniteDifferenceSummary const volumeFiniteDifference =
+        compare_valence4_force_to_finite_difference(
+            proofCoordinates,
+            directSamples,
+            directEvaluation,
+            2,
+            kFiniteDifferenceAbsoluteTolerance,
+            kFiniteDifferenceRelativeTolerance);
+
+    Valence4InvarianceSummary const bendInvariance =
+        valence4_invariance_summary(
+            proofCoordinates, directEvaluation.fBend);
+    Valence4InvarianceSummary const areaInvariance =
+        valence4_invariance_summary(
+            proofCoordinates, directEvaluation.fArea);
+    Valence4InvarianceSummary const volumeInvariance =
+        valence4_invariance_summary(
+            proofCoordinates, directEvaluation.fVolume);
+    bool const invariancePassed =
+        bendInvariance.translationPassed &&
+        bendInvariance.rotationPassed &&
+        areaInvariance.translationPassed &&
+        areaInvariance.rotationPassed &&
+        volumeInvariance.translationPassed &&
+        volumeInvariance.rotationPassed;
+
+    bool const sourceCoveragePassed =
+        coveredSourceIds == std::set<int>({0, 1, 2, 3, 4, 5});
+    bool const sampleCoveragePassed =
+        directSamples.size() == kFaces * kSamplesPerFace &&
+        directEvaluation.samples.size() ==
+            kFaces * kSamplesPerFace;
+    bool allSampleEvidenceFinite = true;
+    for (Valence4SampleEvidence const &sample :
+         directEvaluation.samples) {
+        allSampleEvidenceFinite =
+            allSampleEvidenceFinite && sample.finite &&
+            std::isfinite(sample.areaContribution) &&
+            std::isfinite(sample.volumeContribution) &&
+            std::isfinite(sample.bendingEnergyContribution) &&
+            std::isfinite(sample.sqa) &&
+            std::isfinite(sample.meanCurvature);
+    }
+    bool const nonzeroForcesPassed =
+        all_sources_have_nonzero_vectors(
+            directEvaluation.fBend, kNonzeroTolerance) &&
+        all_sources_have_nonzero_vectors(
+            directEvaluation.fArea, kNonzeroTolerance) &&
+        all_sources_have_nonzero_vectors(
+            directEvaluation.fVolume, kNonzeroTolerance);
+    bool const scatterShapePassed =
+        directEvaluation.fBend.size() == 18 &&
+        directEvaluation.fArea.size() == 18 &&
+        directEvaluation.fVolume.size() == 18;
+    bool const finiteDifferencePassed =
+        bendFiniteDifference.passed &&
+        areaFiniteDifference.passed &&
+        volumeFiniteDifference.passed;
+    bool const passed =
+        ptexIdentityPassed && rowsMapped && rowsFinite &&
+        mixedRowsIdentical && duplicateAggregationPassed &&
+        duplicateEvaluationPassed && sourceCoveragePassed &&
+        sampleCoveragePassed && allSampleEvidenceFinite &&
+        directEvaluation.finite && nonzeroForcesPassed &&
+        scatterShapePassed && finiteDifferencePassed &&
+        invariancePassed;
+
+    std::cout << std::setprecision(17);
+    std::cout << "{\"case\":\"" << mesh.name << "\"";
+    std::cout << ",\"kind\":\"proof_only_valence4_opensubdiv_force_formula_evidence\"";
+    std::cout << ",\"approved_fixture\":true";
+    std::cout << ",\"approved_for_mapping_sample_transpose_proof\":true";
+    std::cout << ",\"proof_only\":true";
+    std::cout << ",\"force_formula_proof_only\":true";
+    std::cout << ",\"not_production_routing\":true";
+    std::cout << ",\"production_route_enabled\":false";
+    std::cout << ",\"scientifically_approved\":false";
+    std::cout << ",\"fixture_csvs_unchanged\":true";
+    std::cout << ",\"formula_source_anchor\":\"src/energy_force/"
+                 "Compute_energy_and_force_on_mesh.cpp::"
+                 "Mesh::element_energy_force_regular\"";
+    std::cout << ",\"formula_reuse\":\"mechanical proof-local mirror of "
+                 "the reviewed regular bending, area, and volume sample "
+                 "algebra\"";
+    std::cout << ",\"regular_formula_bridge\":{";
+    std::cout << "\"prerequisite\":\"existing opt-in regular C++ "
+                 "adapter proof must pass before this valence-4 proof\"";
+    std::cout << ",\"bridge_harness\":\"experiments/"
+                 "opensubdiv_regular_cpp_adapter_proof.cpp\"";
+    std::cout << ",\"production_helper\":\"Mesh::"
+                 "element_energy_force_regular\"";
+    std::cout << ",\"bridge_pass_field\":\"production_helper_dry_run."
+                 "matches_proof_local_formula_rows\"";
+    std::cout << ",\"not_production_routing\":true}";
+    std::cout << ",\"sample_plan\":\"8 fixture faces x 3 frozen "
+                 "second-order triangular quadrature samples\"";
+    std::cout << ",\"sample_count\":" << directSamples.size();
+    std::cout << ",\"ptex_face_count\":" << ptexFaceCount;
+    std::cout << ",\"all_samples_preserve_ptex_face_identity\":"
+              << (ptexIdentityPassed ? "true" : "false");
+    std::cout << ",\"oriented_fixture_faces\":[";
+    for (int face = 0; face < kFaces; ++face) {
+        if (face > 0) {
+            std::cout << ",";
+        }
+        std::cout << "[" << mesh.vertIndices[3 * face] << ","
+                  << mesh.vertIndices[3 * face + 1] << ","
+                  << mesh.vertIndices[3 * face + 2] << "]";
+    }
+    std::cout << "]";
+    std::cout << ",\"coordinate_mapping\":\"s=v,t=w,u=1-v-w\"";
+    std::cout << ",\"seven_row_order\":[\"value\",\"du\",\"dv\","
+                 "\"duu\",\"dvv\",\"duv\",\"duv\"]";
+    std::cout << ",\"mixed_derivative_policy\":\"OpenSubdiv duv "
+                 "is duplicated into both proof mixed rows\"";
+    std::cout << ",\"per_face_samples\":[";
+    for (int sampleIndex = 0;
+         sampleIndex < kSamplesPerFace;
+         ++sampleIndex) {
+        if (sampleIndex > 0) {
+            std::cout << ",";
+        }
+        std::cout << "{\"sample\":" << sampleIndex;
+        std::cout << ",\"s\":" << sampleS[sampleIndex];
+        std::cout << ",\"t\":" << sampleT[sampleIndex];
+        std::cout << ",\"v\":" << sampleS[sampleIndex];
+        std::cout << ",\"w\":" << sampleT[sampleIndex];
+        std::cout << ",\"u\":"
+                  << 1.0 - sampleS[sampleIndex] -
+                         sampleT[sampleIndex];
+        std::cout << ",\"quadrature_weight\":"
+                  << kQuadratureWeight;
+        std::cout << ",\"formula_factor\":"
+                  << 0.5 * kQuadratureWeight << "}";
+    }
+    std::cout << "]";
+    std::cout << ",\"proof_coordinates\":[";
+    for (int sourceId = 0; sourceId < 6; ++sourceId) {
+        if (sourceId > 0) {
+            std::cout << ",";
+        }
+        std::cout << "{\"source_id\":" << sourceId;
+        std::cout << ",\"perturbation\":";
+        print_valence4_vec3(perturbations[sourceId]);
+        std::cout << ",\"coordinate\":";
+        print_valence4_vec3(proofCoordinates[sourceId]);
+        std::cout << "}";
+    }
+    std::cout << "]";
+    std::cout << ",\"perturbation_policy\":\"deterministic asymmetric "
+                 "in-memory proof state only; serialized fixture "
+                 "coordinates are not modified\"";
+    std::cout << ",\"parameters\":{\"kCurv\":47.5,"
+                 "\"spontCurv\":0,\"uSurf\":130,"
+                 "\"area0\":2.75,\"uVol\":65,\"vol0\":0.82}";
+    std::cout << ",\"bending_scope\":\"C0=0 proof point; this "
+                 "provides weaker sign coverage and does not validate "
+                 "nonzero spontaneous-curvature sign choices\"";
+    std::cout << ",\"energies\":{";
+    std::cout << "\"area\":" << directEvaluation.area;
+    std::cout << ",\"signed_volume\":" << directEvaluation.volume;
+    std::cout << ",\"bending_energy\":"
+              << directEvaluation.bendingEnergy;
+    std::cout << ",\"area_constraint_energy\":"
+              << directEvaluation.areaEnergy;
+    std::cout << ",\"volume_constraint_energy\":"
+              << directEvaluation.volumeEnergy;
+    std::cout << ",\"definitions\":\"Eb=sum(0.5*w*0.5*k*sqa*"
+                 "(2H-c0)^2); Ea=0.5*(uSurf/area0)*(A-area0)^2; "
+                 "Ev=0.5*(uVol/vol0)*(V-vol0)^2\"";
+    std::cout << ",\"area_target_policy\":\"fixed nonzero A0=2.75; "
+                 "total proof area is recomputed for every finite-"
+                 "difference state\"";
+    std::cout << ",\"volume_target_policy\":\"fixed nonzero V0=0.82; "
+                 "total proof scalar volume is recomputed for every "
+                 "finite-difference state\"";
+    std::cout << ",\"volume_functional\":\"full closed-surface "
+                 "sum of x dot cross(a_1,a_2) / 3 using the frozen "
+                 "quadrature factor; this is the scalar functional "
+                 "corresponding to the proof-local fVolume algebra\"";
+    std::cout << ",\"volume_output_disclaimer\":\"not equivalent to "
+                 "the legacy visible-volume position.x*cross.x "
+                 "observable and not a claim about production output "
+                 "semantics\"";
+    std::cout << ",\"finite\":"
+              << (directEvaluation.finite ? "true" : "false")
+              << "}";
+    std::cout << ",\"sample_evidence\":[";
+    for (int index = 0;
+         index < static_cast<int>(directEvaluation.samples.size());
+         ++index) {
+        if (index > 0) {
+            std::cout << ",";
+        }
+        Valence4SampleEvidence const &sample =
+            directEvaluation.samples[index];
+        std::cout << "{\"face\":" << sample.face;
+        std::cout << ",\"sample\":" << sample.sample;
+        std::cout << ",\"sqa\":" << sample.sqa;
+        std::cout << ",\"mean_curvature\":"
+                  << sample.meanCurvature;
+        std::cout << ",\"area_contribution\":"
+                  << sample.areaContribution;
+        std::cout << ",\"signed_volume_contribution\":"
+                  << sample.volumeContribution;
+        std::cout << ",\"bending_energy_contribution\":"
+                  << sample.bendingEnergyContribution;
+        std::cout << ",\"max_abs_fBend_contribution\":"
+                  << sample.maxAbsBendingForceContribution;
+        std::cout << ",\"max_abs_fArea_contribution\":"
+                  << sample.maxAbsAreaForceContribution;
+        std::cout << ",\"max_abs_fVolume_contribution\":"
+                  << sample.maxAbsVolumeForceContribution;
+        std::cout << ",\"finite\":"
+                  << (sample.finite ? "true" : "false") << "}";
+    }
+    std::cout << "]";
+    std::cout << ",\"source_forces\":";
+    print_valence4_force_rows(directEvaluation);
+    std::cout << ",\"source_force_contract\":{";
+    std::cout << "\"source_ids\":";
+    print_int_set(coveredSourceIds);
+    std::cout << ",\"all_six_covered\":"
+              << (sourceCoveragePassed ? "true" : "false");
+    std::cout << ",\"aggregation_name\":\"proof-local source "
+                 "aggregation (not Face::oneRingVertices production "
+                 "scatter)\"";
+    std::cout << ",\"scatter_shape\":\"three proof-local 6x3 "
+                 "source-keyed component arrays\"";
+    std::cout << ",\"component_count_per_force_kind\":18";
+    std::cout << ",\"scatter_shape_passed\":"
+              << (scatterShapePassed ? "true" : "false");
+    std::cout << ",\"all_force_kinds_finite\":"
+              << (directEvaluation.finite ? "true" : "false");
+    std::cout << ",\"every_source_has_nonzero_vector_for_each_force_kind\":"
+              << (nonzeroForcesPassed ? "true" : "false");
+    std::cout << ",\"nonzero_tolerance\":"
+              << kNonzeroTolerance << "}";
+    std::cout << ",\"duplicate_aggregation\":{";
+    std::cout << "\"rule\":\"ascending original source id with "
+                 "additive coefficient sum\"";
+    std::cout << ",\"probe\":\"split every raw coefficient into 1/4 "
+                 "and 3/4 contributions, reverse, aggregate, then "
+                 "reevaluate energies and forces\"";
+    std::cout << ",\"max_abs_row_difference\":"
+              << maxDuplicateAggregationDifference;
+    std::cout << ",\"max_abs_energy_or_force_difference\":"
+              << duplicateEvaluationDifference;
+    std::cout << ",\"tolerance\":"
+              << kAggregationTolerance;
+    std::cout << ",\"passed\":"
+              << (duplicateAggregationPassed &&
+                          duplicateEvaluationPassed
+                      ? "true"
+                      : "false")
+              << "}";
+    std::cout << ",\"finite_difference_oracle\":{";
+    std::cout << "\"implementation\":\"independent scalar-energy "
+                 "recomputation path with no force-algebra calls\",";
+    std::cout << "\"bending\":";
+    print_valence4_finite_difference_summary(
+        bendFiniteDifference,
+        kFiniteDifferenceAbsoluteTolerance,
+        kFiniteDifferenceRelativeTolerance);
+    std::cout << ",\"area\":";
+    print_valence4_finite_difference_summary(
+        areaFiniteDifference,
+        kFiniteDifferenceAbsoluteTolerance,
+        kFiniteDifferenceRelativeTolerance);
+    std::cout << ",\"volume\":";
+    print_valence4_finite_difference_summary(
+        volumeFiniteDifference,
+        kFiniteDifferenceAbsoluteTolerance,
+        kFiniteDifferenceRelativeTolerance);
+    std::cout << ",\"unique_source_axis_comparisons\":54";
+    std::cout << ",\"sweep_evaluations\":270";
+    std::cout << ",\"all_54_source_axis_comparisons_passed\":"
+              << (finiteDifferencePassed ? "true" : "false")
+              << "}";
+    std::cout << ",\"rigid_motion_invariance\":{";
+    std::cout << "\"bending\":";
+    print_valence4_invariance_summary(bendInvariance);
+    std::cout << ",\"area\":";
+    print_valence4_invariance_summary(areaInvariance);
+    std::cout << ",\"volume\":";
+    print_valence4_invariance_summary(volumeInvariance);
+    std::cout << ",\"all_translation_and_rotation_checks_passed\":"
+              << (invariancePassed ? "true" : "false")
+              << "}";
+    std::cout << ",\"determinism_contract\":\"wrapper executes the "
+                 "compiled proof twice and requires byte-identical "
+                 "canonical JSON, covering energies and forces\"";
+    std::cout << ",\"claims_not_proven\":[";
+    std::cout << "\"production geometry or output parity\",";
+    std::cout << "\"Face::oneRingVertices scatter\",";
+    std::cout << "\"serial/OpenMP parity\",";
+    std::cout << "\"production route readiness\",";
+    std::cout << "\"scientific equivalence beyond this proof\",";
+    std::cout << "\"broader-valence routing\"";
+    std::cout << "]";
+    std::cout << ",\"passed\":" << (passed ? "true" : "false");
+    std::cout << "}" << std::endl;
+
+    delete stencils;
+    delete cvStencils;
+    delete patchTable;
+    delete refiner;
+    return passed;
+}
+#endif
 #endif
 
 static int run_case(MeshCase const &mesh) {
@@ -3177,15 +4484,22 @@ static int run_case(MeshCase const &mesh) {
 }
 
 int main(int argc, char **argv) {
-#if SLIMED_VALENCE4_MAPPING_PROOF_REPORT
+#if SLIMED_VALENCE4_MAPPING_PROOF_REPORT || SLIMED_VALENCE4_FORCE_FORMULA_PROOF_REPORT
     if (argc != 3) {
-        std::cerr << "valence-4 mapping proof requires vertices.csv and faces.csv\n";
+        std::cerr << "valence-4 proof requires vertices.csv and faces.csv\n";
         return 11;
     }
+#if SLIMED_VALENCE4_FORCE_FORMULA_PROOF_REPORT
+    return print_valence4_force_formula_proof(
+               load_serialized_valence4_fixture(argv[1], argv[2]))
+               ? 0
+               : 13;
+#else
     return print_valence4_mapping_proof(
                load_serialized_valence4_fixture(argv[1], argv[2]))
                ? 0
                : 12;
+#endif
 #else
     int status = run_case(make_regular_lattice_case());
     if (status != 0) {
@@ -3330,6 +4644,15 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--valence4-force-formula-proof-report",
+        action="store_true",
+        help=(
+            "Opt into the approved proof-only valence-4 OpenSubdiv "
+            "bending/area/volume force-formula report with an independent "
+            "finite-difference energy oracle."
+        ),
+    )
+    parser.add_argument(
         "--mode",
         choices=["check"],
         help=(
@@ -3452,6 +4775,10 @@ def main() -> int:
             command.append("-DSLIMED_BROADER_VALENCE_COVERAGE_REPORT=1")
         if args.valence4_mapping_sample_transpose_report:
             command.append("-DSLIMED_VALENCE4_MAPPING_PROOF_REPORT=1")
+        if args.valence4_force_formula_proof_report:
+            command.append(
+                "-DSLIMED_VALENCE4_FORCE_FORMULA_PROOF_REPORT=1"
+            )
         command.extend(shlex.split(os.environ.get("OPENSUBDIV_CXXFLAGS", "")))
         command.extend(
             [
@@ -3480,7 +4807,10 @@ def main() -> int:
             return compile_result.returncode
 
         run_command_line = [str(binary_path)]
-        if args.valence4_mapping_sample_transpose_report:
+        if (
+            args.valence4_mapping_sample_transpose_report
+            or args.valence4_force_formula_proof_report
+        ):
             fixture_dir = (
                 Path(__file__).resolve().parents[1]
                 / "data/fixtures/candidates/closed_valence4_octahedron"
@@ -3505,7 +4835,10 @@ def main() -> int:
             return run_result.returncode
 
         deterministic_repeat_match = None
-        if args.valence4_mapping_sample_transpose_report:
+        if (
+            args.valence4_mapping_sample_transpose_report
+            or args.valence4_force_formula_proof_report
+        ):
             repeat_result = run_command(run_command_line)
             deterministic_repeat_match = (
                 repeat_result.returncode == 0
@@ -3543,6 +4876,20 @@ def main() -> int:
                 "not_production_routing": True,
                 "production_route_enabled": False,
                 "proof_only": True,
+                "scientifically_approved": False,
+            }
+        )
+    if args.valence4_force_formula_proof_report:
+        details.update(
+            {
+                "approved_fixture": True,
+                "approved_for_mapping_sample_transpose_proof": True,
+                "deterministic_energy_force_repeat_match": (
+                    deterministic_repeat_match
+                ),
+                "force_formula_proof_only": True,
+                "not_production_routing": True,
+                "production_route_enabled": False,
                 "scientifically_approved": False,
             }
         )
