@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Inventory the proof-only valence-4 scatter/OpenMP shape lane."""
+"""Inventory the proof-only valence-4 production/OpenMP shadow lane."""
 
 from __future__ import annotations
 
@@ -9,76 +9,87 @@ from pathlib import Path
 import subprocess
 
 
-BASE = "ee5b3b34005f4dea9ec50ac738421479cf3b2b9e"
+BASE = "53560800baa7b8a946e833ef63c3578bb3d90a49"
 PROBE = Path("scripts/probe_opensubdiv_feasibility.py")
-RUNNER = Path(
-    "scripts/run_irregular_valence4_opensubdiv_scatter_openmp_proof.py"
+EXPERIMENT = Path(
+    "experiments/irregular_valence4_production_openmp_shadow.cpp"
 )
-WRAPPER = Path(
-    "scripts/run_irregular_valence4_opensubdiv_scatter_openmp_proof.sh"
+RUNNER = Path("scripts/run_irregular_valence4_production_openmp_shadow.py")
+WRAPPER = Path("scripts/run_irregular_valence4_production_openmp_shadow.sh")
+DOC = Path("docs/irregular_valence4_production_openmp_shadow.md")
+TEST = Path(
+    "tests/test_irregular_valence4_production_openmp_shadow_inventory.py"
 )
-DOC = Path("docs/irregular_valence4_scatter_openmp_proof.md")
-TEST = Path("tests/test_irregular_valence4_scatter_openmp_proof_inventory.py")
 
 ALLOWED_PATHS = {
     PROBE,
+    EXPERIMENT,
     RUNNER,
     WRAPPER,
     DOC,
     TEST,
-    Path("scripts/inventory_irregular_valence4_scatter_openmp_proof.py"),
-    Path("scripts/inventory_irregular_valence4_force_formula_proof.py"),
-    Path("docs/irregular_valence4_force_formula_proof.md"),
-    Path("docs/opensubdiv_force_transpose_evidence.md"),
-    Path("scripts/inventory_opensubdiv_force_transpose_evidence.py"),
-    Path("docs/irregular_valence4_production_openmp_shadow.md"),
-    Path("experiments/irregular_valence4_production_openmp_shadow.cpp"),
     Path("scripts/inventory_irregular_valence4_production_openmp_shadow.py"),
-    Path("scripts/run_irregular_valence4_production_openmp_shadow.py"),
-    Path("scripts/run_irregular_valence4_production_openmp_shadow.sh"),
-    Path("tests/test_irregular_valence4_production_openmp_shadow_inventory.py"),
+    Path("scripts/inventory_irregular_valence4_force_formula_proof.py"),
+    Path("scripts/inventory_irregular_valence4_scatter_openmp_proof.py"),
+    Path("docs/irregular_valence4_scatter_openmp_proof.md"),
 }
 
 ANCHORS = {
     PROBE: (
-        "Valence4ScatterOpenMpSummary",
-        "valence4_scatter_openmp_summary",
-        "production_scatter_openmp_shape_proof",
-        "valence4_scatter_layout_oracle_passed",
-        "independent_layout_oracle_passed",
-        "nonzero_face_contribution_count",
-        "all_eight_faces_contribute",
-        "sources_with_multi_face_collisions",
-        "matches_nine_component_scatter_shape",
-        "matches_simulated_serial_openmp_accumulation",
-        "production_topology_one_rings_populated",
-        "real OpenMP runtime or executable parity",
+        "print_valence4_face_force_contributions",
+        "face_force_contributions",
+        "evaluation.faceFBend[face]",
+        "evaluation.faceFArea[face]",
+        "evaluation.faceFVolume[face]",
+    ),
+    EXPERIMENT: (
+        "mesh.setup_from_vertices_faces",
+        "mesh.faces[face].adjacentVertices == facesData[face]",
+        "mesh.faces[face].oneRingVertices.empty()",
+        "actual_production_force_path_executed",
+        "#pragma omp parallel num_threads(requestedThreads)",
+        "#pragma omp for schedule(static)",
+        "omp_set_dynamic(0)",
+        "requested{{1, 2, 3, 4, 8}}",
+        "kRepeats = 5",
+        "kTolerance = 1.0e-12",
+        "long double source-kind-axis before flattening",
+        "independent_exact_index_layout_oracle_passed",
+        "expectedDestination",
+        "run_threads(sentinels, expected, 3)",
+        "uncovered_component_slots",
+        "single_contribution_component_slots",
+        "unexpected_collision_count_component_slots",
+        "collisions[index] != kFaceCount",
+        "actual_openmp_runtime_parity_passed",
     ),
     RUNNER: (
         "run_irregular_valence4_opensubdiv_force_formula_proof.sh",
-        "scatter_openmp_shape_proof_only",
-        "actual_face_one_ring_scatter_proven",
-        "actual_openmp_runtime_proven",
-        "max_serial_simulated_openmp_difference",
+        "face_force_contributions",
+        'run_env["OMP_DYNAMIC"] = "FALSE"',
+        '"production_call_shadow": True',
+        '"actual_production_force_path_executed": False',
+        'shadow.get("collision_counts") == [8] * 54',
+        'shadow.get("unexpected_collision_count_component_slots") == []',
+        '"actual_openmp_runtime_parity_passed": True',
     ),
     WRAPPER: (
-        "run_irregular_valence4_opensubdiv_scatter_openmp_proof.py",
+        "run_irregular_valence4_production_openmp_shadow.py",
     ),
     DOC: (
         "proof_only: true",
-        "scatter_openmp_shape_proof_only: true",
-        "production_route_enabled: false",
-        "scientifically_approved: false",
-        "source_id * 9",
-        "absolute `1e-12` tolerance",
-        "does not invoke an OpenMP runtime",
+        "production_call_shadow: true",
+        "actual_production_force_path_executed: false",
+        "production `Mesh` topology setup",
+        "Requested thread counts `1`, `2`, `3`, `4`, and `8`",
+        "absolute `1e-12`",
+        "does not call the production valence-4 force path",
     ),
     TEST: (
+        "test_inventory_passes_and_scope_is_proof_only",
+        "test_production_topology_and_real_openmp_are_binding",
         "test_dependency_absent_wrapper_skips",
-        "test_present_dependency_scatter_openmp_shape_proof",
-        "sources_with_multi_face_collisions",
-        "independent_layout_oracle_passed",
-        "all_eight_faces_contribute",
+        "test_present_dependency_production_openmp_shadow",
     ),
 }
 
@@ -143,13 +154,13 @@ def collect(root: Path) -> dict[str, object]:
     )
     if unexpected:
         errors.append(
-            "scatter/OpenMP lane changed paths outside its allowlist: "
+            "production/OpenMP shadow changed paths outside its allowlist: "
             + ", ".join(unexpected)
         )
 
     production_paths_changed = any(
         path.startswith(("src/", "include/", "EXEs/", ".github/"))
-        or path == "Makefile"
+        or path in {"Makefile", "scripts/verify_pr_ready.sh"}
         for path in paths
     )
     fixture_csvs_changed = any(
@@ -157,18 +168,18 @@ def collect(root: Path) -> dict[str, object]:
         for path in paths
     )
     if production_paths_changed:
-        errors.append("production/build/runtime paths must remain unchanged")
+        errors.append("production/default build surfaces must remain unchanged")
     if fixture_csvs_changed:
-        errors.append("fixture CSVs must remain unchanged")
+        errors.append("approved fixture CSVs must remain unchanged")
 
     return {
         "status": "passed" if not errors else "failed",
         "exact_base": BASE,
         "proof_only": True,
-        "scatter_openmp_shape_proof_only": True,
+        "production_call_shadow": True,
         "not_production_routing": True,
         "production_route_enabled": False,
-        "scientifically_approved": False,
+        "actual_production_force_path_executed": False,
         "production_paths_changed": production_paths_changed,
         "fixture_csvs_changed": fixture_csvs_changed,
         "changed_paths": paths,
