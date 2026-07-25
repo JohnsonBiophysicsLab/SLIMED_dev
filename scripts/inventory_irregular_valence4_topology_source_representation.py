@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Inventory the proof-only valence-4 topology/source-mapping adapter."""
+"""Inventory the guarded valence-4 topology/source representation."""
 
 from __future__ import annotations
 
@@ -9,43 +9,26 @@ from pathlib import Path
 import subprocess
 
 
-BASE = "913378be89ac2f77f99bcb24141ead2b75b21dbc"
-EXPERIMENT = Path(
-    "experiments/irregular_valence4_topology_source_mapping_adapter.cpp"
+BASE = "0d6f209d3a67ef07962796a84d075499e31d82d0"
+HEADER = Path("include/mesh/Valence4_topology_source_mapping.hpp")
+SOURCE = Path("src/mesh/Valence4_topology_source_mapping.cpp")
+CPP_TEST = Path("tests/test_surface_geometry_characterization.cpp")
+DOC = Path("docs/irregular_valence4_topology_source_representation.md")
+PREDECESSOR_DOC = Path(
+    "docs/irregular_valence4_topology_source_mapping_adapter.md"
 )
-RUNNER = Path(
-    "scripts/run_irregular_valence4_topology_source_mapping_adapter.py"
-)
-WRAPPER = Path(
-    "scripts/run_irregular_valence4_topology_source_mapping_adapter.sh"
-)
-DOC = Path("docs/irregular_valence4_topology_source_mapping_adapter.md")
-PREDECESSOR_DOC = Path("docs/irregular_valence4_production_openmp_shadow.md")
 READINESS = Path("docs/opensubdiv_routing_readiness_map.md")
 TEST = Path(
-    "tests/test_irregular_valence4_topology_source_mapping_adapter_inventory.py"
+    "tests/test_irregular_valence4_topology_source_representation_inventory.py"
 )
 INVENTORY = Path(
-    "scripts/inventory_irregular_valence4_topology_source_mapping_adapter.py"
+    "scripts/inventory_irregular_valence4_topology_source_representation.py"
 )
 
-GUARDED_REPRESENTATION_PATHS = {
-    Path("docs/irregular_valence4_topology_source_representation.md"),
-    Path("include/mesh/Valence4_topology_source_mapping.hpp"),
-    Path("src/mesh/Valence4_topology_source_mapping.cpp"),
-    Path(
-        "scripts/inventory_irregular_valence4_topology_source_representation.py"
-    ),
-    Path(
-        "tests/test_irregular_valence4_topology_source_representation_inventory.py"
-    ),
-    Path("tests/test_surface_geometry_characterization.cpp"),
-}
-
 ALLOWED_PATHS = {
-    EXPERIMENT,
-    RUNNER,
-    WRAPPER,
+    HEADER,
+    SOURCE,
+    CPP_TEST,
     DOC,
     PREDECESSOR_DOC,
     READINESS,
@@ -54,55 +37,56 @@ ALLOWED_PATHS = {
     Path("scripts/inventory_irregular_valence4_force_formula_proof.py"),
     Path("scripts/inventory_irregular_valence4_scatter_openmp_proof.py"),
     Path("scripts/inventory_irregular_valence4_production_openmp_shadow.py"),
-} | GUARDED_REPRESENTATION_PATHS
+    Path(
+        "scripts/inventory_irregular_valence4_topology_source_mapping_adapter.py"
+    ),
+}
 
 ANCHORS = {
-    EXPERIMENT: (
-        "mesh.setup_from_vertices_faces",
-        "derive_source_ids",
-        "mesh.vertices[vertex].adjacentVertices",
-        "mapping.sourceIds != result.derivedSourceIds[faceIndex]",
-        "face.oneRingVertices.empty()",
-        "independent_sentinel_scatter_oracle_passed",
-        "duplicate_source_rejected",
-        "missing_source_rejected",
-        "out_of_range_source_rejected",
-        "oriented_face_mismatch_rejected",
-        "actual_production_force_path_executed",
-        "approved octahedron only; no generic valence-4 route",
+    HEADER: (
+        "Valence4FaceTopologySourceMapping",
+        "Valence4TopologySourceMappingResult",
+        "build_guarded_valence4_topology_source_mapping",
+        "does not populate Face::oneRingVertices",
+        "production force route",
     ),
-    RUNNER: (
-        "run_irregular_valence4_opensubdiv_mapping_proof.sh",
-        "expected_original_fixture_vertex_ids",
-        "source_coverage_union",
-        '"per_face_source_ids") == [expected_sources] * 8',
-        '"production_route_enabled": False',
-        '"actual_production_force_path_executed": False',
+    SOURCE: (
+        "kApprovedVertexCount = 6",
+        "kApprovedFaceCount = 8",
+        "kApprovedOrientedFaces",
+        "vertex.index != sourceId",
+        "vertex.adjacentVertices.size() != 4u",
+        "face.isGhost || face.isBoundary",
+        "!face.oneRingVertices.empty()",
+        "mapping.originalSourceIds != expectedSourceIds",
+        "result.supported = true",
     ),
-    WRAPPER: (
-        "run_irregular_valence4_topology_source_mapping_adapter.py",
+    CPP_TEST: (
+        "ApprovedOctahedronBuildsFaceIndexedOriginalSourceRepresentation",
+        "RejectsIdentityValenceBoundaryAndOneRingContractDrift",
+        "EXPECT_THROW(mesh.calculate_element_area_volume()",
+        'find("canonical face orientation")',
+        'find("11/12-control")',
     ),
     DOC: (
-        "proof_only: true",
-        "topology_source_mapping_adapter_design: true",
-        "not_production_routing: true",
-        "production_route_enabled: false",
-        "scientifically_approved: false",
-        "Face::oneRingVertices",
-        "duplicate, missing, out-of-range, and orientation mutations",
-        "approved octahedron only",
+        "backend-neutral representation",
+        "not consulted by the production energy/force path",
+        "Any mismatch returns `supported=false`",
+        "Production valence-4 route activation remains",
     ),
     PREDECESSOR_DOC: (
-        "proof-only topology/source-mapping adapter design now",
+        "guarded,",
+        "backend-neutral topology/source representation",
     ),
     READINESS: (
-        "topology/source-mapping adapter design",
+        "guarded backend-neutral production representation",
+        "remaining unused by the force path",
+        "Future-only until production-call parity",
     ),
     TEST: (
-        "test_inventory_passes_and_scope_is_proof_only",
-        "test_mapping_and_mutation_gates_are_binding",
-        "test_dependency_absent_wrapper_skips",
-        "test_present_dependency_topology_source_mapping_adapter",
+        "test_inventory_passes_and_scope_is_guarded",
+        "test_representation_is_not_called_by_production_paths",
+        "test_fixture_files_and_default_build_policy_are_unchanged",
     ),
 }
 
@@ -167,37 +151,57 @@ def collect(root: Path) -> dict[str, object]:
     )
     if unexpected:
         errors.append(
-            "topology/source-mapping adapter changed paths outside its "
-            "allowlist: " + ", ".join(unexpected)
+            "valence-4 topology/source representation changed paths outside "
+            "its allowlist: " + ", ".join(unexpected)
         )
 
-    production_paths_changed = any(
-        (
-            path.startswith(("src/", "include/", "EXEs/", ".github/"))
-            or path in {"Makefile", "scripts/verify_pr_ready.sh"}
-        )
-        and Path(path) not in GUARDED_REPRESENTATION_PATHS
+    forbidden_changed = any(
+        path.startswith(("src/energy_force/", "EXEs/", ".github/"))
+        or path
+        in {
+            "Makefile",
+            "scripts/verify_pr_ready.sh",
+            "include/mesh/Mesh.hpp",
+            "include/mesh/Face.hpp",
+        }
         for path in paths
     )
     fixture_csvs_changed = any(
         path.endswith("/vertices.csv") or path.endswith("/faces.csv")
         for path in paths
     )
-    if production_paths_changed:
-        errors.append("production/default build surfaces must remain unchanged")
+    if forbidden_changed:
+        errors.append(
+            "force/default-build/public mesh ownership surfaces must remain "
+            "unchanged"
+        )
     if fixture_csvs_changed:
         errors.append("approved fixture CSVs must remain unchanged")
+
+    production_callers = (
+        Path("src/mesh/Mesh.cpp"),
+        Path("src/mesh/Mesh_setup_geometry.cpp"),
+        Path("src/energy_force/Compute_energy_and_force_on_mesh.cpp"),
+    )
+    route_installed = any(
+        "build_guarded_valence4_topology_source_mapping"
+        in (root / path).read_text(encoding="utf-8")
+        for path in production_callers
+    )
+    if route_installed:
+        errors.append(
+            "guarded valence-4 mapping must remain unused by production paths"
+        )
 
     return {
         "status": "passed" if not errors else "failed",
         "exact_base": BASE,
-        "proof_only": True,
-        "topology_source_mapping_adapter_design": True,
+        "guarded_production_representation": True,
+        "backend_neutral": True,
         "not_production_routing": True,
         "production_route_enabled": False,
-        "scientifically_approved": False,
-        "actual_production_force_path_executed": False,
-        "production_paths_changed": production_paths_changed,
+        "production_callers_changed": forbidden_changed,
+        "route_installed_in_production": route_installed,
         "fixture_csvs_changed": fixture_csvs_changed,
         "changed_paths": paths,
         "anchors": {"located": located, "expected": expected},

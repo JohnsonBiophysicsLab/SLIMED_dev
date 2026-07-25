@@ -18,6 +18,7 @@
 #include "mesh/Limit_surface_evaluator.hpp"
 #include "mesh/Mesh.hpp"
 #include "mesh/OpenSubdiv_regular_evaluator.hpp"
+#include "mesh/Valence4_topology_source_mapping.hpp"
 
 namespace
 {
@@ -2013,6 +2014,110 @@ TEST(SurfaceIrregularFixtureCharacterization,
                              2.0 * sentinel);
         }
     }
+}
+
+TEST(ValenceFourTopologySourceMapping,
+     ApprovedOctahedronBuildsFaceIndexedOriginalSourceRepresentation)
+{
+    Param param;
+    param.VERBOSE_MODE = false;
+    param.boundaryCondition = BoundaryType::Fixed;
+    param.subDivideTimes = 2;
+
+    const auto verticesData = read_data_from_csv<double>(
+        "./data/fixtures/candidates/closed_valence4_octahedron/vertices.csv");
+    const auto facesData = read_data_from_csv<int>(
+        "./data/fixtures/candidates/closed_valence4_octahedron/faces.csv");
+    Mesh mesh(param);
+    mesh.setup_from_vertices_faces(verticesData, facesData);
+
+    const Valence4TopologySourceMappingResult result =
+        build_guarded_valence4_topology_source_mapping(mesh);
+    ASSERT_TRUE(result.supported) << result.rejectionReason;
+    EXPECT_TRUE(result.rejectionReason.empty());
+    ASSERT_EQ(result.byFace.size(), mesh.faces.size());
+
+    const std::vector<int> expectedSourceIds{0, 1, 2, 3, 4, 5};
+    for (const Face &face : mesh.faces)
+    {
+        ASSERT_TRUE(face.oneRingVertices.empty());
+        const Valence4FaceTopologySourceMapping &mapping =
+            result.byFace[face.index];
+        EXPECT_EQ(mapping.faceIndex, face.index);
+        ASSERT_EQ(face.adjacentVertices.size(), 3u);
+        for (int corner = 0; corner < 3; ++corner)
+        {
+            EXPECT_EQ(mapping.orientedFaceVertices[corner],
+                      face.adjacentVertices[corner]);
+        }
+        EXPECT_EQ(mapping.originalSourceIds, expectedSourceIds);
+    }
+
+    for (const Face &face : mesh.faces)
+    {
+        EXPECT_TRUE(face.oneRingVertices.empty());
+    }
+    EXPECT_THROW(mesh.calculate_element_area_volume(), std::runtime_error);
+}
+
+TEST(ValenceFourTopologySourceMapping,
+     RejectsIdentityValenceBoundaryAndOneRingContractDrift)
+{
+    Param param;
+    param.VERBOSE_MODE = false;
+    param.boundaryCondition = BoundaryType::Fixed;
+    param.subDivideTimes = 2;
+
+    const auto verticesData = read_data_from_csv<double>(
+        "./data/fixtures/candidates/closed_valence4_octahedron/vertices.csv");
+    const auto facesData = read_data_from_csv<int>(
+        "./data/fixtures/candidates/closed_valence4_octahedron/faces.csv");
+    Mesh mesh(param);
+    mesh.setup_from_vertices_faces(verticesData, facesData);
+
+    mesh.vertices[0].index = 5;
+    Valence4TopologySourceMappingResult result =
+        build_guarded_valence4_topology_source_mapping(mesh);
+    EXPECT_FALSE(result.supported);
+    EXPECT_NE(result.rejectionReason.find("original source ids"),
+              std::string::npos);
+    EXPECT_TRUE(result.byFace.empty());
+    mesh.vertices[0].index = 0;
+
+    const std::vector<int> originalAdjacency =
+        mesh.vertices[0].adjacentVertices;
+    mesh.vertices[0].adjacentVertices.pop_back();
+    result = build_guarded_valence4_topology_source_mapping(mesh);
+    EXPECT_FALSE(result.supported);
+    EXPECT_NE(result.rejectionReason.find("valence four"),
+              std::string::npos);
+    EXPECT_TRUE(result.byFace.empty());
+    mesh.vertices[0].adjacentVertices = originalAdjacency;
+
+    mesh.faces[0].isBoundary = true;
+    result = build_guarded_valence4_topology_source_mapping(mesh);
+    EXPECT_FALSE(result.supported);
+    EXPECT_NE(result.rejectionReason.find("closed physical faces"),
+              std::string::npos);
+    EXPECT_TRUE(result.byFace.empty());
+    mesh.faces[0].isBoundary = false;
+
+    std::swap(mesh.faces[0].adjacentVertices[1],
+              mesh.faces[0].adjacentVertices[2]);
+    result = build_guarded_valence4_topology_source_mapping(mesh);
+    EXPECT_FALSE(result.supported);
+    EXPECT_NE(result.rejectionReason.find("canonical face orientation"),
+              std::string::npos);
+    EXPECT_TRUE(result.byFace.empty());
+    std::swap(mesh.faces[0].adjacentVertices[1],
+              mesh.faces[0].adjacentVertices[2]);
+
+    mesh.faces[0].oneRingVertices = {0, 1, 2, 3, 4, 5};
+    result = build_guarded_valence4_topology_source_mapping(mesh);
+    EXPECT_FALSE(result.supported);
+    EXPECT_NE(result.rejectionReason.find("11/12-control"),
+              std::string::npos);
+    EXPECT_TRUE(result.byFace.empty());
 }
 
 TEST(OpenSubdivRegularProductionRoutingGuard,
