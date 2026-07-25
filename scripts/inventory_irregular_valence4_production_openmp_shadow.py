@@ -32,6 +32,13 @@ ALLOWED_PATHS = {
     Path("scripts/inventory_irregular_valence4_force_formula_proof.py"),
     Path("scripts/inventory_irregular_valence4_scatter_openmp_proof.py"),
     Path("docs/irregular_valence4_scatter_openmp_proof.md"),
+    Path("docs/irregular_valence4_topology_source_mapping_adapter.md"),
+    Path("docs/opensubdiv_routing_readiness_map.md"),
+    Path("experiments/irregular_valence4_topology_source_mapping_adapter.cpp"),
+    Path("scripts/inventory_irregular_valence4_topology_source_mapping_adapter.py"),
+    Path("scripts/run_irregular_valence4_topology_source_mapping_adapter.py"),
+    Path("scripts/run_irregular_valence4_topology_source_mapping_adapter.sh"),
+    Path("tests/test_irregular_valence4_topology_source_mapping_adapter_inventory.py"),
 }
 
 ANCHORS = {

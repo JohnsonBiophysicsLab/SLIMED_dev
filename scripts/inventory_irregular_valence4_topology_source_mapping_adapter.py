@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Inventory the proof-only valence-4 scatter/OpenMP shape lane."""
+"""Inventory the proof-only valence-4 topology/source-mapping adapter."""
 
 from __future__ import annotations
 
@@ -9,83 +9,87 @@ from pathlib import Path
 import subprocess
 
 
-BASE = "ee5b3b34005f4dea9ec50ac738421479cf3b2b9e"
-PROBE = Path("scripts/probe_opensubdiv_feasibility.py")
+BASE = "913378be89ac2f77f99bcb24141ead2b75b21dbc"
+EXPERIMENT = Path(
+    "experiments/irregular_valence4_topology_source_mapping_adapter.cpp"
+)
 RUNNER = Path(
-    "scripts/run_irregular_valence4_opensubdiv_scatter_openmp_proof.py"
+    "scripts/run_irregular_valence4_topology_source_mapping_adapter.py"
 )
 WRAPPER = Path(
-    "scripts/run_irregular_valence4_opensubdiv_scatter_openmp_proof.sh"
+    "scripts/run_irregular_valence4_topology_source_mapping_adapter.sh"
 )
-DOC = Path("docs/irregular_valence4_scatter_openmp_proof.md")
-TEST = Path("tests/test_irregular_valence4_scatter_openmp_proof_inventory.py")
+DOC = Path("docs/irregular_valence4_topology_source_mapping_adapter.md")
+PREDECESSOR_DOC = Path("docs/irregular_valence4_production_openmp_shadow.md")
+READINESS = Path("docs/opensubdiv_routing_readiness_map.md")
+TEST = Path(
+    "tests/test_irregular_valence4_topology_source_mapping_adapter_inventory.py"
+)
+INVENTORY = Path(
+    "scripts/inventory_irregular_valence4_topology_source_mapping_adapter.py"
+)
 
 ALLOWED_PATHS = {
-    PROBE,
+    EXPERIMENT,
     RUNNER,
     WRAPPER,
     DOC,
+    PREDECESSOR_DOC,
+    READINESS,
     TEST,
-    Path("scripts/inventory_irregular_valence4_scatter_openmp_proof.py"),
+    INVENTORY,
     Path("scripts/inventory_irregular_valence4_force_formula_proof.py"),
-    Path("docs/irregular_valence4_force_formula_proof.md"),
-    Path("docs/opensubdiv_force_transpose_evidence.md"),
-    Path("scripts/inventory_opensubdiv_force_transpose_evidence.py"),
-    Path("docs/irregular_valence4_production_openmp_shadow.md"),
-    Path("experiments/irregular_valence4_production_openmp_shadow.cpp"),
+    Path("scripts/inventory_irregular_valence4_scatter_openmp_proof.py"),
     Path("scripts/inventory_irregular_valence4_production_openmp_shadow.py"),
-    Path("scripts/run_irregular_valence4_production_openmp_shadow.py"),
-    Path("scripts/run_irregular_valence4_production_openmp_shadow.sh"),
-    Path("tests/test_irregular_valence4_production_openmp_shadow_inventory.py"),
-    Path("docs/irregular_valence4_topology_source_mapping_adapter.md"),
-    Path("docs/opensubdiv_routing_readiness_map.md"),
-    Path("experiments/irregular_valence4_topology_source_mapping_adapter.cpp"),
-    Path("scripts/inventory_irregular_valence4_topology_source_mapping_adapter.py"),
-    Path("scripts/run_irregular_valence4_topology_source_mapping_adapter.py"),
-    Path("scripts/run_irregular_valence4_topology_source_mapping_adapter.sh"),
-    Path("tests/test_irregular_valence4_topology_source_mapping_adapter_inventory.py"),
 }
 
 ANCHORS = {
-    PROBE: (
-        "Valence4ScatterOpenMpSummary",
-        "valence4_scatter_openmp_summary",
-        "production_scatter_openmp_shape_proof",
-        "valence4_scatter_layout_oracle_passed",
-        "independent_layout_oracle_passed",
-        "nonzero_face_contribution_count",
-        "all_eight_faces_contribute",
-        "sources_with_multi_face_collisions",
-        "matches_nine_component_scatter_shape",
-        "matches_simulated_serial_openmp_accumulation",
-        "production_topology_one_rings_populated",
-        "real OpenMP runtime or executable parity",
+    EXPERIMENT: (
+        "mesh.setup_from_vertices_faces",
+        "derive_source_ids",
+        "mesh.vertices[vertex].adjacentVertices",
+        "mapping.sourceIds != result.derivedSourceIds[faceIndex]",
+        "face.oneRingVertices.empty()",
+        "independent_sentinel_scatter_oracle_passed",
+        "duplicate_source_rejected",
+        "missing_source_rejected",
+        "out_of_range_source_rejected",
+        "oriented_face_mismatch_rejected",
+        "actual_production_force_path_executed",
+        "approved octahedron only; no generic valence-4 route",
     ),
     RUNNER: (
-        "run_irregular_valence4_opensubdiv_force_formula_proof.sh",
-        "scatter_openmp_shape_proof_only",
-        "actual_face_one_ring_scatter_proven",
-        "actual_openmp_runtime_proven",
-        "max_serial_simulated_openmp_difference",
+        "run_irregular_valence4_opensubdiv_mapping_proof.sh",
+        "expected_original_fixture_vertex_ids",
+        "source_coverage_union",
+        '"per_face_source_ids") == [expected_sources] * 8',
+        '"production_route_enabled": False',
+        '"actual_production_force_path_executed": False',
     ),
     WRAPPER: (
-        "run_irregular_valence4_opensubdiv_scatter_openmp_proof.py",
+        "run_irregular_valence4_topology_source_mapping_adapter.py",
     ),
     DOC: (
         "proof_only: true",
-        "scatter_openmp_shape_proof_only: true",
+        "topology_source_mapping_adapter_design: true",
+        "not_production_routing: true",
         "production_route_enabled: false",
         "scientifically_approved: false",
-        "source_id * 9",
-        "absolute `1e-12` tolerance",
-        "does not invoke an OpenMP runtime",
+        "Face::oneRingVertices",
+        "duplicate, missing, out-of-range, and orientation mutations",
+        "approved octahedron only",
+    ),
+    PREDECESSOR_DOC: (
+        "proof-only topology/source-mapping adapter design now",
+    ),
+    READINESS: (
+        "topology/source-mapping adapter design",
     ),
     TEST: (
+        "test_inventory_passes_and_scope_is_proof_only",
+        "test_mapping_and_mutation_gates_are_binding",
         "test_dependency_absent_wrapper_skips",
-        "test_present_dependency_scatter_openmp_shape_proof",
-        "sources_with_multi_face_collisions",
-        "independent_layout_oracle_passed",
-        "all_eight_faces_contribute",
+        "test_present_dependency_topology_source_mapping_adapter",
     ),
 }
 
@@ -150,13 +154,13 @@ def collect(root: Path) -> dict[str, object]:
     )
     if unexpected:
         errors.append(
-            "scatter/OpenMP lane changed paths outside its allowlist: "
-            + ", ".join(unexpected)
+            "topology/source-mapping adapter changed paths outside its "
+            "allowlist: " + ", ".join(unexpected)
         )
 
     production_paths_changed = any(
         path.startswith(("src/", "include/", "EXEs/", ".github/"))
-        or path == "Makefile"
+        or path in {"Makefile", "scripts/verify_pr_ready.sh"}
         for path in paths
     )
     fixture_csvs_changed = any(
@@ -164,18 +168,19 @@ def collect(root: Path) -> dict[str, object]:
         for path in paths
     )
     if production_paths_changed:
-        errors.append("production/build/runtime paths must remain unchanged")
+        errors.append("production/default build surfaces must remain unchanged")
     if fixture_csvs_changed:
-        errors.append("fixture CSVs must remain unchanged")
+        errors.append("approved fixture CSVs must remain unchanged")
 
     return {
         "status": "passed" if not errors else "failed",
         "exact_base": BASE,
         "proof_only": True,
-        "scatter_openmp_shape_proof_only": True,
+        "topology_source_mapping_adapter_design": True,
         "not_production_routing": True,
         "production_route_enabled": False,
         "scientifically_approved": False,
+        "actual_production_force_path_executed": False,
         "production_paths_changed": production_paths_changed,
         "fixture_csvs_changed": fixture_csvs_changed,
         "changed_paths": paths,
