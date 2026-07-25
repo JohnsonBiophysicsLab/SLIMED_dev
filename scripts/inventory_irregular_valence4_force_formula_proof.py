@@ -37,6 +37,13 @@ ALLOWED_PATHS = {
     Path("scripts/run_irregular_valence4_production_openmp_shadow.py"),
     Path("scripts/run_irregular_valence4_production_openmp_shadow.sh"),
     Path("tests/test_irregular_valence4_production_openmp_shadow_inventory.py"),
+    Path("docs/irregular_valence4_topology_source_mapping_adapter.md"),
+    Path("docs/opensubdiv_routing_readiness_map.md"),
+    Path("experiments/irregular_valence4_topology_source_mapping_adapter.cpp"),
+    Path("scripts/inventory_irregular_valence4_topology_source_mapping_adapter.py"),
+    Path("scripts/run_irregular_valence4_topology_source_mapping_adapter.py"),
+    Path("scripts/run_irregular_valence4_topology_source_mapping_adapter.sh"),
+    Path("tests/test_irregular_valence4_topology_source_mapping_adapter_inventory.py"),
 }
 
 ANCHORS = {

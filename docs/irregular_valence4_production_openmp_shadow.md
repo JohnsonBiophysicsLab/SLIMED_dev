@@ -96,7 +96,8 @@ path does not exist. In particular, it does not:
 - change default build/dependency behavior;
 - change checkpoint, output, propagation, or fixture files.
 
-The remaining work is a separately reviewed topology-adapter design for
-valence-4 source mappings. Only after that mapping is represented in a guarded
-production-call path can real production serial/OpenMP parity and route
-readiness be evaluated.
+The separately reviewed proof-only topology/source-mapping adapter design now
+binds production octahedron topology identity to OpenSubdiv original source
+IDs without populating `Face::oneRingVertices`. A later guarded production
+representation must preserve that contract before real production
+serial/OpenMP parity and route readiness can be evaluated.
