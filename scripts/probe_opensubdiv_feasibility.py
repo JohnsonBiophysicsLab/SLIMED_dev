@@ -4323,6 +4323,46 @@ static bool print_valence4_force_formula_proof(MeshCase const &mesh) {
     std::cout << ",\"coordinate_mapping\":\"s=v,t=w,u=1-v-w\"";
     std::cout << ",\"seven_row_order\":[\"value\",\"du\",\"dv\","
                  "\"duu\",\"dvv\",\"duv\",\"duv\"]";
+    std::cout << ",\"fresh_opensubdiv_row_binding\":{";
+    std::cout << "\"generated_in_this_process\":true";
+    std::cout << ",\"face_count\":" << kFaces;
+    std::cout << ",\"samples_per_face\":" << kSamplesPerFace;
+    std::cout << ",\"row_count\":7";
+    std::cout << ",\"source_count\":6";
+    std::cout << ",\"tensor_shape\":\"8 faces x 3 samples x 7 rows x 6 sources\"";
+    std::cout << ",\"faces\":[";
+    for (int face = 0; face < kFaces; ++face) {
+        if (face > 0) {
+            std::cout << ",";
+        }
+        std::cout << "{\"face\":" << face << ",\"samples\":[";
+        for (int sampleIndex = 0;
+             sampleIndex < kSamplesPerFace;
+             ++sampleIndex) {
+            if (sampleIndex > 0) {
+                std::cout << ",";
+            }
+            Valence4ProofSample const &sample =
+                directSamples[face * kSamplesPerFace + sampleIndex];
+            std::cout << "{\"sample\":" << sample.sample << ",\"rows\":[";
+            for (int row = 0; row < 7; ++row) {
+                if (row > 0) {
+                    std::cout << ",";
+                }
+                std::cout << "[";
+                for (int sourceId = 0; sourceId < 6; ++sourceId) {
+                    if (sourceId > 0) {
+                        std::cout << ",";
+                    }
+                    std::cout << sample.rows[row][sourceId];
+                }
+                std::cout << "]";
+            }
+            std::cout << "]}";
+        }
+        std::cout << "]}";
+    }
+    std::cout << "]}";
     std::cout << ",\"mixed_derivative_policy\":\"OpenSubdiv duv "
                  "is duplicated into both proof mixed rows\"";
     std::cout << ",\"per_face_samples\":[";

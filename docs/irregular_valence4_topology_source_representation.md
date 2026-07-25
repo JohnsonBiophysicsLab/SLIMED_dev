@@ -45,7 +45,8 @@ This lane does not:
 - change checkpoint, output, or propagation behavior; or
 - approve any topology beyond the canonical octahedron.
 
-The next separately reviewed step is a production-call parity proof that
-combines this guarded source representation with the existing proof-only
-OpenSubdiv valence-4 rows. Production valence-4 route activation remains
-unapproved.
+The successor production-call boundary proof combines this guarded source
+representation with freshly generated proof-only OpenSubdiv valence-4 rows.
+It confirms that the current production entry rejects before mutation rather
+than padding six sources into the 12-control regular kernel. Production
+valence-4 route activation remains unapproved.

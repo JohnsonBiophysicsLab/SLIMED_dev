@@ -52,6 +52,12 @@ ALLOWED_PATHS = {
     Path("scripts/run_irregular_valence4_topology_source_mapping_adapter.py"),
     Path("scripts/run_irregular_valence4_topology_source_mapping_adapter.sh"),
     Path("tests/test_irregular_valence4_topology_source_mapping_adapter_inventory.py"),
+    Path("docs/irregular_valence4_production_call_parity.md"),
+    Path("experiments/irregular_valence4_production_call_parity.cpp"),
+    Path("scripts/inventory_irregular_valence4_production_call_parity.py"),
+    Path("scripts/run_irregular_valence4_production_call_parity.py"),
+    Path("scripts/run_irregular_valence4_production_call_parity.sh"),
+    Path("tests/test_irregular_valence4_production_call_parity_inventory.py"),
 } | GUARDED_REPRESENTATION_PATHS
 
 ANCHORS = {
