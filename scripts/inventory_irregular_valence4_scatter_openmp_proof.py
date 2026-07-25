@@ -20,6 +20,19 @@ WRAPPER = Path(
 DOC = Path("docs/irregular_valence4_scatter_openmp_proof.md")
 TEST = Path("tests/test_irregular_valence4_scatter_openmp_proof_inventory.py")
 
+GUARDED_REPRESENTATION_PATHS = {
+    Path("docs/irregular_valence4_topology_source_representation.md"),
+    Path("include/mesh/Valence4_topology_source_mapping.hpp"),
+    Path("src/mesh/Valence4_topology_source_mapping.cpp"),
+    Path(
+        "scripts/inventory_irregular_valence4_topology_source_representation.py"
+    ),
+    Path(
+        "tests/test_irregular_valence4_topology_source_representation_inventory.py"
+    ),
+    Path("tests/test_surface_geometry_characterization.cpp"),
+}
+
 ALLOWED_PATHS = {
     PROBE,
     RUNNER,
@@ -44,7 +57,7 @@ ALLOWED_PATHS = {
     Path("scripts/run_irregular_valence4_topology_source_mapping_adapter.py"),
     Path("scripts/run_irregular_valence4_topology_source_mapping_adapter.sh"),
     Path("tests/test_irregular_valence4_topology_source_mapping_adapter_inventory.py"),
-}
+} | GUARDED_REPRESENTATION_PATHS
 
 ANCHORS = {
     PROBE: (
@@ -155,8 +168,11 @@ def collect(root: Path) -> dict[str, object]:
         )
 
     production_paths_changed = any(
-        path.startswith(("src/", "include/", "EXEs/", ".github/"))
-        or path == "Makefile"
+        (
+            path.startswith(("src/", "include/", "EXEs/", ".github/"))
+            or path == "Makefile"
+        )
+        and Path(path) not in GUARDED_REPRESENTATION_PATHS
         for path in paths
     )
     fixture_csvs_changed = any(

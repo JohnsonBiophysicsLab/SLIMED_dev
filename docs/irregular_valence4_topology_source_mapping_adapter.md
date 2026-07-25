@@ -62,6 +62,8 @@ This is an adapter design proof for the approved octahedron only. It does not:
 - change checkpoint, output, propagation, or fixture files; or
 - establish scientific equivalence for broader-valence meshes.
 
-The next production-facing step, if separately approved, is a guarded
-topology/source-mapping representation that preserves these rejection and
-fallback boundaries. Production valence-4 routing remains unapproved.
+The next production-facing step was separately approved as a guarded,
+backend-neutral topology/source representation. It preserves these rejection
+and fallback boundaries, remains separate from `Face::oneRingVertices`, and is
+not called by the production force path. Production valence-4 routing remains
+unapproved.
