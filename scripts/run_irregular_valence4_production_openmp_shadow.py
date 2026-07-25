@@ -234,9 +234,12 @@ def main() -> int:
         and shadow.get("independent_exact_index_layout_oracle_passed")
         and shadow.get("nonzero_face_contribution_count") == 8
         and shadow.get("all_face_contributions_finite")
+        and shadow.get("expected_collision_count_per_component") == 8
+        and shadow.get("collision_counts") == [8] * 54
         and shadow.get("collision_coverage_passed")
         and shadow.get("uncovered_component_slots") == []
         and shadow.get("single_contribution_component_slots") == []
+        and shadow.get("unexpected_collision_count_component_slots") == []
         and shadow.get("actual_openmp_runtime_parity_passed")
         and shadow.get("absolute_tolerance") == 1.0e-12
     )

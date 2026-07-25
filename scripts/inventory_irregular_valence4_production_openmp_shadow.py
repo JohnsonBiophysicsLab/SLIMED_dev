@@ -55,8 +55,12 @@ ANCHORS = {
         "kTolerance = 1.0e-12",
         "long double source-kind-axis before flattening",
         "independent_exact_index_layout_oracle_passed",
+        "expectedDestination",
+        "run_threads(sentinels, expected, 3)",
         "uncovered_component_slots",
         "single_contribution_component_slots",
+        "unexpected_collision_count_component_slots",
+        "collisions[index] != kFaceCount",
         "actual_openmp_runtime_parity_passed",
     ),
     RUNNER: (
@@ -65,6 +69,8 @@ ANCHORS = {
         'run_env["OMP_DYNAMIC"] = "FALSE"',
         '"production_call_shadow": True',
         '"actual_production_force_path_executed": False',
+        'shadow.get("collision_counts") == [8] * 54',
+        'shadow.get("unexpected_collision_count_component_slots") == []',
         '"actual_openmp_runtime_parity_passed": True',
     ),
     WRAPPER: (

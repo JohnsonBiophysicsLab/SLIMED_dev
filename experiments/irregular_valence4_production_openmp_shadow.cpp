@@ -91,37 +91,6 @@ bool read_contributions(const std::string &path, Contributions &values)
     return !(input >> extra);
 }
 
-bool exact_layout_oracle_passed()
-{
-    std::array<double, kComponents> packed{};
-    for (int source = 0; source < kSourceCount; ++source)
-    {
-        for (int kind = 0; kind < kForceKinds; ++kind)
-        {
-            for (int axis = 0; axis < kAxes; ++axis)
-            {
-                const double sentinel =
-                    10000.0 * (kind + 1) + 100.0 * source + axis;
-                packed[flat_index(source, kind, axis)] = sentinel;
-            }
-        }
-    }
-    for (int destination = 0; destination < kComponents; ++destination)
-    {
-        const int source = destination / 9;
-        const int local = destination % 9;
-        const int kind = local / 3;
-        const int axis = local % 3;
-        const double expected =
-            10000.0 * (kind + 1) + 100.0 * source + axis;
-        if (packed[destination] != expected)
-        {
-            return false;
-        }
-    }
-    return true;
-}
-
 Oracle accumulate_oracle(const Contributions &values)
 {
     Oracle oracle{};
@@ -153,7 +122,9 @@ std::array<double, kComponents> flatten_oracle(const Oracle &oracle)
         {
             for (int axis = 0; axis < kAxes; ++axis)
             {
-                flattened[flat_index(source, kind, axis)] =
+                const int destination =
+                    source * (kForceKinds * kAxes) + kind * kAxes + axis;
+                flattened[destination] =
                     static_cast<double>(oracle[source][kind][axis]);
             }
         }
@@ -318,6 +289,39 @@ ThreadRun run_threads(const Contributions &values,
     return summary;
 }
 
+bool exact_layout_oracle_passed()
+{
+    Contributions sentinels{};
+    std::array<double, kComponents> expected{};
+    for (int face = 0; face < kFaceCount; ++face)
+    {
+        for (int source = 0; source < kSourceCount; ++source)
+        {
+            for (int kind = 0; kind < kForceKinds; ++kind)
+            {
+                for (int axis = 0; axis < kAxes; ++axis)
+                {
+                    const double sentinel =
+                        1000000.0 * face + 10000.0 * (kind + 1) +
+                        100.0 * source + axis + 1.0;
+                    sentinels[face][source][kind][axis] = sentinel;
+
+                    // This expected destination intentionally does not use
+                    // flat_index(), which belongs to the shadow path.
+                    const int expectedDestination =
+                        source * (kForceKinds * kAxes) +
+                        kind * kAxes + axis;
+                    expected[expectedDestination] += sentinel;
+                }
+            }
+        }
+    }
+
+    const ThreadRun sentinelRun = run_threads(sentinels, expected, 3);
+    return sentinelRun.passed && sentinelRun.maxOracleDelta == 0.0 &&
+           sentinelRun.maxRepeatDelta == 0.0;
+}
+
 void print_int_array(const std::vector<int> &values)
 {
     std::cout << '[';
@@ -433,6 +437,7 @@ int main(int argc, char **argv)
         collision_counts(contributions);
     std::vector<int> uncoveredSlots;
     std::vector<int> singleContributionSlots;
+    std::vector<int> unexpectedCollisionCountSlots;
     for (int index = 0; index < kComponents; ++index)
     {
         if (collisions[index] == 0)
@@ -442,6 +447,10 @@ int main(int argc, char **argv)
         else if (collisions[index] == 1)
         {
             singleContributionSlots.push_back(index);
+        }
+        if (collisions[index] != kFaceCount)
+        {
+            unexpectedCollisionCountSlots.push_back(index);
         }
     }
 
@@ -457,11 +466,11 @@ int main(int argc, char **argv)
 
     const bool finite = all_finite(contributions);
     const int contributingFaces = nonzero_face_count(contributions);
-    const bool collisionCoverage =
-        uncoveredSlots.empty() && singleContributionSlots.empty();
+    const bool collisionCoverage = unexpectedCollisionCountSlots.empty();
+    const bool layoutOraclePassed = exact_layout_oracle_passed();
     const bool passed =
         topologyIdentity && productionOneRingsEmpty &&
-        exact_layout_oracle_passed() && finite &&
+        layoutOraclePassed && finite &&
         contributingFaces == kFaceCount &&
         collisionCoverage && openMpPassed;
 
@@ -497,7 +506,7 @@ int main(int argc, char **argv)
     std::cout << "\"force_buffer_shape\":\"6 sources x 9 components\",";
     std::cout << "\"total_force_components\":" << kComponents << ',';
     std::cout << "\"independent_exact_index_layout_oracle_passed\":"
-              << (exact_layout_oracle_passed() ? "true" : "false") << ',';
+              << (layoutOraclePassed ? "true" : "false") << ',';
     std::cout << "\"independent_accumulator\":"
                  "\"long double source-kind-axis before flattening\",";
     std::cout << "\"face_contribution_count\":" << kFaceCount << ',';
@@ -518,6 +527,10 @@ int main(int argc, char **argv)
     print_int_array(uncoveredSlots);
     std::cout << ",\"single_contribution_component_slots\":";
     print_int_array(singleContributionSlots);
+    std::cout << ",\"unexpected_collision_count_component_slots\":";
+    print_int_array(unexpectedCollisionCountSlots);
+    std::cout << ",\"expected_collision_count_per_component\":"
+              << kFaceCount;
     std::cout << ",\"collision_coverage_passed\":"
               << (collisionCoverage ? "true" : "false") << ',';
     std::cout << "\"absolute_tolerance\":" << kTolerance << ',';

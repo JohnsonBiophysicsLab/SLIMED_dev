@@ -51,9 +51,16 @@ class ValenceFourProductionOpenMpShadowInventoryTest(unittest.TestCase):
         passed_source = source[passed_start:output_start]
         self.assertIn("topologyIdentity", passed_source)
         self.assertIn("productionOneRingsEmpty", passed_source)
-        self.assertIn("exact_layout_oracle_passed()", passed_source)
+        self.assertIn("layoutOraclePassed", passed_source)
         self.assertIn("collisionCoverage", passed_source)
         self.assertIn("openMpPassed", passed_source)
+        oracle_start = source.index("bool exact_layout_oracle_passed()")
+        oracle_end = source.index("void print_int_array", oracle_start)
+        oracle_source = source[oracle_start:oracle_end]
+        self.assertIn("run_threads(sentinels, expected, 3)", oracle_source)
+        self.assertIn("expectedDestination", oracle_source)
+        self.assertNotIn("expected[flat_index(", oracle_source)
+        self.assertIn("collisions[index] != kFaceCount", source)
         self.assertIn("#pragma omp parallel num_threads(requestedThreads)", source)
         self.assertIn("#pragma omp for schedule(static)", source)
         self.assertIn("omp_set_dynamic(0)", source)
@@ -107,8 +114,13 @@ class ValenceFourProductionOpenMpShadowInventoryTest(unittest.TestCase):
         self.assertTrue(shadow["production_one_rings_expected_empty"])
         self.assertTrue(shadow["independent_exact_index_layout_oracle_passed"])
         self.assertEqual(shadow["nonzero_face_contribution_count"], 8)
+        self.assertEqual(shadow["expected_collision_count_per_component"], 8)
+        self.assertEqual(shadow["collision_counts"], [8] * 54)
         self.assertEqual(shadow["uncovered_component_slots"], [])
         self.assertEqual(shadow["single_contribution_component_slots"], [])
+        self.assertEqual(
+            shadow["unexpected_collision_count_component_slots"], []
+        )
         self.assertEqual(
             [run["requested_threads"] for run in shadow["thread_runs"]],
             [1, 2, 3, 4, 8],

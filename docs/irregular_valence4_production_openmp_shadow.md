@@ -79,8 +79,11 @@ Observed maximum oracle deltas were:
 
 All five repeats were identical for every requested thread count. All eight
 faces contributed finite, nonzero rows. Every one of the 54 destination
-components received contributions from all eight faces, so there were no
-uncovered or single-contribution component slots.
+components received contributions from all eight faces. The proof gate requires
+each per-component collision count to equal eight; zero, one, or any other
+count fails. The expected 54-slot sentinel vector is built without the shadow
+path's `flat_index()` helper and is passed through the actual OpenMP shadow
+scatter/reduction path.
 
 ## Boundary
 
