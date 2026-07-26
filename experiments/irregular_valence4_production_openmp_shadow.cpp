@@ -1,3 +1,4 @@
+#include "energy_force/Source_keyed_kernel_call.hpp"
 #include "io/io.hpp"
 #include "mesh/Mesh.hpp"
 
@@ -12,6 +13,7 @@
 #include <limits>
 #include <sstream>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace
@@ -28,9 +30,28 @@ using SourceVector = std::array<double, kAxes>;
 using ForceKinds = std::array<SourceVector, kForceKinds>;
 using FaceForces = std::array<ForceKinds, kSourceCount>;
 using Contributions = std::array<FaceForces, kFaceCount>;
+using slimed::source_keyed_kernel::PreparedSourceKeyedFace;
+using slimed::source_keyed_kernel::SourceForceComponentBuffer;
+using slimed::source_keyed_kernel::SourceForceKinds;
 using Oracle = std::array<
     std::array<std::array<long double, kAxes>, kForceKinds>,
     kSourceCount>;
+
+std::vector<PreparedSourceKeyedFace> prepared_faces(
+    const Contributions &values)
+{
+    std::vector<PreparedSourceKeyedFace> faces(kFaceCount);
+    for (int face = 0; face < kFaceCount; ++face)
+    {
+        PreparedSourceKeyedFace &prepared = faces[face];
+        prepared.mapping.faceIndex = face;
+        prepared.mapping.originalSourceIds =
+            std::vector<int>{0, 1, 2, 3, 4, 5};
+        prepared.mapping.productionOneRingEmpty = true;
+        prepared.forces.assign(values[face].begin(), values[face].end());
+    }
+    return faces;
+}
 
 class ScopedCoutSilencer
 {
@@ -217,12 +238,15 @@ ThreadRun run_threads(const Contributions &values,
     summary.requestedThreads = requestedThreads;
     std::array<double, kComponents> first{};
     bool haveFirst = false;
+    const std::vector<PreparedSourceKeyedFace> faces =
+        prepared_faces(values);
 
     omp_set_dynamic(0);
     for (int repeat = 0; repeat < kRepeats; ++repeat)
     {
-        std::vector<std::array<double, kComponents>> threadBuffers(
-            requestedThreads);
+        std::vector<SourceForceComponentBuffer> threadBuffers(
+            requestedThreads,
+            SourceForceComponentBuffer(kComponents, 0.0));
         int actualThreads = 0;
 #pragma omp parallel num_threads(requestedThreads)
         {
@@ -232,24 +256,21 @@ ThreadRun run_threads(const Contributions &values,
             for (int face = 0; face < kFaceCount; ++face)
             {
                 const int thread = omp_get_thread_num();
-                for (int source = 0; source < kSourceCount; ++source)
-                {
-                    for (int kind = 0; kind < kForceKinds; ++kind)
-                    {
-                        for (int axis = 0; axis < kAxes; ++axis)
-                        {
-                            threadBuffers[thread][flat_index(
-                                source, kind, axis)] +=
-                                values[face][source][kind][axis];
-                        }
-                    }
-                }
+                slimed::source_keyed_kernel::
+                    scatter_source_keyed_face_forces_to_component_buffer(
+                        faces[face],
+                        kSourceCount,
+                        threadBuffers[thread]);
             }
         }
         summary.actualThreads[repeat] = actualThreads;
         summary.passed =
             summary.passed && actualThreads == requestedThreads;
 
+        const std::vector<SourceForceKinds> sourceForces =
+            slimed::source_keyed_kernel::
+                reduce_source_keyed_force_component_buffers(
+                    threadBuffers, kSourceCount);
         std::array<double, kComponents> reduced{};
         for (int source = 0; source < kSourceCount; ++source)
         {
@@ -258,10 +279,7 @@ ThreadRun run_threads(const Contributions &values,
                 for (int axis = 0; axis < kAxes; ++axis)
                 {
                     const int index = flat_index(source, kind, axis);
-                    for (int thread = 0; thread < actualThreads; ++thread)
-                    {
-                        reduced[index] += threadBuffers[thread][index];
-                    }
+                    reduced[index] = sourceForces[source][kind][axis];
                 }
             }
         }
@@ -317,9 +335,55 @@ bool exact_layout_oracle_passed()
         }
     }
 
-    const ThreadRun sentinelRun = run_threads(sentinels, expected, 3);
-    return sentinelRun.passed && sentinelRun.maxOracleDelta == 0.0 &&
-           sentinelRun.maxRepeatDelta == 0.0;
+    const std::vector<PreparedSourceKeyedFace> faces =
+        prepared_faces(sentinels);
+    auto scatter_once = [&faces]() {
+        std::vector<SourceForceComponentBuffer> threadBuffers(
+            3, SourceForceComponentBuffer(kComponents, 0.0));
+        int actualThreads = 0;
+#pragma omp parallel num_threads(3)
+        {
+#pragma omp single
+            actualThreads = omp_get_num_threads();
+#pragma omp for schedule(static)
+            for (int face = 0; face < kFaceCount; ++face)
+            {
+                slimed::source_keyed_kernel::
+                    scatter_source_keyed_face_forces_to_component_buffer(
+                        faces[face],
+                        kSourceCount,
+                        threadBuffers[omp_get_thread_num()]);
+            }
+        }
+        std::array<double, kComponents> independentlyReduced{};
+        for (int source = 0; source < kSourceCount; ++source)
+        {
+            for (int kind = 0; kind < kForceKinds; ++kind)
+            {
+                for (int axis = 0; axis < kAxes; ++axis)
+                {
+                    // This destination intentionally does not call the
+                    // production helper or flat_index().
+                    const int destination =
+                        source * (kForceKinds * kAxes) +
+                        kind * kAxes + axis;
+                    for (int thread = 0; thread < actualThreads; ++thread)
+                    {
+                        independentlyReduced[destination] +=
+                            threadBuffers[thread][destination];
+                    }
+                }
+            }
+        }
+        return std::make_pair(actualThreads, independentlyReduced);
+    };
+
+    const auto first = scatter_once();
+    const auto second = scatter_once();
+    return first.first == 3 && second.first == 3 &&
+           max_delta(first.second, expected) == 0.0 &&
+           max_delta(second.second, expected) == 0.0 &&
+           max_delta(first.second, second.second) == 0.0;
 }
 
 void print_int_array(const std::vector<int> &values)
@@ -483,6 +547,7 @@ int main(int argc, char **argv)
     std::cout << "\"production_route_enabled\":false,";
     std::cout << "\"actual_production_force_path_executed\":false,";
     std::cout << "\"actual_openmp_runtime\":true,";
+    std::cout << "\"production_source_keyed_component_helper_executed\":true,";
     std::cout << "\"omp_dynamic\":false,";
     std::cout << "\"fixture\":\"closed_valence4_octahedron\",";
     std::cout << "\"vertex_count\":" << mesh.vertices.size() << ',';

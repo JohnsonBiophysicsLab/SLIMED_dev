@@ -48,6 +48,9 @@ DOC = Path("docs/irregular_valence4_production_openmp_shadow.md")
 TEST = Path(
     "tests/test_irregular_valence4_production_openmp_shadow_inventory.py"
 )
+SCATTER_BUFFER_INVENTORY = Path(
+    "scripts/inventory_irregular_valence4_production_scatter_buffer.py"
+)
 
 GUARDED_REPRESENTATION_PATHS = {
     Path("docs/irregular_valence4_topology_source_representation.md"),
@@ -73,6 +76,25 @@ PRODUCTION_KERNEL_CALL_PROOF_PATHS = {
         "tests/test_irregular_valence4_production_kernel_call_proof_inventory.py"
     ),
     Path("tests/test_source_keyed_kernel_call.cpp"),
+}
+
+SCATTER_BUFFER_SUCCESSOR_PATHS = {
+    EXPERIMENT,
+    RUNNER,
+    DOC,
+    Path("include/energy_force/Source_keyed_kernel_call.hpp"),
+    Path("src/energy_force/Source_keyed_kernel_call.cpp"),
+    Path("tests/test_source_keyed_kernel_call.cpp"),
+    Path("docs/irregular_valence4_production_scatter_buffer.md"),
+    Path("docs/irregular_valence4_source_keyed_kernel_adapter.md"),
+    Path("docs/opensubdiv_routing_readiness_map.md"),
+    Path("experiments/irregular_valence4_source_keyed_kernel_adapter.cpp"),
+    Path("experiments/irregular_valence4_source_keyed_kernel_adapter.hpp"),
+    Path("scripts/run_irregular_valence4_source_keyed_kernel_adapter.py"),
+    Path("tests/test_irregular_valence4_source_keyed_kernel_adapter_inventory.py"),
+    Path("tests/test_irregular_valence4_production_scatter_buffer_inventory.py"),
+    TEST,
+    SCATTER_BUFFER_INVENTORY,
 }
 
 ALLOWED_PATHS = {
@@ -130,7 +152,8 @@ ANCHORS = {
         "long double source-kind-axis before flattening",
         "independent_exact_index_layout_oracle_passed",
         "expectedDestination",
-        "run_threads(sentinels, expected, 3)",
+        "const auto first = scatter_once();",
+        "production_source_keyed_component_helper_executed",
         "uncovered_component_slots",
         "single_contribution_component_slots",
         "unexpected_collision_count_component_slots",
@@ -231,6 +254,12 @@ def collect(root: Path) -> dict[str, object]:
             path
             for path in paths
             if Path(path) not in SCIENTIFIC_FORCE_ALGEBRA_SUCCESSOR_PATHS
+        ]
+    if (root / SCATTER_BUFFER_INVENTORY).is_file():
+        paths = [
+            path
+            for path in paths
+            if Path(path) not in SCATTER_BUFFER_SUCCESSOR_PATHS
         ]
     unexpected = sorted(
         path for path in paths if Path(path) not in ALLOWED_PATHS

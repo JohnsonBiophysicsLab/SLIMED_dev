@@ -76,6 +76,30 @@ PREDECESSOR_INVENTORIES = {
     Path("scripts/inventory_irregular_valence4_production_openmp_shadow.py"),
 }
 
+SCATTER_BUFFER_INVENTORY = Path(
+    "scripts/inventory_irregular_valence4_production_scatter_buffer.py"
+)
+SCATTER_BUFFER_SUCCESSOR_PATHS = {
+    HEADER,
+    EXPERIMENT,
+    RUNNER,
+    DOC,
+    TEST,
+    PRODUCTION_HEADER,
+    PRODUCTION_SOURCE,
+    Path("tests/test_source_keyed_kernel_call.cpp"),
+    Path("docs/irregular_valence4_production_openmp_shadow.md"),
+    Path("docs/irregular_valence4_production_scatter_buffer.md"),
+    Path("docs/opensubdiv_routing_readiness_map.md"),
+    Path("experiments/irregular_valence4_production_openmp_shadow.cpp"),
+    Path("scripts/run_irregular_valence4_production_openmp_shadow.py"),
+    Path("tests/test_irregular_valence4_production_scatter_buffer_inventory.py"),
+    Path(
+        "tests/test_irregular_valence4_production_openmp_shadow_inventory.py"
+    ),
+    SCATTER_BUFFER_INVENTORY,
+}
+
 ALLOWED_PATHS = {
     HEADER,
     EXPERIMENT,
@@ -236,6 +260,12 @@ def collect(root: Path) -> dict[str, object]:
             path
             for path in paths
             if Path(path) not in SCIENTIFIC_FORCE_ALGEBRA_SUCCESSOR_PATHS
+        ]
+    if (root / SCATTER_BUFFER_INVENTORY).is_file():
+        paths = [
+            path
+            for path in paths
+            if Path(path) not in SCATTER_BUFFER_SUCCESSOR_PATHS
         ]
     unexpected = sorted(path for path in paths if Path(path) not in ALLOWED_PATHS)
     if unexpected:

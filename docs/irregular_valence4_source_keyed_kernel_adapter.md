@@ -23,6 +23,14 @@ returning an owned canonical result.
 source-keyed force table. Neither helper mutates its input, a `Mesh`, a
 `Face`, vertex force storage, or production OpenMP buffers.
 
+The production-shaped successor adds
+`scatter_source_keyed_face_forces_to_component_buffer(...)` and
+`reduce_source_keyed_force_component_buffers(...)`. These backend-neutral
+helpers use the current `source * 9 + force-kind * 3 + axis` layout and reduce
+caller-owned buffers in ascending buffer order. Complete validation and a
+staged-before-publication update keep malformed input atomic. They do not inspect
+OpenMP state or write `Vertex` force storage.
+
 ## Contract
 
 Each face carries its own variable-cardinality source set. The adapter sorts
@@ -106,9 +114,13 @@ compares complete matrices, energy and force families, coordinates, normals,
 topology vectors and flags, and full one-ring contents. Adversarial mutations
 to the previously omitted geometry, energy, coordinate, force, and one-ring
 categories must all be detected before the report can pass.
+The fresh scientific-request output is also scattered through the
+production-shaped component helper and reduced back to source-keyed force
+families. That result must match the independent source-force reference under
+`1e-12`.
 `Face::oneRingVertices` stays empty and the report continues to require
 `production_route_enabled: false`. This is evidence for the provider/request
-boundary, not route activation.
+and caller-owned scatter-buffer boundaries, not route activation.
 
 ## Run
 

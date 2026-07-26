@@ -343,6 +343,7 @@ def main() -> int:
         and composition.get("caller_owned_output")
         and composition.get("mesh_state_unchanged")
         and composition.get("mesh_state_mutation_gate_binding")
+        and composition.get("production_shaped_source_scatter_executed")
         and composition.get("route_remained_disabled")
         and isinstance(
             composition.get("max_observable_difference"), (int, float)
@@ -352,6 +353,12 @@ def main() -> int:
             composition.get("max_source_force_difference"), (int, float)
         )
         and composition["max_source_force_difference"] <= 1.0e-12
+        and isinstance(
+            composition.get("max_production_shaped_scatter_difference"),
+            (int, float),
+        )
+        and composition["max_production_shaped_scatter_difference"]
+        <= 1.0e-12
         and isinstance(
             adapter.get("max_scientific_force_algebra_difference"),
             (int, float),

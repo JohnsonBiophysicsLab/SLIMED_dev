@@ -263,9 +263,14 @@ boundary for that candidate and for any future caller. The preflight and
 explicit boundaries do not call OpenSubdiv, the production face loop, or any
 default evaluator path. The scientific request calls only the existing per-face
 scientific algebra with caller-provided rows; it does not scatter or route.
-Real route activation remains a separate reviewer/user-gated decision requiring
-an approved OpenSubdiv row provider, production source-keyed scatter, and
-serial/OpenMP observable parity against the approved shadow.
+The fresh-row proof now also passes those caller-owned forces through a
+backend-neutral production-shaped `source x 9` component-buffer scatter.
+The existing actual OpenMP shadow calls the same helper and reduces buffers in
+ascending thread order while retaining an independent raw-layout oracle.
+Neither path writes production vertex forces or enters the production face
+loop. Real route activation remains a separate reviewer/user-gated decision
+requiring guarded face-loop/vertex-force integration and serial/OpenMP
+observable parity after that integration.
 
 ## Inventory Check
 

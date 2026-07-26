@@ -228,6 +228,9 @@ def main() -> int:
         and not shadow.get("production_route_enabled")
         and not shadow.get("actual_production_force_path_executed")
         and shadow.get("actual_openmp_runtime")
+        and shadow.get(
+            "production_source_keyed_component_helper_executed"
+        )
         and shadow.get("production_topology_identity_passed")
         and shadow.get("production_one_rings_expected_empty")
         and not shadow.get("production_one_rings_populated")

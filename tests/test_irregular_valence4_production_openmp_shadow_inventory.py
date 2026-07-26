@@ -57,7 +57,12 @@ class ValenceFourProductionOpenMpShadowInventoryTest(unittest.TestCase):
         oracle_start = source.index("bool exact_layout_oracle_passed()")
         oracle_end = source.index("void print_int_array", oracle_start)
         oracle_source = source[oracle_start:oracle_end]
-        self.assertIn("run_threads(sentinels, expected, 3)", oracle_source)
+        self.assertIn("const auto first = scatter_once();", oracle_source)
+        self.assertIn("independentlyReduced[destination]", oracle_source)
+        self.assertIn(
+            "scatter_source_keyed_face_forces_to_component_buffer",
+            oracle_source,
+        )
         self.assertIn("expectedDestination", oracle_source)
         self.assertNotIn("expected[flat_index(", oracle_source)
         self.assertIn("collisions[index] != kFaceCount", source)

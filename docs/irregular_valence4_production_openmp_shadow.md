@@ -58,9 +58,12 @@ source_id * 9 + force_kind * 3 + axis
 ```
 
 The actual OpenMP loop uses static face scheduling and one 54-component buffer
-per thread. Reduction proceeds by source, force kind, axis, then ascending
-thread index. `OMP_DYNAMIC=FALSE` is set both in the wrapper environment and
-through the OpenMP runtime.
+per thread. Each face is scattered through the merged backend-neutral
+`scatter_source_keyed_face_forces_to_component_buffer(...)` helper, then
+`reduce_source_keyed_force_component_buffers(...)` reduces the buffers by
+source, force kind, axis, and ascending thread index.
+`OMP_DYNAMIC=FALSE` is set both in the wrapper environment and through the
+OpenMP runtime.
 
 Requested thread counts `1`, `2`, `3`, `4`, and `8` each run five times.
 Every run must obtain the requested team size, remain finite, reproduce its
@@ -81,9 +84,11 @@ All five repeats were identical for every requested thread count. All eight
 faces contributed finite, nonzero rows. Every one of the 54 destination
 components received contributions from all eight faces. The proof gate requires
 each per-component collision count to equal eight; zero, one, or any other
-count fails. The expected 54-slot sentinel vector is built without the shadow
-path's `flat_index()` helper and is passed through the actual OpenMP shadow
-scatter/reduction path.
+count fails. The expected 54-slot sentinel vector is built without the helper
+or the shadow path's `flat_index()` function. Its observed values are read
+directly from the caller-owned thread buffers and reduced by the independent
+expected destination index, so matching scatter/reduction indexing cannot
+create a false green.
 
 ## Boundary
 
@@ -92,12 +97,15 @@ path does not exist. In particular, it does not:
 
 - populate production `Face::oneRingVertices`;
 - install an OpenSubdiv route;
-- change formulas, scatter code, OpenMP scheduling, or reductions;
+- change formulas, the existing production face-loop scatter, OpenMP
+  scheduling, or reductions;
 - change default build/dependency behavior;
 - change checkpoint, output, propagation, or fixture files.
 
 The separately reviewed proof-only topology/source-mapping adapter design now
 binds production octahedron topology identity to OpenSubdiv original source
 IDs without populating `Face::oneRingVertices`. A later guarded production
-representation must preserve that contract before real production
-serial/OpenMP parity and route readiness can be evaluated.
+representation must preserve that contract before route readiness can be
+evaluated. The caller-owned component helper and its actual OpenMP shadow are
+now available; installing them in the real production face loop remains a
+separate reviewer/user-gated change.

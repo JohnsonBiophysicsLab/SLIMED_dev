@@ -13,9 +13,11 @@ namespace slimed::source_keyed_kernel
 constexpr int kDerivativeRowCount = 7;
 constexpr int kForceKindCount = 3;
 constexpr int kAxisCount = 3;
+constexpr int kForceComponentsPerSource = kForceKindCount * kAxisCount;
 
 using Vec3 = std::array<double, kAxisCount>;
 using SourceForceKinds = std::array<Vec3, kForceKindCount>;
+using SourceForceComponentBuffer = std::vector<double>;
 
 struct SourceMappingView
 {
@@ -89,4 +91,27 @@ PreparedSourceKeyedKernelCall prepare_source_keyed_kernel_call(
  */
 std::vector<SourceForceKinds> accumulate_source_keyed_force_contributions(
     const PreparedSourceKeyedKernelCall &prepared);
+
+/**
+ * Scatter one canonical face contribution into a caller-owned production-
+ * shaped source force buffer.
+ *
+ * The buffer layout is source, force kind, then axis, matching the current
+ * nVertices * 9 production thread buffers. The function validates the entire
+ * face and destination before publishing an updated buffer.
+ */
+void scatter_source_keyed_face_forces_to_component_buffer(
+    const PreparedSourceKeyedFace &face,
+    int sourceCount,
+    SourceForceComponentBuffer &componentBuffer);
+
+/**
+ * Reduce caller-owned source force buffers in ascending buffer order.
+ *
+ * This mirrors the current production thread-buffer reduction shape without
+ * consulting OpenMP state or mutating Mesh/Vertex storage.
+ */
+std::vector<SourceForceKinds> reduce_source_keyed_force_component_buffers(
+    const std::vector<SourceForceComponentBuffer> &componentBuffers,
+    int sourceCount);
 } // namespace slimed::source_keyed_kernel
