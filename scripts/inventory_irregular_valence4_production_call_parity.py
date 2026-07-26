@@ -35,6 +35,13 @@ ALLOWED_PATHS = {
     Path("scripts/inventory_irregular_valence4_force_formula_proof.py"),
     Path("scripts/inventory_irregular_valence4_scatter_openmp_proof.py"),
     Path("scripts/inventory_irregular_valence4_production_openmp_shadow.py"),
+    Path("docs/irregular_valence4_source_keyed_kernel_adapter.md"),
+    Path("experiments/irregular_valence4_source_keyed_kernel_adapter.cpp"),
+    Path("experiments/irregular_valence4_source_keyed_kernel_adapter.hpp"),
+    Path("scripts/inventory_irregular_valence4_source_keyed_kernel_adapter.py"),
+    Path("scripts/run_irregular_valence4_source_keyed_kernel_adapter.py"),
+    Path("scripts/run_irregular_valence4_source_keyed_kernel_adapter.sh"),
+    Path("tests/test_irregular_valence4_source_keyed_kernel_adapter_inventory.py"),
 }
 
 ANCHORS = {

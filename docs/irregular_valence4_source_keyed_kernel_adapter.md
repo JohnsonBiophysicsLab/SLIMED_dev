@@ -1,0 +1,103 @@
+# Valence-4 Source-Keyed Kernel Adapter Proof
+
+This review-gated proof closes the adapter-design boundary identified by the
+PR122 production-call boundary. It combines:
+
+- the guarded `Valence4TopologySourceMapping` for the approved closed
+  valence-4 octahedron;
+- fresh proof-provided OpenSubdiv rows with shape
+  `8 faces x 3 samples x 7 rows x 6 sources`; and
+- the existing proof-local `fBend`, `fArea`, and `fVolume` face
+  contributions.
+
+The adapter API is backend-neutral. It accepts face identity, canonical
+orientation, original source IDs, derivative rows, and source-keyed force
+contributions. It has no OpenSubdiv type and does not accept or pad
+`Face::oneRingVertices`.
+
+## Contract
+
+Each face carries its own variable-cardinality source set. The adapter sorts
+that set by original source ID, reorders uniquely keyed force columns into
+that canonical order, and aggregates derivative-row entries by source ID.
+Input row and force column order therefore has no semantic meaning.
+
+Derivative rows may contain repeated source IDs because the existing SLIMED
+row contract aggregates duplicate source contributions. The adapter sorts
+each source's finite contributions before a `long double` sum so split and
+reversed duplicates reduce deterministically. Topology mappings and force
+inputs retain their unique-source contracts. The proof adapter rejects:
+
+- out-of-range or duplicate topology/force source IDs;
+- incomplete derivative-row source coverage;
+- inconsistent row or force cardinality;
+- nonfinite row or force data;
+- canonical orientation or source-mapping drift;
+- nonempty production one-rings; and
+- drift between the duplicated mixed derivative rows.
+
+The approved octahedron happens to have six sources per face. The API does not
+encode six as a kernel cardinality; six is supplied by this proof fixture.
+
+## Independent Oracle
+
+The candidate adapter scatters all eight face-local force contributions by
+their original source IDs. A separate fixed-source nested-array oracle looks
+up every force column's source key and sums the proof contributions in
+`face -> keyed source -> force kind -> axis` order. It never calls the adapter
+scatter or reuses its destination indexing.
+
+The harness reverses every derivative-row and force binding, then requires
+the canonical adapted rows, force columns, scattered result, and independent
+oracle result to match the baseline. It also splits one coefficient per row
+into two reversed duplicate-key entries and requires the aggregated canonical
+rows to remain identical.
+
+The machine-readable report binds permutation invariance, duplicate-row
+aggregation, exact source coverage, all malformed-input gates, finite data,
+empty production one-rings, and maximum oracle/canonicalization deltas no
+greater than `1e-12`.
+
+## Boundary
+
+The report states:
+
+```text
+proof_only: true
+not_production_routing: true
+production_route_enabled: false
+actual_production_force_path_executed: false
+production_one_rings_mutated: false
+```
+
+This proof does not install a production caller, mutate the mesh, populate
+one-rings, change formulas or scatter, change OpenMP buffers/reductions, alter
+default dependency/build behavior, or approve broader valence.
+
+The residual boundary is a separately reviewed production-call integration
+and serial/OpenMP observable-parity lane using this source-keyed contract.
+Production valence-4 route activation remains unapproved.
+
+## Run
+
+Dependency-absent behavior is a clean skip:
+
+```bash
+scripts/run_irregular_valence4_source_keyed_kernel_adapter.sh --json
+```
+
+Present-dependency proof:
+
+```bash
+OPENSUBDIV_ROOT=/tmp/slimed-opensubdiv-install \
+OPENSUBDIV_CXXFLAGS='-arch arm64' \
+scripts/run_irregular_valence4_source_keyed_kernel_adapter.sh \
+  --json --require-opensubdiv
+```
+
+Inventory:
+
+```bash
+python3 scripts/inventory_irregular_valence4_source_keyed_kernel_adapter.py \
+  --check
+```
