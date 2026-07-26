@@ -212,8 +212,9 @@ double compare_with_independent_oracle(
     return maximum;
 }
 
-double compare_adapted_inputs(const AdaptedKernelInput &candidate,
-                              const AdaptedKernelInput &reference)
+double compare_adapted_inputs(
+    const PreparedSourceKeyedKernelCall &candidate,
+    const PreparedSourceKeyedKernelCall &reference)
 {
     if (candidate.sourceCount != reference.sourceCount ||
         candidate.faces.size() != reference.faces.size())
@@ -223,8 +224,8 @@ double compare_adapted_inputs(const AdaptedKernelInput &candidate,
     double maximum = 0.0;
     for (std::size_t face = 0; face < reference.faces.size(); ++face)
     {
-        const AdaptedFaceKernelInput &actual = candidate.faces[face];
-        const AdaptedFaceKernelInput &expected = reference.faces[face];
+        const PreparedSourceKeyedFace &actual = candidate.faces[face];
+        const PreparedSourceKeyedFace &expected = reference.faces[face];
         if (actual.mapping.faceIndex != expected.mapping.faceIndex ||
             actual.mapping.orientedFaceVertices !=
                 expected.mapping.orientedFaceVertices ||
@@ -361,8 +362,9 @@ bool rejected(Mutation mutation,
     mutation(mappings, package);
     try
     {
-        (void)adapt_source_keyed_kernel_input(
-            kSourceCount, mappings, package.rows, package.forces);
+        (void)prepare_source_keyed_kernel_call(
+            SourceKeyedKernelCallInput{
+                kSourceCount, mappings, package.rows, package.forces});
     }
     catch (const std::invalid_argument &)
     {
@@ -408,24 +410,25 @@ int main(int argc, char **argv)
         return 1;
     }
 
-    const AdaptedKernelInput adapted =
-        adapt_source_keyed_kernel_input(
-            kSourceCount, mappings, package.rows, package.forces);
+    const PreparedSourceKeyedKernelCall adapted =
+        prepare_source_keyed_kernel_call(
+            SourceKeyedKernelCallInput{
+                kSourceCount, mappings, package.rows, package.forces});
     const std::vector<SourceForceKinds> scattered =
-        scatter_by_original_source_id(adapted);
+        accumulate_source_keyed_force_contributions(adapted);
     const IndependentOracle oracle = independent_scatter_oracle(package);
     const double maxOracleDelta =
         compare_with_independent_oracle(scattered, oracle);
 
     const InputPackage permutedPackage = permuted_bindings(package);
-    const AdaptedKernelInput permutedAdapted =
-        adapt_source_keyed_kernel_input(
-            kSourceCount,
-            mappings,
-            permutedPackage.rows,
-            permutedPackage.forces);
+    const PreparedSourceKeyedKernelCall permutedAdapted =
+        prepare_source_keyed_kernel_call(
+            SourceKeyedKernelCallInput{kSourceCount,
+                                       mappings,
+                                       permutedPackage.rows,
+                                       permutedPackage.forces});
     const std::vector<SourceForceKinds> permutedScattered =
-        scatter_by_original_source_id(permutedAdapted);
+        accumulate_source_keyed_force_contributions(permutedAdapted);
     const IndependentOracle permutedOracle =
         independent_scatter_oracle(permutedPackage);
     const double maxPermutationAdaptedDelta =
@@ -438,14 +441,14 @@ int main(int argc, char **argv)
 
     const InputPackage duplicatedPackage =
         split_duplicate_rows(permutedPackage);
-    const AdaptedKernelInput duplicatedAdapted =
-        adapt_source_keyed_kernel_input(
-            kSourceCount,
-            mappings,
-            duplicatedPackage.rows,
-            duplicatedPackage.forces);
+    const PreparedSourceKeyedKernelCall duplicatedAdapted =
+        prepare_source_keyed_kernel_call(
+            SourceKeyedKernelCallInput{kSourceCount,
+                                       mappings,
+                                       duplicatedPackage.rows,
+                                       duplicatedPackage.forces});
     const std::vector<SourceForceKinds> duplicatedScattered =
-        scatter_by_original_source_id(duplicatedAdapted);
+        accumulate_source_keyed_force_contributions(duplicatedAdapted);
     const double maxDuplicateAggregationDelta =
         compare_adapted_inputs(duplicatedAdapted, adapted);
     const double maxDuplicateScatterDelta =
@@ -548,6 +551,10 @@ int main(int argc, char **argv)
     std::cout << "\"not_production_routing\":true,";
     std::cout << "\"production_route_enabled\":false,";
     std::cout << "\"actual_production_force_path_executed\":false,";
+    std::cout << "\"production_kernel_call_helper_executed\":true,";
+    std::cout << "\"production_kernel_call_helper\":\""
+                 "prepare_source_keyed_kernel_call\",";
+    std::cout << "\"production_helper_output_owned_by_caller\":true,";
     std::cout << "\"backend_neutral_adapter_api\":true,";
     std::cout << "\"guarded_topology_source_mapping_consumed\":true,";
     std::cout << "\"proof_provided_opensubdiv_rows_consumed\":true,";
@@ -613,7 +620,9 @@ int main(int argc, char **argv)
     std::cout << "\"all_passed\":"
               << (negativeGatesPassed ? "true" : "false") << "},";
     std::cout << "\"residual_boundary\":"
-                 "\"production valence-4 kernel call integration and "
+                 "\"the production helper consumes validated rows and "
+                 "already-computed source-keyed forces; safely invoking the "
+                 "scientific force algebra for variable cardinality and then "
                  "serial/OpenMP observable parity remain separately reviewed "
                  "work\",";
     std::cout << "\"passed\":" << (passed ? "true" : "false");
