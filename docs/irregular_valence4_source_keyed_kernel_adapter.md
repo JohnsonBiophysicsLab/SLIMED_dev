@@ -1,7 +1,9 @@
 # Valence-4 Source-Keyed Kernel Adapter Proof
 
 This review-gated proof closes the adapter-design boundary identified by the
-PR122 production-call boundary. It combines:
+PR122 production-call boundary. PR124 moves that proven backend-neutral
+boundary into `energy_force/Source_keyed_kernel_call` and calls the production
+helper from this opt-in harness. It combines:
 
 - the guarded `Valence4TopologySourceMapping` for the approved closed
   valence-4 octahedron;
@@ -10,10 +12,16 @@ PR122 production-call boundary. It combines:
 - the existing proof-local `fBend`, `fArea`, and `fVolume` face
   contributions.
 
-The adapter API is backend-neutral. It accepts face identity, canonical
+The production helper API is backend-neutral. It accepts face identity, canonical
 orientation, original source IDs, derivative rows, and source-keyed force
 contributions. It has no OpenSubdiv type and does not accept or pad
 `Face::oneRingVertices`.
+
+`prepare_source_keyed_kernel_call(...)` validates the complete request before
+returning an owned canonical result.
+`accumulate_source_keyed_force_contributions(...)` returns a separately owned
+source-keyed force table. Neither helper mutates its input, a `Mesh`, a
+`Face`, vertex force storage, or production OpenMP buffers.
 
 ## Contract
 
@@ -67,6 +75,7 @@ proof_only: true
 not_production_routing: true
 production_route_enabled: false
 actual_production_force_path_executed: false
+production_kernel_call_helper_executed: true
 production_one_rings_mutated: false
 ```
 
@@ -74,9 +83,11 @@ This proof does not install a production caller, mutate the mesh, populate
 one-rings, change formulas or scatter, change OpenMP buffers/reductions, alter
 default dependency/build behavior, or approve broader valence.
 
-The residual boundary is a separately reviewed production-call integration
-and serial/OpenMP observable-parity lane using this source-keyed contract.
-Production valence-4 route activation remains unapproved.
+The helper consumes already-computed source-keyed force contributions. The
+fixed production formula kernel still assumes 12 controls, so safely invoking
+the existing scientific force algebra for variable cardinality remains a
+separately reviewed boundary. Serial/OpenMP observable parity follows that
+work. Production valence-4 route activation remains unapproved.
 
 ## Run
 

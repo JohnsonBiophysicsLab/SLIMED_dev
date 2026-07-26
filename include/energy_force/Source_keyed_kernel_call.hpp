@@ -1,0 +1,92 @@
+/**
+ * @file Source_keyed_kernel_call.hpp
+ * @brief Backend-neutral preparation for variable-cardinality force kernels.
+ */
+
+#pragma once
+
+#include <array>
+#include <vector>
+
+namespace slimed::source_keyed_kernel
+{
+constexpr int kDerivativeRowCount = 7;
+constexpr int kForceKindCount = 3;
+constexpr int kAxisCount = 3;
+
+using Vec3 = std::array<double, kAxisCount>;
+using SourceForceKinds = std::array<Vec3, kForceKindCount>;
+
+struct SourceMappingView
+{
+    int faceIndex = -1;
+    std::array<int, 3> orientedFaceVertices{{-1, -1, -1}};
+    std::vector<int> originalSourceIds;
+    bool productionOneRingEmpty = false;
+};
+
+struct SourceKeyedRow
+{
+    std::vector<int> sourceIds;
+    std::vector<double> coefficients;
+};
+
+struct SourceKeyedSampleRows
+{
+    std::array<SourceKeyedRow, kDerivativeRowCount> rows;
+};
+
+struct SourceKeyedFaceRows
+{
+    int faceIndex = -1;
+    std::array<int, 3> orientedFaceVertices{{-1, -1, -1}};
+    std::vector<SourceKeyedSampleRows> samples;
+};
+
+struct SourceKeyedFaceForces
+{
+    int faceIndex = -1;
+    std::vector<int> sourceIds;
+    std::vector<SourceForceKinds> forces;
+};
+
+struct SourceKeyedKernelCallInput
+{
+    int sourceCount = 0;
+    std::vector<SourceMappingView> mappings;
+    std::vector<SourceKeyedFaceRows> rows;
+    std::vector<SourceKeyedFaceForces> forces;
+};
+
+struct PreparedSourceKeyedFace
+{
+    SourceMappingView mapping;
+    std::vector<SourceKeyedSampleRows> samples;
+    std::vector<SourceForceKinds> forces;
+};
+
+struct PreparedSourceKeyedKernelCall
+{
+    int sourceCount = 0;
+    std::vector<PreparedSourceKeyedFace> faces;
+};
+
+/**
+ * Validate and canonicalize a complete variable-cardinality kernel request.
+ *
+ * The function returns a new owned result only after every face, derivative
+ * row, and force contribution has passed validation. It does not mutate the
+ * request, Mesh state, Face::oneRingVertices, vertex forces, or thread buffers.
+ */
+PreparedSourceKeyedKernelCall prepare_source_keyed_kernel_call(
+    const SourceKeyedKernelCallInput &input);
+
+/**
+ * Accumulate prepared force contributions by original source ID.
+ *
+ * The returned vector is owned by the caller. No production Mesh or OpenMP
+ * storage is consulted or mutated.
+ */
+std::vector<SourceForceKinds> accumulate_source_keyed_force_contributions(
+    const PreparedSourceKeyedKernelCall &prepared);
+} // namespace slimed::source_keyed_kernel

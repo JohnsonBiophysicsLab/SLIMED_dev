@@ -20,6 +20,19 @@ READINESS = Path("docs/opensubdiv_routing_readiness_map.md")
 INVENTORY = Path("scripts/inventory_irregular_valence4_production_call_parity.py")
 TEST = Path("tests/test_irregular_valence4_production_call_parity_inventory.py")
 
+PRODUCTION_KERNEL_CALL_PROOF_PATHS = {
+    Path("docs/irregular_valence4_production_kernel_call_proof.md"),
+    Path("include/energy_force/Source_keyed_kernel_call.hpp"),
+    Path("src/energy_force/Source_keyed_kernel_call.cpp"),
+    Path(
+        "scripts/inventory_irregular_valence4_production_kernel_call_proof.py"
+    ),
+    Path(
+        "tests/test_irregular_valence4_production_kernel_call_proof_inventory.py"
+    ),
+    Path("tests/test_source_keyed_kernel_call.cpp"),
+}
+
 ALLOWED_PATHS = {
     EXPERIMENT,
     RUNNER,
@@ -42,7 +55,7 @@ ALLOWED_PATHS = {
     Path("scripts/run_irregular_valence4_source_keyed_kernel_adapter.py"),
     Path("scripts/run_irregular_valence4_source_keyed_kernel_adapter.sh"),
     Path("tests/test_irregular_valence4_source_keyed_kernel_adapter_inventory.py"),
-}
+} | PRODUCTION_KERNEL_CALL_PROOF_PATHS
 
 ANCHORS = {
     EXPERIMENT: (

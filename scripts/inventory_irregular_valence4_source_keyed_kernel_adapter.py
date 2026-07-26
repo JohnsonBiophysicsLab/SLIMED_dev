@@ -17,6 +17,25 @@ SHELL = Path("scripts/run_irregular_valence4_source_keyed_kernel_adapter.sh")
 DOC = Path("docs/irregular_valence4_source_keyed_kernel_adapter.md")
 INVENTORY = Path("scripts/inventory_irregular_valence4_source_keyed_kernel_adapter.py")
 TEST = Path("tests/test_irregular_valence4_source_keyed_kernel_adapter_inventory.py")
+PRODUCTION_HEADER = Path(
+    "include/energy_force/Source_keyed_kernel_call.hpp"
+)
+PRODUCTION_SOURCE = Path(
+    "src/energy_force/Source_keyed_kernel_call.cpp"
+)
+
+PRODUCTION_KERNEL_CALL_PROOF_PATHS = {
+    PRODUCTION_HEADER,
+    PRODUCTION_SOURCE,
+    Path("docs/irregular_valence4_production_kernel_call_proof.md"),
+    Path(
+        "scripts/inventory_irregular_valence4_production_kernel_call_proof.py"
+    ),
+    Path(
+        "tests/test_irregular_valence4_production_kernel_call_proof_inventory.py"
+    ),
+    Path("tests/test_source_keyed_kernel_call.cpp"),
+}
 
 PREDECESSOR_INVENTORIES = {
     Path("scripts/inventory_irregular_valence4_production_call_parity.py"),
@@ -35,23 +54,34 @@ ALLOWED_PATHS = {
     DOC,
     INVENTORY,
     TEST,
-} | PREDECESSOR_INVENTORIES
+} | PREDECESSOR_INVENTORIES | PRODUCTION_KERNEL_CALL_PROOF_PATHS
 
 ANCHORS = {
     HEADER: (
+        "energy_force/Source_keyed_kernel_call.hpp",
         "SourceMappingView",
         "SourceKeyedRow",
-        "AdaptedKernelInput",
-        "adapt_source_keyed_kernel_input",
+        "PreparedSourceKeyedKernelCall",
+        "prepare_source_keyed_kernel_call",
+        "accumulate_source_keyed_force_contributions",
+    ),
+    PRODUCTION_HEADER: (
+        "SourceKeyedKernelCallInput",
+        "PreparedSourceKeyedKernelCall",
+        "prepare_source_keyed_kernel_call",
+        "accumulate_source_keyed_force_contributions",
+        "does not mutate the",
+    ),
+    PRODUCTION_SOURCE: (
         "canonical_source_ids",
         "canonicalize_derivative_row",
         "canonicalize_forces",
-        "scatter_by_original_source_id",
+        "accumulate_source_keyed_force_contributions",
         "contains a duplicate original source id",
         "row mapping/cardinality",
         "rejected nonfinite row data",
         "rejected face orientation drift",
-        "requires empty production one-rings",
+        "requires empty production",
     ),
     EXPERIMENT: (
         "build_guarded_valence4_topology_source_mapping",
@@ -158,7 +188,11 @@ def collect(root: Path) -> dict[str, object]:
     )
     production_files = {"Makefile", "scripts/verify_pr_ready.sh"}
     production_changed = any(
-        path.startswith(production_prefixes) or path in production_files
+        (
+            path.startswith(production_prefixes)
+            or path in production_files
+        )
+        and Path(path) not in PRODUCTION_KERNEL_CALL_PROOF_PATHS
         for path in paths
     )
     if production_changed:
@@ -166,7 +200,15 @@ def collect(root: Path) -> dict[str, object]:
 
     header = (root / HEADER).read_text(encoding="utf-8")
     experiment = (root / EXPERIMENT).read_text(encoding="utf-8")
-    opensubdiv_leak = "opensubdiv/" in header.lower() or "opensubdiv/" in experiment.lower()
+    production_helper = (
+        (root / PRODUCTION_HEADER).read_text(encoding="utf-8")
+        + (root / PRODUCTION_SOURCE).read_text(encoding="utf-8")
+    )
+    opensubdiv_leak = (
+        "opensubdiv/" in header.lower()
+        or "opensubdiv/" in experiment.lower()
+        or "opensubdiv/" in production_helper.lower()
+    )
     one_ring_mutation = (
         "oneRingVertices =" in experiment
         or "oneRingVertices.push" in experiment

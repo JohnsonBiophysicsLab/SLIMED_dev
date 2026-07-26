@@ -278,6 +278,8 @@ def main() -> int:
         and adapter.get("not_production_routing")
         and not adapter.get("production_route_enabled")
         and not adapter.get("actual_production_force_path_executed")
+        and adapter.get("production_kernel_call_helper_executed")
+        and adapter.get("production_helper_output_owned_by_caller")
         and adapter.get("backend_neutral_adapter_api")
         and adapter.get("guarded_topology_source_mapping_consumed")
         and adapter.get("proof_provided_opensubdiv_rows_consumed")
