@@ -238,16 +238,24 @@ evidence only. They are not a face-level production scatter contract.
 ### Valence-4 Production-Call Boundary
 
 The approved canonical octahedron now has a guarded topology/source
-representation and a proof-only production-call boundary package. Fresh
-OpenSubdiv rows are bound as an `8 x 3 x 7 x 6` tensor to exact original
-source IDs, while the real production entry point is required to reject before
-mutation because `Face::oneRingVertices` remains empty.
+representation, a production source-keyed kernel-call helper, variable-
+cardinality scientific-force proof coverage, real serial/OpenMP observable
+shadow evidence, and an inert production route preflight. Fresh OpenSubdiv
+rows remain proof-provided and are bound as an `8 x 3 x 7 x 6` tensor to exact
+original source IDs, while the real production entry point is still required
+to reject before mutation because `Face::oneRingVertices` remains empty.
 
-This is not production valence-4 force execution or route approval. The next
-required design is a variable-cardinality source-keyed kernel adapter that can
-consume backend-neutral weighted samples without repurposing the existing
-11/12-control one-ring contract. Real serial/OpenMP observable parity and
-guarded activation remain later reviewer/user-gated steps.
+This is not production valence-4 force execution or route approval. The
+production-route preflight only composes the approved topology/source mapping
+with the source-keyed adapter-facing representation and returns an owned
+candidate package. The variable-cardinality source-keyed kernel adapter
+remains the representation boundary for that candidate and for any future
+caller. The preflight does not call OpenSubdiv, the scientific force formula,
+the production face loop, or any default evaluator path. Real route
+activation remains a separate reviewer/user-gated decision requiring an
+explicit caller, default-off guard, backend-neutral weighted samples,
+production scatter, and serial/OpenMP observable parity against the approved
+shadow.
 
 ## Inventory Check
 
