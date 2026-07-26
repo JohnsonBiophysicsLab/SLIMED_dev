@@ -21,6 +21,12 @@ SCIENTIFIC_FORCE_ALGEBRA_SUCCESSOR_PATHS = {
     Path(
         "tests/test_irregular_valence4_scientific_force_algebra_proof_inventory.py"
     ),
+    Path("docs/irregular_valence4_face_loop_observable_shadow.md"),
+    Path("experiments/irregular_valence4_face_loop_observable_shadow.cpp"),
+    Path("scripts/inventory_irregular_valence4_face_loop_observable_shadow.py"),
+    Path("scripts/run_irregular_valence4_face_loop_observable_shadow.py"),
+    Path("scripts/run_irregular_valence4_face_loop_observable_shadow.sh"),
+    Path("tests/test_irregular_valence4_face_loop_observable_shadow_inventory.py"),
 }
 EXPERIMENT = Path("experiments/irregular_valence4_production_call_parity.cpp")
 RUNNER = Path("scripts/run_irregular_valence4_production_call_parity.py")

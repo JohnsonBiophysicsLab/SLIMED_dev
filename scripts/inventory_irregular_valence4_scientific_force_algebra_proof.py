@@ -30,6 +30,24 @@ INVENTORY = Path(
 TEST = Path(
     "tests/test_irregular_valence4_scientific_force_algebra_proof_inventory.py"
 )
+FACE_LOOP_OBSERVABLE_SUCCESSOR_PATHS = {
+    Path("docs/irregular_valence4_face_loop_observable_shadow.md"),
+    Path(
+        "experiments/irregular_valence4_face_loop_observable_shadow.cpp"
+    ),
+    Path(
+        "scripts/inventory_irregular_valence4_face_loop_observable_shadow.py"
+    ),
+    Path(
+        "scripts/run_irregular_valence4_face_loop_observable_shadow.py"
+    ),
+    Path(
+        "scripts/run_irregular_valence4_face_loop_observable_shadow.sh"
+    ),
+    Path(
+        "tests/test_irregular_valence4_face_loop_observable_shadow_inventory.py"
+    ),
+}
 STALE_SCOPE_INVENTORIES = {
     Path("scripts/inventory_irregular_valence4_force_formula_proof.py"),
     Path("scripts/inventory_irregular_valence4_production_call_parity.py"),
@@ -182,6 +200,15 @@ def collect(root: Path) -> dict[str, object]:
     paths, path_error = changed_paths(root)
     if path_error:
         errors.append(path_error)
+    if (
+        root
+        / "scripts/inventory_irregular_valence4_face_loop_observable_shadow.py"
+    ).is_file():
+        paths = [
+            path
+            for path in paths
+            if Path(path) not in FACE_LOOP_OBSERVABLE_SUCCESSOR_PATHS
+        ]
     unexpected = sorted(
         path for path in paths if Path(path) not in ALLOWED_PATHS
     )
