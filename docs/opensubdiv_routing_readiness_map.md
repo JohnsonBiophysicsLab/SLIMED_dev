@@ -241,7 +241,11 @@ The approved canonical octahedron now has a guarded topology/source
 representation, a production source-keyed kernel-call helper, variable-
 cardinality scientific-force proof coverage, real serial/OpenMP observable
 shadow evidence, an inert production route preflight, and an explicit
-default-off route request boundary. Fresh OpenSubdiv rows remain
+default-off route request boundary. A guarded scientific-request successor now
+validates the complete three-sample source-keyed package, reads real approved
+mesh coordinates, invokes `Mesh::element_energy_force_regular`, and returns
+caller-owned observables and source-keyed forces without mutating mesh state.
+Fresh OpenSubdiv rows remain
 proof-provided and are bound as an `8 x 3 x 7 x 6` tensor to exact original
 source IDs, while the real production entry point is still required to reject
 before mutation because `Face::oneRingVertices` remains empty.
@@ -256,11 +260,12 @@ forces. Requests with fewer or additional samples reject atomically instead
 of being accepted as reviewed route packages.
 The variable-cardinality source-keyed kernel adapter remains the representation
 boundary for that candidate and for any future caller. The preflight and
-explicit boundary do not call OpenSubdiv, the scientific force formula, the
-production face loop, or any default evaluator path. Real route activation remains a separate
-reviewer/user-gated decision requiring production geometry weighted samples,
-production scatter, and serial/OpenMP observable parity against the approved
-shadow.
+explicit boundaries do not call OpenSubdiv, the production face loop, or any
+default evaluator path. The scientific request calls only the existing per-face
+scientific algebra with caller-provided rows; it does not scatter or route.
+Real route activation remains a separate reviewer/user-gated decision requiring
+an approved OpenSubdiv row provider, production source-keyed scatter, and
+serial/OpenMP observable parity against the approved shadow.
 
 ## Inventory Check
 

@@ -53,6 +53,36 @@ struct Valence4FaceLoopRouteRequestResult
     bool defaultEvaluatorCaller = false;
 };
 
+struct Valence4FaceLoopScientificRequest
+{
+    bool reviewerApprovedExplicitRequest = false;
+    std::vector<source_keyed_kernel::SourceKeyedFaceRows> rows;
+};
+
+struct Valence4FaceScientificObservables
+{
+    int faceIndex = -1;
+    double meanCurvature = 0.0;
+    double bendingEnergy = 0.0;
+    source_keyed_kernel::Vec3 normal{{0.0, 0.0, 0.0}};
+};
+
+struct Valence4FaceLoopScientificRequestResult
+{
+    bool accepted = false;
+    std::string rejectionReason;
+    bool explicitRouteRequested = false;
+    bool productionScientificAlgebraExecuted = false;
+    std::vector<Valence4FaceScientificObservables> faceObservables;
+    Valence4FaceLoopRouteRequestResult sourceKeyedRequest;
+
+    bool productionRouteEnabled = false;
+    bool actualProductionForcePathExecuted = false;
+    bool productionFaceLoopExecuted = false;
+    bool productionOneRingsPopulated = false;
+    bool defaultEvaluatorCaller = false;
+};
+
 /**
  * Build an owned, source-keyed face-loop route candidate for the approved
  * closed valence-4 topology.
@@ -76,4 +106,18 @@ Valence4FaceLoopRouteRequestResult
 evaluate_guarded_valence4_face_loop_route_request(
     const Mesh &mesh,
     const Valence4FaceLoopRouteRequest &request);
+
+/**
+ * Evaluate reviewer-approved source-keyed rows against the current mesh
+ * coordinates and scientific parameters without installing a production
+ * route or mutating mesh-owned observables and forces.
+ *
+ * The complete row package is validated before the existing
+ * variable-cardinality scientific algebra is invoked. The returned
+ * observables and source-keyed force contributions are owned by the caller.
+ */
+Valence4FaceLoopScientificRequestResult
+evaluate_guarded_valence4_face_loop_scientific_request(
+    Mesh &mesh,
+    const Valence4FaceLoopScientificRequest &request);
 } // namespace slimed::valence4_route_preflight
