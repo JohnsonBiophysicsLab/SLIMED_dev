@@ -101,7 +101,11 @@ observables and source-keyed force totals.
 The composition passes only when its face observables match the established
 proof-local algebra, its source-force totals match the independent
 source-keyed aggregation, a default-off request is rejected, and all
-mesh-owned face and vertex scientific state remains exactly unchanged.
+public face and vertex fields remain exactly unchanged. The binding snapshot
+compares complete matrices, energy and force families, coordinates, normals,
+topology vectors and flags, and full one-ring contents. Adversarial mutations
+to the previously omitted geometry, energy, coordinate, force, and one-ring
+categories must all be detected before the report can pass.
 `Face::oneRingVertices` stays empty and the report continues to require
 `production_route_enabled: false`. This is evidence for the provider/request
 boundary, not route activation.

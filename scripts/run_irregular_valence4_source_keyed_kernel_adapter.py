@@ -342,6 +342,7 @@ def main() -> int:
         and composition.get("production_scientific_algebra_executed")
         and composition.get("caller_owned_output")
         and composition.get("mesh_state_unchanged")
+        and composition.get("mesh_state_mutation_gate_binding")
         and composition.get("route_remained_disabled")
         and isinstance(
             composition.get("max_observable_difference"), (int, float)

@@ -608,104 +608,276 @@ ScientificForceAlgebraProof invoke_scientific_force_algebra(
 
 struct MeshScientificState
 {
-    std::vector<double> meanCurvatures;
-    std::vector<double> bendingEnergies;
-    std::vector<std::size_t> oneRingSizes;
-    std::vector<SourceForceKinds> vertexForces;
+    std::vector<Face> faces;
+    std::vector<Vertex> vertices;
 };
+
+void seed_energy(Energy &energy, const double base)
+{
+    energy.energyCurvature = base + 1.0;
+    energy.energyArea = base + 2.0;
+    energy.energyVolume = base + 3.0;
+    energy.energyThickness = base + 4.0;
+    energy.energyTilt = base + 5.0;
+    energy.energyRegularization = base + 6.0;
+    energy.energyHarmonicBond = base + 7.0;
+    energy.energyGagScaffolding = base + 8.0;
+    energy.energyIdealizedProteinLattice = base + 9.0;
+    energy.energyTotal = base + 10.0;
+}
+
+void seed_force(Force &force, const double base)
+{
+    const std::array<Matrix *, 8> matrices{{
+        &force.forceCurvature,
+        &force.forceArea,
+        &force.forceVolume,
+        &force.forceThickness,
+        &force.forceTilt,
+        &force.forceRegularization,
+        &force.forceHarmonicBond,
+        &force.forceTotal}};
+    for (std::size_t kind = 0; kind < matrices.size(); ++kind)
+    {
+        for (int axis = 0; axis < kAxisCount; ++axis)
+        {
+            matrices[kind]->set(
+                axis, 0, base + 10.0 * kind + axis);
+        }
+    }
+}
 
 void seed_mesh_scientific_state(Mesh &mesh)
 {
     for (Face &face : mesh.faces)
     {
         face.meanCurvature = 100.0 + face.index;
-        face.energy.energyCurvature = 200.0 + face.index;
+        face.normVector = mat_calloc(kAxisCount, 1);
+        for (int axis = 0; axis < kAxisCount; ++axis)
+        {
+            face.normVector.set(
+                axis, 0, 200.0 + 10.0 * face.index + axis);
+        }
+        face.elementArea = 300.0 + face.index;
+        face.elementVolume = 400.0 + face.index;
+        seed_energy(face.energy, 500.0 + 20.0 * face.index);
+        seed_energy(face.energyPrev, 700.0 + 20.0 * face.index);
     }
     for (Vertex &vertex : mesh.vertices)
     {
+        vertex.coordPrev = mat_calloc(kAxisCount, 1);
+        vertex.coordRef = mat_calloc(kAxisCount, 1);
+        vertex.normVector = mat_calloc(kAxisCount, 1);
         for (int axis = 0; axis < kAxisCount; ++axis)
         {
-            const double sentinel =
-                1000.0 + 10.0 * vertex.index + axis;
-            vertex.force.forceCurvature.set(axis, 0, sentinel);
-            vertex.force.forceArea.set(axis, 0, -sentinel);
-            vertex.force.forceVolume.set(axis, 0, 2.0 * sentinel);
+            vertex.coordPrev.set(
+                axis, 0, 900.0 + 10.0 * vertex.index + axis);
+            vertex.coordRef.set(
+                axis, 0, 1000.0 + 10.0 * vertex.index + axis);
+            vertex.normVector.set(
+                axis, 0, 1100.0 + 10.0 * vertex.index + axis);
+        }
+        seed_force(vertex.force, 1200.0 + 100.0 * vertex.index);
+        seed_force(vertex.forcePrev, 2000.0 + 100.0 * vertex.index);
+    }
+}
+
+bool matrix_matches(const Matrix &candidate, const Matrix &reference)
+{
+    if (candidate.mat == nullptr || reference.mat == nullptr)
+    {
+        return candidate.mat == reference.mat;
+    }
+    if (candidate.nrow() != reference.nrow() ||
+        candidate.ncol() != reference.ncol())
+    {
+        return false;
+    }
+    for (int row = 0; row < candidate.nrow(); ++row)
+    {
+        for (int column = 0; column < candidate.ncol(); ++column)
+        {
+            if (candidate.get(row, column) !=
+                reference.get(row, column))
+            {
+                return false;
+            }
         }
     }
+    return true;
+}
+
+bool energy_matches(const Energy &candidate, const Energy &reference)
+{
+    return candidate.energyCurvature == reference.energyCurvature &&
+           candidate.energyArea == reference.energyArea &&
+           candidate.energyVolume == reference.energyVolume &&
+           candidate.energyThickness == reference.energyThickness &&
+           candidate.energyTilt == reference.energyTilt &&
+           candidate.energyRegularization ==
+               reference.energyRegularization &&
+           candidate.energyHarmonicBond ==
+               reference.energyHarmonicBond &&
+           candidate.energyGagScaffolding ==
+               reference.energyGagScaffolding &&
+           candidate.energyIdealizedProteinLattice ==
+               reference.energyIdealizedProteinLattice &&
+           candidate.energyTotal == reference.energyTotal;
+}
+
+bool force_matches(const Force &candidate, const Force &reference)
+{
+    const std::array<const Matrix *, 8> candidateMatrices{{
+        &candidate.forceCurvature,
+        &candidate.forceArea,
+        &candidate.forceVolume,
+        &candidate.forceThickness,
+        &candidate.forceTilt,
+        &candidate.forceRegularization,
+        &candidate.forceHarmonicBond,
+        &candidate.forceTotal}};
+    const std::array<const Matrix *, 8> referenceMatrices{{
+        &reference.forceCurvature,
+        &reference.forceArea,
+        &reference.forceVolume,
+        &reference.forceThickness,
+        &reference.forceTilt,
+        &reference.forceRegularization,
+        &reference.forceHarmonicBond,
+        &reference.forceTotal}};
+    for (std::size_t index = 0;
+         index < candidateMatrices.size();
+         ++index)
+    {
+        if (!matrix_matches(*candidateMatrices[index],
+                            *referenceMatrices[index]))
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool face_matches(const Face &candidate, const Face &reference)
+{
+    return candidate.index == reference.index &&
+           candidate.layerIndex == reference.layerIndex &&
+           candidate.isBoundary == reference.isBoundary &&
+           candidate.isGhost == reference.isGhost &&
+           candidate.isInsertionPatch == reference.isInsertionPatch &&
+           candidate.adjacentVertices == reference.adjacentVertices &&
+           candidate.oneRingVertices == reference.oneRingVertices &&
+           candidate.adjacentFaces == reference.adjacentFaces &&
+           candidate.spontCurvature == reference.spontCurvature &&
+           candidate.meanCurvature == reference.meanCurvature &&
+           matrix_matches(candidate.normVector, reference.normVector) &&
+           candidate.elementArea == reference.elementArea &&
+           candidate.elementVolume == reference.elementVolume &&
+           energy_matches(candidate.energyPrev, reference.energyPrev) &&
+           energy_matches(candidate.energy, reference.energy);
+}
+
+bool vertex_matches(const Vertex &candidate, const Vertex &reference)
+{
+    return candidate.index == reference.index &&
+           matrix_matches(candidate.coord, reference.coord) &&
+           matrix_matches(candidate.coordPrev, reference.coordPrev) &&
+           matrix_matches(candidate.coordRef, reference.coordRef) &&
+           candidate.adjacentVertices == reference.adjacentVertices &&
+           candidate.adjacentFaces == reference.adjacentFaces &&
+           matrix_matches(candidate.normVector, reference.normVector) &&
+           candidate.layerIndex == reference.layerIndex &&
+           candidate.type == reference.type &&
+           candidate.reflectiveVertexIndex ==
+               reference.reflectiveVertexIndex &&
+           candidate.isBoundary == reference.isBoundary &&
+           force_matches(candidate.force, reference.force) &&
+           force_matches(candidate.forcePrev, reference.forcePrev) &&
+           candidate.isGhost == reference.isGhost;
 }
 
 MeshScientificState capture_mesh_scientific_state(const Mesh &mesh)
 {
     MeshScientificState state;
-    state.meanCurvatures.reserve(mesh.faces.size());
-    state.bendingEnergies.reserve(mesh.faces.size());
-    state.oneRingSizes.reserve(mesh.faces.size());
-    for (const Face &face : mesh.faces)
-    {
-        state.meanCurvatures.push_back(face.meanCurvature);
-        state.bendingEnergies.push_back(face.energy.energyCurvature);
-        state.oneRingSizes.push_back(face.oneRingVertices.size());
-    }
-    state.vertexForces.resize(mesh.vertices.size());
-    for (std::size_t source = 0; source < mesh.vertices.size(); ++source)
-    {
-        const std::array<const Matrix *, kForceKindCount> forces{{
-            &mesh.vertices[source].force.forceCurvature,
-            &mesh.vertices[source].force.forceArea,
-            &mesh.vertices[source].force.forceVolume}};
-        for (int kind = 0; kind < kForceKindCount; ++kind)
-        {
-            for (int axis = 0; axis < kAxisCount; ++axis)
-            {
-                state.vertexForces[source][kind][axis] =
-                    forces[kind]->get(axis, 0);
-            }
-        }
-    }
+    state.faces = mesh.faces;
+    state.vertices = mesh.vertices;
     return state;
 }
 
 bool mesh_scientific_state_matches(const Mesh &mesh,
                                    const MeshScientificState &state)
 {
-    if (mesh.faces.size() != state.meanCurvatures.size() ||
-        mesh.faces.size() != state.bendingEnergies.size() ||
-        mesh.faces.size() != state.oneRingSizes.size() ||
-        mesh.vertices.size() != state.vertexForces.size())
+    if (mesh.faces.size() != state.faces.size() ||
+        mesh.vertices.size() != state.vertices.size())
     {
         return false;
     }
     for (std::size_t face = 0; face < mesh.faces.size(); ++face)
     {
-        if (mesh.faces[face].meanCurvature !=
-                state.meanCurvatures[face] ||
-            mesh.faces[face].energy.energyCurvature !=
-                state.bendingEnergies[face] ||
-            mesh.faces[face].oneRingVertices.size() !=
-                state.oneRingSizes[face])
+        if (!face_matches(mesh.faces[face], state.faces[face]))
         {
             return false;
         }
     }
     for (std::size_t source = 0; source < mesh.vertices.size(); ++source)
     {
-        const std::array<const Matrix *, kForceKindCount> forces{{
-            &mesh.vertices[source].force.forceCurvature,
-            &mesh.vertices[source].force.forceArea,
-            &mesh.vertices[source].force.forceVolume}};
-        for (int kind = 0; kind < kForceKindCount; ++kind)
+        if (!vertex_matches(mesh.vertices[source],
+                            state.vertices[source]))
         {
-            for (int axis = 0; axis < kAxisCount; ++axis)
-            {
-                if (forces[kind]->get(axis, 0) !=
-                    state.vertexForces[source][kind][axis])
-                {
-                    return false;
-                }
-            }
+            return false;
         }
     }
     return true;
+}
+
+bool mesh_state_mutation_gate_is_binding(
+    Mesh &mesh,
+    const MeshScientificState &state)
+{
+    const auto rejects = [&](const auto &mutation) {
+        Mesh probe(mesh.param);
+        probe.faces = state.faces;
+        probe.vertices = state.vertices;
+        mutation(probe);
+        return !mesh_scientific_state_matches(probe, state);
+    };
+    return rejects([](Mesh &probe) {
+               probe.faces[0].normVector.set(0, 0, 11.0);
+           }) &&
+           rejects([](Mesh &probe) {
+               probe.faces[0].elementArea += 13.0;
+           }) &&
+           rejects([](Mesh &probe) {
+               probe.faces[0].elementVolume -= 17.0;
+           }) &&
+           rejects([](Mesh &probe) {
+               probe.faces[0].energy.energyArea += 19.0;
+           }) &&
+           rejects([](Mesh &probe) {
+               probe.faces[0].energyPrev.energyVolume += 23.0;
+           }) &&
+           rejects([](Mesh &probe) {
+               probe.faces[0].oneRingVertices.resize(1, 29);
+           }) &&
+           rejects([](Mesh &probe) {
+               probe.vertices[0].coord.set(0, 0, 31.0);
+           }) &&
+           rejects([](Mesh &probe) {
+               probe.vertices[0].coordPrev.set(1, 0, 37.0);
+           }) &&
+           rejects([](Mesh &probe) {
+               probe.vertices[0].coordRef.set(2, 0, 41.0);
+           }) &&
+           rejects([](Mesh &probe) {
+               probe.vertices[0].normVector.set(0, 0, 43.0);
+           }) &&
+           rejects([](Mesh &probe) {
+               probe.vertices[0].force.forceTotal.set(1, 0, 47.0);
+           }) &&
+           rejects([](Mesh &probe) {
+               probe.vertices[0].forcePrev.forceThickness.set(
+                   2, 0, 53.0);
+           });
 }
 
 double compare_face_observables(
@@ -749,6 +921,7 @@ struct ScientificRequestCompositionProof
     bool productionScientificAlgebraExecuted = false;
     bool callerOwnedOutput = false;
     bool meshStateUnchanged = false;
+    bool meshStateMutationGateBinding = false;
     bool routeRemainedDisabled = false;
     double maxObservableDifference = 0.0;
     double maxSourceForceDifference = 0.0;
@@ -799,6 +972,8 @@ ScientificRequestCompositionProof invoke_guarded_scientific_request(
             kSourceCount;
     proof.meshStateUnchanged =
         mesh_scientific_state_matches(mesh, before);
+    proof.meshStateMutationGateBinding =
+        mesh_state_mutation_gate_is_binding(mesh, before);
     proof.routeRemainedDisabled =
         !result.productionRouteEnabled &&
         !result.actualProductionForcePathExecuted &&
@@ -1025,6 +1200,7 @@ int main(int argc, char **argv)
         scientificRequest.productionScientificAlgebraExecuted &&
         scientificRequest.callerOwnedOutput &&
         scientificRequest.meshStateUnchanged &&
+        scientificRequest.meshStateMutationGateBinding &&
         scientificRequest.routeRemainedDisabled &&
         scientificRequest.maxObservableDifference <= kTolerance &&
         scientificRequest.maxSourceForceDifference <= kTolerance;
@@ -1077,6 +1253,11 @@ int main(int argc, char **argv)
               << ',';
     std::cout << "\"mesh_state_unchanged\":"
               << (scientificRequest.meshStateUnchanged ? "true" : "false")
+              << ',';
+    std::cout << "\"mesh_state_mutation_gate_binding\":"
+              << (scientificRequest.meshStateMutationGateBinding
+                      ? "true"
+                      : "false")
               << ',';
     std::cout << "\"route_remained_disabled\":"
               << (scientificRequest.routeRemainedDisabled ? "true" : "false")

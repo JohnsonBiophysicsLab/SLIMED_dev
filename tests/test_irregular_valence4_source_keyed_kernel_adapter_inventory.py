@@ -99,6 +99,7 @@ class ValenceFourSourceKeyedKernelAdapterInventoryTest(unittest.TestCase):
         self.assertTrue(composition["production_scientific_algebra_executed"])
         self.assertTrue(composition["caller_owned_output"])
         self.assertTrue(composition["mesh_state_unchanged"])
+        self.assertTrue(composition["mesh_state_mutation_gate_binding"])
         self.assertTrue(composition["route_remained_disabled"])
         self.assertLessEqual(composition["max_observable_difference"], 1.0e-12)
         self.assertLessEqual(composition["max_source_force_difference"], 1.0e-12)
