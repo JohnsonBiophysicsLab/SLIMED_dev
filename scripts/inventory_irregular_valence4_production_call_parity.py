@@ -27,6 +27,16 @@ SCIENTIFIC_FORCE_ALGEBRA_SUCCESSOR_PATHS = {
     Path("scripts/run_irregular_valence4_face_loop_observable_shadow.py"),
     Path("scripts/run_irregular_valence4_face_loop_observable_shadow.sh"),
     Path("tests/test_irregular_valence4_face_loop_observable_shadow_inventory.py"),
+    Path("docs/irregular_valence4_production_route_preflight.md"),
+    Path("include/energy_force/Valence4_face_loop_route_preflight.hpp"),
+    Path("src/energy_force/Valence4_face_loop_route_preflight.cpp"),
+    Path(
+        "scripts/inventory_irregular_valence4_production_route_preflight.py"
+    ),
+    Path(
+        "tests/test_irregular_valence4_production_route_preflight_inventory.py"
+    ),
+    Path("tests/test_valence4_face_loop_route_preflight.cpp"),
 }
 EXPERIMENT = Path("experiments/irregular_valence4_production_call_parity.cpp")
 RUNNER = Path("scripts/run_irregular_valence4_production_call_parity.py")

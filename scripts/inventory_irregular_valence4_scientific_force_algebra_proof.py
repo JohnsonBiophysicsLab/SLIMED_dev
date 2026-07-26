@@ -47,6 +47,17 @@ FACE_LOOP_OBSERVABLE_SUCCESSOR_PATHS = {
     Path(
         "tests/test_irregular_valence4_face_loop_observable_shadow_inventory.py"
     ),
+    Path("docs/opensubdiv_routing_readiness_map.md"),
+    Path("docs/irregular_valence4_production_route_preflight.md"),
+    Path("include/energy_force/Valence4_face_loop_route_preflight.hpp"),
+    Path("src/energy_force/Valence4_face_loop_route_preflight.cpp"),
+    Path(
+        "scripts/inventory_irregular_valence4_production_route_preflight.py"
+    ),
+    Path(
+        "tests/test_irregular_valence4_production_route_preflight_inventory.py"
+    ),
+    Path("tests/test_valence4_face_loop_route_preflight.cpp"),
 }
 STALE_SCOPE_INVENTORIES = {
     Path("scripts/inventory_irregular_valence4_force_formula_proof.py"),

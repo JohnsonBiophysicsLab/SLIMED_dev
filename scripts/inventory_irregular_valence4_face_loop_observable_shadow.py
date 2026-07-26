@@ -49,6 +49,20 @@ HISTORICAL_INVENTORIES = {
     ),
 }
 
+PRODUCTION_ROUTE_PREFLIGHT_SUCCESSOR_PATHS = {
+    Path("docs/opensubdiv_routing_readiness_map.md"),
+    Path("docs/irregular_valence4_production_route_preflight.md"),
+    Path("include/energy_force/Valence4_face_loop_route_preflight.hpp"),
+    Path("src/energy_force/Valence4_face_loop_route_preflight.cpp"),
+    Path(
+        "scripts/inventory_irregular_valence4_production_route_preflight.py"
+    ),
+    Path(
+        "tests/test_irregular_valence4_production_route_preflight_inventory.py"
+    ),
+    Path("tests/test_valence4_face_loop_route_preflight.cpp"),
+}
+
 ALLOWED_PATHS = {
     EXPERIMENT,
     RUNNER,
@@ -183,6 +197,15 @@ def collect(root: Path) -> dict[str, object]:
     paths, path_error = changed_paths(root)
     if path_error:
         errors.append(path_error)
+    if (
+        root
+        / "scripts/inventory_irregular_valence4_production_route_preflight.py"
+    ).is_file():
+        paths = [
+            path
+            for path in paths
+            if Path(path) not in PRODUCTION_ROUTE_PREFLIGHT_SUCCESSOR_PATHS
+        ]
     unexpected = sorted(path for path in paths if Path(path) not in ALLOWED_PATHS)
     if unexpected:
         errors.append("unexpected changed paths: " + ", ".join(unexpected))
