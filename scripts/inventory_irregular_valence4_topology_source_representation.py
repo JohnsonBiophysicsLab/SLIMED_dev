@@ -40,6 +40,13 @@ ALLOWED_PATHS = {
     Path(
         "scripts/inventory_irregular_valence4_topology_source_mapping_adapter.py"
     ),
+    Path("docs/irregular_valence4_production_call_parity.md"),
+    Path("experiments/irregular_valence4_production_call_parity.cpp"),
+    Path("scripts/inventory_irregular_valence4_production_call_parity.py"),
+    Path("scripts/probe_opensubdiv_feasibility.py"),
+    Path("scripts/run_irregular_valence4_production_call_parity.py"),
+    Path("scripts/run_irregular_valence4_production_call_parity.sh"),
+    Path("tests/test_irregular_valence4_production_call_parity_inventory.py"),
 }
 
 ANCHORS = {
@@ -72,7 +79,7 @@ ANCHORS = {
         "backend-neutral representation",
         "not consulted by the production energy/force path",
         "Any mismatch returns `supported=false`",
-        "Production valence-4 route activation remains",
+        "valence-4 route activation remains unapproved.",
     ),
     PREDECESSOR_DOC: (
         "guarded,",

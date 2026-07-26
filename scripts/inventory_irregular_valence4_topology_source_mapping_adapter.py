@@ -54,6 +54,13 @@ ALLOWED_PATHS = {
     Path("scripts/inventory_irregular_valence4_force_formula_proof.py"),
     Path("scripts/inventory_irregular_valence4_scatter_openmp_proof.py"),
     Path("scripts/inventory_irregular_valence4_production_openmp_shadow.py"),
+    Path("docs/irregular_valence4_production_call_parity.md"),
+    Path("experiments/irregular_valence4_production_call_parity.cpp"),
+    Path("scripts/inventory_irregular_valence4_production_call_parity.py"),
+    Path("scripts/probe_opensubdiv_feasibility.py"),
+    Path("scripts/run_irregular_valence4_production_call_parity.py"),
+    Path("scripts/run_irregular_valence4_production_call_parity.sh"),
+    Path("tests/test_irregular_valence4_production_call_parity_inventory.py"),
 } | GUARDED_REPRESENTATION_PATHS
 
 ANCHORS = {
