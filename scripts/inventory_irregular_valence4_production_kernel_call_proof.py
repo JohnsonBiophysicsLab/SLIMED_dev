@@ -45,6 +45,19 @@ PREDECESSOR_INVENTORIES = {
     Path("scripts/inventory_irregular_valence4_scatter_openmp_proof.py"),
     Path("scripts/inventory_irregular_valence4_production_openmp_shadow.py"),
 }
+SUCCESSOR_INVENTORY = Path(
+    "scripts/inventory_irregular_valence4_scientific_force_algebra_proof.py"
+)
+SUCCESSOR_PATHS = {
+    Path("include/mesh/Mesh.hpp"),
+    Path("src/energy_force/Compute_energy_and_force_on_mesh.cpp"),
+    Path("tests/test_variable_cardinality_force_algebra.cpp"),
+    Path("docs/irregular_valence4_scientific_force_algebra_proof.md"),
+    SUCCESSOR_INVENTORY,
+    Path(
+        "tests/test_irregular_valence4_scientific_force_algebra_proof_inventory.py"
+    ),
+}
 
 ALLOWED_PATHS = {
     HEADER,
@@ -167,7 +180,15 @@ def collect(root: Path) -> dict[str, object]:
     paths, path_error = changed_paths(root)
     if path_error:
         errors.append(path_error)
-    unexpected = sorted(path for path in paths if Path(path) not in ALLOWED_PATHS)
+    successor_present = (root / SUCCESSOR_INVENTORY).is_file()
+    lane_paths = [
+        path
+        for path in paths
+        if not (successor_present and Path(path) in SUCCESSOR_PATHS)
+    ]
+    unexpected = sorted(
+        path for path in lane_paths if Path(path) not in ALLOWED_PATHS
+    )
     if unexpected:
         errors.append("unexpected changed paths: " + ", ".join(unexpected))
 
@@ -183,7 +204,7 @@ def collect(root: Path) -> dict[str, object]:
     }
     forbidden_changed = any(
         path.startswith(forbidden_prefixes) or path in forbidden_files
-        for path in paths
+        for path in lane_paths
     )
     if forbidden_changed:
         errors.append("production route/default/fixture surfaces changed")

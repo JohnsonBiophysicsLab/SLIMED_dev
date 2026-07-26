@@ -432,6 +432,9 @@ public:
      * @param fVolume a non-constant matrix reference representing the volume constraint force of the element.
      * @param useRegularBackProjection when true for 12-control regular patches,
      * uses the evaluator row/source-id weight abstraction for force rows.
+     * @param shapeFunctionsOverride explicit seven-row samples. Providing an
+     * override permits a validated variable control-point cardinality without
+     * changing the default 12-control production path.
      */
     void element_energy_force_regular(const std::vector<Matrix> &coordOneRingVertices,
                                       Face& face,

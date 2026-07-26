@@ -31,6 +31,20 @@ using IndependentOracle =
 
 struct InputPackage
 {
+    struct FormulaParameters
+    {
+        double kCurv = 0.0;
+        double spontCurv = 0.0;
+        double uSurf = 0.0;
+        double area0 = 0.0;
+        double uVol = 0.0;
+        double vol0 = 0.0;
+        double area = 0.0;
+        double volume = 0.0;
+    };
+
+    FormulaParameters parameters;
+    std::vector<Vec3> coordinates;
     std::vector<SourceKeyedFaceRows> rows;
     std::vector<SourceKeyedFaceForces> forces;
 };
@@ -47,6 +61,62 @@ bool read_package(const std::string &path, InputPackage &package)
         rows != kDerivativeRowCount || sources != kSourceCount)
     {
         return false;
+    }
+    std::string parameterTag;
+    if (!(input >> parameterTag) || parameterTag != "PARAMETERS" ||
+        !(input >> package.parameters.kCurv >>
+          package.parameters.spontCurv >>
+          package.parameters.uSurf >>
+          package.parameters.area0 >>
+          package.parameters.uVol >>
+          package.parameters.vol0 >>
+          package.parameters.area >>
+          package.parameters.volume))
+    {
+        return false;
+    }
+    const std::array<double, 8> parameterValues = {
+        package.parameters.kCurv,
+        package.parameters.spontCurv,
+        package.parameters.uSurf,
+        package.parameters.area0,
+        package.parameters.uVol,
+        package.parameters.vol0,
+        package.parameters.area,
+        package.parameters.volume};
+    if (!std::all_of(parameterValues.begin(),
+                     parameterValues.end(),
+                     [](const double value) {
+                         return std::isfinite(value);
+                     }))
+    {
+        return false;
+    }
+
+    std::string coordinateTag;
+    int coordinateCount = 0;
+    if (!(input >> coordinateTag >> coordinateCount) ||
+        coordinateTag != "COORDINATES" ||
+        coordinateCount != kSourceCount)
+    {
+        return false;
+    }
+    package.coordinates.resize(kSourceCount);
+    for (int source = 0; source < kSourceCount; ++source)
+    {
+        int encodedSource = -1;
+        if (!(input >> encodedSource) || encodedSource != source)
+        {
+            return false;
+        }
+        for (int axis = 0; axis < kAxisCount; ++axis)
+        {
+            if (!(input >> package.coordinates[source][axis]) ||
+                !std::isfinite(package.coordinates[source][axis]))
+            {
+                return false;
+            }
+        }
     }
 
     package.rows.resize(kFaceCount);
@@ -373,6 +443,160 @@ bool rejected(Mutation mutation,
     return false;
 }
 
+struct ScientificForceAlgebraProof
+{
+    bool executed = false;
+    bool finite = true;
+    bool nonzero = false;
+    double maxForceDifference = 0.0;
+    std::array<double, kForceKindCount> maxAbsForce{{0.0, 0.0, 0.0}};
+};
+
+ScientificForceAlgebraProof invoke_scientific_force_algebra(
+    const PreparedSourceKeyedKernelCall &prepared,
+    const InputPackage &package)
+{
+    ScientificForceAlgebraProof result;
+    Param param;
+    param.VERBOSE_MODE = false;
+    param.boundaryCondition = BoundaryType::Fixed;
+    param.kCurv = package.parameters.kCurv;
+    param.uSurf = package.parameters.uSurf;
+    param.area0 = package.parameters.area0;
+    param.area = package.parameters.area;
+    param.uVol = package.parameters.uVol;
+    param.vol0 = package.parameters.vol0;
+    param.vol = package.parameters.volume;
+    param.gaussQuadratureCoeff = Matrix(kSampleCount, 1, true);
+    for (int sample = 0; sample < kSampleCount; ++sample)
+    {
+        param.gaussQuadratureCoeff.set(sample, 0, 1.0 / 3.0);
+    }
+    Mesh formulaMesh(param);
+
+    for (const PreparedSourceKeyedFace &preparedFace : prepared.faces)
+    {
+        const std::vector<int> &sourceIds =
+            preparedFace.mapping.originalSourceIds;
+        const int sourceCount = static_cast<int>(sourceIds.size());
+        if (sourceCount <= 0 ||
+            preparedFace.samples.size() != kSampleCount ||
+            preparedFace.forces.size() != sourceIds.size())
+        {
+            throw std::invalid_argument(
+                "scientific force proof received invalid prepared face shape");
+        }
+
+        std::vector<Matrix> coordinates(
+            sourceCount, Matrix(kAxisCount, 1, true));
+        for (int sourcePosition = 0;
+             sourcePosition < sourceCount;
+             ++sourcePosition)
+        {
+            const int sourceId = sourceIds[sourcePosition];
+            if (sourceId < 0 ||
+                sourceId >= static_cast<int>(package.coordinates.size()))
+            {
+                throw std::invalid_argument(
+                    "scientific force proof source id is out of range");
+            }
+            for (int axis = 0; axis < kAxisCount; ++axis)
+            {
+                coordinates[sourcePosition].set(
+                    axis, 0, package.coordinates[sourceId][axis]);
+            }
+        }
+
+        std::vector<Matrix> shapeFunctions;
+        shapeFunctions.reserve(preparedFace.samples.size());
+        for (const SourceKeyedSampleRows &sample : preparedFace.samples)
+        {
+            Matrix rows(kDerivativeRowCount, sourceCount, true);
+            for (int row = 0; row < kDerivativeRowCount; ++row)
+            {
+                if (sample.rows[row].sourceIds != sourceIds ||
+                    sample.rows[row].coefficients.size() != sourceIds.size())
+                {
+                    throw std::invalid_argument(
+                        "scientific force proof row/source mapping drifted");
+                }
+                for (int sourcePosition = 0;
+                     sourcePosition < sourceCount;
+                     ++sourcePosition)
+                {
+                    rows.set(row,
+                             sourcePosition,
+                             sample.rows[row]
+                                 .coefficients[sourcePosition]);
+                }
+            }
+            shapeFunctions.push_back(std::move(rows));
+        }
+
+        Face face;
+        face.index = preparedFace.mapping.faceIndex;
+        face.spontCurvature = package.parameters.spontCurv;
+        Matrix normal = mat_calloc(kAxisCount, 1);
+        Matrix bending = mat_calloc(sourceCount, kAxisCount);
+        Matrix area = mat_calloc(sourceCount, kAxisCount);
+        Matrix volume = mat_calloc(sourceCount, kAxisCount);
+        double meanCurvature = 0.0;
+        double bendingEnergy = 0.0;
+        formulaMesh.element_energy_force_regular(
+            coordinates,
+            face,
+            face.spontCurvature,
+            meanCurvature,
+            normal,
+            bendingEnergy,
+            bending,
+            area,
+            volume,
+            false,
+            &shapeFunctions);
+        result.executed = true;
+        result.finite =
+            result.finite && std::isfinite(meanCurvature) &&
+            std::isfinite(bendingEnergy);
+        for (int axis = 0; axis < kAxisCount; ++axis)
+        {
+            result.finite =
+                result.finite && std::isfinite(normal.get(axis, 0));
+        }
+
+        const std::array<const Matrix *, kForceKindCount> actual = {
+            &bending, &area, &volume};
+        for (int sourcePosition = 0;
+             sourcePosition < sourceCount;
+             ++sourcePosition)
+        {
+            for (int kind = 0; kind < kForceKindCount; ++kind)
+            {
+                for (int axis = 0; axis < kAxisCount; ++axis)
+                {
+                    const double value =
+                        actual[kind]->get(sourcePosition, axis);
+                    const double expected =
+                        preparedFace.forces[sourcePosition][kind][axis];
+                    result.finite =
+                        result.finite && std::isfinite(value);
+                    result.maxAbsForce[kind] =
+                        std::max(result.maxAbsForce[kind],
+                                 std::abs(value));
+                    result.maxForceDifference =
+                        std::max(result.maxForceDifference,
+                                 std::abs(value - expected));
+                }
+            }
+        }
+    }
+    result.nonzero = std::all_of(
+        result.maxAbsForce.begin(),
+        result.maxAbsForce.end(),
+        [](const double value) { return value > 1.0e-10; });
+    return result;
+}
+
 bool all_production_one_rings_empty(const Mesh &mesh)
 {
     return std::all_of(
@@ -453,6 +677,8 @@ int main(int argc, char **argv)
         compare_adapted_inputs(duplicatedAdapted, adapted);
     const double maxDuplicateScatterDelta =
         compare_scattered(duplicatedScattered, scattered);
+    const ScientificForceAlgebraProof scientificForceAlgebra =
+        invoke_scientific_force_algebra(adapted, package);
 
     const bool outOfRangeRejected = rejected(
         [](auto &, auto &input) {
@@ -542,7 +768,10 @@ int main(int argc, char **argv)
         adapted.sourceCount == kSourceCount &&
         maxOracleDelta <= kTolerance && productionOneRingsEmpty &&
         permutationInvariant && duplicateRowsAggregated &&
-        negativeGatesPassed;
+        negativeGatesPassed && scientificForceAlgebra.executed &&
+        scientificForceAlgebra.finite &&
+        scientificForceAlgebra.nonzero &&
+        scientificForceAlgebra.maxForceDifference <= kTolerance;
 
     std::cout << std::setprecision(17);
     std::cout << '{';
@@ -559,6 +788,22 @@ int main(int argc, char **argv)
     std::cout << "\"guarded_topology_source_mapping_consumed\":true,";
     std::cout << "\"proof_provided_opensubdiv_rows_consumed\":true,";
     std::cout << "\"existing_force_algebra_contributions_consumed\":true,";
+    std::cout << "\"existing_scientific_force_algebra_invoked\":"
+              << (scientificForceAlgebra.executed ? "true" : "false")
+              << ',';
+    std::cout << "\"scientific_force_algebra_function\":\""
+                 "Mesh::element_energy_force_regular\",";
+    std::cout << "\"scientific_force_algebra_variable_cardinality\":6,";
+    std::cout << "\"scientific_force_algebra_finite\":"
+              << (scientificForceAlgebra.finite ? "true" : "false") << ',';
+    std::cout << "\"scientific_force_algebra_nonzero\":"
+              << (scientificForceAlgebra.nonzero ? "true" : "false") << ',';
+    std::cout << "\"max_scientific_force_algebra_difference\":"
+              << scientificForceAlgebra.maxForceDifference << ',';
+    std::cout << "\"max_abs_scientific_force_by_kind\":["
+              << scientificForceAlgebra.maxAbsForce[0] << ','
+              << scientificForceAlgebra.maxAbsForce[1] << ','
+              << scientificForceAlgebra.maxAbsForce[2] << "],";
     std::cout << "\"variable_cardinality_source_keyed\":true,";
     std::cout << "\"canonicalized_by_original_source_id\":true,";
     std::cout << "\"face_count\":" << adapted.faces.size() << ',';
@@ -620,11 +865,10 @@ int main(int argc, char **argv)
     std::cout << "\"all_passed\":"
               << (negativeGatesPassed ? "true" : "false") << "},";
     std::cout << "\"residual_boundary\":"
-                 "\"the production helper consumes validated rows and "
-                 "already-computed source-keyed forces; safely invoking the "
-                 "scientific force algebra for variable cardinality and then "
-                 "serial/OpenMP observable parity remain separately reviewed "
-                 "work\",";
+                 "\"validated variable-cardinality rows now invoke the "
+                 "existing scientific force algebra in the proof harness; "
+                 "production face-loop integration and serial/OpenMP "
+                 "observable parity remain separately reviewed work\",";
     std::cout << "\"passed\":" << (passed ? "true" : "false");
     std::cout << "}\n";
     return passed ? 0 : 1;

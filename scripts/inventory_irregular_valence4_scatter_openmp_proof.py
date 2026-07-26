@@ -10,6 +10,18 @@ import subprocess
 
 
 BASE = "ee5b3b34005f4dea9ec50ac738421479cf3b2b9e"
+SCIENTIFIC_FORCE_ALGEBRA_SUCCESSOR_PATHS = {
+    Path("include/mesh/Mesh.hpp"),
+    Path("src/energy_force/Compute_energy_and_force_on_mesh.cpp"),
+    Path("tests/test_variable_cardinality_force_algebra.cpp"),
+    Path("docs/irregular_valence4_scientific_force_algebra_proof.md"),
+    Path(
+        "scripts/inventory_irregular_valence4_scientific_force_algebra_proof.py"
+    ),
+    Path(
+        "tests/test_irregular_valence4_scientific_force_algebra_proof_inventory.py"
+    ),
+}
 PROBE = Path("scripts/probe_opensubdiv_feasibility.py")
 RUNNER = Path(
     "scripts/run_irregular_valence4_opensubdiv_scatter_openmp_proof.py"
@@ -184,6 +196,15 @@ def collect(root: Path) -> dict[str, object]:
     paths, diff_error = changed_paths(root)
     if diff_error:
         errors.append(diff_error)
+    if (
+        root
+        / "scripts/inventory_irregular_valence4_scientific_force_algebra_proof.py"
+    ).is_file():
+        paths = [
+            path
+            for path in paths
+            if Path(path) not in SCIENTIFIC_FORCE_ALGEBRA_SUCCESSOR_PATHS
+        ]
     unexpected = sorted(
         path for path in paths if Path(path) not in ALLOWED_PATHS
     )

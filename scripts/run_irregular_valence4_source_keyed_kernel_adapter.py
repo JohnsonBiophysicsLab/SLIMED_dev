@@ -145,8 +145,20 @@ def finite_vector(value: object) -> bool:
 def write_package(path: Path, proof: dict[str, object]) -> None:
     binding = proof.get("fresh_opensubdiv_row_binding")
     contributions = proof.get("face_force_contributions")
+    coordinates = proof.get("proof_coordinates")
+    parameters = proof.get("parameters")
+    energies = proof.get("energies")
     if not isinstance(binding, dict) or not isinstance(contributions, list):
         raise RuntimeError("force proof omitted rows or face-force contributions")
+    if (
+        not isinstance(coordinates, list)
+        or len(coordinates) != 6
+        or not isinstance(parameters, dict)
+        or not isinstance(energies, dict)
+    ):
+        raise RuntimeError(
+            "force proof omitted coordinates, parameters, or total observables"
+        )
     if (
         binding.get("generated_in_this_process") is not True
         or binding.get("face_count") != 8
@@ -159,7 +171,39 @@ def write_package(path: Path, proof: dict[str, object]) -> None:
     if not isinstance(faces, list) or len(faces) != 8 or len(contributions) != 8:
         raise RuntimeError("proof package must contain eight faces")
 
-    lines = ["8 3 7 6"]
+    parameter_keys = ("kCurv", "spontCurv", "uSurf", "area0", "uVol", "vol0")
+    parameter_values = [parameters.get(key) for key in parameter_keys]
+    area = energies.get("area")
+    volume = energies.get("signed_volume")
+    if not all(
+        isinstance(value, (int, float)) and math.isfinite(float(value))
+        for value in (*parameter_values, area, volume)
+    ):
+        raise RuntimeError("force proof parameters or totals are malformed")
+
+    lines = [
+        "8 3 7 6",
+        "PARAMETERS "
+        + " ".join(
+            format(float(value), ".17g")
+            for value in (*parameter_values, area, volume)
+        ),
+        "COORDINATES 6",
+    ]
+    for source_id, coordinate_record in enumerate(coordinates):
+        if (
+            not isinstance(coordinate_record, dict)
+            or coordinate_record.get("source_id") != source_id
+            or not finite_vector(coordinate_record.get("coordinate"))
+        ):
+            raise RuntimeError("force proof coordinates are malformed")
+        lines.append(
+            f"{source_id} "
+            + " ".join(
+                format(float(value), ".17g")
+                for value in coordinate_record["coordinate"]
+            )
+        )
     for face_index, (face, contribution) in enumerate(zip(faces, contributions)):
         if (
             not isinstance(face, dict)
@@ -284,6 +328,17 @@ def main() -> int:
         and adapter.get("guarded_topology_source_mapping_consumed")
         and adapter.get("proof_provided_opensubdiv_rows_consumed")
         and adapter.get("existing_force_algebra_contributions_consumed")
+        and adapter.get("existing_scientific_force_algebra_invoked")
+        and adapter.get("scientific_force_algebra_function")
+        == "Mesh::element_energy_force_regular"
+        and adapter.get("scientific_force_algebra_variable_cardinality") == 6
+        and adapter.get("scientific_force_algebra_finite")
+        and adapter.get("scientific_force_algebra_nonzero")
+        and isinstance(
+            adapter.get("max_scientific_force_algebra_difference"),
+            (int, float),
+        )
+        and adapter["max_scientific_force_algebra_difference"] <= 1.0e-12
         and adapter.get("variable_cardinality_source_keyed")
         and adapter.get("canonicalized_by_original_source_id")
         and adapter.get("independent_fixed_source_layout_oracle_passed")

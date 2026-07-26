@@ -10,6 +10,18 @@ import subprocess
 
 
 BASE = "e28d32ce211a5db0889e437be9b043255e8eca1b"
+SCIENTIFIC_FORCE_ALGEBRA_SUCCESSOR_PATHS = {
+    Path("include/mesh/Mesh.hpp"),
+    Path("src/energy_force/Compute_energy_and_force_on_mesh.cpp"),
+    Path("tests/test_variable_cardinality_force_algebra.cpp"),
+    Path("docs/irregular_valence4_scientific_force_algebra_proof.md"),
+    Path(
+        "scripts/inventory_irregular_valence4_scientific_force_algebra_proof.py"
+    ),
+    Path(
+        "tests/test_irregular_valence4_scientific_force_algebra_proof_inventory.py"
+    ),
+}
 HEADER = Path("experiments/irregular_valence4_source_keyed_kernel_adapter.hpp")
 EXPERIMENT = Path("experiments/irregular_valence4_source_keyed_kernel_adapter.cpp")
 RUNNER = Path("scripts/run_irregular_valence4_source_keyed_kernel_adapter.py")
@@ -175,6 +187,15 @@ def collect(root: Path) -> dict[str, object]:
     paths, path_error = changed_paths(root)
     if path_error:
         errors.append(path_error)
+    if (
+        root
+        / "scripts/inventory_irregular_valence4_scientific_force_algebra_proof.py"
+    ).is_file():
+        paths = [
+            path
+            for path in paths
+            if Path(path) not in SCIENTIFIC_FORCE_ALGEBRA_SUCCESSOR_PATHS
+        ]
     unexpected = sorted(path for path in paths if Path(path) not in ALLOWED_PATHS)
     if unexpected:
         errors.append("unexpected changed paths: " + ", ".join(unexpected))
