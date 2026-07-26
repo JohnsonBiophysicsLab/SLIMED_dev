@@ -384,6 +384,69 @@ void Mesh::element_energy_force_regular(const std::vector<Matrix> &coordOneRingV
     // Normal vector must be 0 as input
     // initialize output parameters
 //cout << "EEFR 202" << endl;
+    const int controlPointCount =
+        static_cast<int>(coordOneRingVertices.size());
+    const SlimedLoopLimitSurfaceEvaluator limitSurfaceEvaluator;
+    if (controlPointCount <= 0)
+    {
+        throw std::invalid_argument(
+            "element_energy_force_regular requires at least one control point");
+    }
+    for (const Matrix &coordinate : coordOneRingVertices)
+    {
+        if (coordinate.nrow() != 3 || coordinate.ncol() != 1)
+        {
+            throw std::invalid_argument(
+                "element_energy_force_regular coordinates must be 3 x 1");
+        }
+    }
+    if (normVector.nrow() != 3 || normVector.ncol() != 1)
+    {
+        throw std::invalid_argument(
+            "element_energy_force_regular normal output must be 3 x 1");
+    }
+    if (fBend.nrow() != controlPointCount || fBend.ncol() != 3 ||
+        fArea.nrow() != controlPointCount || fArea.ncol() != 3 ||
+        fVolume.nrow() != controlPointCount || fVolume.ncol() != 3)
+    {
+        throw std::invalid_argument(
+            "element_energy_force_regular force outputs must match the "
+            "control-point cardinality");
+    }
+    const std::vector<Matrix> &activeShapeFunctions =
+        shapeFunctionsOverride == nullptr ? param.shapeFunctions
+                                          : *shapeFunctionsOverride;
+    if (shapeFunctionsOverride == nullptr &&
+        controlPointCount !=
+            limitSurfaceEvaluator.regular_patch_control_point_count())
+    {
+        throw std::invalid_argument(
+            "variable-cardinality force evaluation requires an explicit "
+            "shape-function override");
+    }
+    if (activeShapeFunctions.empty())
+    {
+        throw std::invalid_argument(
+            "element_energy_force_regular requires shape-function samples");
+    }
+    if (param.gaussQuadratureCoeff.nrow() !=
+            static_cast<int>(activeShapeFunctions.size()) ||
+        param.gaussQuadratureCoeff.ncol() != 1)
+    {
+        throw std::invalid_argument(
+            "element_energy_force_regular quadrature weights must match "
+            "the shape-function samples");
+    }
+    for (const Matrix &shapeFunctions : activeShapeFunctions)
+    {
+        if (shapeFunctions.nrow() != 7 ||
+            shapeFunctions.ncol() != controlPointCount)
+        {
+            throw std::invalid_argument(
+                "element_energy_force_regular shape-function dimensions "
+                "must be 7 x control-point cardinality");
+        }
+    }
     eBend = 0.0;
     meanCurv = 0.0;
     double halfGaussQuadratureCoeff = 0.0;
@@ -414,7 +477,6 @@ void Mesh::element_energy_force_regular(const std::vector<Matrix> &coordOneRingV
     // Matrix definition
 
     Matrix sfDotOneRingV(7, 3);
-    const SlimedLoopLimitSurfaceEvaluator limitSurfaceEvaluator;
     Matrix x(3, 1);
     Matrix a_1(3, 1);
     Matrix a_2(3, 1);
@@ -450,9 +512,9 @@ void Mesh::element_energy_force_regular(const std::vector<Matrix> &coordOneRingV
     Matrix n2_conv(3, 1);
 
     // 2d vectors
-    Matrix f_be(12, 3);
-    Matrix f_cons(12, 3);
-    Matrix f_conv(12, 3);
+    Matrix f_be(controlPointCount, 3);
+    Matrix f_cons(controlPointCount, 3);
+    Matrix f_conv(controlPointCount, 3);
     Matrix da1(3, 3);
     Matrix da2(3, 3);
 
@@ -491,9 +553,6 @@ void Mesh::element_energy_force_regular(const std::vector<Matrix> &coordOneRingV
 
     // Gaussian quadrature, second-order or 3 points.
     //std::cout << param.shapeFunctions.size() << std::endl;
-    const std::vector<Matrix> &activeShapeFunctions =
-        shapeFunctionsOverride == nullptr ? param.shapeFunctions
-                                          : *shapeFunctionsOverride;
     for (int i = 0; i < static_cast<int>(activeShapeFunctions.size()); i++)
     {
         halfGaussQuadratureCoeff = 0.5 * param.gaussQuadratureCoeff(i, 0);
@@ -672,7 +731,7 @@ void Mesh::element_energy_force_regular(const std::vector<Matrix> &coordOneRingV
         //std::cout << sqa << std::endl;
         eBend_tmp = 0.5 * kCurv * sqa * pow(2.0 * H_curv - spontCurv, 2); // bending Energy
         // std::cout << "(2H, spontCurv, 2h-spontCurv, ebe)" << 2.0*H_curv << ", " << spontCurv << ", " << (2.0*H_curv-spontCurv) <<", " << ebe << endl;
-        for (int j = 0; j < 12; j++)
+        for (int j = 0; j < controlPointCount; j++)
         {   
             const int sourceId = useBackProjectedWeights ? regularSourceIds[j] : j;
             const double sf0 = regular_force_row_weight(weightedSample,

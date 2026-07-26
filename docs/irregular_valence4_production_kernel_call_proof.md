@@ -43,14 +43,14 @@ production_route_enabled: false
 
 The helper consumes force contributions already computed by the established
 proof oracle. It does not duplicate or move the scientific force formulas.
-`Mesh::element_energy_force_regular()` remains fixed to 12 controls, and the
-production mesh face loop does not call this helper.
+The production mesh face loop does not call this helper.
 
-The exact residual blocker is a separately reviewed way to invoke the existing
-scientific force algebra with the validated variable-cardinality rows without
-changing formula, quadrature, or accumulation semantics. Serial/OpenMP
-observable parity follows that boundary. Broader valence and production route
-activation remain unapproved.
+The successor scientific force algebra lane invokes
+`Mesh::element_energy_force_regular()` directly with the validated six-source
+rows through an explicit variable-cardinality override while the default
+production call remains 12-control. That successor remains proof-only:
+production face-loop integration, serial/OpenMP observable parity, broader
+valence, and route activation remain separate review boundaries.
 
 No default dependency, Makefile, CI, verifier, formula, quadrature, scatter,
 OpenMP scheduling/reduction, thread-buffer, checkpoint, output, propagation,
