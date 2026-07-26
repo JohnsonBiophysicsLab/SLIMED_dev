@@ -18,12 +18,28 @@ mapping views, those views can feed `prepare_source_keyed_kernel_call(...)`
 with caller-provided rows and forces, and the default geometry/force route
 still rejects because production one-rings remain empty.
 
+This lane now also exposes an explicit route request boundary through
+`evaluate_guarded_valence4_face_loop_route_request(...)`. The boundary is
+review-gated and default-off: requests without
+`reviewerApprovedExplicitRequest` are rejected before source-keyed
+accumulation, while accepted requests only prepare caller-owned source-keyed
+rows and accumulated forces. Acceptance additionally requires exactly three
+samples per face, binding the request to the reviewed `8 x 3 x 7 x 6`
+valence-4 evidence package; fewer or additional samples reject before any
+prepared or accumulated output is returned. It does not install a default
+evaluator caller, execute the production face loop, populate one-rings, or
+mutate mesh force state.
+
 ## Boundary
 
 This is production C++ structure, not production valence-4 force execution:
 
 ```text
 production_route_preflight_helper_executed: true
+explicit_route_request_boundary: true
+default_off_request_rejected: true
+reviewed_three_sample_cardinality_required: true
+explicit_request_source_keyed_accumulation: true
 not_production_routing: true
 production_route_enabled: false
 actual_production_force_path_executed: false
@@ -37,13 +53,15 @@ The helper does not call OpenSubdiv, `Mesh::element_energy_force_regular()`,
 `Mesh::Compute_Energy_And_Force()`, or
 `accumulate_membrane_face_energy_and_forces(...)`. It does not mutate
 `Mesh`, `Face`, `Vertex`, thread buffers, checkpoint/output state,
-propagation state, or optimizer state.
+propagation state, or optimizer state. The explicit request boundary calls
+only the backend-neutral source-keyed validator and accumulator, and returns
+owned outputs to the caller.
 
 ## Residual Boundary
 
 A real route remains a separate reviewer/user-gated implementation decision.
 That successor must supply backend-neutral weighted samples and source-keyed
-forces, invoke the approved variable-cardinality scientific algebra, scatter
-through original source IDs in the production OpenMP face loop, preserve
-default-off behavior, and prove serial/OpenMP observable parity before route
-activation can be described as production-ready.
+forces from production geometry, invoke the approved variable-cardinality
+scientific algebra, scatter through original source IDs in the production
+OpenMP face loop, preserve default-off behavior, and prove serial/OpenMP
+observable parity before route activation can be described as production-ready.
