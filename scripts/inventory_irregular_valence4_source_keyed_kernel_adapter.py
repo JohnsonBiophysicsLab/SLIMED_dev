@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+import re
 import subprocess
 
 
@@ -113,6 +114,7 @@ ANCHORS = {
         "requires empty production",
     ),
     EXPERIMENT: (
+        "energy_force/Valence4_face_loop_route_preflight.hpp",
         "build_guarded_valence4_topology_source_mapping",
         "independent_scatter_oracle",
         "compare_with_independent_oracle",
@@ -129,6 +131,18 @@ ANCHORS = {
         "permuted_bindings",
         "split_duplicate_rows",
         "compare_adapted_inputs",
+        "invoke_guarded_scientific_request",
+        "evaluate_guarded_valence4_face_loop_scientific_request",
+        "defaultOffRejected",
+        "meshStateUnchanged",
+        "matrix_matches",
+        "energy_matches",
+        "force_matches",
+        "face_matches",
+        "vertex_matches",
+        "mesh_state_mutation_gate_is_binding",
+        "meshStateMutationGateBinding",
+        r"\"guarded_scientific_request_composition\":{",
         r"\"source_binding_permutation_invariant\":",
         r"\"duplicate_row_entries_aggregated_by_source_id\":",
         r"\"actual_production_force_path_executed\":false",
@@ -140,6 +154,11 @@ ANCHORS = {
         "face_force_contributions",
         "source-keyed adapter evidence did not pass",
         "actual_production_force_path_executed",
+        "guarded_scientific_request_composition",
+        "fresh_opensubdiv_rows_consumed",
+        "default_off_request_rejected",
+        "max_observable_difference",
+        "max_source_force_difference",
         "source_binding_permutation_invariant",
         "duplicate_row_entries_aggregated_by_source_id",
     ),
@@ -160,6 +179,11 @@ ANCHORS = {
         "test_present_dependency_adapter_passes",
         "source_binding_permutation_invariant",
         "duplicate_row_entries_aggregated_by_source_id",
+        "guarded_scientific_request_composition",
+        "default_off_request_rejected",
+        "mesh_state_unchanged",
+        "mesh_state_mutation_gate_binding",
+        "route_remained_disabled",
     ),
 }
 
@@ -248,7 +272,7 @@ def collect(root: Path) -> dict[str, object]:
         or "opensubdiv/" in production_helper.lower()
     )
     one_ring_mutation = (
-        "oneRingVertices =" in experiment
+        re.search(r"oneRingVertices\s*=(?!=)", experiment) is not None
         or "oneRingVertices.push" in experiment
         or "oneRingVertices.clear" in experiment
     )

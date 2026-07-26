@@ -316,6 +316,7 @@ def main() -> int:
         emit({"status": "failed", "reason": str(error)}, args.json)
         return 1
 
+    composition = adapter.get("guarded_scientific_request_composition")
     passed = bool(
         adapter.get("passed")
         and adapter.get("proof_only")
@@ -334,6 +335,23 @@ def main() -> int:
         and adapter.get("scientific_force_algebra_variable_cardinality") == 6
         and adapter.get("scientific_force_algebra_finite")
         and adapter.get("scientific_force_algebra_nonzero")
+        and isinstance(composition, dict)
+        and composition.get("fresh_opensubdiv_rows_consumed")
+        and composition.get("default_off_request_rejected")
+        and composition.get("explicit_request_accepted")
+        and composition.get("production_scientific_algebra_executed")
+        and composition.get("caller_owned_output")
+        and composition.get("mesh_state_unchanged")
+        and composition.get("mesh_state_mutation_gate_binding")
+        and composition.get("route_remained_disabled")
+        and isinstance(
+            composition.get("max_observable_difference"), (int, float)
+        )
+        and composition["max_observable_difference"] <= 1.0e-12
+        and isinstance(
+            composition.get("max_source_force_difference"), (int, float)
+        )
+        and composition["max_source_force_difference"] <= 1.0e-12
         and isinstance(
             adapter.get("max_scientific_force_algebra_difference"),
             (int, float),
