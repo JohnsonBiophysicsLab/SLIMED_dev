@@ -86,6 +86,20 @@ SourceKeyedFaceForces make_forces_for_mapping(
     }
     return forces;
 }
+
+Valence4FaceLoopRouteRequest make_request_from_preflight(
+    const Valence4FaceLoopRoutePreflightResult &preflight,
+    const bool reviewerApprovedExplicitRequest)
+{
+    Valence4FaceLoopRouteRequest request;
+    request.reviewerApprovedExplicitRequest = reviewerApprovedExplicitRequest;
+    for (const SourceMappingView &mapping : preflight.mappings)
+    {
+        request.rows.push_back(make_rows_for_mapping(mapping));
+        request.forces.push_back(make_forces_for_mapping(mapping));
+    }
+    return request;
+}
 } // namespace
 
 TEST(ValenceFourFaceLoopRoutePreflight,
@@ -180,6 +194,117 @@ TEST(ValenceFourFaceLoopRoutePreflight,
     EXPECT_FALSE(preflight.productionRouteEnabled);
     EXPECT_FALSE(preflight.actualProductionForcePathExecuted);
     EXPECT_FALSE(preflight.productionFaceLoopExecuted);
+    for (const Face &face : mesh.faces)
+    {
+        EXPECT_TRUE(face.oneRingVertices.empty());
+    }
+}
+
+TEST(ValenceFourFaceLoopRoutePreflight,
+     ExplicitRouteRequestRejectsByDefaultBeforeSourceKeyedAccumulation)
+{
+    Mesh mesh = make_approved_valence4_mesh();
+    const Valence4FaceLoopRoutePreflightResult preflight =
+        build_guarded_valence4_face_loop_route_preflight(mesh);
+    ASSERT_TRUE(preflight.supported) << preflight.rejectionReason;
+
+    const Valence4FaceLoopRouteRequest request =
+        make_request_from_preflight(preflight, false);
+    const Valence4FaceLoopRouteRequestResult result =
+        evaluate_guarded_valence4_face_loop_route_request(mesh, request);
+
+    EXPECT_FALSE(result.accepted);
+    EXPECT_NE(result.rejectionReason.find("default-off"),
+              std::string::npos);
+    EXPECT_FALSE(result.explicitRouteRequested);
+    EXPECT_FALSE(result.explicitRouteRequestAccepted);
+    EXPECT_FALSE(result.sourceKeyedAccumulationExecuted);
+    EXPECT_TRUE(result.preflight.supported);
+    EXPECT_TRUE(result.prepared.faces.empty());
+    EXPECT_TRUE(result.accumulatedSourceForces.empty());
+    EXPECT_FALSE(result.productionRouteEnabled);
+    EXPECT_FALSE(result.actualProductionForcePathExecuted);
+    EXPECT_FALSE(result.productionFaceLoopExecuted);
+    EXPECT_FALSE(result.productionOneRingsPopulated);
+    EXPECT_FALSE(result.defaultEvaluatorCaller);
+    for (const Face &face : mesh.faces)
+    {
+        EXPECT_TRUE(face.oneRingVertices.empty());
+    }
+}
+
+TEST(ValenceFourFaceLoopRoutePreflight,
+     ExplicitRouteRequestPreparesCallerOwnedSourceKeyedAccumulationOnly)
+{
+    Mesh mesh = make_approved_valence4_mesh();
+    const Valence4FaceLoopRoutePreflightResult preflight =
+        build_guarded_valence4_face_loop_route_preflight(mesh);
+    ASSERT_TRUE(preflight.supported) << preflight.rejectionReason;
+
+    const Valence4FaceLoopRouteRequest request =
+        make_request_from_preflight(preflight, true);
+    const Valence4FaceLoopRouteRequestResult result =
+        evaluate_guarded_valence4_face_loop_route_request(mesh, request);
+
+    ASSERT_TRUE(result.accepted) << result.rejectionReason;
+    EXPECT_TRUE(result.rejectionReason.empty());
+    EXPECT_TRUE(result.explicitRouteRequested);
+    EXPECT_TRUE(result.explicitRouteRequestAccepted);
+    EXPECT_TRUE(result.sourceKeyedAccumulationExecuted);
+    EXPECT_EQ(result.prepared.sourceCount, preflight.sourceCount);
+    ASSERT_EQ(result.prepared.faces.size(), preflight.mappings.size());
+    ASSERT_EQ(result.accumulatedSourceForces.size(),
+              static_cast<std::size_t>(preflight.sourceCount));
+    for (const SourceForceKinds &sourceForces :
+         result.accumulatedSourceForces)
+    {
+        for (const Vec3 &force : sourceForces)
+        {
+            for (const double component : force)
+            {
+                EXPECT_NE(component, 0.0);
+            }
+        }
+    }
+    EXPECT_FALSE(result.productionRouteEnabled);
+    EXPECT_FALSE(result.actualProductionForcePathExecuted);
+    EXPECT_FALSE(result.productionFaceLoopExecuted);
+    EXPECT_FALSE(result.productionOneRingsPopulated);
+    EXPECT_FALSE(result.defaultEvaluatorCaller);
+    for (const Face &face : mesh.faces)
+    {
+        EXPECT_TRUE(face.oneRingVertices.empty());
+    }
+}
+
+TEST(ValenceFourFaceLoopRoutePreflight,
+     ExplicitRouteRequestRejectsMalformedRowsWithoutPartialOutput)
+{
+    Mesh mesh = make_approved_valence4_mesh();
+    const Valence4FaceLoopRoutePreflightResult preflight =
+        build_guarded_valence4_face_loop_route_preflight(mesh);
+    ASSERT_TRUE(preflight.supported) << preflight.rejectionReason;
+
+    Valence4FaceLoopRouteRequest request =
+        make_request_from_preflight(preflight, true);
+    ASSERT_FALSE(request.rows.empty());
+    request.rows.back().samples[0].rows[0].sourceIds[0] =
+        preflight.sourceCount + 1;
+
+    const Valence4FaceLoopRouteRequestResult result =
+        evaluate_guarded_valence4_face_loop_route_request(mesh, request);
+
+    EXPECT_FALSE(result.accepted);
+    EXPECT_TRUE(result.explicitRouteRequested);
+    EXPECT_FALSE(result.explicitRouteRequestAccepted);
+    EXPECT_FALSE(result.sourceKeyedAccumulationExecuted);
+    EXPECT_NE(result.rejectionReason.find("out-of-range"),
+              std::string::npos);
+    EXPECT_TRUE(result.prepared.faces.empty());
+    EXPECT_TRUE(result.accumulatedSourceForces.empty());
+    EXPECT_FALSE(result.productionRouteEnabled);
+    EXPECT_FALSE(result.actualProductionForcePathExecuted);
+    EXPECT_FALSE(result.productionFaceLoopExecuted);
     for (const Face &face : mesh.faces)
     {
         EXPECT_TRUE(face.oneRingVertices.empty());

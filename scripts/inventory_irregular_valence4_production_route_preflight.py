@@ -9,7 +9,7 @@ from pathlib import Path
 import subprocess
 
 
-BASE = "3e43f18ae269f45fc0fcf98f35fdf859ca381eac"
+BASE = "7f17dedaa4ad9d12291b403b7493e920dfad7e6c"
 HEADER = Path("include/energy_force/Valence4_face_loop_route_preflight.hpp")
 SOURCE = Path("src/energy_force/Valence4_face_loop_route_preflight.cpp")
 CPP_TEST = Path("tests/test_valence4_face_loop_route_preflight.cpp")
@@ -22,27 +22,6 @@ TEST = Path(
     "tests/test_irregular_valence4_production_route_preflight_inventory.py"
 )
 
-COMPATIBILITY_INVENTORIES = {
-    Path("scripts/inventory_irregular_valence4_face_loop_observable_shadow.py"),
-    Path("scripts/inventory_irregular_valence4_force_formula_proof.py"),
-    Path("scripts/inventory_irregular_valence4_production_call_parity.py"),
-    Path(
-        "scripts/inventory_irregular_valence4_production_kernel_call_proof.py"
-    ),
-    Path("scripts/inventory_irregular_valence4_production_openmp_shadow.py"),
-    Path("scripts/inventory_irregular_valence4_scatter_openmp_proof.py"),
-    Path(
-        "scripts/inventory_irregular_valence4_scientific_force_algebra_proof.py"
-    ),
-    Path("scripts/inventory_irregular_valence4_source_keyed_kernel_adapter.py"),
-    Path(
-        "scripts/inventory_irregular_valence4_topology_source_mapping_adapter.py"
-    ),
-    Path(
-        "scripts/inventory_irregular_valence4_topology_source_representation.py"
-    ),
-}
-
 ALLOWED_PATHS = {
     HEADER,
     SOURCE,
@@ -51,23 +30,34 @@ ALLOWED_PATHS = {
     READINESS_MAP,
     INVENTORY,
     TEST,
-} | COMPATIBILITY_INVENTORIES
+}
 
 ANCHORS = {
     HEADER: (
         "Valence4FaceLoopRoutePreflightResult",
+        "Valence4FaceLoopRouteRequest",
+        "Valence4FaceLoopRouteRequestResult",
         "source_keyed_kernel::SourceMappingView",
+        "reviewerApprovedExplicitRequest = false",
+        "sourceKeyedAccumulationExecuted = false",
         "productionRouteEnabled = false",
         "actualProductionForcePathExecuted = false",
         "productionFaceLoopExecuted = false",
         "productionOneRingsPopulated = false",
         "does not authorize route activation",
+        "evaluate_guarded_valence4_face_loop_route_request",
     ),
     SOURCE: (
         "build_guarded_valence4_topology_source_mapping",
+        "evaluate_guarded_valence4_face_loop_route_request",
         "SourceMappingView",
         "productionOneRingEmpty",
         "requires empty production",
+        "reviewerApprovedExplicitRequest",
+        "default-off without",
+        "prepare_source_keyed_kernel_call",
+        "accumulate_source_keyed_force_contributions",
+        "sourceKeyedAccumulationExecuted = true",
         "result.supported = true",
         "result.rejectionReason.clear()",
     ),
@@ -75,14 +65,22 @@ ANCHORS = {
         "ApprovedOctahedronBuildsInertSourceKeyedRouteCandidate",
         "RejectsOneRingContractDriftWithoutPartialCandidate",
         "PreflightMappingsFeedSourceKeyedValidationWithoutRouteExecution",
+        "ExplicitRouteRequestRejectsByDefaultBeforeSourceKeyedAccumulation",
+        "ExplicitRouteRequestPreparesCallerOwnedSourceKeyedAccumulationOnly",
+        "ExplicitRouteRequestRejectsMalformedRowsWithoutPartialOutput",
         "prepare_source_keyed_kernel_call",
         "accumulate_source_keyed_force_contributions",
         "calculate_element_area_volume",
     ),
     DOC: (
         "inert production-facing preflight",
+        "explicit route request boundary",
+        "review-gated and default-off",
         "not production valence-4 force execution",
         "production_route_preflight_helper_executed: true",
+        "explicit_route_request_boundary: true",
+        "default_off_request_rejected: true",
+        "explicit_request_source_keyed_accumulation: true",
         "production_route_enabled: false",
         "actual_production_force_path_executed: false",
         "production_face_loop_executed: false",
@@ -91,12 +89,15 @@ ANCHORS = {
     ),
     READINESS_MAP: (
         "inert production route preflight",
+        "default-off route request boundary",
         "production-route preflight",
-        "activation remains a separate reviewer/user-gated decision",
+        "explicit request boundary rejects by default",
+        "route activation remains a separate",
         "reviewer/user-gated decision",
     ),
     TEST: (
         "test_inventory_passes_with_inert_production_scope",
+        "test_explicit_route_request_boundary_is_default_off",
         "test_preflight_has_no_default_evaluator_caller",
         "test_allowed_path_boundary",
     ),
@@ -167,15 +168,19 @@ def collect(root: Path) -> dict[str, object]:
     if default_surfaces_changed:
         errors.append("default evaluator or route surfaces changed")
 
-    helper_name = "build_guarded_valence4_face_loop_route_preflight"
+    helper_names = (
+        "build_guarded_valence4_face_loop_route_preflight",
+        "evaluate_guarded_valence4_face_loop_route_request",
+    )
     default_evaluator_callers: list[str] = []
     for path in sorted(forbidden_default_files):
         candidate = root / path
         if not candidate.is_file():
             continue
-        if helper_name in candidate.read_text(
+        candidate_text = candidate.read_text(
             encoding="utf-8", errors="ignore"
-        ):
+        )
+        if any(helper_name in candidate_text for helper_name in helper_names):
             default_evaluator_callers.append(path)
     if default_evaluator_callers:
         errors.append(
@@ -217,6 +222,9 @@ def collect(root: Path) -> dict[str, object]:
         "status": "passed" if not errors else "failed",
         "exact_base": BASE,
         "production_route_preflight_helper_executed": True,
+        "explicit_route_request_boundary": True,
+        "default_off_request_rejected": True,
+        "explicit_request_source_keyed_accumulation": True,
         "not_production_routing": True,
         "production_route_enabled": False,
         "actual_production_force_path_executed": False,
