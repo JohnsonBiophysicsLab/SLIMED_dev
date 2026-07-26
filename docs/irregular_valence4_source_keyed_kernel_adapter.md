@@ -83,11 +83,28 @@ This proof does not install a production caller, mutate the mesh, populate
 one-rings, change formulas or scatter, change OpenMP buffers/reductions, alter
 default dependency/build behavior, or approve broader valence.
 
-The helper consumes already-computed source-keyed force contributions. The
-fixed production formula kernel still assumes 12 controls, so safely invoking
-the existing scientific force algebra for variable cardinality remains a
-separately reviewed boundary. Serial/OpenMP observable parity follows that
-work. Production valence-4 route activation remains unapproved.
+The helper consumes already-computed source-keyed force contributions.
+Variable-cardinality scientific algebra and the guarded, default-off
+scientific request are now separately reviewed production-neutral
+boundaries. Production valence-4 route activation remains unapproved.
+
+## Guarded Scientific Request Composition
+
+The opt-in present-dependency proof passes the freshly generated OpenSubdiv
+`8 x 3 x 7 x 6` row tensor into
+`evaluate_guarded_valence4_face_loop_scientific_request(...)`. The request
+uses the approved octahedron's production `Mesh` coordinate storage populated
+with the established asymmetric proof coordinates and invokes the existing
+variable-cardinality scientific algebra. It returns caller-owned face
+observables and source-keyed force totals.
+
+The composition passes only when its face observables match the established
+proof-local algebra, its source-force totals match the independent
+source-keyed aggregation, a default-off request is rejected, and all
+mesh-owned face and vertex scientific state remains exactly unchanged.
+`Face::oneRingVertices` stays empty and the report continues to require
+`production_route_enabled: false`. This is evidence for the provider/request
+boundary, not route activation.
 
 ## Run
 

@@ -1,5 +1,6 @@
 #include "irregular_valence4_source_keyed_kernel_adapter.hpp"
 
+#include "energy_force/Valence4_face_loop_route_preflight.hpp"
 #include "io/io.hpp"
 #include "mesh/Mesh.hpp"
 #include "mesh/Valence4_topology_source_mapping.hpp"
@@ -18,6 +19,7 @@
 namespace
 {
 using namespace valence4_source_keyed_proof;
+using namespace slimed::valence4_route_preflight;
 
 constexpr int kFaceCount = 8;
 constexpr int kSourceCount = 6;
@@ -450,6 +452,7 @@ struct ScientificForceAlgebraProof
     bool nonzero = false;
     double maxForceDifference = 0.0;
     std::array<double, kForceKindCount> maxAbsForce{{0.0, 0.0, 0.0}};
+    std::vector<Valence4FaceScientificObservables> faceObservables;
 };
 
 ScientificForceAlgebraProof invoke_scientific_force_algebra(
@@ -558,11 +561,17 @@ ScientificForceAlgebraProof invoke_scientific_force_algebra(
         result.finite =
             result.finite && std::isfinite(meanCurvature) &&
             std::isfinite(bendingEnergy);
+        Valence4FaceScientificObservables observables;
+        observables.faceIndex = preparedFace.mapping.faceIndex;
+        observables.meanCurvature = meanCurvature;
+        observables.bendingEnergy = bendingEnergy;
         for (int axis = 0; axis < kAxisCount; ++axis)
         {
             result.finite =
                 result.finite && std::isfinite(normal.get(axis, 0));
+            observables.normal[axis] = normal.get(axis, 0);
         }
+        result.faceObservables.push_back(observables);
 
         const std::array<const Matrix *, kForceKindCount> actual = {
             &bending, &area, &volume};
@@ -597,6 +606,213 @@ ScientificForceAlgebraProof invoke_scientific_force_algebra(
     return result;
 }
 
+struct MeshScientificState
+{
+    std::vector<double> meanCurvatures;
+    std::vector<double> bendingEnergies;
+    std::vector<std::size_t> oneRingSizes;
+    std::vector<SourceForceKinds> vertexForces;
+};
+
+void seed_mesh_scientific_state(Mesh &mesh)
+{
+    for (Face &face : mesh.faces)
+    {
+        face.meanCurvature = 100.0 + face.index;
+        face.energy.energyCurvature = 200.0 + face.index;
+    }
+    for (Vertex &vertex : mesh.vertices)
+    {
+        for (int axis = 0; axis < kAxisCount; ++axis)
+        {
+            const double sentinel =
+                1000.0 + 10.0 * vertex.index + axis;
+            vertex.force.forceCurvature.set(axis, 0, sentinel);
+            vertex.force.forceArea.set(axis, 0, -sentinel);
+            vertex.force.forceVolume.set(axis, 0, 2.0 * sentinel);
+        }
+    }
+}
+
+MeshScientificState capture_mesh_scientific_state(const Mesh &mesh)
+{
+    MeshScientificState state;
+    state.meanCurvatures.reserve(mesh.faces.size());
+    state.bendingEnergies.reserve(mesh.faces.size());
+    state.oneRingSizes.reserve(mesh.faces.size());
+    for (const Face &face : mesh.faces)
+    {
+        state.meanCurvatures.push_back(face.meanCurvature);
+        state.bendingEnergies.push_back(face.energy.energyCurvature);
+        state.oneRingSizes.push_back(face.oneRingVertices.size());
+    }
+    state.vertexForces.resize(mesh.vertices.size());
+    for (std::size_t source = 0; source < mesh.vertices.size(); ++source)
+    {
+        const std::array<const Matrix *, kForceKindCount> forces{{
+            &mesh.vertices[source].force.forceCurvature,
+            &mesh.vertices[source].force.forceArea,
+            &mesh.vertices[source].force.forceVolume}};
+        for (int kind = 0; kind < kForceKindCount; ++kind)
+        {
+            for (int axis = 0; axis < kAxisCount; ++axis)
+            {
+                state.vertexForces[source][kind][axis] =
+                    forces[kind]->get(axis, 0);
+            }
+        }
+    }
+    return state;
+}
+
+bool mesh_scientific_state_matches(const Mesh &mesh,
+                                   const MeshScientificState &state)
+{
+    if (mesh.faces.size() != state.meanCurvatures.size() ||
+        mesh.faces.size() != state.bendingEnergies.size() ||
+        mesh.faces.size() != state.oneRingSizes.size() ||
+        mesh.vertices.size() != state.vertexForces.size())
+    {
+        return false;
+    }
+    for (std::size_t face = 0; face < mesh.faces.size(); ++face)
+    {
+        if (mesh.faces[face].meanCurvature !=
+                state.meanCurvatures[face] ||
+            mesh.faces[face].energy.energyCurvature !=
+                state.bendingEnergies[face] ||
+            mesh.faces[face].oneRingVertices.size() !=
+                state.oneRingSizes[face])
+        {
+            return false;
+        }
+    }
+    for (std::size_t source = 0; source < mesh.vertices.size(); ++source)
+    {
+        const std::array<const Matrix *, kForceKindCount> forces{{
+            &mesh.vertices[source].force.forceCurvature,
+            &mesh.vertices[source].force.forceArea,
+            &mesh.vertices[source].force.forceVolume}};
+        for (int kind = 0; kind < kForceKindCount; ++kind)
+        {
+            for (int axis = 0; axis < kAxisCount; ++axis)
+            {
+                if (forces[kind]->get(axis, 0) !=
+                    state.vertexForces[source][kind][axis])
+                {
+                    return false;
+                }
+            }
+        }
+    }
+    return true;
+}
+
+double compare_face_observables(
+    const std::vector<Valence4FaceScientificObservables> &candidate,
+    const std::vector<Valence4FaceScientificObservables> &reference)
+{
+    if (candidate.size() != reference.size())
+    {
+        return std::numeric_limits<double>::infinity();
+    }
+    double maximum = 0.0;
+    for (std::size_t face = 0; face < reference.size(); ++face)
+    {
+        if (candidate[face].faceIndex != reference[face].faceIndex)
+        {
+            return std::numeric_limits<double>::infinity();
+        }
+        maximum = std::max(
+            maximum,
+            std::abs(candidate[face].meanCurvature -
+                     reference[face].meanCurvature));
+        maximum = std::max(
+            maximum,
+            std::abs(candidate[face].bendingEnergy -
+                     reference[face].bendingEnergy));
+        for (int axis = 0; axis < kAxisCount; ++axis)
+        {
+            maximum = std::max(
+                maximum,
+                std::abs(candidate[face].normal[axis] -
+                         reference[face].normal[axis]));
+        }
+    }
+    return maximum;
+}
+
+struct ScientificRequestCompositionProof
+{
+    bool defaultOffRejected = false;
+    bool accepted = false;
+    bool productionScientificAlgebraExecuted = false;
+    bool callerOwnedOutput = false;
+    bool meshStateUnchanged = false;
+    bool routeRemainedDisabled = false;
+    double maxObservableDifference = 0.0;
+    double maxSourceForceDifference = 0.0;
+};
+
+ScientificRequestCompositionProof invoke_guarded_scientific_request(
+    Mesh &mesh,
+    const InputPackage &package,
+    const ScientificForceAlgebraProof &reference,
+    const std::vector<SourceForceKinds> &referenceForces)
+{
+    ScientificRequestCompositionProof proof;
+    seed_mesh_scientific_state(mesh);
+    const MeshScientificState before =
+        capture_mesh_scientific_state(mesh);
+
+    Valence4FaceLoopScientificRequest defaultOffRequest;
+    defaultOffRequest.rows = package.rows;
+    const Valence4FaceLoopScientificRequestResult defaultOff =
+        evaluate_guarded_valence4_face_loop_scientific_request(
+            mesh, defaultOffRequest);
+    proof.defaultOffRejected =
+        !defaultOff.accepted &&
+        !defaultOff.productionScientificAlgebraExecuted &&
+        defaultOff.rejectionReason.find("default-off") !=
+            std::string::npos &&
+        mesh_scientific_state_matches(mesh, before);
+
+    Valence4FaceLoopScientificRequest request;
+    request.reviewerApprovedExplicitRequest = true;
+    request.rows = package.rows;
+    const Valence4FaceLoopScientificRequestResult result =
+        evaluate_guarded_valence4_face_loop_scientific_request(
+            mesh, request);
+    proof.accepted = result.accepted;
+    proof.productionScientificAlgebraExecuted =
+        result.productionScientificAlgebraExecuted;
+    proof.maxObservableDifference =
+        compare_face_observables(result.faceObservables,
+                                 reference.faceObservables);
+    proof.maxSourceForceDifference =
+        compare_scattered(
+            result.sourceKeyedRequest.accumulatedSourceForces,
+            referenceForces);
+    proof.callerOwnedOutput =
+        result.faceObservables.size() == kFaceCount &&
+        result.sourceKeyedRequest.accumulatedSourceForces.size() ==
+            kSourceCount;
+    proof.meshStateUnchanged =
+        mesh_scientific_state_matches(mesh, before);
+    proof.routeRemainedDisabled =
+        !result.productionRouteEnabled &&
+        !result.actualProductionForcePathExecuted &&
+        !result.productionFaceLoopExecuted &&
+        !result.productionOneRingsPopulated &&
+        !result.defaultEvaluatorCaller &&
+        !result.sourceKeyedRequest.productionRouteEnabled &&
+        !result.sourceKeyedRequest.actualProductionForcePathExecuted &&
+        !result.sourceKeyedRequest.productionFaceLoopExecuted &&
+        !result.sourceKeyedRequest.productionOneRingsPopulated &&
+        !result.sourceKeyedRequest.defaultEvaluatorCaller;
+    return proof;
+}
+
 bool all_production_one_rings_empty(const Mesh &mesh)
 {
     return std::all_of(
@@ -614,23 +830,52 @@ int main(int argc, char **argv)
         return 2;
     }
 
+    InputPackage package;
+    if (!read_package(argv[3], package))
+    {
+        std::cerr << "failed to read source-keyed proof package\n";
+        return 1;
+    }
+
     Param param;
     param.VERBOSE_MODE = false;
     param.boundaryCondition = BoundaryType::Fixed;
     param.subDivideTimes = 2;
+    param.kCurv = package.parameters.kCurv;
+    param.uSurf = package.parameters.uSurf;
+    param.area0 = package.parameters.area0;
+    param.area = package.parameters.area;
+    param.uVol = package.parameters.uVol;
+    param.vol0 = package.parameters.vol0;
+    param.vol = package.parameters.volume;
+    param.gaussQuadratureCoeff = Matrix(kSampleCount, 1, true);
+    for (int sample = 0; sample < kSampleCount; ++sample)
+    {
+        param.gaussQuadratureCoeff.set(sample, 0, 1.0 / 3.0);
+    }
     Mesh mesh(param);
     mesh.setup_from_vertices_faces(read_data_from_csv<double>(argv[1]),
                                    read_data_from_csv<int>(argv[2]));
+    for (int source = 0; source < kSourceCount; ++source)
+    {
+        for (int axis = 0; axis < kAxisCount; ++axis)
+        {
+            mesh.vertices[source].coord.set(
+                axis, 0, package.coordinates[source][axis]);
+        }
+    }
+    for (Face &face : mesh.faces)
+    {
+        face.spontCurvature = package.parameters.spontCurv;
+    }
 
     const Valence4TopologySourceMappingResult guardedMapping =
         build_guarded_valence4_topology_source_mapping(mesh);
     const std::vector<SourceMappingView> mappings =
         mapping_views(mesh, guardedMapping);
-    InputPackage package;
-    if (mappings.size() != kFaceCount ||
-        !read_package(argv[3], package))
+    if (mappings.size() != kFaceCount)
     {
-        std::cerr << "failed to read source-keyed proof package\n";
+        std::cerr << "failed to build guarded source mapping\n";
         return 1;
     }
 
@@ -679,6 +924,9 @@ int main(int argc, char **argv)
         compare_scattered(duplicatedScattered, scattered);
     const ScientificForceAlgebraProof scientificForceAlgebra =
         invoke_scientific_force_algebra(adapted, package);
+    const ScientificRequestCompositionProof scientificRequest =
+        invoke_guarded_scientific_request(
+            mesh, package, scientificForceAlgebra, scattered);
 
     const bool outOfRangeRejected = rejected(
         [](auto &, auto &input) {
@@ -771,7 +1019,15 @@ int main(int argc, char **argv)
         negativeGatesPassed && scientificForceAlgebra.executed &&
         scientificForceAlgebra.finite &&
         scientificForceAlgebra.nonzero &&
-        scientificForceAlgebra.maxForceDifference <= kTolerance;
+        scientificForceAlgebra.maxForceDifference <= kTolerance &&
+        scientificRequest.defaultOffRejected &&
+        scientificRequest.accepted &&
+        scientificRequest.productionScientificAlgebraExecuted &&
+        scientificRequest.callerOwnedOutput &&
+        scientificRequest.meshStateUnchanged &&
+        scientificRequest.routeRemainedDisabled &&
+        scientificRequest.maxObservableDifference <= kTolerance &&
+        scientificRequest.maxSourceForceDifference <= kTolerance;
 
     std::cout << std::setprecision(17);
     std::cout << '{';
@@ -804,6 +1060,31 @@ int main(int argc, char **argv)
               << scientificForceAlgebra.maxAbsForce[0] << ','
               << scientificForceAlgebra.maxAbsForce[1] << ','
               << scientificForceAlgebra.maxAbsForce[2] << "],";
+    std::cout << "\"guarded_scientific_request_composition\":{";
+    std::cout << "\"fresh_opensubdiv_rows_consumed\":true,";
+    std::cout << "\"default_off_request_rejected\":"
+              << (scientificRequest.defaultOffRejected ? "true" : "false")
+              << ',';
+    std::cout << "\"explicit_request_accepted\":"
+              << (scientificRequest.accepted ? "true" : "false") << ',';
+    std::cout << "\"production_scientific_algebra_executed\":"
+              << (scientificRequest.productionScientificAlgebraExecuted
+                      ? "true"
+                      : "false")
+              << ',';
+    std::cout << "\"caller_owned_output\":"
+              << (scientificRequest.callerOwnedOutput ? "true" : "false")
+              << ',';
+    std::cout << "\"mesh_state_unchanged\":"
+              << (scientificRequest.meshStateUnchanged ? "true" : "false")
+              << ',';
+    std::cout << "\"route_remained_disabled\":"
+              << (scientificRequest.routeRemainedDisabled ? "true" : "false")
+              << ',';
+    std::cout << "\"max_observable_difference\":"
+              << scientificRequest.maxObservableDifference << ',';
+    std::cout << "\"max_source_force_difference\":"
+              << scientificRequest.maxSourceForceDifference << "},";
     std::cout << "\"variable_cardinality_source_keyed\":true,";
     std::cout << "\"canonicalized_by_original_source_id\":true,";
     std::cout << "\"face_count\":" << adapted.faces.size() << ',';
@@ -865,10 +1146,10 @@ int main(int argc, char **argv)
     std::cout << "\"all_passed\":"
               << (negativeGatesPassed ? "true" : "false") << "},";
     std::cout << "\"residual_boundary\":"
-                 "\"validated variable-cardinality rows now invoke the "
-                 "existing scientific force algebra in the proof harness; "
-                 "production face-loop integration and serial/OpenMP "
-                 "observable parity remain separately reviewed work\",";
+                 "\"fresh OpenSubdiv valence-4 rows now pass through the "
+                 "guarded default-off scientific request without mesh "
+                 "mutation; production face-loop integration remains a "
+                 "separately reviewed boundary\",";
     std::cout << "\"passed\":" << (passed ? "true" : "false");
     std::cout << "}\n";
     return passed ? 0 : 1;
