@@ -194,6 +194,150 @@ TEST(SourceKeyedKernelCallTest,
     }
 }
 
+TEST(SourceKeyedKernelCallTest,
+     ProductionShapedComponentBuffersMatchIndependentScatterOracle)
+{
+    SourceKeyedKernelCallInput input = make_valid_input();
+    for (int faceIndex = 1; faceIndex < 4; ++faceIndex)
+    {
+        SourceKeyedKernelCallInput next = make_valid_input();
+        next.mappings[0].faceIndex = faceIndex;
+        next.rows[0].faceIndex = faceIndex;
+        next.forces[0].faceIndex = faceIndex;
+        for (SourceForceKinds &sourceForces : next.forces[0].forces)
+        {
+            for (Vec3 &force : sourceForces)
+            {
+                for (double &value : force)
+                {
+                    value += 0.25 * faceIndex;
+                }
+            }
+        }
+        input.mappings.push_back(next.mappings[0]);
+        input.rows.push_back(next.rows[0]);
+        input.forces.push_back(next.forces[0]);
+    }
+
+    const PreparedSourceKeyedKernelCall prepared =
+        prepare_source_keyed_kernel_call(input);
+    SourceForceComponentBuffer serial(
+        prepared.sourceCount * kForceComponentsPerSource, 0.0);
+    for (const PreparedSourceKeyedFace &face : prepared.faces)
+    {
+        scatter_source_keyed_face_forces_to_component_buffer(
+            face, prepared.sourceCount, serial);
+    }
+
+    std::vector<SourceForceComponentBuffer> split(
+        3,
+        SourceForceComponentBuffer(
+            prepared.sourceCount * kForceComponentsPerSource, 0.0));
+    for (std::size_t face = 0; face < prepared.faces.size(); ++face)
+    {
+        scatter_source_keyed_face_forces_to_component_buffer(
+            prepared.faces[face],
+            prepared.sourceCount,
+            split[face % split.size()]);
+    }
+    const std::vector<SourceForceKinds> splitReduced =
+        reduce_source_keyed_force_component_buffers(
+            split, prepared.sourceCount);
+    const std::vector<SourceForceKinds> direct =
+        accumulate_source_keyed_force_contributions(prepared);
+
+    std::array<std::array<long double, 9>, 3> oracle{};
+    for (const SourceKeyedFaceForces &face : input.forces)
+    {
+        for (std::size_t position = 0;
+             position < face.sourceIds.size();
+             ++position)
+        {
+            const int source = face.sourceIds[position];
+            for (int kind = 0; kind < 3; ++kind)
+            {
+                for (int axis = 0; axis < 3; ++axis)
+                {
+                    oracle[source][kind * 3 + axis] +=
+                        static_cast<long double>(
+                            face.forces[position][kind][axis]);
+                }
+            }
+        }
+    }
+    for (int source = 0; source < prepared.sourceCount; ++source)
+    {
+        for (int kind = 0; kind < kForceKindCount; ++kind)
+        {
+            for (int axis = 0; axis < kAxisCount; ++axis)
+            {
+                const int component =
+                    source * kForceComponentsPerSource +
+                    kind * kAxisCount + axis;
+                const double expected = static_cast<double>(
+                    oracle[source][kind * kAxisCount + axis]);
+                EXPECT_DOUBLE_EQ(serial[component], expected);
+                EXPECT_DOUBLE_EQ(
+                    splitReduced[source][kind][axis], expected);
+                EXPECT_DOUBLE_EQ(direct[source][kind][axis], expected);
+            }
+        }
+    }
+}
+
+TEST(SourceKeyedKernelCallTest,
+     ComponentScatterRejectsMalformedInputWithoutPartialMutation)
+{
+    const PreparedSourceKeyedKernelCall prepared =
+        prepare_source_keyed_kernel_call(make_valid_input());
+    SourceForceComponentBuffer destination(
+        prepared.sourceCount * kForceComponentsPerSource, 1.25);
+    const SourceForceComponentBuffer unchanged = destination;
+
+    PreparedSourceKeyedFace malformed = prepared.faces[0];
+    malformed.mapping.originalSourceIds[1] =
+        malformed.mapping.originalSourceIds[0];
+    EXPECT_THROW(
+        scatter_source_keyed_face_forces_to_component_buffer(
+            malformed, prepared.sourceCount, destination),
+        std::invalid_argument);
+    EXPECT_EQ(destination, unchanged);
+
+    malformed = prepared.faces[0];
+    malformed.mapping.productionOneRingEmpty = false;
+    EXPECT_THROW(
+        scatter_source_keyed_face_forces_to_component_buffer(
+            malformed, prepared.sourceCount, destination),
+        std::invalid_argument);
+    EXPECT_EQ(destination, unchanged);
+
+    malformed = prepared.faces[0];
+    std::reverse(malformed.mapping.originalSourceIds.begin(),
+                 malformed.mapping.originalSourceIds.end());
+    std::reverse(malformed.forces.begin(), malformed.forces.end());
+    EXPECT_THROW(
+        scatter_source_keyed_face_forces_to_component_buffer(
+            malformed, prepared.sourceCount, destination),
+        std::invalid_argument);
+    EXPECT_EQ(destination, unchanged);
+
+    malformed = prepared.faces[0];
+    malformed.forces.back()[0][0] =
+        std::numeric_limits<double>::infinity();
+    EXPECT_THROW(
+        scatter_source_keyed_face_forces_to_component_buffer(
+            malformed, prepared.sourceCount, destination),
+        std::invalid_argument);
+    EXPECT_EQ(destination, unchanged);
+
+    std::vector<SourceForceComponentBuffer> buffers{destination};
+    buffers[0].pop_back();
+    EXPECT_THROW(
+        reduce_source_keyed_force_component_buffers(
+            buffers, prepared.sourceCount),
+        std::invalid_argument);
+}
+
 TEST(SourceKeyedKernelCallTest, RejectsMalformedRequestsBeforeReturningOutput)
 {
     expect_rejected([](auto &input) { input.sourceCount = 0; });

@@ -310,4 +310,158 @@ std::vector<SourceForceKinds> accumulate_source_keyed_force_contributions(
     }
     return accumulated;
 }
+
+void scatter_source_keyed_face_forces_to_component_buffer(
+    const PreparedSourceKeyedFace &face,
+    const int sourceCount,
+    SourceForceComponentBuffer &componentBuffer)
+{
+    const std::size_t expectedComponents =
+        static_cast<std::size_t>(sourceCount) *
+        kForceComponentsPerSource;
+    if (sourceCount <= 0 ||
+        componentBuffer.size() != expectedComponents ||
+        face.mapping.faceIndex < 0 ||
+        !face.mapping.productionOneRingEmpty ||
+        face.mapping.originalSourceIds.empty() ||
+        face.mapping.originalSourceIds.size() != face.forces.size())
+    {
+        throw std::invalid_argument(
+            "source-keyed component scatter rejected buffer/force "
+            "cardinality drift");
+    }
+    if (!std::all_of(componentBuffer.begin(),
+                     componentBuffer.end(),
+                     [](const double value) {
+                         return std::isfinite(value);
+                     }))
+    {
+        throw std::invalid_argument(
+            "source-keyed component scatter rejected nonfinite destination "
+            "data");
+    }
+
+    if (!std::is_sorted(face.mapping.originalSourceIds.begin(),
+                        face.mapping.originalSourceIds.end()))
+    {
+        throw std::invalid_argument(
+            "source-keyed component scatter requires canonical source "
+            "order");
+    }
+    std::unordered_set<int> seen;
+    for (std::size_t position = 0;
+         position < face.mapping.originalSourceIds.size();
+         ++position)
+    {
+        const int sourceId = face.mapping.originalSourceIds[position];
+        if (sourceId < 0 || sourceId >= sourceCount ||
+            !seen.insert(sourceId).second)
+        {
+            throw std::invalid_argument(
+                "source-keyed component scatter rejected source mapping "
+                "drift");
+        }
+        for (const Vec3 &force : face.forces[position])
+        {
+            if (!std::all_of(force.begin(), force.end(), [](double value) {
+                    return std::isfinite(value);
+                }))
+            {
+                throw std::invalid_argument(
+                    "source-keyed component scatter rejected nonfinite "
+                    "force data");
+            }
+        }
+    }
+
+    std::vector<std::pair<std::size_t, double>> staged;
+    staged.reserve(face.mapping.originalSourceIds.size() *
+                   kForceComponentsPerSource);
+    for (std::size_t position = 0;
+         position < face.mapping.originalSourceIds.size();
+         ++position)
+    {
+        const int sourceId = face.mapping.originalSourceIds[position];
+        for (int kind = 0; kind < kForceKindCount; ++kind)
+        {
+            for (int axis = 0; axis < kAxisCount; ++axis)
+            {
+                const std::size_t component =
+                    static_cast<std::size_t>(sourceId) *
+                        kForceComponentsPerSource +
+                    kind * kAxisCount + axis;
+                const double updated =
+                    componentBuffer[component] +
+                    face.forces[position][kind][axis];
+                if (!std::isfinite(updated))
+                {
+                    throw std::invalid_argument(
+                        "source-keyed component scatter produced nonfinite "
+                        "destination data");
+                }
+                staged.emplace_back(component, updated);
+            }
+        }
+    }
+    for (const auto &update : staged)
+    {
+        componentBuffer[update.first] = update.second;
+    }
+}
+
+std::vector<SourceForceKinds> reduce_source_keyed_force_component_buffers(
+    const std::vector<SourceForceComponentBuffer> &componentBuffers,
+    const int sourceCount)
+{
+    const std::size_t expectedComponents =
+        static_cast<std::size_t>(sourceCount) *
+        kForceComponentsPerSource;
+    if (sourceCount <= 0 || componentBuffers.empty())
+    {
+        throw std::invalid_argument(
+            "source-keyed component reduction requires positive source and "
+            "buffer counts");
+    }
+    for (const SourceForceComponentBuffer &buffer : componentBuffers)
+    {
+        if (buffer.size() != expectedComponents ||
+            !std::all_of(buffer.begin(), buffer.end(), [](double value) {
+                return std::isfinite(value);
+            }))
+        {
+            throw std::invalid_argument(
+                "source-keyed component reduction rejected malformed "
+                "thread-buffer data");
+        }
+    }
+
+    std::vector<SourceForceKinds> reduced(sourceCount);
+    for (int source = 0; source < sourceCount; ++source)
+    {
+        for (int kind = 0; kind < kForceKindCount; ++kind)
+        {
+            for (int axis = 0; axis < kAxisCount; ++axis)
+            {
+                const std::size_t component =
+                    static_cast<std::size_t>(source) *
+                        kForceComponentsPerSource +
+                    kind * kAxisCount + axis;
+                double sum = 0.0;
+                for (const SourceForceComponentBuffer &buffer :
+                     componentBuffers)
+                {
+                    sum += buffer[component];
+                }
+                if (!std::isfinite(sum))
+                {
+                    throw std::invalid_argument(
+                        "source-keyed component reduction produced nonfinite "
+                        "output");
+                }
+                reduced[source][kind][axis] = sum;
+            }
+        }
+    }
+    return reduced;
+}
 } // namespace slimed::source_keyed_kernel

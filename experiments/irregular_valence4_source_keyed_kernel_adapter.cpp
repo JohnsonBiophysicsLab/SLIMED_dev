@@ -922,9 +922,11 @@ struct ScientificRequestCompositionProof
     bool callerOwnedOutput = false;
     bool meshStateUnchanged = false;
     bool meshStateMutationGateBinding = false;
+    bool productionShapedScatterExecuted = false;
     bool routeRemainedDisabled = false;
     double maxObservableDifference = 0.0;
     double maxSourceForceDifference = 0.0;
+    double maxProductionShapedScatterDifference = 0.0;
 };
 
 ScientificRequestCompositionProof invoke_guarded_scientific_request(
@@ -966,6 +968,24 @@ ScientificRequestCompositionProof invoke_guarded_scientific_request(
         compare_scattered(
             result.sourceKeyedRequest.accumulatedSourceForces,
             referenceForces);
+    if (result.accepted)
+    {
+        SourceForceComponentBuffer componentBuffer(
+            kSourceCount * kForceComponentsPerSource, 0.0);
+        for (const PreparedSourceKeyedFace &face :
+             result.sourceKeyedRequest.prepared.faces)
+        {
+            scatter_source_keyed_face_forces_to_component_buffer(
+                face, kSourceCount, componentBuffer);
+        }
+        const std::vector<SourceForceKinds> reduced =
+            reduce_source_keyed_force_component_buffers(
+                std::vector<SourceForceComponentBuffer>{componentBuffer},
+                kSourceCount);
+        proof.productionShapedScatterExecuted = true;
+        proof.maxProductionShapedScatterDifference =
+            compare_scattered(reduced, referenceForces);
+    }
     proof.callerOwnedOutput =
         result.faceObservables.size() == kFaceCount &&
         result.sourceKeyedRequest.accumulatedSourceForces.size() ==
@@ -1201,9 +1221,12 @@ int main(int argc, char **argv)
         scientificRequest.callerOwnedOutput &&
         scientificRequest.meshStateUnchanged &&
         scientificRequest.meshStateMutationGateBinding &&
+        scientificRequest.productionShapedScatterExecuted &&
         scientificRequest.routeRemainedDisabled &&
         scientificRequest.maxObservableDifference <= kTolerance &&
-        scientificRequest.maxSourceForceDifference <= kTolerance;
+        scientificRequest.maxSourceForceDifference <= kTolerance &&
+        scientificRequest.maxProductionShapedScatterDifference <=
+            kTolerance;
 
     std::cout << std::setprecision(17);
     std::cout << '{';
@@ -1259,13 +1282,21 @@ int main(int argc, char **argv)
                       ? "true"
                       : "false")
               << ',';
+    std::cout << "\"production_shaped_source_scatter_executed\":"
+              << (scientificRequest.productionShapedScatterExecuted
+                      ? "true"
+                      : "false")
+              << ',';
     std::cout << "\"route_remained_disabled\":"
               << (scientificRequest.routeRemainedDisabled ? "true" : "false")
               << ',';
     std::cout << "\"max_observable_difference\":"
               << scientificRequest.maxObservableDifference << ',';
     std::cout << "\"max_source_force_difference\":"
-              << scientificRequest.maxSourceForceDifference << "},";
+              << scientificRequest.maxSourceForceDifference << ',';
+    std::cout << "\"max_production_shaped_scatter_difference\":"
+              << scientificRequest.maxProductionShapedScatterDifference
+              << "},";
     std::cout << "\"variable_cardinality_source_keyed\":true,";
     std::cout << "\"canonicalized_by_original_source_id\":true,";
     std::cout << "\"face_count\":" << adapted.faces.size() << ',';
