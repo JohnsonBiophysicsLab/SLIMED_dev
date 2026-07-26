@@ -30,6 +30,17 @@ prepared or accumulated output is returned. It does not install a default
 evaluator caller, execute the production face loop, populate one-rings, or
 mutate mesh force state.
 
+The successor scientific-request boundary,
+`evaluate_guarded_valence4_face_loop_scientific_request(...)`, remains
+default-off behind the same explicit reviewer-approved request. It validates
+the complete three-sample source-keyed row package before doing any scientific
+work, reads coordinates from the real approved `Mesh`, and calls the existing
+variable-cardinality `Mesh::element_energy_force_regular(...)` helper for each
+face. The returned mean curvature, bending energy, normal, and source-keyed
+`fBend`/`fArea`/`fVolume` contributions are caller-owned. Focused tests use a
+fixture that owns the `Param` referenced by `Mesh`, prove finite nonzero
+outputs, and verify that malformed late rows reject atomically.
+
 ## Boundary
 
 This is production C++ structure, not production valence-4 force execution:
@@ -40,6 +51,9 @@ explicit_route_request_boundary: true
 default_off_request_rejected: true
 reviewed_three_sample_cardinality_required: true
 explicit_request_source_keyed_accumulation: true
+scientific_request_boundary: true
+production_scientific_algebra_executed: true
+caller_owned_scientific_outputs: true
 not_production_routing: true
 production_route_enabled: false
 actual_production_force_path_executed: false
@@ -49,19 +63,19 @@ default_evaluator_callers: false
 backend_neutral_opensubdiv_free: true
 ```
 
-The helper does not call OpenSubdiv, `Mesh::element_energy_force_regular()`,
-`Mesh::Compute_Energy_And_Force()`, or
-`accumulate_membrane_face_energy_and_forces(...)`. It does not mutate
-`Mesh`, `Face`, `Vertex`, thread buffers, checkpoint/output state,
-propagation state, or optimizer state. The explicit request boundary calls
-only the backend-neutral source-keyed validator and accumulator, and returns
-owned outputs to the caller.
+The helper does not call OpenSubdiv, `Mesh::Compute_Energy_And_Force()`, or
+`accumulate_membrane_face_energy_and_forces(...)`. The scientific request
+does call `Mesh::element_energy_force_regular()` with explicit
+variable-cardinality shape rows, but it does not enter the real face loop or
+scatter into `Vertex` force state. It leaves mesh-owned face observables,
+one-rings, vertex forces, thread buffers, checkpoint/output state, propagation
+state, and optimizer state unchanged.
 
 ## Residual Boundary
 
 A real route remains a separate reviewer/user-gated implementation decision.
-That successor must supply backend-neutral weighted samples and source-keyed
-forces from production geometry, invoke the approved variable-cardinality
-scientific algebra, scatter through original source IDs in the production
-OpenMP face loop, preserve default-off behavior, and prove serial/OpenMP
-observable parity before route activation can be described as production-ready.
+That successor must supply reviewed OpenSubdiv weighted samples through this
+default-off request, then separately install source-keyed scatter through
+original source IDs in the production OpenMP face loop. Route activation still
+requires serial/OpenMP observable parity, unsupported-topology fallback, and a
+fresh reviewer/user-gated decision.

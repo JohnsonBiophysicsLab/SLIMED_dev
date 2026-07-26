@@ -1,4 +1,6 @@
 #include <algorithm>
+#include <cmath>
+#include <memory>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -16,21 +18,32 @@ namespace
 using namespace slimed::source_keyed_kernel;
 using namespace slimed::valence4_route_preflight;
 
-Mesh make_approved_valence4_mesh()
+struct ApprovedValence4MeshFixture
 {
     Param param;
-    param.VERBOSE_MODE = false;
-    param.boundaryCondition = BoundaryType::Fixed;
-    param.subDivideTimes = 2;
+    std::unique_ptr<Mesh> mesh;
 
-    const auto verticesData = read_data_from_csv<double>(
-        "./data/fixtures/candidates/closed_valence4_octahedron/vertices.csv");
-    const auto facesData = read_data_from_csv<int>(
-        "./data/fixtures/candidates/closed_valence4_octahedron/faces.csv");
-    Mesh mesh(param);
-    mesh.setup_from_vertices_faces(verticesData, facesData);
-    return mesh;
-}
+    ApprovedValence4MeshFixture()
+    {
+        param.VERBOSE_MODE = false;
+        param.boundaryCondition = BoundaryType::Fixed;
+        param.subDivideTimes = 2;
+        param.kCurv = 47.5;
+        param.uSurf = 130.0;
+        param.area0 = 2.75;
+        param.area = 5.5;
+        param.uVol = 65.0;
+        param.vol0 = 0.82;
+        param.vol = 0.25;
+
+        const auto verticesData = read_data_from_csv<double>(
+            "./data/fixtures/candidates/closed_valence4_octahedron/vertices.csv");
+        const auto facesData = read_data_from_csv<int>(
+            "./data/fixtures/candidates/closed_valence4_octahedron/faces.csv");
+        mesh = std::make_unique<Mesh>(param);
+        mesh->setup_from_vertices_faces(verticesData, facesData);
+    }
+};
 
 SourceKeyedFaceRows make_rows_for_mapping(
     const SourceMappingView &mapping)
@@ -107,12 +120,121 @@ Valence4FaceLoopRouteRequest make_request_from_preflight(
     }
     return request;
 }
+
+SourceKeyedFaceRows make_scientific_rows_for_mapping(
+    const SourceMappingView &mapping)
+{
+    SourceKeyedFaceRows rows;
+    rows.faceIndex = mapping.faceIndex;
+    rows.orientedFaceVertices = mapping.orientedFaceVertices;
+    rows.samples.resize(3);
+    for (SourceKeyedSampleRows &sample : rows.samples)
+    {
+        for (SourceKeyedRow &row : sample.rows)
+        {
+            row.sourceIds = mapping.originalSourceIds;
+            row.coefficients.assign(mapping.originalSourceIds.size(),
+                                    0.0);
+        }
+        const auto sourcePosition = [&mapping](const int sourceId) {
+            const auto found =
+                std::find(mapping.originalSourceIds.begin(),
+                          mapping.originalSourceIds.end(),
+                          sourceId);
+            if (found == mapping.originalSourceIds.end())
+            {
+                throw std::runtime_error(
+                    "scientific test fixture source is absent");
+            }
+            return static_cast<std::size_t>(
+                found - mapping.originalSourceIds.begin());
+        };
+        const std::size_t corner0 =
+            sourcePosition(mapping.orientedFaceVertices[0]);
+        const std::size_t corner1 =
+            sourcePosition(mapping.orientedFaceVertices[1]);
+        const std::size_t corner2 =
+            sourcePosition(mapping.orientedFaceVertices[2]);
+        sample.rows[0].coefficients[corner0] = 1.0 / 3.0;
+        sample.rows[0].coefficients[corner1] = 1.0 / 3.0;
+        sample.rows[0].coefficients[corner2] = 1.0 / 3.0;
+        sample.rows[1].coefficients[corner0] = -1.0;
+        sample.rows[1].coefficients[corner1] = 1.0;
+        sample.rows[2].coefficients[corner0] = -1.0;
+        sample.rows[2].coefficients[corner2] = 1.0;
+    }
+    return rows;
+}
+
+Valence4FaceLoopScientificRequest make_scientific_request(
+    const Valence4FaceLoopRoutePreflightResult &preflight,
+    const bool reviewerApprovedExplicitRequest)
+{
+    Valence4FaceLoopScientificRequest request;
+    request.reviewerApprovedExplicitRequest =
+        reviewerApprovedExplicitRequest;
+    for (const SourceMappingView &mapping : preflight.mappings)
+    {
+        request.rows.push_back(
+            make_scientific_rows_for_mapping(mapping));
+    }
+    return request;
+}
+
+void seed_mesh_owned_scientific_state(Mesh &mesh)
+{
+    for (Face &face : mesh.faces)
+    {
+        face.meanCurvature = 100.0 + face.index;
+        face.energy.energyCurvature = 200.0 + face.index;
+    }
+    for (Vertex &vertex : mesh.vertices)
+    {
+        for (int axis = 0; axis < kAxisCount; ++axis)
+        {
+            const double sentinel =
+                1000.0 + 10.0 * vertex.index + axis;
+            vertex.force.forceCurvature.set(axis, 0, sentinel);
+            vertex.force.forceArea.set(axis, 0, -sentinel);
+            vertex.force.forceVolume.set(axis, 0, 2.0 * sentinel);
+        }
+    }
+}
+
+void expect_mesh_owned_scientific_state_unchanged(const Mesh &mesh)
+{
+    for (const Face &face : mesh.faces)
+    {
+        EXPECT_DOUBLE_EQ(face.meanCurvature,
+                         100.0 + face.index);
+        EXPECT_DOUBLE_EQ(face.energy.energyCurvature,
+                         200.0 + face.index);
+        EXPECT_TRUE(face.oneRingVertices.empty());
+    }
+    for (const Vertex &vertex : mesh.vertices)
+    {
+        for (int axis = 0; axis < kAxisCount; ++axis)
+        {
+            const double sentinel =
+                1000.0 + 10.0 * vertex.index + axis;
+            EXPECT_DOUBLE_EQ(
+                vertex.force.forceCurvature.get(axis, 0),
+                sentinel);
+            EXPECT_DOUBLE_EQ(vertex.force.forceArea.get(axis, 0),
+                             -sentinel);
+            EXPECT_DOUBLE_EQ(
+                vertex.force.forceVolume.get(axis, 0),
+                2.0 * sentinel);
+        }
+    }
+}
 } // namespace
 
 TEST(ValenceFourFaceLoopRoutePreflight,
      ApprovedOctahedronBuildsInertSourceKeyedRouteCandidate)
 {
-    Mesh mesh = make_approved_valence4_mesh();
+    ApprovedValence4MeshFixture fixture;
+    Mesh &mesh = *fixture.mesh;
     const Valence4FaceLoopRoutePreflightResult preflight =
         build_guarded_valence4_face_loop_route_preflight(mesh);
 
@@ -146,7 +268,8 @@ TEST(ValenceFourFaceLoopRoutePreflight,
 TEST(ValenceFourFaceLoopRoutePreflight,
      RejectsOneRingContractDriftWithoutPartialCandidate)
 {
-    Mesh mesh = make_approved_valence4_mesh();
+    ApprovedValence4MeshFixture fixture;
+    Mesh &mesh = *fixture.mesh;
     mesh.faces[0].oneRingVertices = {0, 1, 2, 3, 4, 5};
 
     const Valence4FaceLoopRoutePreflightResult preflight =
@@ -165,7 +288,8 @@ TEST(ValenceFourFaceLoopRoutePreflight,
 TEST(ValenceFourFaceLoopRoutePreflight,
      PreflightMappingsFeedSourceKeyedValidationWithoutRouteExecution)
 {
-    Mesh mesh = make_approved_valence4_mesh();
+    ApprovedValence4MeshFixture fixture;
+    Mesh &mesh = *fixture.mesh;
     const Valence4FaceLoopRoutePreflightResult preflight =
         build_guarded_valence4_face_loop_route_preflight(mesh);
     ASSERT_TRUE(preflight.supported) << preflight.rejectionReason;
@@ -210,7 +334,8 @@ TEST(ValenceFourFaceLoopRoutePreflight,
 TEST(ValenceFourFaceLoopRoutePreflight,
      ExplicitRouteRequestRejectsByDefaultBeforeSourceKeyedAccumulation)
 {
-    Mesh mesh = make_approved_valence4_mesh();
+    ApprovedValence4MeshFixture fixture;
+    Mesh &mesh = *fixture.mesh;
     const Valence4FaceLoopRoutePreflightResult preflight =
         build_guarded_valence4_face_loop_route_preflight(mesh);
     ASSERT_TRUE(preflight.supported) << preflight.rejectionReason;
@@ -243,7 +368,8 @@ TEST(ValenceFourFaceLoopRoutePreflight,
 TEST(ValenceFourFaceLoopRoutePreflight,
      ExplicitRouteRequestPreparesCallerOwnedSourceKeyedAccumulationOnly)
 {
-    Mesh mesh = make_approved_valence4_mesh();
+    ApprovedValence4MeshFixture fixture;
+    Mesh &mesh = *fixture.mesh;
     const Valence4FaceLoopRoutePreflightResult preflight =
         build_guarded_valence4_face_loop_route_preflight(mesh);
     ASSERT_TRUE(preflight.supported) << preflight.rejectionReason;
@@ -287,7 +413,8 @@ TEST(ValenceFourFaceLoopRoutePreflight,
 TEST(ValenceFourFaceLoopRoutePreflight,
      ExplicitRouteRequestRejectsMalformedRowsWithoutPartialOutput)
 {
-    Mesh mesh = make_approved_valence4_mesh();
+    ApprovedValence4MeshFixture fixture;
+    Mesh &mesh = *fixture.mesh;
     const Valence4FaceLoopRoutePreflightResult preflight =
         build_guarded_valence4_face_loop_route_preflight(mesh);
     ASSERT_TRUE(preflight.supported) << preflight.rejectionReason;
@@ -321,7 +448,8 @@ TEST(ValenceFourFaceLoopRoutePreflight,
 TEST(ValenceFourFaceLoopRoutePreflight,
      ExplicitRouteRequestRejectsTooFewSamplesWithoutPartialOutput)
 {
-    Mesh mesh = make_approved_valence4_mesh();
+    ApprovedValence4MeshFixture fixture;
+    Mesh &mesh = *fixture.mesh;
     const Valence4FaceLoopRoutePreflightResult preflight =
         build_guarded_valence4_face_loop_route_preflight(mesh);
     ASSERT_TRUE(preflight.supported) << preflight.rejectionReason;
@@ -354,7 +482,8 @@ TEST(ValenceFourFaceLoopRoutePreflight,
 TEST(ValenceFourFaceLoopRoutePreflight,
      ExplicitRouteRequestRejectsTooManySamplesWithoutPartialOutput)
 {
-    Mesh mesh = make_approved_valence4_mesh();
+    ApprovedValence4MeshFixture fixture;
+    Mesh &mesh = *fixture.mesh;
     const Valence4FaceLoopRoutePreflightResult preflight =
         build_guarded_valence4_face_loop_route_preflight(mesh);
     ASSERT_TRUE(preflight.supported) << preflight.rejectionReason;
@@ -383,4 +512,133 @@ TEST(ValenceFourFaceLoopRoutePreflight,
     {
         EXPECT_TRUE(face.oneRingVertices.empty());
     }
+}
+
+TEST(ValenceFourFaceLoopRoutePreflight,
+     ScientificRequestRejectsByDefaultBeforeScientificAlgebra)
+{
+    ApprovedValence4MeshFixture fixture;
+    Mesh &mesh = *fixture.mesh;
+    const Valence4FaceLoopRoutePreflightResult preflight =
+        build_guarded_valence4_face_loop_route_preflight(mesh);
+    ASSERT_TRUE(preflight.supported) << preflight.rejectionReason;
+    seed_mesh_owned_scientific_state(mesh);
+
+    const Valence4FaceLoopScientificRequest request =
+        make_scientific_request(preflight, false);
+    const Valence4FaceLoopScientificRequestResult result =
+        evaluate_guarded_valence4_face_loop_scientific_request(
+            mesh, request);
+
+    EXPECT_FALSE(result.accepted);
+    EXPECT_FALSE(result.explicitRouteRequested);
+    EXPECT_FALSE(result.productionScientificAlgebraExecuted);
+    EXPECT_NE(result.rejectionReason.find("default-off"),
+              std::string::npos);
+    EXPECT_TRUE(result.faceObservables.empty());
+    EXPECT_FALSE(result.sourceKeyedRequest.accepted);
+    EXPECT_FALSE(result.productionRouteEnabled);
+    EXPECT_FALSE(result.actualProductionForcePathExecuted);
+    EXPECT_FALSE(result.productionFaceLoopExecuted);
+    expect_mesh_owned_scientific_state_unchanged(mesh);
+}
+
+TEST(ValenceFourFaceLoopRoutePreflight,
+     ScientificRequestEvaluatesRealCoordinatesIntoOwnedSourceForces)
+{
+    ApprovedValence4MeshFixture fixture;
+    Mesh &mesh = *fixture.mesh;
+    ASSERT_EQ(mesh.param.gaussQuadratureCoeff.nrow(), 3);
+    ASSERT_EQ(mesh.param.gaussQuadratureCoeff.ncol(), 1);
+    const Valence4FaceLoopRoutePreflightResult preflight =
+        build_guarded_valence4_face_loop_route_preflight(mesh);
+    ASSERT_TRUE(preflight.supported) << preflight.rejectionReason;
+    seed_mesh_owned_scientific_state(mesh);
+
+    const Valence4FaceLoopScientificRequest request =
+        make_scientific_request(preflight, true);
+    const Valence4FaceLoopScientificRequestResult result =
+        evaluate_guarded_valence4_face_loop_scientific_request(
+            mesh, request);
+
+    ASSERT_TRUE(result.accepted) << result.rejectionReason;
+    EXPECT_TRUE(result.explicitRouteRequested);
+    EXPECT_TRUE(result.productionScientificAlgebraExecuted);
+    ASSERT_EQ(result.faceObservables.size(), mesh.faces.size());
+    for (std::size_t faceIndex = 0;
+         faceIndex < result.faceObservables.size();
+         ++faceIndex)
+    {
+        const Valence4FaceScientificObservables &observables =
+            result.faceObservables[faceIndex];
+        EXPECT_EQ(observables.faceIndex,
+                  static_cast<int>(faceIndex));
+        EXPECT_TRUE(std::isfinite(observables.meanCurvature));
+        EXPECT_TRUE(std::isfinite(observables.bendingEnergy));
+        for (const double component : observables.normal)
+        {
+            EXPECT_TRUE(std::isfinite(component));
+        }
+    }
+
+    ASSERT_TRUE(result.sourceKeyedRequest.accepted)
+        << result.sourceKeyedRequest.rejectionReason;
+    EXPECT_TRUE(
+        result.sourceKeyedRequest.sourceKeyedAccumulationExecuted);
+    ASSERT_EQ(
+        result.sourceKeyedRequest.accumulatedSourceForces.size(),
+        mesh.vertices.size());
+    bool foundNonzeroForce = false;
+    for (const SourceForceKinds &sourceForces :
+         result.sourceKeyedRequest.accumulatedSourceForces)
+    {
+        for (const Vec3 &force : sourceForces)
+        {
+            for (const double component : force)
+            {
+                EXPECT_TRUE(std::isfinite(component));
+                foundNonzeroForce =
+                    foundNonzeroForce || component != 0.0;
+            }
+        }
+    }
+    EXPECT_TRUE(foundNonzeroForce);
+    EXPECT_FALSE(result.productionRouteEnabled);
+    EXPECT_FALSE(result.actualProductionForcePathExecuted);
+    EXPECT_FALSE(result.productionFaceLoopExecuted);
+    EXPECT_FALSE(result.productionOneRingsPopulated);
+    EXPECT_FALSE(result.defaultEvaluatorCaller);
+    expect_mesh_owned_scientific_state_unchanged(mesh);
+}
+
+TEST(ValenceFourFaceLoopRoutePreflight,
+     ScientificRequestRejectsMalformedLateRowWithoutPartialOutput)
+{
+    ApprovedValence4MeshFixture fixture;
+    Mesh &mesh = *fixture.mesh;
+    const Valence4FaceLoopRoutePreflightResult preflight =
+        build_guarded_valence4_face_loop_route_preflight(mesh);
+    ASSERT_TRUE(preflight.supported) << preflight.rejectionReason;
+    seed_mesh_owned_scientific_state(mesh);
+
+    Valence4FaceLoopScientificRequest request =
+        make_scientific_request(preflight, true);
+    ASSERT_FALSE(request.rows.empty());
+    request.rows.back().samples.back().rows[0].sourceIds[0] =
+        preflight.sourceCount + 1;
+    const Valence4FaceLoopScientificRequestResult result =
+        evaluate_guarded_valence4_face_loop_scientific_request(
+            mesh, request);
+
+    EXPECT_FALSE(result.accepted);
+    EXPECT_TRUE(result.explicitRouteRequested);
+    EXPECT_FALSE(result.productionScientificAlgebraExecuted);
+    EXPECT_NE(result.rejectionReason.find("out-of-range"),
+              std::string::npos);
+    EXPECT_TRUE(result.faceObservables.empty());
+    EXPECT_FALSE(result.sourceKeyedRequest.accepted);
+    EXPECT_FALSE(result.productionRouteEnabled);
+    EXPECT_FALSE(result.actualProductionForcePathExecuted);
+    EXPECT_FALSE(result.productionFaceLoopExecuted);
+    expect_mesh_owned_scientific_state_unchanged(mesh);
 }

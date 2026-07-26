@@ -27,6 +27,9 @@ class ValenceFourProductionRoutePreflightInventoryTest(unittest.TestCase):
         self.assertEqual(report["status"], "passed", report["errors"])
         self.assertTrue(report["production_route_preflight_helper_executed"])
         self.assertTrue(report["explicit_route_request_boundary"])
+        self.assertTrue(report["scientific_request_boundary"])
+        self.assertTrue(report["production_scientific_algebra_executed"])
+        self.assertTrue(report["caller_owned_scientific_outputs"])
         self.assertTrue(report["not_production_routing"])
         self.assertFalse(report["production_route_enabled"])
         self.assertFalse(report["actual_production_force_path_executed"])
@@ -57,6 +60,15 @@ class ValenceFourProductionRoutePreflightInventoryTest(unittest.TestCase):
         )
         self.assertEqual(report["status"], "passed", report["errors"])
 
+    def test_scientific_request_executes_only_per_face_algebra(self):
+        report = load_inventory_module().collect(ROOT)
+        self.assertTrue(report["scientific_request_boundary"])
+        self.assertTrue(report["production_scientific_algebra_executed"])
+        self.assertTrue(report["caller_owned_scientific_outputs"])
+        self.assertFalse(report["actual_production_force_path_executed"])
+        self.assertFalse(report["production_face_loop_executed"])
+        self.assertFalse(report["production_face_loop_force_path_called"])
+
     def test_preflight_has_no_default_evaluator_caller(self):
         report = load_inventory_module().collect(ROOT)
         self.assertEqual(report["default_evaluator_callers"], [])
@@ -64,7 +76,7 @@ class ValenceFourProductionRoutePreflightInventoryTest(unittest.TestCase):
             report["default_evaluator_or_route_surfaces_changed"]
         )
         self.assertFalse(report["production_one_ring_mutation"])
-        self.assertFalse(report["production_force_path_called"])
+        self.assertFalse(report["production_face_loop_force_path_called"])
 
     def test_allowed_path_boundary(self):
         report = load_inventory_module().collect(ROOT)

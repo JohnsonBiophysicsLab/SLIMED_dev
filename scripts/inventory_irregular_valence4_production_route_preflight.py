@@ -9,7 +9,7 @@ from pathlib import Path
 import subprocess
 
 
-BASE = "7f17dedaa4ad9d12291b403b7493e920dfad7e6c"
+BASE = "9c058c63a5bf535623f18f882210177c7c639e08"
 HEADER = Path("include/energy_force/Valence4_face_loop_route_preflight.hpp")
 SOURCE = Path("src/energy_force/Valence4_face_loop_route_preflight.cpp")
 CPP_TEST = Path("tests/test_valence4_face_loop_route_preflight.cpp")
@@ -37,6 +37,9 @@ ANCHORS = {
         "Valence4FaceLoopRoutePreflightResult",
         "Valence4FaceLoopRouteRequest",
         "Valence4FaceLoopRouteRequestResult",
+        "Valence4FaceLoopScientificRequest",
+        "Valence4FaceLoopScientificRequestResult",
+        "productionScientificAlgebraExecuted = false",
         "source_keyed_kernel::SourceMappingView",
         "reviewerApprovedExplicitRequest = false",
         "sourceKeyedAccumulationExecuted = false",
@@ -46,6 +49,7 @@ ANCHORS = {
         "productionOneRingsPopulated = false",
         "does not authorize route activation",
         "evaluate_guarded_valence4_face_loop_route_request",
+        "evaluate_guarded_valence4_face_loop_scientific_request",
     ),
     SOURCE: (
         "build_guarded_valence4_topology_source_mapping",
@@ -59,6 +63,8 @@ ANCHORS = {
         "prepare_source_keyed_kernel_call",
         "accumulate_source_keyed_force_contributions",
         "sourceKeyedAccumulationExecuted = true",
+        "element_energy_force_regular",
+        "productionScientificAlgebraExecuted = true",
         "result.supported = true",
         "result.rejectionReason.clear()",
     ),
@@ -71,6 +77,10 @@ ANCHORS = {
         "ExplicitRouteRequestRejectsMalformedRowsWithoutPartialOutput",
         "ExplicitRouteRequestRejectsTooFewSamplesWithoutPartialOutput",
         "ExplicitRouteRequestRejectsTooManySamplesWithoutPartialOutput",
+        "ScientificRequestRejectsByDefaultBeforeScientificAlgebra",
+        "ScientificRequestEvaluatesRealCoordinatesIntoOwnedSourceForces",
+        "ScientificRequestRejectsMalformedLateRowWithoutPartialOutput",
+        "ApprovedValence4MeshFixture",
         "prepare_source_keyed_kernel_call",
         "accumulate_source_keyed_force_contributions",
         "calculate_element_area_volume",
@@ -85,6 +95,9 @@ ANCHORS = {
         "default_off_request_rejected: true",
         "reviewed_three_sample_cardinality_required: true",
         "explicit_request_source_keyed_accumulation: true",
+        "scientific_request_boundary: true",
+        "production_scientific_algebra_executed: true",
+        "caller_owned_scientific_outputs: true",
         "production_route_enabled: false",
         "actual_production_force_path_executed: false",
         "production_face_loop_executed: false",
@@ -97,6 +110,8 @@ ANCHORS = {
         "requires exactly three samples per",
         "production-route preflight",
         "explicit request boundary rejects by default",
+        "guarded scientific-request successor",
+        "calls only the existing per-face",
         "route activation remains a separate",
         "reviewer/user-gated decision",
     ),
@@ -104,6 +119,7 @@ ANCHORS = {
         "test_inventory_passes_with_inert_production_scope",
         "test_explicit_route_request_boundary_is_default_off",
         "test_explicit_route_request_requires_reviewed_sample_cardinality",
+        "test_scientific_request_executes_only_per_face_algebra",
         "test_preflight_has_no_default_evaluator_caller",
         "test_allowed_path_boundary",
     ),
@@ -177,6 +193,7 @@ def collect(root: Path) -> dict[str, object]:
     helper_names = (
         "build_guarded_valence4_face_loop_route_preflight",
         "evaluate_guarded_valence4_face_loop_route_request",
+        "evaluate_guarded_valence4_face_loop_scientific_request",
     )
     default_evaluator_callers: list[str] = []
     for path in sorted(forbidden_default_files):
@@ -213,16 +230,20 @@ def collect(root: Path) -> dict[str, object]:
     )
     if production_one_ring_mutation:
         errors.append("preflight helper mutates production one-rings")
-    production_force_path_called = any(
+    production_scientific_algebra_called = (
+        "element_energy_force_regular" in helper_text
+    )
+    if not production_scientific_algebra_called:
+        errors.append("scientific request does not call per-face algebra")
+    production_face_loop_force_path_called = any(
         needle in helper_text
         for needle in (
-            "element_energy_force_regular",
             "Compute_Energy_And_Force",
             "accumulate_membrane_face_energy_and_forces",
         )
     )
-    if production_force_path_called:
-        errors.append("preflight helper calls production force path")
+    if production_face_loop_force_path_called:
+        errors.append("preflight helper calls production face-loop force path")
 
     return {
         "status": "passed" if not errors else "failed",
@@ -232,6 +253,10 @@ def collect(root: Path) -> dict[str, object]:
         "default_off_request_rejected": True,
         "reviewed_three_sample_cardinality_required": True,
         "explicit_request_source_keyed_accumulation": True,
+        "scientific_request_boundary": True,
+        "production_scientific_algebra_executed":
+            production_scientific_algebra_called,
+        "caller_owned_scientific_outputs": True,
         "not_production_routing": True,
         "production_route_enabled": False,
         "actual_production_force_path_executed": False,
@@ -242,7 +267,8 @@ def collect(root: Path) -> dict[str, object]:
             default_surfaces_changed,
         "backend_neutral_opensubdiv_free": backend_neutral_opensubdiv_free,
         "production_one_ring_mutation": production_one_ring_mutation,
-        "production_force_path_called": production_force_path_called,
+        "production_face_loop_force_path_called":
+            production_face_loop_force_path_called,
         "changed_paths": paths,
         "anchors": {"located": located, "expected": expected},
         "errors": errors,
