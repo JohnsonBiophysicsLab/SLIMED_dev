@@ -12,6 +12,8 @@ namespace slimed::valence4_route_preflight
 {
 namespace
 {
+constexpr std::size_t kReviewedSampleCountPerFace = 3;
+
 Valence4FaceLoopRoutePreflightResult reject(std::string reason)
 {
     Valence4FaceLoopRoutePreflightResult result;
@@ -121,6 +123,17 @@ evaluate_guarded_valence4_face_loop_route_request(
             "an explicit reviewer-approved request",
             std::move(preflight),
             explicitRouteRequested);
+    }
+    for (const auto &faceRows : request.rows)
+    {
+        if (faceRows.samples.size() != kReviewedSampleCountPerFace)
+        {
+            return reject_request(
+                "valence-4 face-loop route request requires exactly three "
+                "samples per face",
+                std::move(preflight),
+                explicitRouteRequested);
+        }
     }
 
     slimed::source_keyed_kernel::SourceKeyedKernelCallInput input;

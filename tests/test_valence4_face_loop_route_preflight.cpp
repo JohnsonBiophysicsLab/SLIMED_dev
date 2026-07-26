@@ -38,23 +38,30 @@ SourceKeyedFaceRows make_rows_for_mapping(
     SourceKeyedFaceRows rows;
     rows.faceIndex = mapping.faceIndex;
     rows.orientedFaceVertices = mapping.orientedFaceVertices;
-    rows.samples.resize(1);
+    rows.samples.resize(3);
 
     std::vector<int> reversedSourceIds = mapping.originalSourceIds;
     std::reverse(reversedSourceIds.begin(), reversedSourceIds.end());
-    for (int rowIndex = 0; rowIndex < kDerivativeRowCount; ++rowIndex)
+    for (std::size_t sampleIndex = 0;
+         sampleIndex < rows.samples.size();
+         ++sampleIndex)
     {
-        SourceKeyedRow &row = rows.samples[0].rows[rowIndex];
-        row.sourceIds = reversedSourceIds;
-        row.coefficients.reserve(reversedSourceIds.size());
-        const double rowBase =
-            rowIndex >= 5 ? 5.0 : static_cast<double>(rowIndex);
-        for (const int sourceId : reversedSourceIds)
+        for (int rowIndex = 0; rowIndex < kDerivativeRowCount; ++rowIndex)
         {
-            row.coefficients.push_back(
-                rowBase +
-                0.01 * static_cast<double>(mapping.faceIndex + 1) +
-                0.001 * static_cast<double>(sourceId + 1));
+            SourceKeyedRow &row =
+                rows.samples[sampleIndex].rows[rowIndex];
+            row.sourceIds = reversedSourceIds;
+            row.coefficients.reserve(reversedSourceIds.size());
+            const double rowBase =
+                rowIndex >= 5 ? 5.0 : static_cast<double>(rowIndex);
+            for (const int sourceId : reversedSourceIds)
+            {
+                row.coefficients.push_back(
+                    rowBase +
+                    0.1 * static_cast<double>(sampleIndex) +
+                    0.01 * static_cast<double>(mapping.faceIndex + 1) +
+                    0.001 * static_cast<double>(sourceId + 1));
+            }
         }
     }
     return rows;
@@ -299,6 +306,73 @@ TEST(ValenceFourFaceLoopRoutePreflight,
     EXPECT_FALSE(result.explicitRouteRequestAccepted);
     EXPECT_FALSE(result.sourceKeyedAccumulationExecuted);
     EXPECT_NE(result.rejectionReason.find("out-of-range"),
+              std::string::npos);
+    EXPECT_TRUE(result.prepared.faces.empty());
+    EXPECT_TRUE(result.accumulatedSourceForces.empty());
+    EXPECT_FALSE(result.productionRouteEnabled);
+    EXPECT_FALSE(result.actualProductionForcePathExecuted);
+    EXPECT_FALSE(result.productionFaceLoopExecuted);
+    for (const Face &face : mesh.faces)
+    {
+        EXPECT_TRUE(face.oneRingVertices.empty());
+    }
+}
+
+TEST(ValenceFourFaceLoopRoutePreflight,
+     ExplicitRouteRequestRejectsTooFewSamplesWithoutPartialOutput)
+{
+    Mesh mesh = make_approved_valence4_mesh();
+    const Valence4FaceLoopRoutePreflightResult preflight =
+        build_guarded_valence4_face_loop_route_preflight(mesh);
+    ASSERT_TRUE(preflight.supported) << preflight.rejectionReason;
+
+    Valence4FaceLoopRouteRequest request =
+        make_request_from_preflight(preflight, true);
+    ASSERT_FALSE(request.rows.empty());
+    request.rows.back().samples.resize(2);
+
+    const Valence4FaceLoopRouteRequestResult result =
+        evaluate_guarded_valence4_face_loop_route_request(mesh, request);
+
+    EXPECT_FALSE(result.accepted);
+    EXPECT_TRUE(result.explicitRouteRequested);
+    EXPECT_FALSE(result.explicitRouteRequestAccepted);
+    EXPECT_FALSE(result.sourceKeyedAccumulationExecuted);
+    EXPECT_NE(result.rejectionReason.find("exactly three samples"),
+              std::string::npos);
+    EXPECT_TRUE(result.prepared.faces.empty());
+    EXPECT_TRUE(result.accumulatedSourceForces.empty());
+    EXPECT_FALSE(result.productionRouteEnabled);
+    EXPECT_FALSE(result.actualProductionForcePathExecuted);
+    EXPECT_FALSE(result.productionFaceLoopExecuted);
+    for (const Face &face : mesh.faces)
+    {
+        EXPECT_TRUE(face.oneRingVertices.empty());
+    }
+}
+
+TEST(ValenceFourFaceLoopRoutePreflight,
+     ExplicitRouteRequestRejectsTooManySamplesWithoutPartialOutput)
+{
+    Mesh mesh = make_approved_valence4_mesh();
+    const Valence4FaceLoopRoutePreflightResult preflight =
+        build_guarded_valence4_face_loop_route_preflight(mesh);
+    ASSERT_TRUE(preflight.supported) << preflight.rejectionReason;
+
+    Valence4FaceLoopRouteRequest request =
+        make_request_from_preflight(preflight, true);
+    ASSERT_FALSE(request.rows.empty());
+    request.rows.back().samples.push_back(
+        request.rows.back().samples.back());
+
+    const Valence4FaceLoopRouteRequestResult result =
+        evaluate_guarded_valence4_face_loop_route_request(mesh, request);
+
+    EXPECT_FALSE(result.accepted);
+    EXPECT_TRUE(result.explicitRouteRequested);
+    EXPECT_FALSE(result.explicitRouteRequestAccepted);
+    EXPECT_FALSE(result.sourceKeyedAccumulationExecuted);
+    EXPECT_NE(result.rejectionReason.find("exactly three samples"),
               std::string::npos);
     EXPECT_TRUE(result.prepared.faces.empty());
     EXPECT_TRUE(result.accumulatedSourceForces.empty());

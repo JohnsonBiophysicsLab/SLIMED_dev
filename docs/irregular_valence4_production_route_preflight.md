@@ -23,9 +23,12 @@ This lane now also exposes an explicit route request boundary through
 review-gated and default-off: requests without
 `reviewerApprovedExplicitRequest` are rejected before source-keyed
 accumulation, while accepted requests only prepare caller-owned source-keyed
-rows and accumulated forces. It does not install a default evaluator caller,
-execute the production face loop, populate one-rings, or mutate mesh force
-state.
+rows and accumulated forces. Acceptance additionally requires exactly three
+samples per face, binding the request to the reviewed `8 x 3 x 7 x 6`
+valence-4 evidence package; fewer or additional samples reject before any
+prepared or accumulated output is returned. It does not install a default
+evaluator caller, execute the production face loop, populate one-rings, or
+mutate mesh force state.
 
 ## Boundary
 
@@ -35,6 +38,7 @@ This is production C++ structure, not production valence-4 force execution:
 production_route_preflight_helper_executed: true
 explicit_route_request_boundary: true
 default_off_request_rejected: true
+reviewed_three_sample_cardinality_required: true
 explicit_request_source_keyed_accumulation: true
 not_production_routing: true
 production_route_enabled: false

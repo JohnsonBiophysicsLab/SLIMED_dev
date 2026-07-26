@@ -250,8 +250,10 @@ This is not production valence-4 force execution or route approval. The
 production-route preflight composes the approved topology/source mapping with
 the source-keyed adapter-facing representation and returns an owned candidate
 package. The explicit request boundary rejects by default unless a
-reviewer-approved request flag is supplied, then prepares only caller-owned
-source-keyed rows and accumulated forces.
+reviewer-approved request flag is supplied, requires exactly three samples per
+face, then prepares only caller-owned source-keyed rows and accumulated
+forces. Requests with fewer or additional samples reject atomically instead
+of being accepted as reviewed route packages.
 The variable-cardinality source-keyed kernel adapter remains the representation
 boundary for that candidate and for any future caller. The preflight and
 explicit boundary do not call OpenSubdiv, the scientific force formula, the

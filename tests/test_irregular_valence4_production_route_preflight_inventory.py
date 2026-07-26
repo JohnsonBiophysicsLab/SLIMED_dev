@@ -40,10 +40,22 @@ class ValenceFourProductionRoutePreflightInventoryTest(unittest.TestCase):
     def test_explicit_route_request_boundary_is_default_off(self):
         report = load_inventory_module().collect(ROOT)
         self.assertTrue(report["default_off_request_rejected"])
+        self.assertTrue(
+            report["reviewed_three_sample_cardinality_required"]
+        )
         self.assertTrue(report["explicit_request_source_keyed_accumulation"])
         self.assertFalse(report["production_route_enabled"])
         self.assertFalse(report["actual_production_force_path_executed"])
         self.assertFalse(report["production_face_loop_executed"])
+
+    def test_explicit_route_request_requires_reviewed_sample_cardinality(
+        self,
+    ):
+        report = load_inventory_module().collect(ROOT)
+        self.assertTrue(
+            report["reviewed_three_sample_cardinality_required"]
+        )
+        self.assertEqual(report["status"], "passed", report["errors"])
 
     def test_preflight_has_no_default_evaluator_caller(self):
         report = load_inventory_module().collect(ROOT)
