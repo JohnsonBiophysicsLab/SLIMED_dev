@@ -40,9 +40,9 @@ write OpenMP thread buffers. Default builds remain OpenSubdiv-free.
 
 ## Residual Boundary
 
-The next separately reviewed boundary is a production-shaped face-loop shadow
-that consumes the guarded topology/source representation, invokes this
-scientific algebra, and compares serial/OpenMP energy, force, normal, area, and
-volume observables without enabling routing. Guarded route activation, broader
-valence, formulas, reductions, checkpoint/output, and propagation remain
-unapproved.
+The separately reviewed successor proof now consumes the guarded
+topology/source representation, invokes this scientific algebra, and compares
+serial/OpenMP energy, force, normal, area, and volume observables without
+enabling routing. Guarded production face-loop representation or activation,
+broader valence, formulas, reductions, checkpoint/output, and propagation
+remain unapproved.
