@@ -69,8 +69,10 @@ struct ThreadRun
     int requestedThreads = 0;
     std::array<int, kRepeats> actualThreads{};
     double maxOracleDelta = 0.0;
+    double maxPublicationDelta = 0.0;
     double maxRepeatDelta = 0.0;
     bool finite = true;
+    bool vertexForcePublicationExecuted = false;
     bool passed = true;
 };
 
@@ -164,6 +166,99 @@ double max_delta(const std::array<double, kComponents> &left,
     return result;
 }
 
+std::array<double, kComponents> extract_published_membrane_forces(
+    const Mesh &mesh)
+{
+    std::array<double, kComponents> extracted{};
+    for (int source = 0; source < kSourceCount; ++source)
+    {
+        const std::array<const Matrix *, kForceKinds> matrices{{
+            &mesh.vertices[source].force.forceCurvature,
+            &mesh.vertices[source].force.forceArea,
+            &mesh.vertices[source].force.forceVolume}};
+        for (int kind = 0; kind < kForceKinds; ++kind)
+        {
+            for (int axis = 0; axis < kAxes; ++axis)
+            {
+                // This layout expression is independent of the helper.
+                const int destination =
+                    source * (kForceKinds * kAxes) +
+                    kind * kAxes + axis;
+                extracted[destination] =
+                    matrices[kind]->get(axis, 0);
+            }
+        }
+    }
+    return extracted;
+}
+
+void seed_unrelated_vertex_forces(Mesh &mesh)
+{
+    for (Vertex &vertex : mesh.vertices)
+    {
+        const std::array<Matrix *, 13> matrices{{
+            &vertex.force.forceThickness,
+            &vertex.force.forceTilt,
+            &vertex.force.forceRegularization,
+            &vertex.force.forceHarmonicBond,
+            &vertex.force.forceTotal,
+            &vertex.forcePrev.forceCurvature,
+            &vertex.forcePrev.forceArea,
+            &vertex.forcePrev.forceVolume,
+            &vertex.forcePrev.forceThickness,
+            &vertex.forcePrev.forceTilt,
+            &vertex.forcePrev.forceRegularization,
+            &vertex.forcePrev.forceHarmonicBond,
+            &vertex.forcePrev.forceTotal}};
+        for (std::size_t family = 0; family < matrices.size(); ++family)
+        {
+            for (int axis = 0; axis < kAxes; ++axis)
+            {
+                matrices[family]->set(
+                    axis,
+                    0,
+                    100000.0 * vertex.index +
+                        1000.0 * family + axis + 0.375);
+            }
+        }
+    }
+}
+
+bool unrelated_vertex_forces_unchanged(const Mesh &mesh)
+{
+    for (const Vertex &vertex : mesh.vertices)
+    {
+        const std::array<const Matrix *, 13> matrices{{
+            &vertex.force.forceThickness,
+            &vertex.force.forceTilt,
+            &vertex.force.forceRegularization,
+            &vertex.force.forceHarmonicBond,
+            &vertex.force.forceTotal,
+            &vertex.forcePrev.forceCurvature,
+            &vertex.forcePrev.forceArea,
+            &vertex.forcePrev.forceVolume,
+            &vertex.forcePrev.forceThickness,
+            &vertex.forcePrev.forceTilt,
+            &vertex.forcePrev.forceRegularization,
+            &vertex.forcePrev.forceHarmonicBond,
+            &vertex.forcePrev.forceTotal}};
+        for (std::size_t family = 0; family < matrices.size(); ++family)
+        {
+            for (int axis = 0; axis < kAxes; ++axis)
+            {
+                const double expected =
+                    100000.0 * vertex.index +
+                    1000.0 * family + axis + 0.375;
+                if (matrices[family]->get(axis, 0) != expected)
+                {
+                    return false;
+                }
+            }
+        }
+    }
+    return true;
+}
+
 bool all_finite(const Contributions &values)
 {
     for (const FaceForces &face : values)
@@ -232,7 +327,8 @@ std::array<int, kComponents> collision_counts(
 
 ThreadRun run_threads(const Contributions &values,
                       const std::array<double, kComponents> &oracle,
-                      const int requestedThreads)
+                      const int requestedThreads,
+                      Mesh &mesh)
 {
     ThreadRun summary;
     summary.requestedThreads = requestedThreads;
@@ -271,6 +367,10 @@ ThreadRun run_threads(const Contributions &values,
             slimed::source_keyed_kernel::
                 reduce_source_keyed_force_component_buffers(
                     threadBuffers, kSourceCount);
+        slimed::source_keyed_kernel::
+            publish_source_keyed_membrane_forces_to_vertices(
+                sourceForces, mesh);
+        summary.vertexForcePublicationExecuted = true;
         std::array<double, kComponents> reduced{};
         for (int source = 0; source < kSourceCount; ++source)
         {
@@ -289,6 +389,11 @@ ThreadRun run_threads(const Contributions &values,
         }
         summary.maxOracleDelta =
             std::max(summary.maxOracleDelta, max_delta(reduced, oracle));
+        summary.maxPublicationDelta =
+            std::max(
+                summary.maxPublicationDelta,
+                max_delta(
+                    extract_published_membrane_forces(mesh), oracle));
         if (!haveFirst)
         {
             first = reduced;
@@ -303,6 +408,7 @@ ThreadRun run_threads(const Contributions &values,
     summary.passed =
         summary.passed && summary.finite &&
         summary.maxOracleDelta <= kTolerance &&
+        summary.maxPublicationDelta <= kTolerance &&
         summary.maxRepeatDelta <= kTolerance;
     return summary;
 }
@@ -416,9 +522,13 @@ void print_thread_run(const ThreadRun &run)
     std::cout << ",\"repeat_count\":" << kRepeats;
     std::cout << ",\"max_abs_oracle_difference\":"
               << run.maxOracleDelta;
+    std::cout << ",\"max_abs_vertex_force_publication_difference\":"
+              << run.maxPublicationDelta;
     std::cout << ",\"max_abs_repeat_difference\":"
               << run.maxRepeatDelta;
     std::cout << ",\"finite\":" << (run.finite ? "true" : "false");
+    std::cout << ",\"vertex_force_publication_executed\":"
+              << (run.vertexForcePublicationExecuted ? "true" : "false");
     std::cout << ",\"passed\":" << (run.passed ? "true" : "false");
     std::cout << '}';
 }
@@ -521,12 +631,16 @@ int main(int argc, char **argv)
     const std::array<int, 5> requested{{1, 2, 3, 4, 8}};
     std::array<ThreadRun, requested.size()> runs;
     bool openMpPassed = true;
+    seed_unrelated_vertex_forces(mesh);
     for (std::size_t index = 0; index < requested.size(); ++index)
     {
         runs[index] =
-            run_threads(contributions, flattenedOracle, requested[index]);
+            run_threads(
+                contributions, flattenedOracle, requested[index], mesh);
         openMpPassed = openMpPassed && runs[index].passed;
     }
+    const bool unrelatedForcesUnchanged =
+        unrelated_vertex_forces_unchanged(mesh);
 
     const bool finite = all_finite(contributions);
     const int contributingFaces = nonzero_face_count(contributions);
@@ -536,7 +650,8 @@ int main(int argc, char **argv)
         topologyIdentity && productionOneRingsEmpty &&
         layoutOraclePassed && finite &&
         contributingFaces == kFaceCount &&
-        collisionCoverage && openMpPassed;
+        collisionCoverage && openMpPassed &&
+        unrelatedForcesUnchanged;
 
     std::cout << std::setprecision(17);
     std::cout << '{';
@@ -548,6 +663,9 @@ int main(int argc, char **argv)
     std::cout << "\"actual_production_force_path_executed\":false,";
     std::cout << "\"actual_openmp_runtime\":true,";
     std::cout << "\"production_source_keyed_component_helper_executed\":true,";
+    std::cout << "\"vertex_force_publication_executed\":true,";
+    std::cout << "\"vertex_force_publication_overwrites_only_membrane_families\":"
+              << (unrelatedForcesUnchanged ? "true" : "false") << ',';
     std::cout << "\"omp_dynamic\":false,";
     std::cout << "\"fixture\":\"closed_valence4_octahedron\",";
     std::cout << "\"vertex_count\":" << mesh.vertices.size() << ',';

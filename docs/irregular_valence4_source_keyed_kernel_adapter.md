@@ -122,6 +122,14 @@ families. That result must match the independent source-force reference under
 `production_route_enabled: false`. This is evidence for the provider/request
 and caller-owned scatter-buffer boundaries, not route activation.
 
+The successor publication proof runs the same fresh-row scientific request on
+a disposable approved mesh. It rejects by default, then overwrites only
+`forceCurvature`, `forceArea`, and `forceVolume` after the complete package and
+all six destinations have passed validation. An independent named-matrix
+comparison requires the published values to match the source-keyed reference
+under `1e-12`; all face state, `forceTotal`, other current force families, and
+all previous force families must remain unchanged.
+
 ## Run
 
 Dependency-absent behavior is a clean skip:

@@ -117,6 +117,12 @@ class ValenceFourProductionOpenMpShadowInventoryTest(unittest.TestCase):
         shadow = payload["shadow"]
         self.assertFalse(shadow["production_one_rings_populated"])
         self.assertTrue(shadow["production_one_rings_expected_empty"])
+        self.assertTrue(shadow["vertex_force_publication_executed"])
+        self.assertTrue(
+            shadow[
+                "vertex_force_publication_overwrites_only_membrane_families"
+            ]
+        )
         self.assertTrue(shadow["independent_exact_index_layout_oracle_passed"])
         self.assertEqual(shadow["nonzero_face_contribution_count"], 8)
         self.assertEqual(shadow["expected_collision_count_per_component"], 8)
@@ -131,6 +137,18 @@ class ValenceFourProductionOpenMpShadowInventoryTest(unittest.TestCase):
             [1, 2, 3, 4, 8],
         )
         self.assertTrue(all(run["repeat_count"] == 5 for run in shadow["thread_runs"]))
+        self.assertTrue(
+            all(
+                run["vertex_force_publication_executed"]
+                for run in shadow["thread_runs"]
+            )
+        )
+        self.assertTrue(
+            all(
+                run["max_abs_vertex_force_publication_difference"] <= 1.0e-12
+                for run in shadow["thread_runs"]
+            )
+        )
         self.assertTrue(all(run["passed"] for run in shadow["thread_runs"]))
         self.assertTrue(shadow["passed"])
 

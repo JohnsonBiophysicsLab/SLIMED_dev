@@ -231,6 +231,10 @@ def main() -> int:
         and shadow.get(
             "production_source_keyed_component_helper_executed"
         )
+        and shadow.get("vertex_force_publication_executed")
+        and shadow.get(
+            "vertex_force_publication_overwrites_only_membrane_families"
+        )
         and shadow.get("production_topology_identity_passed")
         and shadow.get("production_one_rings_expected_empty")
         and not shadow.get("production_one_rings_populated")
@@ -244,6 +248,12 @@ def main() -> int:
         and shadow.get("single_contribution_component_slots") == []
         and shadow.get("unexpected_collision_count_component_slots") == []
         and shadow.get("actual_openmp_runtime_parity_passed")
+        and all(
+            run.get("vertex_force_publication_executed")
+            and run.get("max_abs_vertex_force_publication_difference", 1.0)
+            <= 1.0e-12
+            for run in shadow.get("thread_runs", [])
+        )
         and shadow.get("absolute_tolerance") == 1.0e-12
     )
     if not passed:

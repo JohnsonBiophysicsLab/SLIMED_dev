@@ -21,8 +21,11 @@ duplicate or out-of-range source IDs, and nonfinite inputs. Scatter updates are
 staged before publication, so rejection leaves the caller buffer unchanged
 without copying the complete vertex buffer for every face.
 
-The helpers own no storage and do not inspect OpenMP state, `Mesh`,
-`Face::oneRingVertices`, or `Vertex` forces.
+The scatter and reduction helpers own no storage and do not inspect OpenMP
+state or `Mesh`. Their guarded publication successor validates a complete
+reduced source vector and every destination before overwriting only
+`forceCurvature`, `forceArea`, and `forceVolume`. It requires empty production
+one-rings and leaves `forceTotal` and all other mesh state unchanged.
 
 ## Evidence
 
@@ -46,7 +49,8 @@ not_production_routing: true
 production_route_enabled: false
 actual_production_force_path_executed: false
 production_face_loop_executed: false
-production_vertex_force_state_mutated: false
+production_vertex_force_state_mutated: true
+production_face_loop_executed: false
 ```
 
 No OpenSubdiv type enters the helper API. Default dependency/build behavior,
@@ -54,6 +58,7 @@ the existing production face loop, formulas, quadrature, OpenMP scheduling and
 reductions, checkpoint/output, propagation, fixtures, and broader-valence
 routing are unchanged.
 
-The remaining step is a separately reviewed guarded face-loop/vertex-force
-integration on disposable approved state, followed by serial/OpenMP observable
-parity before any route activation decision.
+The reviewed successor publishes only the three membrane-force families on
+disposable approved state. The remaining step is atomic face-observable and
+geometry publication, followed by a separately reviewed real face-loop
+integration and full serial/OpenMP observable parity before route activation.

@@ -103,11 +103,22 @@ class ValenceFourSourceKeyedKernelAdapterInventoryTest(unittest.TestCase):
         self.assertTrue(
             composition["production_shaped_source_scatter_executed"]
         )
+        self.assertTrue(
+            composition["default_off_vertex_force_publication_rejected"]
+        )
+        self.assertTrue(composition["vertex_force_publication_executed"])
+        self.assertTrue(
+            composition["only_membrane_force_families_published"]
+        )
         self.assertTrue(composition["route_remained_disabled"])
         self.assertLessEqual(composition["max_observable_difference"], 1.0e-12)
         self.assertLessEqual(composition["max_source_force_difference"], 1.0e-12)
         self.assertLessEqual(
             composition["max_production_shaped_scatter_difference"],
+            1.0e-12,
+        )
+        self.assertLessEqual(
+            composition["max_published_force_difference"],
             1.0e-12,
         )
 
