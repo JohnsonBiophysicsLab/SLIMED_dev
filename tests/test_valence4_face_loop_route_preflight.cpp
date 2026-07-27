@@ -198,6 +198,22 @@ Valence4FaceGeometryStagingRequest make_geometry_staging_request(
     return request;
 }
 
+Valence4GeometryAwareAtomicCompositionRequest
+make_geometry_aware_composition_request(
+    const Valence4FaceLoopRoutePreflightResult &preflight,
+    const bool reviewerApprovedExplicitComposition)
+{
+    Valence4GeometryAwareAtomicCompositionRequest request;
+    request.reviewerApprovedExplicitComposition =
+        reviewerApprovedExplicitComposition;
+    for (const SourceMappingView &mapping : preflight.mappings)
+    {
+        request.rows.push_back(
+            make_scientific_rows_for_mapping(mapping));
+    }
+    return request;
+}
+
 Valence4FaceGeometry geometry_oracle(
     const Mesh &mesh,
     const SourceMappingView &mapping)
@@ -485,6 +501,18 @@ std::vector<std::array<double, kAxisCount>> capture_vertex_coordinates(
         }
     }
     return coordinates;
+}
+
+std::vector<const void *> capture_face_normal_allocations(
+    const Mesh &mesh)
+{
+    std::vector<const void *> allocations;
+    allocations.reserve(mesh.faces.size());
+    for (const Face &face : mesh.faces)
+    {
+        allocations.push_back(face.normVector.mat);
+    }
+    return allocations;
 }
 
 void expect_energy_equal(const Energy &actual,
@@ -1824,4 +1852,402 @@ TEST(ValenceFourFaceLoopRoutePreflight,
 
     mesh.vertices.back().force.forceVolume = originalVolume;
     EXPECT_EQ(capture_all_vertex_forces(mesh), beforeForces);
+}
+
+TEST(ValenceFourFaceLoopRoutePreflight,
+     GeometryAwareAtomicCompositionRejectsByDefaultWithoutMutation)
+{
+    ApprovedValence4MeshFixture fixture;
+    Mesh &mesh = *fixture.mesh;
+    const Valence4FaceLoopRoutePreflightResult preflight =
+        build_guarded_valence4_face_loop_route_preflight(mesh);
+    ASSERT_TRUE(preflight.supported) << preflight.rejectionReason;
+    seed_face_observable_publication_state(mesh);
+    seed_all_vertex_forces(mesh);
+    const std::vector<Face> beforeFaces = mesh.faces;
+    const auto beforeForces = capture_all_vertex_forces(mesh);
+    const auto beforeCoordinates = capture_vertex_coordinates(mesh);
+    const double beforeArea = mesh.param.area;
+    const double beforeVolume = mesh.param.vol;
+
+    const Valence4GeometryAwareAtomicCompositionRequest request =
+        make_geometry_aware_composition_request(preflight, false);
+    const Valence4GeometryAwareAtomicCompositionResult result =
+        evaluate_guarded_valence4_geometry_aware_atomic_composition(
+            mesh, request);
+
+    EXPECT_FALSE(result.accepted);
+    EXPECT_FALSE(result.explicitCompositionRequested);
+    EXPECT_FALSE(result.stagedGeometryUsedForScientificEvaluation);
+    EXPECT_FALSE(result.geometryPublicationExecuted);
+    EXPECT_FALSE(result.vertexForcePublicationExecuted);
+    EXPECT_FALSE(result.faceObservablePublicationExecuted);
+    EXPECT_FALSE(result.atomicGeometryScientificPublicationExecuted);
+    EXPECT_NE(result.rejectionReason.find("default-off"),
+              std::string::npos);
+    expect_face_observable_publication_state_unchanged(
+        mesh, beforeFaces);
+    EXPECT_EQ(capture_all_vertex_forces(mesh), beforeForces);
+    EXPECT_EQ(capture_vertex_coordinates(mesh), beforeCoordinates);
+    EXPECT_DOUBLE_EQ(mesh.param.area, beforeArea);
+    EXPECT_DOUBLE_EQ(mesh.param.vol, beforeVolume);
+}
+
+TEST(ValenceFourFaceLoopRoutePreflight,
+     GeometryAwareAtomicCompositionUsesStagedGlobalsAndCommitsAllFamilies)
+{
+    ApprovedValence4MeshFixture fixture;
+    Mesh &mesh = *fixture.mesh;
+    const Valence4FaceLoopRoutePreflightResult preflight =
+        build_guarded_valence4_face_loop_route_preflight(mesh);
+    ASSERT_TRUE(preflight.supported) << preflight.rejectionReason;
+    mesh.param.area = 1234.5;
+    mesh.param.vol = -678.25;
+    seed_face_observable_publication_state(mesh);
+    seed_all_vertex_forces(mesh);
+    const std::vector<Face> beforeFaces = mesh.faces;
+    const auto beforeForces = capture_all_vertex_forces(mesh);
+    const auto beforeCoordinates = capture_vertex_coordinates(mesh);
+
+    const Valence4GeometryAwareAtomicCompositionRequest request =
+        make_geometry_aware_composition_request(preflight, true);
+    const Valence4GeometryAwareAtomicCompositionResult result =
+        evaluate_guarded_valence4_geometry_aware_atomic_composition(
+            mesh, request);
+
+    ASSERT_TRUE(result.accepted) << result.rejectionReason;
+    EXPECT_TRUE(result.explicitCompositionRequested);
+    EXPECT_TRUE(result.stagedGeometryUsedForScientificEvaluation);
+    EXPECT_TRUE(result.geometryPublicationExecuted);
+    EXPECT_TRUE(result.vertexForcePublicationExecuted);
+    EXPECT_TRUE(result.faceObservablePublicationExecuted);
+    EXPECT_TRUE(result.atomicGeometryScientificPublicationExecuted);
+    ASSERT_TRUE(result.geometryStaging.accepted);
+    ASSERT_TRUE(result.scientificRequest.accepted);
+    EXPECT_TRUE(
+        result.scientificRequest
+            .stagedGeometryUsedForScientificEvaluation);
+    EXPECT_DOUBLE_EQ(
+        result.scientificRequest.scientificGlobalArea,
+        result.geometryStaging.totalArea);
+    EXPECT_DOUBLE_EQ(
+        result.scientificRequest.scientificGlobalVolume,
+        result.geometryStaging.totalVolume);
+    EXPECT_NE(result.scientificRequest.scientificGlobalArea, 1234.5);
+    EXPECT_NE(result.scientificRequest.scientificGlobalVolume, -678.25);
+
+    double expectedArea = 0.0;
+    double expectedVolume = 0.0;
+    for (std::size_t faceIndex = 0;
+         faceIndex < mesh.faces.size();
+         ++faceIndex)
+    {
+        const Valence4FaceGeometry expectedGeometry =
+            geometry_oracle(mesh, preflight.mappings[faceIndex]);
+        expectedArea += expectedGeometry.elementArea;
+        expectedVolume += expectedGeometry.elementVolume;
+        EXPECT_NEAR(mesh.faces[faceIndex].elementArea,
+                    expectedGeometry.elementArea,
+                    1.0e-12);
+        EXPECT_NEAR(mesh.faces[faceIndex].elementVolume,
+                    expectedGeometry.elementVolume,
+                    1.0e-12);
+
+        const Valence4FaceScientificObservables &observable =
+            result.scientificRequest.faceObservables[faceIndex];
+        EXPECT_DOUBLE_EQ(mesh.faces[faceIndex].meanCurvature,
+                         observable.meanCurvature);
+        EXPECT_DOUBLE_EQ(
+            mesh.faces[faceIndex].energy.energyCurvature,
+            observable.bendingEnergy);
+        for (int axis = 0; axis < kAxisCount; ++axis)
+        {
+            EXPECT_DOUBLE_EQ(
+                mesh.faces[faceIndex].normVector.get(axis, 0),
+                observable.normal[axis]);
+        }
+        expect_energy_equal(mesh.faces[faceIndex].energy,
+                            beforeFaces[faceIndex].energy,
+                            true);
+        expect_energy_equal(mesh.faces[faceIndex].energyPrev,
+                            beforeFaces[faceIndex].energyPrev,
+                            false);
+        EXPECT_EQ(mesh.faces[faceIndex].oneRingVertices,
+                  beforeFaces[faceIndex].oneRingVertices);
+    }
+    EXPECT_NEAR(mesh.param.area, expectedArea, 1.0e-12);
+    EXPECT_NEAR(mesh.param.vol, expectedVolume, 1.0e-12);
+    expect_only_membrane_forces_published(
+        mesh,
+        beforeForces,
+        result.scientificRequest.sourceKeyedRequest
+            .accumulatedSourceForces);
+    EXPECT_EQ(capture_vertex_coordinates(mesh), beforeCoordinates);
+    EXPECT_FALSE(result.productionRouteEnabled);
+    EXPECT_FALSE(result.actualProductionForcePathExecuted);
+    EXPECT_FALSE(result.productionFaceLoopExecuted);
+    EXPECT_FALSE(result.productionOneRingsPopulated);
+    EXPECT_FALSE(result.defaultEvaluatorCaller);
+}
+
+TEST(ValenceFourFaceLoopRoutePreflight,
+     GeometryAwareScientificForcesIgnoreStaleMeshGlobals)
+{
+    ApprovedValence4MeshFixture fixture;
+    Mesh &mesh = *fixture.mesh;
+    const Valence4FaceLoopRoutePreflightResult preflight =
+        build_guarded_valence4_face_loop_route_preflight(mesh);
+    ASSERT_TRUE(preflight.supported);
+    const Valence4GeometryAwareAtomicCompositionRequest request =
+        make_geometry_aware_composition_request(preflight, true);
+
+    mesh.param.area = 1.25;
+    mesh.param.vol = 0.125;
+    const Valence4GeometryAwareAtomicCompositionResult firstResult =
+        evaluate_guarded_valence4_geometry_aware_atomic_composition(
+            mesh, request);
+    ASSERT_TRUE(firstResult.accepted) << firstResult.rejectionReason;
+
+    mesh.param.area = 12.5;
+    mesh.param.vol = 1.25;
+    const Valence4GeometryAwareAtomicCompositionResult secondResult =
+        evaluate_guarded_valence4_geometry_aware_atomic_composition(
+            mesh, request);
+    ASSERT_TRUE(secondResult.accepted) << secondResult.rejectionReason;
+
+    EXPECT_DOUBLE_EQ(firstResult.geometryStaging.totalArea,
+                     secondResult.geometryStaging.totalArea);
+    EXPECT_DOUBLE_EQ(firstResult.geometryStaging.totalVolume,
+                     secondResult.geometryStaging.totalVolume);
+    EXPECT_EQ(
+        firstResult.scientificRequest.sourceKeyedRequest
+            .accumulatedSourceForces,
+        secondResult.scientificRequest.sourceKeyedRequest
+            .accumulatedSourceForces);
+    EXPECT_DOUBLE_EQ(
+        firstResult.scientificRequest.scientificGlobalArea,
+        firstResult.geometryStaging.totalArea);
+    EXPECT_DOUBLE_EQ(
+        secondResult.scientificRequest.scientificGlobalVolume,
+        secondResult.geometryStaging.totalVolume);
+}
+
+TEST(ValenceFourFaceLoopRoutePreflight,
+     GeometryAwareScientificEvaluationPreservesNonuniformQuadrature)
+{
+    ApprovedValence4MeshFixture directFixture;
+    Mesh &directMesh = *directFixture.mesh;
+    directMesh.param.gaussQuadratureCoeff.set(0, 0, 0.8);
+    directMesh.param.gaussQuadratureCoeff.set(1, 0, 0.1);
+    directMesh.param.gaussQuadratureCoeff.set(2, 0, 0.1);
+    const Valence4FaceLoopRoutePreflightResult directPreflight =
+        build_guarded_valence4_face_loop_route_preflight(
+            directMesh);
+    ASSERT_TRUE(directPreflight.supported);
+    Valence4GeometryAwareAtomicCompositionRequest request =
+        make_geometry_aware_composition_request(
+            directPreflight, true);
+    for (SourceKeyedFaceRows &faceRows : request.rows)
+    {
+        for (std::size_t sampleIndex = 0;
+             sampleIndex < faceRows.samples.size();
+             ++sampleIndex)
+        {
+            const double firstScale =
+                1.0 + 0.25 * static_cast<double>(sampleIndex);
+            const double secondScale =
+                1.0 + 0.5 * static_cast<double>(sampleIndex);
+            for (double &coefficient :
+                 faceRows.samples[sampleIndex]
+                     .rows[1].coefficients)
+            {
+                coefficient *= firstScale;
+            }
+            for (double &coefficient :
+                 faceRows.samples[sampleIndex]
+                     .rows[2].coefficients)
+            {
+                coefficient *= secondScale;
+            }
+        }
+    }
+
+    Valence4FaceGeometryStagingRequest geometryRequest;
+    geometryRequest.reviewerApprovedExplicitStaging = true;
+    geometryRequest.rows = request.rows;
+    const Valence4FaceGeometryStagingResult geometry =
+        stage_guarded_valence4_face_geometry(
+            directMesh, geometryRequest);
+    ASSERT_TRUE(geometry.accepted) << geometry.rejectionReason;
+    directMesh.param.area = geometry.totalArea;
+    directMesh.param.vol = geometry.totalVolume;
+    Valence4FaceLoopScientificRequest scientificRequest;
+    scientificRequest.reviewerApprovedExplicitRequest = true;
+    scientificRequest.rows = request.rows;
+    const Valence4FaceLoopScientificRequestResult expected =
+        evaluate_guarded_valence4_face_loop_scientific_request(
+            directMesh, scientificRequest);
+    ASSERT_TRUE(expected.accepted) << expected.rejectionReason;
+
+    ApprovedValence4MeshFixture composedFixture;
+    Mesh &composedMesh = *composedFixture.mesh;
+    composedMesh.param.gaussQuadratureCoeff.set(0, 0, 0.8);
+    composedMesh.param.gaussQuadratureCoeff.set(1, 0, 0.1);
+    composedMesh.param.gaussQuadratureCoeff.set(2, 0, 0.1);
+    composedMesh.param.area = geometry.totalArea + 100.0;
+    composedMesh.param.vol = geometry.totalVolume - 50.0;
+    const Valence4GeometryAwareAtomicCompositionResult actual =
+        evaluate_guarded_valence4_geometry_aware_atomic_composition(
+            composedMesh, request);
+    ASSERT_TRUE(actual.accepted) << actual.rejectionReason;
+
+    EXPECT_EQ(
+        actual.scientificRequest.sourceKeyedRequest
+            .accumulatedSourceForces,
+        expected.sourceKeyedRequest.accumulatedSourceForces);
+    ASSERT_EQ(actual.scientificRequest.faceObservables.size(),
+              expected.faceObservables.size());
+    for (std::size_t face = 0;
+         face < expected.faceObservables.size();
+         ++face)
+    {
+        EXPECT_EQ(actual.scientificRequest.faceObservables[face].faceIndex,
+                  expected.faceObservables[face].faceIndex);
+        EXPECT_DOUBLE_EQ(
+            actual.scientificRequest.faceObservables[face].meanCurvature,
+            expected.faceObservables[face].meanCurvature);
+        EXPECT_DOUBLE_EQ(
+            actual.scientificRequest.faceObservables[face].bendingEnergy,
+            expected.faceObservables[face].bendingEnergy);
+        EXPECT_EQ(actual.scientificRequest.faceObservables[face].normal,
+                  expected.faceObservables[face].normal);
+    }
+    EXPECT_DOUBLE_EQ(actual.scientificRequest.scientificGlobalArea,
+                     geometry.totalArea);
+    EXPECT_DOUBLE_EQ(actual.scientificRequest.scientificGlobalVolume,
+                     geometry.totalVolume);
+}
+
+TEST(ValenceFourFaceLoopRoutePreflight,
+     GeometryAwareCompositionRejectsMalformedLateRowWithoutMutation)
+{
+    ApprovedValence4MeshFixture fixture;
+    Mesh &mesh = *fixture.mesh;
+    const Valence4FaceLoopRoutePreflightResult preflight =
+        build_guarded_valence4_face_loop_route_preflight(mesh);
+    ASSERT_TRUE(preflight.supported);
+    seed_face_observable_publication_state(mesh);
+    seed_all_vertex_forces(mesh);
+    const std::vector<Face> beforeFaces = mesh.faces;
+    const auto beforeForces = capture_all_vertex_forces(mesh);
+    const double beforeArea = mesh.param.area;
+    const double beforeVolume = mesh.param.vol;
+    Valence4GeometryAwareAtomicCompositionRequest request =
+        make_geometry_aware_composition_request(preflight, true);
+    request.rows.back().samples.back().rows.back()
+        .coefficients.back() =
+        std::numeric_limits<double>::infinity();
+
+    const Valence4GeometryAwareAtomicCompositionResult result =
+        evaluate_guarded_valence4_geometry_aware_atomic_composition(
+            mesh, request);
+
+    EXPECT_FALSE(result.accepted);
+    EXPECT_TRUE(result.explicitCompositionRequested);
+    EXPECT_FALSE(result.atomicGeometryScientificPublicationExecuted);
+    expect_face_observable_publication_state_unchanged(
+        mesh, beforeFaces);
+    EXPECT_EQ(capture_all_vertex_forces(mesh), beforeForces);
+    EXPECT_DOUBLE_EQ(mesh.param.area, beforeArea);
+    EXPECT_DOUBLE_EQ(mesh.param.vol, beforeVolume);
+}
+
+TEST(ValenceFourFaceLoopRoutePreflight,
+     GeometryAwarePrimitiveRejectsLateGeometryDriftBeforeAnyWrite)
+{
+    ApprovedValence4MeshFixture evaluatedFixture;
+    Mesh &evaluatedMesh = *evaluatedFixture.mesh;
+    const Valence4FaceLoopRoutePreflightResult evaluatedPreflight =
+        build_guarded_valence4_face_loop_route_preflight(
+            evaluatedMesh);
+    ASSERT_TRUE(evaluatedPreflight.supported);
+    Valence4GeometryAwareAtomicCompositionResult staged =
+        evaluate_guarded_valence4_geometry_aware_atomic_composition(
+            evaluatedMesh,
+            make_geometry_aware_composition_request(
+                evaluatedPreflight, true));
+    ASSERT_TRUE(staged.accepted) << staged.rejectionReason;
+    staged.geometryStaging.faceGeometry.back().elementVolume =
+        std::numeric_limits<double>::infinity();
+
+    ApprovedValence4MeshFixture targetFixture;
+    Mesh &target = *targetFixture.mesh;
+    seed_face_observable_publication_state(target);
+    seed_all_vertex_forces(target);
+    const std::vector<Face> beforeFaces = target.faces;
+    const auto beforeForces = capture_all_vertex_forces(target);
+    const double beforeArea = target.param.area;
+    const double beforeVolume = target.param.vol;
+
+    EXPECT_THROW(
+        publish_valence4_geometry_and_scientific_result_atomically(
+            staged.geometryStaging,
+            staged.scientificRequest,
+            target),
+        std::invalid_argument);
+    expect_face_observable_publication_state_unchanged(
+        target, beforeFaces);
+    EXPECT_EQ(capture_all_vertex_forces(target), beforeForces);
+    EXPECT_DOUBLE_EQ(target.param.area, beforeArea);
+    EXPECT_DOUBLE_EQ(target.param.vol, beforeVolume);
+}
+
+TEST(ValenceFourFaceLoopRoutePreflight,
+     GeometryAwarePrimitiveRejectsLateDestinationDriftBeforeAnyWrite)
+{
+    ApprovedValence4MeshFixture evaluatedFixture;
+    Mesh &evaluatedMesh = *evaluatedFixture.mesh;
+    const Valence4FaceLoopRoutePreflightResult evaluatedPreflight =
+        build_guarded_valence4_face_loop_route_preflight(
+            evaluatedMesh);
+    ASSERT_TRUE(evaluatedPreflight.supported);
+    const Valence4GeometryAwareAtomicCompositionResult staged =
+        evaluate_guarded_valence4_geometry_aware_atomic_composition(
+            evaluatedMesh,
+            make_geometry_aware_composition_request(
+                evaluatedPreflight, true));
+    ASSERT_TRUE(staged.accepted) << staged.rejectionReason;
+
+    ApprovedValence4MeshFixture targetFixture;
+    Mesh &target = *targetFixture.mesh;
+    seed_face_observable_publication_state(target);
+    seed_all_vertex_forces(target);
+    const std::vector<Face> beforeFaces = target.faces;
+    const auto beforeForces = capture_all_vertex_forces(target);
+    const auto beforeNormalAllocations =
+        capture_face_normal_allocations(target);
+    const double beforeArea = target.param.area;
+    const double beforeVolume = target.param.vol;
+    Matrix originalVolume =
+        target.vertices.back().force.forceVolume;
+    target.vertices.back().force.forceVolume =
+        Matrix(2, 1, true);
+
+    EXPECT_THROW(
+        publish_valence4_geometry_and_scientific_result_atomically(
+            staged.geometryStaging,
+            staged.scientificRequest,
+            target),
+        std::invalid_argument);
+    EXPECT_EQ(capture_face_normal_allocations(target),
+              beforeNormalAllocations);
+    EXPECT_EQ(target.vertices.back().force.forceVolume.nrow(), 2);
+    EXPECT_EQ(target.vertices.back().force.forceVolume.ncol(), 1);
+    expect_face_observable_publication_state_unchanged(
+        target, beforeFaces);
+    EXPECT_DOUBLE_EQ(target.param.area, beforeArea);
+    EXPECT_DOUBLE_EQ(target.param.vol, beforeVolume);
+
+    target.vertices.back().force.forceVolume = originalVolume;
+    EXPECT_EQ(capture_all_vertex_forces(target), beforeForces);
 }

@@ -283,9 +283,13 @@ serial and OpenMP builds and requires the independent actual OpenMP
 team/reduction proof. No real production face-loop caller or route is enabled.
 The next production C++ boundary now stages per-face area and current legacy
 visible volume plus global totals from the same canonical source-keyed rows.
-It is explicit-request-only, caller-owned, and nonmutating; it does not yet
-compose geometry-dependent force evaluation with the atomic publication or
-enter `Mesh::Compute_Energy_And_Force()`.
+The default-off geometry-aware atomic successor now binds a temporary
+scientific evaluator to those staged global totals, so geometry-dependent
+force terms consume the same area and legacy volume that one validated
+transaction publishes with per-face geometry, membrane force families, and
+reviewed face observables. It remains caller-owned and does not enter
+`Mesh::Compute_Energy_And_Force()`. A real-caller shadow/parity lane and
+serial/OpenMP caller evidence remain required before route activation.
 
 ## Inventory Check
 
