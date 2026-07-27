@@ -125,6 +125,29 @@ struct Valence4FaceObservablePublicationResult
     bool defaultEvaluatorCaller = false;
 };
 
+struct Valence4FaceLoopPublicationRequest
+{
+    bool reviewerApprovedExplicitPublication = false;
+    std::vector<source_keyed_kernel::SourceKeyedFaceRows> rows;
+};
+
+struct Valence4FaceLoopPublicationResult
+{
+    bool accepted = false;
+    std::string rejectionReason;
+    bool explicitPublicationRequested = false;
+    bool vertexForcePublicationExecuted = false;
+    bool faceObservablePublicationExecuted = false;
+    bool atomicFaceLoopPublicationExecuted = false;
+    Valence4FaceLoopScientificRequestResult scientificRequest;
+
+    bool productionRouteEnabled = false;
+    bool actualProductionForcePathExecuted = false;
+    bool productionFaceLoopExecuted = false;
+    bool productionOneRingsPopulated = false;
+    bool defaultEvaluatorCaller = false;
+};
+
 /**
  * Build an owned, source-keyed face-loop route candidate for the approved
  * closed valence-4 topology.
@@ -197,4 +220,28 @@ Valence4FaceObservablePublicationResult
 evaluate_guarded_valence4_face_observable_publication(
     Mesh &mesh,
     const Valence4FaceObservablePublicationRequest &request);
+
+/**
+ * Atomically publish a complete accepted scientific result to the reviewed
+ * vertex-force and face-observable destinations.
+ *
+ * Every source, destination, face identity, observable, and replacement
+ * normal is validated or allocated before the first Mesh write. The helper
+ * does not populate one-rings, calculate total force/energy, or enable a
+ * production route.
+ */
+void publish_valence4_face_loop_scientific_result_atomically(
+    const Valence4FaceLoopScientificRequestResult &scientificResult,
+    Mesh &mesh);
+
+/**
+ * Evaluate and atomically publish the reviewed valence-4 face-loop result.
+ *
+ * This is a default-off production-shaped transaction boundary. It remains
+ * outside the real production face loop and does not authorize routing.
+ */
+Valence4FaceLoopPublicationResult
+evaluate_guarded_valence4_face_loop_publication(
+    Mesh &mesh,
+    const Valence4FaceLoopPublicationRequest &request);
 } // namespace slimed::valence4_route_preflight

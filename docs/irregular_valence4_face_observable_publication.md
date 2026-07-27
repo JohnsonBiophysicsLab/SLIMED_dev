@@ -66,7 +66,9 @@ Default dependency behavior, OpenSubdiv ownership, formulas, quadrature,
 source scatter, OpenMP scheduling/reduction order, checkpoint/output,
 propagation, fixtures, and broader-valence routing are unchanged.
 
-The next separately reviewed boundary is guarded production face-loop
-integration that composes the already reviewed vertex-force and
-face-observable publications and proves full serial/OpenMP parity before any
-route activation.
+The successor atomic transaction now composes the reviewed vertex-force and
+face-observable destinations only after complete validation and allocation.
+It remains default-off and has no production face-loop caller. The next
+separately reviewed boundary is a production-call shadow that invokes that
+transaction from a production-shaped context and proves full serial/OpenMP
+observable parity before any route activation.

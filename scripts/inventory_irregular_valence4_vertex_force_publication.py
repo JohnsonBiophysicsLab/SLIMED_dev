@@ -73,6 +73,13 @@ ALLOWED_PATHS = {
     Path(
         "tests/test_irregular_valence4_face_observable_publication_inventory.py"
     ),
+    Path("docs/irregular_valence4_atomic_face_loop_publication.md"),
+    Path(
+        "scripts/inventory_irregular_valence4_atomic_face_loop_publication.py"
+    ),
+    Path(
+        "tests/test_irregular_valence4_atomic_face_loop_publication_inventory.py"
+    ),
 }
 
 ANCHORS = {

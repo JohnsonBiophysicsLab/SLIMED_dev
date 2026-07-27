@@ -996,6 +996,35 @@ bool mesh_matches_face_observable_publication(
     return true;
 }
 
+bool mesh_matches_atomic_face_loop_publication(
+    const Mesh &mesh,
+    const Mesh &vertexPublicationMesh,
+    const Mesh &facePublicationMesh)
+{
+    if (mesh.faces.size() != facePublicationMesh.faces.size() ||
+        mesh.vertices.size() != vertexPublicationMesh.vertices.size())
+    {
+        return false;
+    }
+    for (std::size_t face = 0; face < mesh.faces.size(); ++face)
+    {
+        if (!face_matches(mesh.faces[face],
+                          facePublicationMesh.faces[face]))
+        {
+            return false;
+        }
+    }
+    for (std::size_t source = 0; source < mesh.vertices.size(); ++source)
+    {
+        if (!vertex_matches(mesh.vertices[source],
+                            vertexPublicationMesh.vertices[source]))
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
 double compare_published_face_observables(
     const Mesh &mesh,
     const std::vector<Valence4FaceScientificObservables> &expected)
@@ -1135,18 +1164,24 @@ struct ScientificRequestCompositionProof
     bool defaultOffFaceObservablePublicationRejected = false;
     bool faceObservablePublicationExecuted = false;
     bool onlyFaceObservablesPublished = false;
+    bool defaultOffAtomicPublicationRejected = false;
+    bool atomicFaceLoopPublicationExecuted = false;
+    bool onlyReviewedFamiliesPublishedAtomically = false;
     bool routeRemainedDisabled = false;
     double maxObservableDifference = 0.0;
     double maxSourceForceDifference = 0.0;
     double maxProductionShapedScatterDifference = 0.0;
     double maxPublishedForceDifference = 0.0;
     double maxPublishedFaceObservableDifference = 0.0;
+    double maxAtomicPublishedForceDifference = 0.0;
+    double maxAtomicPublishedFaceObservableDifference = 0.0;
 };
 
 ScientificRequestCompositionProof invoke_guarded_scientific_request(
     Mesh &mesh,
     Mesh &publicationMesh,
     Mesh &facePublicationMesh,
+    Mesh &atomicPublicationMesh,
     const InputPackage &package,
     const ScientificForceAlgebraProof &reference,
     const std::vector<SourceForceKinds> &referenceForces)
@@ -1289,6 +1324,55 @@ ScientificRequestCompositionProof invoke_guarded_scientific_request(
                 beforeFacePublication,
                 published);
     }
+
+    seed_mesh_scientific_state(atomicPublicationMesh);
+    const MeshScientificState beforeAtomicPublication =
+        capture_mesh_scientific_state(atomicPublicationMesh);
+    Valence4FaceLoopPublicationRequest defaultOffAtomicPublication;
+    defaultOffAtomicPublication.rows = package.rows;
+    const Valence4FaceLoopPublicationResult
+        defaultOffAtomicPublicationResult =
+            evaluate_guarded_valence4_face_loop_publication(
+                atomicPublicationMesh,
+                defaultOffAtomicPublication);
+    proof.defaultOffAtomicPublicationRejected =
+        !defaultOffAtomicPublicationResult.accepted &&
+        !defaultOffAtomicPublicationResult
+             .atomicFaceLoopPublicationExecuted &&
+        defaultOffAtomicPublicationResult.rejectionReason.find(
+            "default-off") != std::string::npos &&
+        mesh_scientific_state_matches(
+            atomicPublicationMesh, beforeAtomicPublication);
+
+    Valence4FaceLoopPublicationRequest atomicPublicationRequest;
+    atomicPublicationRequest.reviewerApprovedExplicitPublication = true;
+    atomicPublicationRequest.rows = package.rows;
+    const Valence4FaceLoopPublicationResult atomicPublicationResult =
+        evaluate_guarded_valence4_face_loop_publication(
+            atomicPublicationMesh, atomicPublicationRequest);
+    proof.atomicFaceLoopPublicationExecuted =
+        atomicPublicationResult.accepted &&
+        atomicPublicationResult.vertexForcePublicationExecuted &&
+        atomicPublicationResult.faceObservablePublicationExecuted &&
+        atomicPublicationResult.atomicFaceLoopPublicationExecuted;
+    if (atomicPublicationResult.accepted)
+    {
+        const auto &publishedForces =
+            atomicPublicationResult.scientificRequest
+                .sourceKeyedRequest.accumulatedSourceForces;
+        const auto &publishedObservables =
+            atomicPublicationResult.scientificRequest.faceObservables;
+        proof.maxAtomicPublishedForceDifference =
+            compare_scattered(publishedForces, referenceForces);
+        proof.maxAtomicPublishedFaceObservableDifference =
+            compare_published_face_observables(
+                atomicPublicationMesh, reference.faceObservables);
+        proof.onlyReviewedFamiliesPublishedAtomically =
+            mesh_matches_atomic_face_loop_publication(
+                atomicPublicationMesh,
+                publicationMesh,
+                facePublicationMesh);
+    }
     proof.routeRemainedDisabled =
         !result.productionRouteEnabled &&
         !result.actualProductionForcePathExecuted &&
@@ -1309,7 +1393,12 @@ ScientificRequestCompositionProof invoke_guarded_scientific_request(
         !facePublicationResult.actualProductionForcePathExecuted &&
         !facePublicationResult.productionFaceLoopExecuted &&
         !facePublicationResult.productionOneRingsPopulated &&
-        !facePublicationResult.defaultEvaluatorCaller;
+        !facePublicationResult.defaultEvaluatorCaller &&
+        !atomicPublicationResult.productionRouteEnabled &&
+        !atomicPublicationResult.actualProductionForcePathExecuted &&
+        !atomicPublicationResult.productionFaceLoopExecuted &&
+        !atomicPublicationResult.productionOneRingsPopulated &&
+        !atomicPublicationResult.defaultEvaluatorCaller;
     return proof;
 }
 
@@ -1361,6 +1450,9 @@ int main(int argc, char **argv)
     publicationMesh.setup_from_vertices_faces(verticesData, facesData);
     Mesh facePublicationMesh(param);
     facePublicationMesh.setup_from_vertices_faces(verticesData, facesData);
+    Mesh atomicPublicationMesh(param);
+    atomicPublicationMesh.setup_from_vertices_faces(
+        verticesData, facesData);
     for (int source = 0; source < kSourceCount; ++source)
     {
         for (int axis = 0; axis < kAxisCount; ++axis)
@@ -1370,6 +1462,8 @@ int main(int argc, char **argv)
             publicationMesh.vertices[source].coord.set(
                 axis, 0, package.coordinates[source][axis]);
             facePublicationMesh.vertices[source].coord.set(
+                axis, 0, package.coordinates[source][axis]);
+            atomicPublicationMesh.vertices[source].coord.set(
                 axis, 0, package.coordinates[source][axis]);
         }
     }
@@ -1382,6 +1476,10 @@ int main(int argc, char **argv)
         face.spontCurvature = package.parameters.spontCurv;
     }
     for (Face &face : facePublicationMesh.faces)
+    {
+        face.spontCurvature = package.parameters.spontCurv;
+    }
+    for (Face &face : atomicPublicationMesh.faces)
     {
         face.spontCurvature = package.parameters.spontCurv;
     }
@@ -1446,6 +1544,7 @@ int main(int argc, char **argv)
             mesh,
             publicationMesh,
             facePublicationMesh,
+            atomicPublicationMesh,
             package,
             scientificForceAlgebra,
             scattered);
@@ -1556,6 +1655,9 @@ int main(int argc, char **argv)
             .defaultOffFaceObservablePublicationRejected &&
         scientificRequest.faceObservablePublicationExecuted &&
         scientificRequest.onlyFaceObservablesPublished &&
+        scientificRequest.defaultOffAtomicPublicationRejected &&
+        scientificRequest.atomicFaceLoopPublicationExecuted &&
+        scientificRequest.onlyReviewedFamiliesPublishedAtomically &&
         scientificRequest.routeRemainedDisabled &&
         scientificRequest.maxObservableDifference <= kTolerance &&
         scientificRequest.maxSourceForceDifference <= kTolerance &&
@@ -1563,6 +1665,10 @@ int main(int argc, char **argv)
             kTolerance &&
         scientificRequest.maxPublishedForceDifference <= kTolerance &&
         scientificRequest.maxPublishedFaceObservableDifference <=
+            kTolerance &&
+        scientificRequest.maxAtomicPublishedForceDifference <=
+            kTolerance &&
+        scientificRequest.maxAtomicPublishedFaceObservableDifference <=
             kTolerance;
 
     std::cout << std::setprecision(17);
@@ -1655,6 +1761,23 @@ int main(int argc, char **argv)
                       ? "true"
                       : "false")
               << ',';
+    std::cout << "\"default_off_atomic_publication_rejected\":"
+              << (scientificRequest
+                          .defaultOffAtomicPublicationRejected
+                      ? "true"
+                      : "false")
+              << ',';
+    std::cout << "\"atomic_face_loop_publication_executed\":"
+              << (scientificRequest.atomicFaceLoopPublicationExecuted
+                      ? "true"
+                      : "false")
+              << ',';
+    std::cout << "\"only_reviewed_families_published_atomically\":"
+              << (scientificRequest
+                          .onlyReviewedFamiliesPublishedAtomically
+                      ? "true"
+                      : "false")
+              << ',';
     std::cout << "\"route_remained_disabled\":"
               << (scientificRequest.routeRemainedDisabled ? "true" : "false")
               << ',';
@@ -1671,6 +1794,14 @@ int main(int argc, char **argv)
     std::cout << "\"max_published_face_observable_difference\":"
               << scientificRequest
                      .maxPublishedFaceObservableDifference
+              << ',';
+    std::cout << "\"max_atomic_published_force_difference\":"
+              << scientificRequest.maxAtomicPublishedForceDifference
+              << ',';
+    std::cout
+        << "\"max_atomic_published_face_observable_difference\":"
+        << scientificRequest
+               .maxAtomicPublishedFaceObservableDifference
               << "},";
     std::cout << "\"variable_cardinality_source_keyed\":true,";
     std::cout << "\"canonicalized_by_original_source_id\":true,";
@@ -1734,9 +1865,9 @@ int main(int argc, char **argv)
               << (negativeGatesPassed ? "true" : "false") << "},";
     std::cout << "\"residual_boundary\":"
                  "\"fresh OpenSubdiv valence-4 rows now pass through "
-                 "separate guarded vertex-force and face-observable "
-                 "publication boundaries; production face-loop integration "
-                 "remains separately reviewed\",";
+                 "one atomic guarded vertex-force and face-observable "
+                 "publication transaction; a production-call shadow and "
+                 "route activation remain separately reviewed\",";
     std::cout << "\"passed\":" << (passed ? "true" : "false");
     std::cout << "}\n";
     return passed ? 0 : 1;

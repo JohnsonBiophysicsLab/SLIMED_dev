@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Inventory the guarded valence-4 face-observable publication lane."""
+"""Inventory the atomic valence-4 face-loop publication lane."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from pathlib import Path
 import subprocess
 
 
-BASE = "d6919d00ee97dcd6a274cee3cc0bb4b9c2dbc71f"
+BASE = "524b065327623135cbbf8de5eaff02592e306772"
 ROUTE_HEADER = Path(
     "include/energy_force/Valence4_face_loop_route_preflight.hpp"
 )
@@ -17,30 +17,37 @@ ROUTE_SOURCE = Path(
     "src/energy_force/Valence4_face_loop_route_preflight.cpp"
 )
 CPP_TEST = Path("tests/test_valence4_face_loop_route_preflight.cpp")
-ADAPTER = Path("experiments/irregular_valence4_source_keyed_kernel_adapter.cpp")
+ADAPTER = Path(
+    "experiments/irregular_valence4_source_keyed_kernel_adapter.cpp"
+)
 ADAPTER_RUNNER = Path(
     "scripts/run_irregular_valence4_source_keyed_kernel_adapter.py"
 )
 ADAPTER_TEST = Path(
     "tests/test_irregular_valence4_source_keyed_kernel_adapter_inventory.py"
 )
-DOC = Path("docs/irregular_valence4_face_observable_publication.md")
-VERTEX_DOC = Path("docs/irregular_valence4_vertex_force_publication.md")
-ADAPTER_DOC = Path("docs/irregular_valence4_source_keyed_kernel_adapter.md")
+DOC = Path("docs/irregular_valence4_atomic_face_loop_publication.md")
+FACE_DOC = Path("docs/irregular_valence4_face_observable_publication.md")
+ADAPTER_DOC = Path(
+    "docs/irregular_valence4_source_keyed_kernel_adapter.md"
+)
 READINESS_DOC = Path("docs/opensubdiv_routing_readiness_map.md")
 INVENTORY = Path(
-    "scripts/inventory_irregular_valence4_face_observable_publication.py"
+    "scripts/inventory_irregular_valence4_atomic_face_loop_publication.py"
 )
 TEST = Path(
-    "tests/test_irregular_valence4_face_observable_publication_inventory.py"
+    "tests/test_irregular_valence4_atomic_face_loop_publication_inventory.py"
 )
 
 PREDECESSOR_INVENTORIES = {
-    Path("scripts/inventory_irregular_valence4_vertex_force_publication.py"),
-    Path("scripts/inventory_irregular_valence4_production_scatter_buffer.py"),
     Path("scripts/inventory_irregular_valence4_source_keyed_kernel_adapter.py"),
     Path("scripts/inventory_irregular_valence4_production_kernel_call_proof.py"),
     Path("scripts/inventory_irregular_valence4_production_openmp_shadow.py"),
+    Path("scripts/inventory_irregular_valence4_production_scatter_buffer.py"),
+    Path("scripts/inventory_irregular_valence4_vertex_force_publication.py"),
+    Path(
+        "scripts/inventory_irregular_valence4_face_observable_publication.py"
+    ),
 }
 
 ALLOWED_PATHS = {
@@ -51,75 +58,67 @@ ALLOWED_PATHS = {
     ADAPTER_RUNNER,
     ADAPTER_TEST,
     DOC,
-    VERTEX_DOC,
+    FACE_DOC,
     ADAPTER_DOC,
     READINESS_DOC,
     INVENTORY,
     TEST,
     *PREDECESSOR_INVENTORIES,
-    Path("docs/irregular_valence4_atomic_face_loop_publication.md"),
-    Path(
-        "scripts/inventory_irregular_valence4_atomic_face_loop_publication.py"
-    ),
-    Path(
-        "tests/test_irregular_valence4_atomic_face_loop_publication_inventory.py"
-    ),
 }
 
 ANCHORS = {
     ROUTE_HEADER: (
-        "Valence4FaceObservablePublicationRequest",
-        "Valence4FaceObservablePublicationResult",
-        "faceObservablePublicationExecuted",
-        "publish_valence4_face_scientific_observables_to_faces",
-        "evaluate_guarded_valence4_face_observable_publication",
-        "overwrites only meanCurvature, energy.energyCurvature",
+        "Valence4FaceLoopPublicationRequest",
+        "Valence4FaceLoopPublicationResult",
+        "atomicFaceLoopPublicationExecuted",
+        "publish_valence4_face_loop_scientific_result_atomically",
+        "evaluate_guarded_valence4_face_loop_publication",
     ),
     ROUTE_SOURCE: (
-        "valence-4 face-observable publication remains default-off",
-        "cardinality drift",
-        "rejected duplicate",
-        "nonfinite normal data",
-        "requires empty",
-        "Validation and replacement-normal allocation finish before any write",
-        "face.meanCurvature =",
-        "face.energy.energyCurvature =",
-        "std::swap(face.normVector.mat",
+        "complete accepted ",
+        "source/vertex ",
+        "face cardinality ",
+        "destination shape drift",
+        "nonfinite face ",
+        "incomplete face ",
+        "The commit phase contains only fixed-shape writes and pointer swaps",
+        "valence-4 face-loop publication remains default-off",
     ),
     CPP_TEST: (
-        "FaceObservablePublicationRejectsByDefaultWithoutMutation",
-        "FaceObservablePublicationOverwritesOnlyCurrentFaceObservables",
-        "FaceObservablePublicationRejectsMalformedLateRowWithoutMutation",
-        "FaceObservablePublicationPrimitiveRejectsLateDriftAtomically",
-        "FaceObservablePublicationPrimitiveUsesFaceIdentityNotInputOrder",
-        "expect_only_face_observables_published",
+        "AtomicFaceLoopPublicationRejectsByDefaultWithoutMutation",
+        "AtomicFaceLoopPublicationCommitsBothReviewedFamilies",
+        "AtomicFaceLoopPublicationRejectsMalformedRowsWithoutMutation",
+        "AtomicFaceLoopPrimitiveRejectsLateFaceDriftBeforeVertexWrites",
+        "AtomicFaceLoopPrimitiveRejectsLateVertexDriftBeforeFaceWrites",
     ),
     ADAPTER: (
-        "defaultOffFaceObservablePublicationRejected",
-        "faceObservablePublicationExecuted",
-        "onlyFaceObservablesPublished",
-        "maxPublishedFaceObservableDifference",
-        "mesh_matches_face_observable_publication",
+        "mesh_matches_atomic_face_loop_publication",
+        "defaultOffAtomicPublicationRejected",
+        "atomicFaceLoopPublicationExecuted",
+        "onlyReviewedFamiliesPublishedAtomically",
+        "maxAtomicPublishedForceDifference",
+        "maxAtomicPublishedFaceObservableDifference",
     ),
     ADAPTER_RUNNER: (
-        "default_off_face_observable_publication_rejected",
-        "face_observable_publication_executed",
-        "only_face_observables_published",
-        "max_published_face_observable_difference",
+        "default_off_atomic_publication_rejected",
+        "atomic_face_loop_publication_executed",
+        "only_reviewed_families_published_atomically",
+        "max_atomic_published_force_difference",
+        "max_atomic_published_face_observable_difference",
     ),
     ADAPTER_TEST: (
-        "default_off_face_observable_publication_rejected",
-        "face_observable_publication_executed",
-        "only_face_observables_published",
-        "max_published_face_observable_difference",
+        "default_off_atomic_publication_rejected",
+        "atomic_face_loop_publication_executed",
+        "only_reviewed_families_published_atomically",
+        "max_atomic_published_force_difference",
+        "max_atomic_published_face_observable_difference",
     ),
     DOC: (
-        "Face::meanCurvature",
-        "Face::energy.energyCurvature",
-        "Face::normVector",
-        "Face::elementArea",
+        "default-off transaction",
+        "Face::oneRingVertices",
+        "atomic_face_loop_publication_executed: true",
         "production_face_loop_executed: false",
-        "face_observable_publication_executed: true",
+        "Route activation remains",
     ),
 }
 
@@ -195,19 +194,20 @@ def collect(root: Path) -> dict[str, object]:
     ).lower()
     opensubdiv_leak = "opensubdiv/" in helper_text
     if opensubdiv_leak:
-        errors.append("face-observable helpers leak OpenSubdiv types")
+        errors.append("atomic publication helper leaks OpenSubdiv types")
 
     face_loop = (
         root / "src/energy_force/Compute_energy_and_force_on_mesh.cpp"
     ).read_text(encoding="utf-8")
-    production_caller = (
-        "publish_valence4_face_scientific_observables_to_faces"
-        in face_loop
-        or "evaluate_guarded_valence4_face_observable_publication"
-        in face_loop
+    production_caller = any(
+        anchor in face_loop
+        for anchor in (
+            "publish_valence4_face_loop_scientific_result_atomically",
+            "evaluate_guarded_valence4_face_loop_publication",
+        )
     )
     if production_caller:
-        errors.append("real production face loop calls publication boundary")
+        errors.append("real production face loop calls atomic publication")
 
     return {
         "status": "passed" if not errors else "failed",
@@ -217,7 +217,7 @@ def collect(root: Path) -> dict[str, object]:
         "production_route_enabled": False,
         "actual_production_force_path_executed": False,
         "production_face_loop_executed": False,
-        "face_observable_publication_executed": True,
+        "atomic_face_loop_publication_executed": True,
         "production_one_rings_populated": False,
         "default_dependency_changed": False,
         "backend_neutral_opensubdiv_free": not opensubdiv_leak,

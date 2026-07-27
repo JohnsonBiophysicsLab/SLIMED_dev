@@ -67,6 +67,17 @@ reject_face_observable_publication_request(
     return result;
 }
 
+Valence4FaceLoopPublicationResult
+reject_face_loop_publication_request(
+    std::string reason,
+    const bool explicitPublicationRequested)
+{
+    Valence4FaceLoopPublicationResult result;
+    result.rejectionReason = std::move(reason);
+    result.explicitPublicationRequested = explicitPublicationRequested;
+    return result;
+}
+
 std::vector<source_keyed_kernel::SourceKeyedFaceForces>
 zero_forces_for_mappings(
     const std::vector<source_keyed_kernel::SourceMappingView> &mappings)
@@ -674,6 +685,259 @@ evaluate_guarded_valence4_face_observable_publication(
 
     result.accepted = true;
     result.faceObservablePublicationExecuted = true;
+    result.rejectionReason.clear();
+    return result;
+}
+
+void publish_valence4_face_loop_scientific_result_atomically(
+    const Valence4FaceLoopScientificRequestResult &scientificResult,
+    Mesh &mesh)
+{
+    if (!scientificResult.accepted ||
+        !scientificResult.productionScientificAlgebraExecuted ||
+        !scientificResult.sourceKeyedRequest.accepted ||
+        !scientificResult.sourceKeyedRequest
+             .sourceKeyedAccumulationExecuted)
+    {
+        throw std::invalid_argument(
+            "valence-4 face-loop publication requires a complete accepted "
+            "scientific result");
+    }
+
+    const std::vector<source_keyed_kernel::SourceForceKinds>
+        stagedSourceForces =
+            scientificResult.sourceKeyedRequest.accumulatedSourceForces;
+    if (stagedSourceForces.empty() ||
+        stagedSourceForces.size() != mesh.vertices.size())
+    {
+        throw std::invalid_argument(
+            "valence-4 face-loop publication rejected source/vertex "
+            "cardinality drift");
+    }
+    if (scientificResult.faceObservables.empty() ||
+        scientificResult.faceObservables.size() != mesh.faces.size())
+    {
+        throw std::invalid_argument(
+            "valence-4 face-loop publication rejected face cardinality "
+            "drift");
+    }
+
+    for (const Face &face : mesh.faces)
+    {
+        if (!face.oneRingVertices.empty())
+        {
+            throw std::invalid_argument(
+                "valence-4 face-loop publication requires empty production "
+                "one-rings");
+        }
+    }
+
+    for (std::size_t source = 0;
+         source < stagedSourceForces.size();
+         ++source)
+    {
+        const Vertex &vertex = mesh.vertices[source];
+        if (vertex.index != static_cast<int>(source))
+        {
+            throw std::invalid_argument(
+                "valence-4 face-loop publication rejected vertex identity "
+                "drift");
+        }
+        const std::array<const Matrix *,
+                         source_keyed_kernel::kForceKindCount>
+            destinations{{
+                &vertex.force.forceCurvature,
+                &vertex.force.forceArea,
+                &vertex.force.forceVolume}};
+        for (int kind = 0;
+             kind < source_keyed_kernel::kForceKindCount;
+             ++kind)
+        {
+            const Matrix *destination = destinations[kind];
+            if (destination->mat == nullptr ||
+                destination->nrow() != source_keyed_kernel::kAxisCount ||
+                destination->ncol() != 1)
+            {
+                throw std::invalid_argument(
+                    "valence-4 face-loop publication rejected vertex "
+                    "destination shape drift");
+            }
+            for (int axis = 0;
+                 axis < source_keyed_kernel::kAxisCount;
+                 ++axis)
+            {
+                if (!std::isfinite(
+                        stagedSourceForces[source][kind][axis]))
+                {
+                    throw std::invalid_argument(
+                        "valence-4 face-loop publication rejected nonfinite "
+                        "force data");
+                }
+            }
+        }
+    }
+
+    std::vector<Valence4FaceScientificObservables> stagedObservables(
+        mesh.faces.size());
+    std::vector<bool> assigned(mesh.faces.size(), false);
+    for (std::size_t facePosition = 0;
+         facePosition < mesh.faces.size();
+         ++facePosition)
+    {
+        if (mesh.faces[facePosition].index !=
+            static_cast<int>(facePosition))
+        {
+            throw std::invalid_argument(
+                "valence-4 face-loop publication rejected face identity "
+                "drift");
+        }
+    }
+    for (const Valence4FaceScientificObservables &observable :
+         scientificResult.faceObservables)
+    {
+        if (observable.faceIndex < 0 ||
+            observable.faceIndex >=
+                static_cast<int>(mesh.faces.size()))
+        {
+            throw std::invalid_argument(
+                "valence-4 face-loop publication rejected out-of-range face "
+                "identity");
+        }
+        const std::size_t faceIndex =
+            static_cast<std::size_t>(observable.faceIndex);
+        if (assigned[faceIndex])
+        {
+            throw std::invalid_argument(
+                "valence-4 face-loop publication rejected duplicate face "
+                "identity");
+        }
+        if (!std::isfinite(observable.meanCurvature) ||
+            !std::isfinite(observable.bendingEnergy) ||
+            !std::all_of(
+                observable.normal.begin(),
+                observable.normal.end(),
+                [](const double value) {
+                    return std::isfinite(value);
+                }))
+        {
+            throw std::invalid_argument(
+                "valence-4 face-loop publication rejected nonfinite face "
+                "observable data");
+        }
+        stagedObservables[faceIndex] = observable;
+        assigned[faceIndex] = true;
+    }
+    if (!std::all_of(assigned.begin(),
+                     assigned.end(),
+                     [](const bool value) { return value; }))
+    {
+        throw std::invalid_argument(
+            "valence-4 face-loop publication rejected incomplete face "
+            "coverage");
+    }
+
+    std::vector<Matrix> stagedNormals;
+    stagedNormals.reserve(stagedObservables.size());
+    for (const Valence4FaceScientificObservables &observable :
+         stagedObservables)
+    {
+        stagedNormals.emplace_back(
+            source_keyed_kernel::kAxisCount, 1, true);
+        for (int axis = 0;
+             axis < source_keyed_kernel::kAxisCount;
+             ++axis)
+        {
+            stagedNormals.back().set(
+                axis, 0, observable.normal[axis]);
+        }
+    }
+
+    // The commit phase contains only fixed-shape writes and pointer swaps.
+    for (std::size_t source = 0;
+         source < stagedSourceForces.size();
+         ++source)
+    {
+        Vertex &vertex = mesh.vertices[source];
+        const std::array<Matrix *,
+                         source_keyed_kernel::kForceKindCount>
+            destinations{{
+                &vertex.force.forceCurvature,
+                &vertex.force.forceArea,
+                &vertex.force.forceVolume}};
+        for (int kind = 0;
+             kind < source_keyed_kernel::kForceKindCount;
+             ++kind)
+        {
+            for (int axis = 0;
+                 axis < source_keyed_kernel::kAxisCount;
+                 ++axis)
+            {
+                destinations[kind]->set(
+                    axis, 0,
+                    stagedSourceForces[source][kind][axis]);
+            }
+        }
+    }
+    for (std::size_t faceIndex = 0;
+         faceIndex < mesh.faces.size();
+         ++faceIndex)
+    {
+        Face &face = mesh.faces[faceIndex];
+        face.meanCurvature =
+            stagedObservables[faceIndex].meanCurvature;
+        face.energy.energyCurvature =
+            stagedObservables[faceIndex].bendingEnergy;
+        std::swap(face.normVector.mat,
+                  stagedNormals[faceIndex].mat);
+    }
+}
+
+Valence4FaceLoopPublicationResult
+evaluate_guarded_valence4_face_loop_publication(
+    Mesh &mesh,
+    const Valence4FaceLoopPublicationRequest &request)
+{
+    if (!request.reviewerApprovedExplicitPublication)
+    {
+        return reject_face_loop_publication_request(
+            "valence-4 face-loop publication remains default-off without "
+            "an explicit reviewer-approved publication request",
+            false);
+    }
+
+    Valence4FaceLoopScientificRequest scientificRequest;
+    scientificRequest.reviewerApprovedExplicitRequest = true;
+    scientificRequest.rows = request.rows;
+    Valence4FaceLoopScientificRequestResult scientificResult =
+        evaluate_guarded_valence4_face_loop_scientific_request(
+            mesh, scientificRequest);
+    if (!scientificResult.accepted)
+    {
+        Valence4FaceLoopPublicationResult rejected =
+            reject_face_loop_publication_request(
+                scientificResult.rejectionReason, true);
+        rejected.scientificRequest = std::move(scientificResult);
+        return rejected;
+    }
+
+    Valence4FaceLoopPublicationResult result;
+    result.explicitPublicationRequested = true;
+    result.scientificRequest = std::move(scientificResult);
+    try
+    {
+        publish_valence4_face_loop_scientific_result_atomically(
+            result.scientificRequest, mesh);
+    }
+    catch (const std::invalid_argument &error)
+    {
+        result.rejectionReason = error.what();
+        return result;
+    }
+
+    result.accepted = true;
+    result.vertexForcePublicationExecuted = true;
+    result.faceObservablePublicationExecuted = true;
+    result.atomicFaceLoopPublicationExecuted = true;
     result.rejectionReason.clear();
     return result;
 }
