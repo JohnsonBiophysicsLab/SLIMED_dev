@@ -59,6 +59,36 @@ struct Valence4FaceLoopScientificRequest
     std::vector<source_keyed_kernel::SourceKeyedFaceRows> rows;
 };
 
+struct Valence4FaceGeometry
+{
+    int faceIndex = -1;
+    double elementArea = 0.0;
+    double elementVolume = 0.0;
+};
+
+struct Valence4FaceGeometryStagingRequest
+{
+    bool reviewerApprovedExplicitStaging = false;
+    std::vector<source_keyed_kernel::SourceKeyedFaceRows> rows;
+};
+
+struct Valence4FaceGeometryStagingResult
+{
+    bool accepted = false;
+    std::string rejectionReason;
+    bool explicitStagingRequested = false;
+    bool productionGeometryEvaluated = false;
+    double totalArea = 0.0;
+    double totalVolume = 0.0;
+    std::vector<Valence4FaceGeometry> faceGeometry;
+
+    bool productionRouteEnabled = false;
+    bool actualProductionForcePathExecuted = false;
+    bool productionFaceLoopExecuted = false;
+    bool productionOneRingsPopulated = false;
+    bool defaultEvaluatorCaller = false;
+};
+
 struct Valence4FaceScientificObservables
 {
     int faceIndex = -1;
@@ -171,6 +201,19 @@ Valence4FaceLoopRouteRequestResult
 evaluate_guarded_valence4_face_loop_route_request(
     const Mesh &mesh,
     const Valence4FaceLoopRouteRequest &request);
+
+/**
+ * Stage production-equivalent area and legacy visible volume for an explicit
+ * valence-4 row package without mutating Mesh state.
+ *
+ * The complete source mapping, row package, sample cardinality, quadrature
+ * shape, and finite output are validated before a successful result is
+ * returned. The route remains default-off and caller-owned.
+ */
+Valence4FaceGeometryStagingResult
+stage_guarded_valence4_face_geometry(
+    const Mesh &mesh,
+    const Valence4FaceGeometryStagingRequest &request);
 
 /**
  * Evaluate reviewer-approved source-keyed rows against the current mesh

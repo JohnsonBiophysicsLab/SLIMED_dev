@@ -56,5 +56,8 @@ No production face-loop caller is added. Default dependency behavior,
 reduction order, checkpoint/output, propagation, fixtures, optimizer
 behavior, boundary handling, and broader-valence routing are unchanged.
 
-After this proof, guarded route activation remains a separate production C++
-change requiring explicit reviewer and user approval.
+After this proof, the production C++ geometry-staging successor now evaluates
+per-face area and legacy volume plus global totals from the same caller-owned
+source-keyed rows without mutation. Geometry-aware atomic composition and
+guarded route activation remain separate production C++ changes requiring
+explicit reviewer and user approval.

@@ -94,6 +94,16 @@ class ValenceFourSourceKeyedKernelAdapterInventoryTest(unittest.TestCase):
         self.assertFalse(adapter["production_one_rings_mutated"])
         composition = adapter["guarded_scientific_request_composition"]
         self.assertTrue(composition["fresh_opensubdiv_rows_consumed"])
+        self.assertTrue(
+            composition["default_off_geometry_staging_rejected"]
+        )
+        self.assertTrue(composition["geometry_staging_executed"])
+        self.assertTrue(
+            composition["geometry_staging_mesh_state_unchanged"]
+        )
+        self.assertLessEqual(
+            composition["max_geometry_staging_difference"], 1.0e-12
+        )
         self.assertTrue(composition["default_off_request_rejected"])
         self.assertTrue(composition["explicit_request_accepted"])
         self.assertTrue(composition["production_scientific_algebra_executed"])

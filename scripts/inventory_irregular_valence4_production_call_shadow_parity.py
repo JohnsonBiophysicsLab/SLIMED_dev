@@ -41,6 +41,23 @@ PREDECESSOR_INVENTORIES = {
     Path("scripts/inventory_irregular_valence4_production_kernel_call_proof.py"),
     Path("scripts/inventory_irregular_valence4_source_keyed_kernel_adapter.py"),
 }
+PRODUCTION_GEOMETRY_STAGING_SUCCESSOR_PATHS = {
+    Path("include/energy_force/Valence4_face_loop_route_preflight.hpp"),
+    Path("src/energy_force/Valence4_face_loop_route_preflight.cpp"),
+    Path("tests/test_valence4_face_loop_route_preflight.cpp"),
+    Path("experiments/irregular_valence4_source_keyed_kernel_adapter.cpp"),
+    Path("scripts/run_irregular_valence4_source_keyed_kernel_adapter.py"),
+    Path(
+        "tests/test_irregular_valence4_source_keyed_kernel_adapter_inventory.py"
+    ),
+    Path("docs/irregular_valence4_production_geometry_staging.md"),
+    Path(
+        "scripts/inventory_irregular_valence4_production_geometry_staging.py"
+    ),
+    Path(
+        "tests/test_irregular_valence4_production_geometry_staging_inventory.py"
+    ),
+}
 
 ALLOWED_PATHS = {
     EXPERIMENT,
@@ -52,7 +69,7 @@ ALLOWED_PATHS = {
     INVENTORY,
     TEST,
     *PREDECESSOR_INVENTORIES,
-}
+} | PRODUCTION_GEOMETRY_STAGING_SUCCESSOR_PATHS
 
 ANCHORS = {
     EXPERIMENT: (
@@ -157,10 +174,13 @@ def collect(root: Path) -> dict[str, object]:
         errors.append("unexpected changed paths: " + ", ".join(unexpected))
 
     forbidden = any(
-        path.startswith(
-            ("include/", "src/", "EXEs/", ".github/", "data/fixtures/")
+        (
+            path.startswith(
+                ("include/", "src/", "EXEs/", ".github/", "data/fixtures/")
+            )
+            or path in {"Makefile", "scripts/verify_pr_ready.sh"}
         )
-        or path in {"Makefile", "scripts/verify_pr_ready.sh"}
+        and Path(path) not in PRODUCTION_GEOMETRY_STAGING_SUCCESSOR_PATHS
         for path in paths
     )
     if forbidden:
