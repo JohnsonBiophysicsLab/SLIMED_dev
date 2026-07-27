@@ -43,6 +43,21 @@ INVENTORY = Path(
 TEST = Path(
     "tests/test_irregular_valence4_vertex_force_publication_inventory.py"
 )
+PRODUCTION_CALL_SHADOW_SUCCESSOR_PATHS = {
+    Path("docs/irregular_valence4_production_call_shadow_parity.md"),
+    Path(
+        "scripts/inventory_irregular_valence4_production_call_shadow_parity.py"
+    ),
+    Path(
+        "scripts/run_irregular_valence4_production_call_shadow_parity.py"
+    ),
+    Path(
+        "scripts/run_irregular_valence4_production_call_shadow_parity.sh"
+    ),
+    Path(
+        "tests/test_irregular_valence4_production_call_shadow_parity_inventory.py"
+    ),
+}
 
 ALLOWED_PATHS = {
     SOURCE_HEADER,
@@ -80,7 +95,7 @@ ALLOWED_PATHS = {
     Path(
         "tests/test_irregular_valence4_atomic_face_loop_publication_inventory.py"
     ),
-}
+} | PRODUCTION_CALL_SHADOW_SUCCESSOR_PATHS
 
 ANCHORS = {
     SOURCE_HEADER: (

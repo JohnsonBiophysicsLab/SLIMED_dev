@@ -67,7 +67,8 @@ behavior, formulas, source scatter, OpenMP scheduling/reduction order,
 checkpoint/output, propagation, fixtures, optimizer behavior, boundary
 handling, and broader-valence routing are unchanged.
 
-The next separately reviewed boundary is a guarded production-call shadow
-that invokes this atomic transaction from a production-shaped face-loop
-context and proves serial/OpenMP observable parity. Route activation remains
-a later explicit reviewer/user decision.
+The successor production-call shadow now invokes this atomic transaction in
+serial and OpenMP builds, compares complete force, face-observable, area, and
+legacy-volume output, and binds that result to the independent actual OpenMP
+runtime proof. Route activation remains a later explicit reviewer/user
+decision.
