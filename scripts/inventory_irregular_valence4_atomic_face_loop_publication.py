@@ -49,6 +49,21 @@ PREDECESSOR_INVENTORIES = {
         "scripts/inventory_irregular_valence4_face_observable_publication.py"
     ),
 }
+PRODUCTION_CALL_SHADOW_SUCCESSOR_PATHS = {
+    Path("docs/irregular_valence4_production_call_shadow_parity.md"),
+    Path(
+        "scripts/inventory_irregular_valence4_production_call_shadow_parity.py"
+    ),
+    Path(
+        "scripts/run_irregular_valence4_production_call_shadow_parity.py"
+    ),
+    Path(
+        "scripts/run_irregular_valence4_production_call_shadow_parity.sh"
+    ),
+    Path(
+        "tests/test_irregular_valence4_production_call_shadow_parity_inventory.py"
+    ),
+}
 
 ALLOWED_PATHS = {
     ROUTE_HEADER,
@@ -64,7 +79,7 @@ ALLOWED_PATHS = {
     INVENTORY,
     TEST,
     *PREDECESSOR_INVENTORIES,
-}
+} | PRODUCTION_CALL_SHADOW_SUCCESSOR_PATHS
 
 ANCHORS = {
     ROUTE_HEADER: (

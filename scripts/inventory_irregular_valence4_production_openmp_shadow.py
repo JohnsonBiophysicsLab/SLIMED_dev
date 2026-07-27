@@ -120,6 +120,21 @@ VERTEX_PUBLICATION_SUCCESSOR_PATHS = {
         "tests/test_irregular_valence4_atomic_face_loop_publication_inventory.py"
     ),
 }
+PRODUCTION_CALL_SHADOW_SUCCESSOR_PATHS = {
+    Path("docs/irregular_valence4_production_call_shadow_parity.md"),
+    Path(
+        "scripts/inventory_irregular_valence4_production_call_shadow_parity.py"
+    ),
+    Path(
+        "scripts/run_irregular_valence4_production_call_shadow_parity.py"
+    ),
+    Path(
+        "scripts/run_irregular_valence4_production_call_shadow_parity.sh"
+    ),
+    Path(
+        "tests/test_irregular_valence4_production_call_shadow_parity_inventory.py"
+    ),
+}
 
 ALLOWED_PATHS = {
     PROBE,
@@ -152,7 +167,9 @@ ALLOWED_PATHS = {
     Path("scripts/run_irregular_valence4_source_keyed_kernel_adapter.py"),
     Path("scripts/run_irregular_valence4_source_keyed_kernel_adapter.sh"),
     Path("tests/test_irregular_valence4_source_keyed_kernel_adapter_inventory.py"),
-} | GUARDED_REPRESENTATION_PATHS | PRODUCTION_KERNEL_CALL_PROOF_PATHS
+} | GUARDED_REPRESENTATION_PATHS | PRODUCTION_KERNEL_CALL_PROOF_PATHS | (
+    PRODUCTION_CALL_SHADOW_SUCCESSOR_PATHS
+)
 
 ANCHORS = {
     PROBE: (

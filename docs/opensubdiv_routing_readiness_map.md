@@ -277,9 +277,10 @@ face normal after complete validation and allocation; area, legacy volume,
 vertex state, and routing remain unchanged. A default-off atomic successor
 now validates and publishes both reviewed destination families as one
 transaction, but still has no real production face-loop caller. Real route
-activation remains a separate reviewer/user-gated decision. A guarded
-production-call shadow and serial/OpenMP observable parity after that
-integration are still required.
+activation remains a separate reviewer/user-gated decision. The guarded
+production-call shadow now compares complete atomic-publication output between
+serial and OpenMP builds and requires the independent actual OpenMP
+team/reduction proof. No real production face-loop caller or route is enabled.
 
 ## Inventory Check
 

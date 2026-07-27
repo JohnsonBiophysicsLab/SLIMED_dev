@@ -2,6 +2,7 @@
 
 #include "energy_force/Valence4_face_loop_route_preflight.hpp"
 #include "io/io.hpp"
+#include "linalg/Linear_algebra.hpp"
 #include "mesh/Mesh.hpp"
 #include "mesh/Valence4_topology_source_mapping.hpp"
 #include "Parameters.hpp"
@@ -25,6 +26,7 @@ constexpr int kFaceCount = 8;
 constexpr int kSourceCount = 6;
 constexpr int kSampleCount = 3;
 constexpr double kTolerance = 1.0e-12;
+constexpr double kLegacyVolumeQuadratureFactor = 0.16666666666;
 
 using IndependentOracle =
     std::array<std::array<std::array<long double, kAxisCount>,
@@ -450,7 +452,10 @@ struct ScientificForceAlgebraProof
     bool executed = false;
     bool finite = true;
     bool nonzero = false;
+    bool productionShapedGeometryEvaluated = false;
     double maxForceDifference = 0.0;
+    double area = 0.0;
+    double legacyVolume = 0.0;
     std::array<double, kForceKindCount> maxAbsForce{{0.0, 0.0, 0.0}};
     std::vector<Valence4FaceScientificObservables> faceObservables;
 };
@@ -476,7 +481,6 @@ ScientificForceAlgebraProof invoke_scientific_force_algebra(
         param.gaussQuadratureCoeff.set(sample, 0, 1.0 / 3.0);
     }
     Mesh formulaMesh(param);
-
     for (const PreparedSourceKeyedFace &preparedFace : prepared.faces)
     {
         const std::vector<int> &sourceIds =
@@ -492,6 +496,7 @@ ScientificForceAlgebraProof invoke_scientific_force_algebra(
 
         std::vector<Matrix> coordinates(
             sourceCount, Matrix(kAxisCount, 1, true));
+        Matrix controlPoints(sourceCount, kAxisCount, true);
         for (int sourcePosition = 0;
              sourcePosition < sourceCount;
              ++sourcePosition)
@@ -507,6 +512,10 @@ ScientificForceAlgebraProof invoke_scientific_force_algebra(
             {
                 coordinates[sourcePosition].set(
                     axis, 0, package.coordinates[sourceId][axis]);
+                controlPoints.set(
+                    sourcePosition,
+                    axis,
+                    package.coordinates[sourceId][axis]);
             }
         }
 
@@ -535,6 +544,32 @@ ScientificForceAlgebraProof invoke_scientific_force_algebra(
             }
             shapeFunctions.push_back(std::move(rows));
         }
+
+        double faceArea = 0.0;
+        double faceLegacyVolume = 0.0;
+        for (int sample = 0; sample < kSampleCount; ++sample)
+        {
+            const Matrix evaluatedRows =
+                shapeFunctions[sample] * controlPoints;
+            const Matrix orientedArea =
+                cross_row(evaluatedRows.get_row(1),
+                          evaluatedRows.get_row(2));
+            const double surfaceJacobian =
+                orientedArea.calculate_norm();
+            const double quadrature =
+                param.gaussQuadratureCoeff.get(sample, 0);
+            faceArea += 0.5 * quadrature * surfaceJacobian;
+            faceLegacyVolume +=
+                kLegacyVolumeQuadratureFactor * quadrature *
+                evaluatedRows.get(0, 0) *
+                orientedArea.get(0, 0);
+        }
+        result.finite =
+            result.finite && std::isfinite(faceArea) &&
+            std::isfinite(faceLegacyVolume);
+        result.area += faceArea;
+        result.legacyVolume += faceLegacyVolume;
+        result.productionShapedGeometryEvaluated = true;
 
         Face face;
         face.index = preparedFace.mapping.faceIndex;
@@ -603,6 +638,9 @@ ScientificForceAlgebraProof invoke_scientific_force_algebra(
         result.maxAbsForce.begin(),
         result.maxAbsForce.end(),
         [](const double value) { return value > 1.0e-10; });
+    result.finite =
+        result.finite && std::isfinite(result.area) &&
+        std::isfinite(result.legacyVolume) && result.area > 0.0;
     return result;
 }
 
@@ -1167,6 +1205,7 @@ struct ScientificRequestCompositionProof
     bool defaultOffAtomicPublicationRejected = false;
     bool atomicFaceLoopPublicationExecuted = false;
     bool onlyReviewedFamiliesPublishedAtomically = false;
+    bool productionCallShadowExecuted = false;
     bool routeRemainedDisabled = false;
     double maxObservableDifference = 0.0;
     double maxSourceForceDifference = 0.0;
@@ -1175,6 +1214,9 @@ struct ScientificRequestCompositionProof
     double maxPublishedFaceObservableDifference = 0.0;
     double maxAtomicPublishedForceDifference = 0.0;
     double maxAtomicPublishedFaceObservableDifference = 0.0;
+    std::vector<SourceForceKinds> atomicPublishedForces;
+    std::vector<Valence4FaceScientificObservables>
+        atomicPublishedObservables;
 };
 
 ScientificRequestCompositionProof invoke_guarded_scientific_request(
@@ -1362,6 +1404,9 @@ ScientificRequestCompositionProof invoke_guarded_scientific_request(
                 .sourceKeyedRequest.accumulatedSourceForces;
         const auto &publishedObservables =
             atomicPublicationResult.scientificRequest.faceObservables;
+        proof.productionCallShadowExecuted = true;
+        proof.atomicPublishedForces = publishedForces;
+        proof.atomicPublishedObservables = publishedObservables;
         proof.maxAtomicPublishedForceDifference =
             compare_scattered(publishedForces, referenceForces);
         proof.maxAtomicPublishedFaceObservableDifference =
@@ -1640,6 +1685,7 @@ int main(int argc, char **argv)
         negativeGatesPassed && scientificForceAlgebra.executed &&
         scientificForceAlgebra.finite &&
         scientificForceAlgebra.nonzero &&
+        scientificForceAlgebra.productionShapedGeometryEvaluated &&
         scientificForceAlgebra.maxForceDifference <= kTolerance &&
         scientificRequest.defaultOffRejected &&
         scientificRequest.accepted &&
@@ -1658,6 +1704,11 @@ int main(int argc, char **argv)
         scientificRequest.defaultOffAtomicPublicationRejected &&
         scientificRequest.atomicFaceLoopPublicationExecuted &&
         scientificRequest.onlyReviewedFamiliesPublishedAtomically &&
+        scientificRequest.productionCallShadowExecuted &&
+        scientificRequest.atomicPublishedForces.size() ==
+            kSourceCount &&
+        scientificRequest.atomicPublishedObservables.size() ==
+            kFaceCount &&
         scientificRequest.routeRemainedDisabled &&
         scientificRequest.maxObservableDifference <= kTolerance &&
         scientificRequest.maxSourceForceDifference <= kTolerance &&
@@ -1803,6 +1854,88 @@ int main(int argc, char **argv)
         << scientificRequest
                .maxAtomicPublishedFaceObservableDifference
               << "},";
+    std::cout << "\"production_call_shadow\":{";
+    std::cout << "\"executed\":"
+              << (scientificRequest.productionCallShadowExecuted
+                      ? "true"
+                      : "false")
+              << ',';
+    std::cout << "\"atomic_transaction_invoked\":"
+              << (scientificRequest.atomicFaceLoopPublicationExecuted
+                      ? "true"
+                      : "false")
+              << ',';
+    std::cout << "\"serial_openmp_comparison_ready\":true,";
+    std::cout << "\"not_production_routing\":true,";
+    std::cout << "\"production_route_enabled\":false,";
+    std::cout << "\"actual_production_force_path_executed\":false,";
+    std::cout << "\"production_face_loop_executed\":false,";
+    std::cout << "\"production_shaped_geometry_evaluated\":"
+              << (scientificForceAlgebra
+                          .productionShapedGeometryEvaluated
+                      ? "true"
+                      : "false")
+              << ',';
+    std::cout << "\"area\":" << scientificForceAlgebra.area << ',';
+    std::cout << "\"legacy_volume\":"
+              << scientificForceAlgebra.legacyVolume << ',';
+    std::cout << "\"vertex_forces\":[";
+    for (std::size_t source = 0;
+         source < scientificRequest.atomicPublishedForces.size();
+         ++source)
+    {
+        if (source != 0)
+        {
+            std::cout << ',';
+        }
+        const SourceForceKinds &forces =
+            scientificRequest.atomicPublishedForces[source];
+        std::cout << "{\"source_id\":" << source;
+        const std::array<const char *, kForceKindCount> labels{{
+            "fBend", "fArea", "fVolume"}};
+        for (int kind = 0; kind < kForceKindCount; ++kind)
+        {
+            std::cout << ",\"" << labels[kind] << "\":[";
+            for (int axis = 0; axis < kAxisCount; ++axis)
+            {
+                if (axis != 0)
+                {
+                    std::cout << ',';
+                }
+                std::cout << forces[kind][axis];
+            }
+            std::cout << ']';
+        }
+        std::cout << '}';
+    }
+    std::cout << "],\"face_observables\":[";
+    for (std::size_t face = 0;
+         face < scientificRequest.atomicPublishedObservables.size();
+         ++face)
+    {
+        if (face != 0)
+        {
+            std::cout << ',';
+        }
+        const Valence4FaceScientificObservables &observable =
+            scientificRequest.atomicPublishedObservables[face];
+        std::cout << "{\"face\":" << observable.faceIndex
+                  << ",\"mean_curvature\":"
+                  << observable.meanCurvature
+                  << ",\"bending_energy\":"
+                  << observable.bendingEnergy
+                  << ",\"normal\":[";
+        for (int axis = 0; axis < kAxisCount; ++axis)
+        {
+            if (axis != 0)
+            {
+                std::cout << ',';
+            }
+            std::cout << observable.normal[axis];
+        }
+        std::cout << "]}";
+    }
+    std::cout << "]},";
     std::cout << "\"variable_cardinality_source_keyed\":true,";
     std::cout << "\"canonicalized_by_original_source_id\":true,";
     std::cout << "\"face_count\":" << adapted.faces.size() << ',';
@@ -1866,8 +1999,9 @@ int main(int argc, char **argv)
     std::cout << "\"residual_boundary\":"
                  "\"fresh OpenSubdiv valence-4 rows now pass through "
                  "one atomic guarded vertex-force and face-observable "
-                 "publication transaction; a production-call shadow and "
-                 "route activation remain separately reviewed\",";
+                 "publication transaction and a serial/OpenMP "
+                 "production-call shadow; route activation remains "
+                 "separately reviewed\",";
     std::cout << "\"passed\":" << (passed ? "true" : "false");
     std::cout << "}\n";
     return passed ? 0 : 1;
