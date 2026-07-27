@@ -150,18 +150,32 @@ PRODUCTION_GEOMETRY_STAGING_SUCCESSOR_PATHS = {
         "tests/test_irregular_valence4_production_geometry_staging_inventory.py"
     ),
 }
+GEOMETRY_ATOMIC_COMPOSITION_SUCCESSOR_PATHS = {
+    Path("docs/irregular_valence4_geometry_atomic_composition.md"),
+    Path(
+        "scripts/inventory_irregular_valence4_geometry_atomic_composition.py"
+    ),
+    Path(
+        "tests/test_irregular_valence4_geometry_atomic_composition_inventory.py"
+    ),
+}
 
-ALLOWED_PATHS = {
-    HEADER,
-    EXPERIMENT,
-    RUNNER,
-    SHELL,
-    DOC,
-    INVENTORY,
-    TEST,
-} | PREDECESSOR_INVENTORIES | PRODUCTION_KERNEL_CALL_PROOF_PATHS | (
-    PRODUCTION_CALL_SHADOW_SUCCESSOR_PATHS
-) | PRODUCTION_GEOMETRY_STAGING_SUCCESSOR_PATHS
+ALLOWED_PATHS = (
+    {
+        HEADER,
+        EXPERIMENT,
+        RUNNER,
+        SHELL,
+        DOC,
+        INVENTORY,
+        TEST,
+    }
+    | PREDECESSOR_INVENTORIES
+    | PRODUCTION_KERNEL_CALL_PROOF_PATHS
+    | PRODUCTION_CALL_SHADOW_SUCCESSOR_PATHS
+    | PRODUCTION_GEOMETRY_STAGING_SUCCESSOR_PATHS
+    | GEOMETRY_ATOMIC_COMPOSITION_SUCCESSOR_PATHS
+)
 
 ANCHORS = {
     HEADER: (

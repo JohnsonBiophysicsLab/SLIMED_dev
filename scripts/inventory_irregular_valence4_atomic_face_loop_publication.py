@@ -64,6 +64,25 @@ PRODUCTION_CALL_SHADOW_SUCCESSOR_PATHS = {
         "tests/test_irregular_valence4_production_call_shadow_parity_inventory.py"
     ),
 }
+GEOMETRY_ATOMIC_COMPOSITION_SUCCESSOR_PATHS = {
+    Path("docs/irregular_valence4_geometry_atomic_composition.md"),
+    Path("docs/irregular_valence4_production_geometry_staging.md"),
+    Path(
+        "scripts/inventory_irregular_valence4_atomic_face_loop_publication.py"
+    ),
+    Path(
+        "scripts/inventory_irregular_valence4_geometry_atomic_composition.py"
+    ),
+    Path(
+        "scripts/inventory_irregular_valence4_production_geometry_staging.py"
+    ),
+    Path(
+        "tests/test_irregular_valence4_production_geometry_staging_inventory.py"
+    ),
+    Path(
+        "tests/test_irregular_valence4_geometry_atomic_composition_inventory.py"
+    ),
+}
 
 ALLOWED_PATHS = {
     ROUTE_HEADER,
@@ -79,7 +98,8 @@ ALLOWED_PATHS = {
     INVENTORY,
     TEST,
     *PREDECESSOR_INVENTORIES,
-} | PRODUCTION_CALL_SHADOW_SUCCESSOR_PATHS
+} | PRODUCTION_CALL_SHADOW_SUCCESSOR_PATHS | \
+    GEOMETRY_ATOMIC_COMPOSITION_SUCCESSOR_PATHS
 
 ANCHORS = {
     ROUTE_HEADER: (

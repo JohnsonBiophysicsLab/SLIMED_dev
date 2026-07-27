@@ -58,8 +58,10 @@ Default dependency behavior, formulas, source scatter, OpenMP scheduling and
 reduction order, checkpoint/output, propagation, fixtures, boundary handling,
 and broader-valence routing are unchanged.
 
-The next separately reviewed step is to compose this staged geometry with the
-existing staged scientific result so geometry-dependent force terms use the
-same staged global area and volume before one atomic commit. Only after that
-transaction and its serial/OpenMP parity gates pass should a real guarded
-production caller be considered.
+The geometry-aware atomic composition successor now evaluates the existing
+scientific algebra against a copied `Param` containing these staged totals,
+then atomically publishes reviewed geometry, forces, and face observables.
+That successor remains default-off and outside the real production caller.
+The next boundary is a separately reviewed real-caller shadow/parity lane;
+that evidence is required before a production caller be considered. Route
+activation remains later and independently gated.

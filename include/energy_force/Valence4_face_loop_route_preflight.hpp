@@ -103,6 +103,9 @@ struct Valence4FaceLoopScientificRequestResult
     std::string rejectionReason;
     bool explicitRouteRequested = false;
     bool productionScientificAlgebraExecuted = false;
+    bool stagedGeometryUsedForScientificEvaluation = false;
+    double scientificGlobalArea = 0.0;
+    double scientificGlobalVolume = 0.0;
     std::vector<Valence4FaceScientificObservables> faceObservables;
     Valence4FaceLoopRouteRequestResult sourceKeyedRequest;
 
@@ -169,6 +172,32 @@ struct Valence4FaceLoopPublicationResult
     bool vertexForcePublicationExecuted = false;
     bool faceObservablePublicationExecuted = false;
     bool atomicFaceLoopPublicationExecuted = false;
+    Valence4FaceLoopScientificRequestResult scientificRequest;
+
+    bool productionRouteEnabled = false;
+    bool actualProductionForcePathExecuted = false;
+    bool productionFaceLoopExecuted = false;
+    bool productionOneRingsPopulated = false;
+    bool defaultEvaluatorCaller = false;
+};
+
+struct Valence4GeometryAwareAtomicCompositionRequest
+{
+    bool reviewerApprovedExplicitComposition = false;
+    std::vector<source_keyed_kernel::SourceKeyedFaceRows> rows;
+};
+
+struct Valence4GeometryAwareAtomicCompositionResult
+{
+    bool accepted = false;
+    std::string rejectionReason;
+    bool explicitCompositionRequested = false;
+    bool stagedGeometryUsedForScientificEvaluation = false;
+    bool geometryPublicationExecuted = false;
+    bool vertexForcePublicationExecuted = false;
+    bool faceObservablePublicationExecuted = false;
+    bool atomicGeometryScientificPublicationExecuted = false;
+    Valence4FaceGeometryStagingResult geometryStaging;
     Valence4FaceLoopScientificRequestResult scientificRequest;
 
     bool productionRouteEnabled = false;
@@ -287,4 +316,29 @@ Valence4FaceLoopPublicationResult
 evaluate_guarded_valence4_face_loop_publication(
     Mesh &mesh,
     const Valence4FaceLoopPublicationRequest &request);
+
+/**
+ * Atomically publish an accepted geometry stage and scientific result.
+ *
+ * Geometry, force families, face observables, normals, mesh identities, and
+ * destination shapes are validated and all replacement normals are allocated
+ * before the first write. The commit updates only reviewed geometry,
+ * Param::area/vol, membrane force families, and reviewed face observables.
+ */
+void publish_valence4_geometry_and_scientific_result_atomically(
+    const Valence4FaceGeometryStagingResult &geometryResult,
+    const Valence4FaceLoopScientificRequestResult &scientificResult,
+    Mesh &mesh);
+
+/**
+ * Stage geometry, evaluate the existing scientific algebra against those
+ * staged global values, and commit the reviewed state as one transaction.
+ *
+ * This boundary is default-off and caller-owned. It does not enter the real
+ * production face loop, populate one-rings, or authorize routing.
+ */
+Valence4GeometryAwareAtomicCompositionResult
+evaluate_guarded_valence4_geometry_aware_atomic_composition(
+    Mesh &mesh,
+    const Valence4GeometryAwareAtomicCompositionRequest &request);
 } // namespace slimed::valence4_route_preflight

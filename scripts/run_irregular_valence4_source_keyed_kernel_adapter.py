@@ -367,6 +367,19 @@ def main() -> int:
         and composition.get(
             "only_reviewed_families_published_atomically"
         )
+        and composition.get(
+            "default_off_geometry_aware_composition_rejected"
+        )
+        and composition.get(
+            "geometry_aware_atomic_composition_executed"
+        )
+        and composition.get(
+            "staged_geometry_used_for_scientific_evaluation"
+        )
+        and composition.get("stale_mesh_globals_ignored")
+        and composition.get(
+            "only_reviewed_geometry_scientific_families_published_atomically"
+        )
         and composition.get("route_remained_disabled")
         and isinstance(
             composition.get("max_observable_difference"), (int, float)
@@ -408,6 +421,28 @@ def main() -> int:
         and composition[
             "max_atomic_published_face_observable_difference"
         ]
+        <= 1.0e-12
+        and isinstance(
+            composition.get("max_geometry_aware_force_difference"),
+            (int, float),
+        )
+        and composition["max_geometry_aware_force_difference"]
+        <= 1.0e-12
+        and isinstance(
+            composition.get(
+                "max_geometry_aware_face_observable_difference"
+            ),
+            (int, float),
+        )
+        and composition[
+            "max_geometry_aware_face_observable_difference"
+        ]
+        <= 1.0e-12
+        and isinstance(
+            composition.get("max_geometry_aware_geometry_difference"),
+            (int, float),
+        )
+        and composition["max_geometry_aware_geometry_difference"]
         <= 1.0e-12
         and isinstance(
             adapter.get("max_scientific_force_algebra_difference"),

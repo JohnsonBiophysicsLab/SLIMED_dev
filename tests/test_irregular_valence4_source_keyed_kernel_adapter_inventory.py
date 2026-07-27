@@ -140,6 +140,25 @@ class ValenceFourSourceKeyedKernelAdapterInventoryTest(unittest.TestCase):
                 "only_reviewed_families_published_atomically"
             ]
         )
+        self.assertTrue(
+            composition[
+                "default_off_geometry_aware_composition_rejected"
+            ]
+        )
+        self.assertTrue(
+            composition["geometry_aware_atomic_composition_executed"]
+        )
+        self.assertTrue(
+            composition[
+                "staged_geometry_used_for_scientific_evaluation"
+            ]
+        )
+        self.assertTrue(composition["stale_mesh_globals_ignored"])
+        self.assertTrue(
+            composition[
+                "only_reviewed_geometry_scientific_families_published_atomically"
+            ]
+        )
         self.assertTrue(composition["route_remained_disabled"])
         self.assertLessEqual(composition["max_observable_difference"], 1.0e-12)
         self.assertLessEqual(composition["max_source_force_difference"], 1.0e-12)
@@ -163,6 +182,20 @@ class ValenceFourSourceKeyedKernelAdapterInventoryTest(unittest.TestCase):
             composition[
                 "max_atomic_published_face_observable_difference"
             ],
+            1.0e-12,
+        )
+        self.assertLessEqual(
+            composition["max_geometry_aware_force_difference"],
+            1.0e-12,
+        )
+        self.assertLessEqual(
+            composition[
+                "max_geometry_aware_face_observable_difference"
+            ],
+            1.0e-12,
+        )
+        self.assertLessEqual(
+            composition["max_geometry_aware_geometry_difference"],
             1.0e-12,
         )
 

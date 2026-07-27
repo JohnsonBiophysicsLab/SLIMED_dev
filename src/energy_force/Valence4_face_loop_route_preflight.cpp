@@ -89,6 +89,17 @@ reject_face_loop_publication_request(
     return result;
 }
 
+Valence4GeometryAwareAtomicCompositionResult
+reject_geometry_aware_composition_request(
+    std::string reason,
+    const bool explicitCompositionRequested)
+{
+    Valence4GeometryAwareAtomicCompositionResult result;
+    result.rejectionReason = std::move(reason);
+    result.explicitCompositionRequested = explicitCompositionRequested;
+    return result;
+}
+
 std::vector<source_keyed_kernel::SourceKeyedFaceForces>
 zero_forces_for_mappings(
     const std::vector<source_keyed_kernel::SourceMappingView> &mappings)
@@ -261,6 +272,121 @@ bool matrix_is_finite(const Matrix &matrix)
         }
     }
     return true;
+}
+
+std::vector<Valence4FaceGeometry>
+validate_geometry_aware_publication(
+    const Valence4FaceGeometryStagingResult &geometryResult,
+    const Valence4FaceLoopScientificRequestResult &scientificResult,
+    const Mesh &mesh)
+{
+    if (!geometryResult.accepted ||
+        !geometryResult.productionGeometryEvaluated)
+    {
+        throw std::invalid_argument(
+            "valence-4 geometry-aware publication requires a complete "
+            "accepted geometry stage");
+    }
+    if (!scientificResult.accepted ||
+        !scientificResult.productionScientificAlgebraExecuted ||
+        !scientificResult.stagedGeometryUsedForScientificEvaluation)
+    {
+        throw std::invalid_argument(
+            "valence-4 geometry-aware publication requires scientific "
+            "evaluation against staged geometry");
+    }
+    if (!std::isfinite(geometryResult.totalArea) ||
+        !std::isfinite(geometryResult.totalVolume) ||
+        geometryResult.totalArea < 0.0 ||
+        scientificResult.scientificGlobalArea !=
+            geometryResult.totalArea ||
+        scientificResult.scientificGlobalVolume !=
+            geometryResult.totalVolume)
+    {
+        throw std::invalid_argument(
+            "valence-4 geometry-aware publication rejected staged global "
+            "geometry/scientific binding drift");
+    }
+    if (geometryResult.faceGeometry.empty() ||
+        geometryResult.faceGeometry.size() != mesh.faces.size())
+    {
+        throw std::invalid_argument(
+            "valence-4 geometry-aware publication rejected face geometry "
+            "cardinality drift");
+    }
+
+    std::vector<Valence4FaceGeometry> staged(mesh.faces.size());
+    std::vector<bool> assigned(mesh.faces.size(), false);
+    for (std::size_t facePosition = 0;
+         facePosition < mesh.faces.size();
+         ++facePosition)
+    {
+        const Face &face = mesh.faces[facePosition];
+        if (face.index != static_cast<int>(facePosition))
+        {
+            throw std::invalid_argument(
+                "valence-4 geometry-aware publication rejected face "
+                "identity drift");
+        }
+        if (!face.oneRingVertices.empty())
+        {
+            throw std::invalid_argument(
+                "valence-4 geometry-aware publication requires empty "
+                "production one-rings");
+        }
+    }
+    for (const Valence4FaceGeometry &geometry :
+         geometryResult.faceGeometry)
+    {
+        if (geometry.faceIndex < 0 ||
+            geometry.faceIndex >= static_cast<int>(mesh.faces.size()))
+        {
+            throw std::invalid_argument(
+                "valence-4 geometry-aware publication rejected out-of-range "
+                "face geometry identity");
+        }
+        const std::size_t faceIndex =
+            static_cast<std::size_t>(geometry.faceIndex);
+        if (assigned[faceIndex])
+        {
+            throw std::invalid_argument(
+                "valence-4 geometry-aware publication rejected duplicate "
+                "face geometry identity");
+        }
+        if (!std::isfinite(geometry.elementArea) ||
+            !std::isfinite(geometry.elementVolume) ||
+            geometry.elementArea < 0.0)
+        {
+            throw std::invalid_argument(
+                "valence-4 geometry-aware publication rejected invalid face "
+                "geometry");
+        }
+        staged[faceIndex] = geometry;
+        assigned[faceIndex] = true;
+    }
+    if (!std::all_of(assigned.begin(), assigned.end(),
+                     [](const bool value) { return value; }))
+    {
+        throw std::invalid_argument(
+            "valence-4 geometry-aware publication rejected incomplete face "
+            "geometry coverage");
+    }
+
+    double stagedArea = 0.0;
+    double stagedVolume = 0.0;
+    for (const Valence4FaceGeometry &geometry : staged)
+    {
+        stagedArea += geometry.elementArea;
+        stagedVolume += geometry.elementVolume;
+    }
+    if (stagedArea != geometryResult.totalArea ||
+        stagedVolume != geometryResult.totalVolume)
+    {
+        throw std::invalid_argument(
+            "valence-4 geometry-aware publication rejected face/global "
+            "geometry accumulation drift");
+    }
+    return staged;
 }
 } // namespace
 
@@ -485,9 +611,11 @@ stage_guarded_valence4_face_geometry(
 }
 
 Valence4FaceLoopScientificRequestResult
-evaluate_guarded_valence4_face_loop_scientific_request(
+evaluate_scientific_request_with_evaluator(
     Mesh &mesh,
-    const Valence4FaceLoopScientificRequest &request)
+    Mesh &scientificEvaluator,
+    const Valence4FaceLoopScientificRequest &request,
+    const bool stagedGeometryUsed)
 {
     const bool explicitRouteRequested =
         request.reviewerApprovedExplicitRequest;
@@ -571,7 +699,7 @@ evaluate_guarded_valence4_face_loop_scientific_request(
                 sourceCount, source_keyed_kernel::kAxisCount);
             double meanCurvature = 0.0;
             double bendingEnergy = 0.0;
-            mesh.element_energy_force_regular(
+            scientificEvaluator.element_energy_force_regular(
                 coordinates,
                 formulaFace,
                 formulaFace.spontCurvature,
@@ -659,9 +787,22 @@ evaluate_guarded_valence4_face_loop_scientific_request(
     result.accepted = true;
     result.explicitRouteRequested = true;
     result.productionScientificAlgebraExecuted = true;
+    result.stagedGeometryUsedForScientificEvaluation =
+        stagedGeometryUsed;
+    result.scientificGlobalArea = scientificEvaluator.param.area;
+    result.scientificGlobalVolume = scientificEvaluator.param.vol;
     result.faceObservables = std::move(observables);
     result.sourceKeyedRequest = std::move(sourceKeyedResult);
     return result;
+}
+
+Valence4FaceLoopScientificRequestResult
+evaluate_guarded_valence4_face_loop_scientific_request(
+    Mesh &mesh,
+    const Valence4FaceLoopScientificRequest &request)
+{
+    return evaluate_scientific_request_with_evaluator(
+        mesh, mesh, request, false);
 }
 
 Valence4VertexForcePublicationResult
@@ -1121,6 +1262,117 @@ evaluate_guarded_valence4_face_loop_publication(
     result.vertexForcePublicationExecuted = true;
     result.faceObservablePublicationExecuted = true;
     result.atomicFaceLoopPublicationExecuted = true;
+    result.rejectionReason.clear();
+    return result;
+}
+
+void publish_valence4_geometry_and_scientific_result_atomically(
+    const Valence4FaceGeometryStagingResult &geometryResult,
+    const Valence4FaceLoopScientificRequestResult &scientificResult,
+    Mesh &mesh)
+{
+    const std::vector<Valence4FaceGeometry> stagedGeometry =
+        validate_geometry_aware_publication(
+            geometryResult, scientificResult, mesh);
+
+    // This call completes all scientific destination validation and normal
+    // allocation before its fixed-shape, nonthrowing commit phase.
+    publish_valence4_face_loop_scientific_result_atomically(
+        scientificResult, mesh);
+
+    // Geometry was validated before the first scientific write. These
+    // remaining assignments are fixed-size scalar commits and cannot throw.
+    for (std::size_t faceIndex = 0;
+         faceIndex < mesh.faces.size();
+         ++faceIndex)
+    {
+        mesh.faces[faceIndex].elementArea =
+            stagedGeometry[faceIndex].elementArea;
+        mesh.faces[faceIndex].elementVolume =
+            stagedGeometry[faceIndex].elementVolume;
+    }
+    mesh.param.area = geometryResult.totalArea;
+    mesh.param.vol = geometryResult.totalVolume;
+}
+
+Valence4GeometryAwareAtomicCompositionResult
+evaluate_guarded_valence4_geometry_aware_atomic_composition(
+    Mesh &mesh,
+    const Valence4GeometryAwareAtomicCompositionRequest &request)
+{
+    if (!request.reviewerApprovedExplicitComposition)
+    {
+        return reject_geometry_aware_composition_request(
+            "valence-4 geometry-aware atomic composition remains default-off "
+            "without an explicit reviewer-approved composition request",
+            false);
+    }
+
+    Valence4FaceGeometryStagingRequest geometryRequest;
+    geometryRequest.reviewerApprovedExplicitStaging = true;
+    geometryRequest.rows = request.rows;
+    Valence4FaceGeometryStagingResult geometryResult =
+        stage_guarded_valence4_face_geometry(mesh, geometryRequest);
+    if (!geometryResult.accepted)
+    {
+        Valence4GeometryAwareAtomicCompositionResult rejected =
+            reject_geometry_aware_composition_request(
+                geometryResult.rejectionReason, true);
+        rejected.geometryStaging = std::move(geometryResult);
+        return rejected;
+    }
+
+    Param stagedParam = mesh.param;
+    Mesh stagedScientificEvaluator(stagedParam);
+    // Mesh construction initializes Param-owned derived tables. Restore the
+    // caller's complete parameter state so staging and scientific evaluation
+    // use the same quadrature plan, then replace only the staged globals.
+    stagedParam = mesh.param;
+    stagedParam.area = geometryResult.totalArea;
+    stagedParam.vol = geometryResult.totalVolume;
+
+    Valence4FaceLoopScientificRequest scientificRequest;
+    scientificRequest.reviewerApprovedExplicitRequest = true;
+    scientificRequest.rows = request.rows;
+    Valence4FaceLoopScientificRequestResult scientificResult =
+        evaluate_scientific_request_with_evaluator(
+            mesh,
+            stagedScientificEvaluator,
+            scientificRequest,
+            true);
+    if (!scientificResult.accepted)
+    {
+        Valence4GeometryAwareAtomicCompositionResult rejected =
+            reject_geometry_aware_composition_request(
+                scientificResult.rejectionReason, true);
+        rejected.geometryStaging = std::move(geometryResult);
+        rejected.scientificRequest = std::move(scientificResult);
+        return rejected;
+    }
+
+    Valence4GeometryAwareAtomicCompositionResult result;
+    result.explicitCompositionRequested = true;
+    result.geometryStaging = std::move(geometryResult);
+    result.scientificRequest = std::move(scientificResult);
+    try
+    {
+        publish_valence4_geometry_and_scientific_result_atomically(
+            result.geometryStaging,
+            result.scientificRequest,
+            mesh);
+    }
+    catch (const std::invalid_argument &error)
+    {
+        result.rejectionReason = error.what();
+        return result;
+    }
+
+    result.accepted = true;
+    result.stagedGeometryUsedForScientificEvaluation = true;
+    result.geometryPublicationExecuted = true;
+    result.vertexForcePublicationExecuted = true;
+    result.faceObservablePublicationExecuted = true;
+    result.atomicGeometryScientificPublicationExecuted = true;
     result.rejectionReason.clear();
     return result;
 }

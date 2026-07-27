@@ -457,6 +457,7 @@ struct ScientificForceAlgebraProof
     double area = 0.0;
     double legacyVolume = 0.0;
     std::array<double, kForceKindCount> maxAbsForce{{0.0, 0.0, 0.0}};
+    std::vector<SourceForceKinds> accumulatedSourceForces;
     std::vector<Valence4FaceGeometry> faceGeometry;
     std::vector<Valence4FaceScientificObservables> faceObservables;
 };
@@ -466,6 +467,7 @@ ScientificForceAlgebraProof invoke_scientific_force_algebra(
     const InputPackage &package)
 {
     ScientificForceAlgebraProof result;
+    result.accumulatedSourceForces.resize(package.coordinates.size());
     Param param;
     param.VERBOSE_MODE = false;
     param.boundaryCondition = BoundaryType::Fixed;
@@ -620,6 +622,7 @@ ScientificForceAlgebraProof invoke_scientific_force_algebra(
              sourcePosition < sourceCount;
              ++sourcePosition)
         {
+            const int sourceId = sourceIds[sourcePosition];
             for (int kind = 0; kind < kForceKindCount; ++kind)
             {
                 for (int axis = 0; axis < kAxisCount; ++axis)
@@ -636,6 +639,8 @@ ScientificForceAlgebraProof invoke_scientific_force_algebra(
                     result.maxForceDifference =
                         std::max(result.maxForceDifference,
                                  std::abs(value - expected));
+                    result.accumulatedSourceForces[sourceId][kind][axis] +=
+                        value;
                 }
             }
         }
@@ -1075,6 +1080,118 @@ bool mesh_matches_atomic_face_loop_publication(
     return true;
 }
 
+bool mesh_matches_geometry_aware_atomic_publication(
+    const Mesh &mesh,
+    const MeshScientificState &before,
+    const Valence4FaceGeometryStagingResult &geometry,
+    const std::vector<SourceForceKinds> &forces,
+    const std::vector<Valence4FaceScientificObservables> &observables)
+{
+    if (mesh.faces.size() != before.faces.size() ||
+        mesh.faces.size() != geometry.faceGeometry.size() ||
+        mesh.faces.size() != observables.size() ||
+        mesh.vertices.size() != before.vertices.size() ||
+        mesh.vertices.size() != forces.size() ||
+        mesh.param.area != geometry.totalArea ||
+        mesh.param.vol != geometry.totalVolume)
+    {
+        return false;
+    }
+    for (std::size_t face = 0; face < mesh.faces.size(); ++face)
+    {
+        const Face &candidate = mesh.faces[face];
+        const Face &reference = before.faces[face];
+        if (geometry.faceGeometry[face].faceIndex !=
+                static_cast<int>(face) ||
+            observables[face].faceIndex != static_cast<int>(face) ||
+            candidate.elementArea !=
+                geometry.faceGeometry[face].elementArea ||
+            candidate.elementVolume !=
+                geometry.faceGeometry[face].elementVolume ||
+            candidate.meanCurvature !=
+                observables[face].meanCurvature ||
+            candidate.energy.energyCurvature !=
+                observables[face].bendingEnergy ||
+            candidate.index != reference.index ||
+            candidate.layerIndex != reference.layerIndex ||
+            candidate.isBoundary != reference.isBoundary ||
+            candidate.isGhost != reference.isGhost ||
+            candidate.isInsertionPatch !=
+                reference.isInsertionPatch ||
+            candidate.adjacentVertices !=
+                reference.adjacentVertices ||
+            candidate.oneRingVertices != reference.oneRingVertices ||
+            candidate.adjacentFaces != reference.adjacentFaces ||
+            candidate.spontCurvature != reference.spontCurvature ||
+            !energy_matches(candidate.energyPrev,
+                            reference.energyPrev))
+        {
+            return false;
+        }
+        Energy expectedEnergy = reference.energy;
+        expectedEnergy.energyCurvature =
+            observables[face].bendingEnergy;
+        if (!energy_matches(candidate.energy, expectedEnergy) ||
+            candidate.normVector.mat == nullptr ||
+            candidate.normVector.nrow() != kAxisCount ||
+            candidate.normVector.ncol() != 1)
+        {
+            return false;
+        }
+        for (int axis = 0; axis < kAxisCount; ++axis)
+        {
+            if (candidate.normVector.get(axis, 0) !=
+                observables[face].normal[axis])
+            {
+                return false;
+            }
+        }
+    }
+    for (std::size_t source = 0;
+         source < mesh.vertices.size();
+         ++source)
+    {
+        const Vertex &candidate = mesh.vertices[source];
+        const Vertex &reference = before.vertices[source];
+        if (candidate.index != reference.index ||
+            !matrix_matches(candidate.coord, reference.coord) ||
+            !matrix_matches(candidate.coordPrev, reference.coordPrev) ||
+            !matrix_matches(candidate.coordRef, reference.coordRef) ||
+            candidate.adjacentVertices != reference.adjacentVertices ||
+            candidate.adjacentFaces != reference.adjacentFaces ||
+            !matrix_matches(candidate.normVector,
+                            reference.normVector) ||
+            candidate.layerIndex != reference.layerIndex ||
+            candidate.type != reference.type ||
+            candidate.reflectiveVertexIndex !=
+                reference.reflectiveVertexIndex ||
+            candidate.isBoundary != reference.isBoundary ||
+            candidate.isGhost != reference.isGhost ||
+            !force_matches_except_membrane_publication(
+                candidate.force, reference.force) ||
+            !force_matches(candidate.forcePrev, reference.forcePrev))
+        {
+            return false;
+        }
+        const std::array<const Matrix *, kForceKindCount> published{{
+            &candidate.force.forceCurvature,
+            &candidate.force.forceArea,
+            &candidate.force.forceVolume}};
+        for (int kind = 0; kind < kForceKindCount; ++kind)
+        {
+            for (int axis = 0; axis < kAxisCount; ++axis)
+            {
+                if (published[kind]->get(axis, 0) !=
+                    forces[source][kind][axis])
+                {
+                    return false;
+                }
+            }
+        }
+    }
+    return true;
+}
+
 double compare_published_face_observables(
     const Mesh &mesh,
     const std::vector<Valence4FaceScientificObservables> &expected)
@@ -1220,6 +1337,11 @@ struct ScientificRequestCompositionProof
     bool defaultOffAtomicPublicationRejected = false;
     bool atomicFaceLoopPublicationExecuted = false;
     bool onlyReviewedFamiliesPublishedAtomically = false;
+    bool defaultOffGeometryAwareCompositionRejected = false;
+    bool geometryAwareAtomicCompositionExecuted = false;
+    bool stagedGeometryUsedForScientificEvaluation = false;
+    bool staleMeshGlobalsIgnored = false;
+    bool onlyReviewedGeometryScientificFamiliesPublishedAtomically = false;
     bool productionCallShadowExecuted = false;
     bool routeRemainedDisabled = false;
     double maxObservableDifference = 0.0;
@@ -1230,6 +1352,9 @@ struct ScientificRequestCompositionProof
     double maxPublishedFaceObservableDifference = 0.0;
     double maxAtomicPublishedForceDifference = 0.0;
     double maxAtomicPublishedFaceObservableDifference = 0.0;
+    double maxGeometryAwareForceDifference = 0.0;
+    double maxGeometryAwareFaceObservableDifference = 0.0;
+    double maxGeometryAwareGeometryDifference = 0.0;
     std::vector<SourceForceKinds> atomicPublishedForces;
     std::vector<Valence4FaceScientificObservables>
         atomicPublishedObservables;
@@ -1240,6 +1365,7 @@ ScientificRequestCompositionProof invoke_guarded_scientific_request(
     Mesh &publicationMesh,
     Mesh &facePublicationMesh,
     Mesh &atomicPublicationMesh,
+    Mesh &geometryAtomicMesh,
     const InputPackage &package,
     const ScientificForceAlgebraProof &reference,
     const std::vector<SourceForceKinds> &referenceForces)
@@ -1485,6 +1611,137 @@ ScientificRequestCompositionProof invoke_guarded_scientific_request(
                 publicationMesh,
                 facePublicationMesh);
     }
+
+    seed_mesh_scientific_state(geometryAtomicMesh);
+    geometryAtomicMesh.param.area = package.parameters.area + 17.0;
+    geometryAtomicMesh.param.vol = package.parameters.volume - 13.0;
+    const MeshScientificState beforeGeometryAtomic =
+        capture_mesh_scientific_state(geometryAtomicMesh);
+    Valence4GeometryAwareAtomicCompositionRequest
+        defaultOffGeometryAwareRequest;
+    defaultOffGeometryAwareRequest.rows = package.rows;
+    const Valence4GeometryAwareAtomicCompositionResult
+        defaultOffGeometryAwareResult =
+            evaluate_guarded_valence4_geometry_aware_atomic_composition(
+                geometryAtomicMesh,
+                defaultOffGeometryAwareRequest);
+    proof.defaultOffGeometryAwareCompositionRejected =
+        !defaultOffGeometryAwareResult.accepted &&
+        !defaultOffGeometryAwareResult
+             .atomicGeometryScientificPublicationExecuted &&
+        defaultOffGeometryAwareResult.rejectionReason.find(
+            "default-off") != std::string::npos &&
+        mesh_scientific_state_matches(
+            geometryAtomicMesh, beforeGeometryAtomic);
+
+    Valence4GeometryAwareAtomicCompositionRequest
+        geometryAwareRequest;
+    geometryAwareRequest.reviewerApprovedExplicitComposition = true;
+    geometryAwareRequest.rows = package.rows;
+    const Valence4GeometryAwareAtomicCompositionResult
+        geometryAwareResult =
+            evaluate_guarded_valence4_geometry_aware_atomic_composition(
+                geometryAtomicMesh, geometryAwareRequest);
+    InputPackage stagedScientificPackage = package;
+    stagedScientificPackage.parameters.area =
+        geometryAwareResult.geometryStaging.totalArea;
+    stagedScientificPackage.parameters.volume =
+        geometryAwareResult.geometryStaging.totalVolume;
+    const ScientificForceAlgebraProof stagedScientificOracle =
+        invoke_scientific_force_algebra(
+            result.sourceKeyedRequest.prepared,
+            stagedScientificPackage);
+    proof.geometryAwareAtomicCompositionExecuted =
+        geometryAwareResult.accepted &&
+        geometryAwareResult.geometryPublicationExecuted &&
+        geometryAwareResult.vertexForcePublicationExecuted &&
+        geometryAwareResult.faceObservablePublicationExecuted &&
+        geometryAwareResult
+            .atomicGeometryScientificPublicationExecuted;
+    proof.stagedGeometryUsedForScientificEvaluation =
+        geometryAwareResult
+            .stagedGeometryUsedForScientificEvaluation &&
+        geometryAwareResult.scientificRequest
+            .stagedGeometryUsedForScientificEvaluation &&
+        geometryAwareResult.scientificRequest.scientificGlobalArea ==
+            geometryAwareResult.geometryStaging.totalArea &&
+        geometryAwareResult.scientificRequest.scientificGlobalVolume ==
+            geometryAwareResult.geometryStaging.totalVolume;
+    geometryAtomicMesh.param.area =
+        geometryAwareResult.geometryStaging.totalArea + 31.0;
+    geometryAtomicMesh.param.vol =
+        geometryAwareResult.geometryStaging.totalVolume - 19.0;
+    const Valence4GeometryAwareAtomicCompositionResult
+        secondGeometryAwareResult =
+            evaluate_guarded_valence4_geometry_aware_atomic_composition(
+                geometryAtomicMesh, geometryAwareRequest);
+    proof.staleMeshGlobalsIgnored =
+        beforeGeometryAtomic.area !=
+            geometryAwareResult.geometryStaging.totalArea &&
+        beforeGeometryAtomic.volume !=
+            geometryAwareResult.geometryStaging.totalVolume &&
+        secondGeometryAwareResult.accepted &&
+        compare_scattered(
+            geometryAwareResult.scientificRequest.sourceKeyedRequest
+                .accumulatedSourceForces,
+            secondGeometryAwareResult.scientificRequest
+                .sourceKeyedRequest.accumulatedSourceForces) <=
+            kTolerance &&
+        compare_face_observables(
+            geometryAwareResult.scientificRequest.faceObservables,
+            secondGeometryAwareResult.scientificRequest
+                .faceObservables) <= kTolerance &&
+        geometryAwareResult.geometryStaging.totalArea ==
+            secondGeometryAwareResult.geometryStaging.totalArea &&
+        geometryAwareResult.geometryStaging.totalVolume ==
+            secondGeometryAwareResult.geometryStaging.totalVolume;
+    if (geometryAwareResult.accepted)
+    {
+        const auto &publishedForces =
+            geometryAwareResult.scientificRequest.sourceKeyedRequest
+                .accumulatedSourceForces;
+        const auto &publishedObservables =
+            geometryAwareResult.scientificRequest.faceObservables;
+        proof.maxGeometryAwareForceDifference =
+            compare_scattered(
+                publishedForces,
+                stagedScientificOracle.accumulatedSourceForces);
+        proof.maxGeometryAwareFaceObservableDifference =
+            compare_published_face_observables(
+                geometryAtomicMesh,
+                stagedScientificOracle.faceObservables);
+        proof.maxGeometryAwareGeometryDifference = std::max(
+            std::abs(
+                geometryAwareResult.geometryStaging.totalArea -
+                reference.area),
+            std::abs(
+                geometryAwareResult.geometryStaging.totalVolume -
+                reference.legacyVolume));
+        for (std::size_t face = 0;
+             face <
+             geometryAwareResult.geometryStaging.faceGeometry.size();
+             ++face)
+        {
+            proof.maxGeometryAwareGeometryDifference = std::max({
+                proof.maxGeometryAwareGeometryDifference,
+                std::abs(
+                    geometryAwareResult.geometryStaging
+                        .faceGeometry[face].elementArea -
+                    reference.faceGeometry[face].elementArea),
+                std::abs(
+                    geometryAwareResult.geometryStaging
+                        .faceGeometry[face].elementVolume -
+                    reference.faceGeometry[face].elementVolume),
+            });
+        }
+        proof.onlyReviewedGeometryScientificFamiliesPublishedAtomically =
+            mesh_matches_geometry_aware_atomic_publication(
+                geometryAtomicMesh,
+                beforeGeometryAtomic,
+                geometryAwareResult.geometryStaging,
+                publishedForces,
+                publishedObservables);
+    }
     proof.routeRemainedDisabled =
         !result.productionRouteEnabled &&
         !result.actualProductionForcePathExecuted &&
@@ -1510,7 +1767,12 @@ ScientificRequestCompositionProof invoke_guarded_scientific_request(
         !atomicPublicationResult.actualProductionForcePathExecuted &&
         !atomicPublicationResult.productionFaceLoopExecuted &&
         !atomicPublicationResult.productionOneRingsPopulated &&
-        !atomicPublicationResult.defaultEvaluatorCaller;
+        !atomicPublicationResult.defaultEvaluatorCaller &&
+        !geometryAwareResult.productionRouteEnabled &&
+        !geometryAwareResult.actualProductionForcePathExecuted &&
+        !geometryAwareResult.productionFaceLoopExecuted &&
+        !geometryAwareResult.productionOneRingsPopulated &&
+        !geometryAwareResult.defaultEvaluatorCaller;
     return proof;
 }
 
@@ -1565,6 +1827,9 @@ int main(int argc, char **argv)
     Mesh atomicPublicationMesh(param);
     atomicPublicationMesh.setup_from_vertices_faces(
         verticesData, facesData);
+    Mesh geometryAtomicMesh(param);
+    geometryAtomicMesh.setup_from_vertices_faces(
+        verticesData, facesData);
     for (int source = 0; source < kSourceCount; ++source)
     {
         for (int axis = 0; axis < kAxisCount; ++axis)
@@ -1576,6 +1841,8 @@ int main(int argc, char **argv)
             facePublicationMesh.vertices[source].coord.set(
                 axis, 0, package.coordinates[source][axis]);
             atomicPublicationMesh.vertices[source].coord.set(
+                axis, 0, package.coordinates[source][axis]);
+            geometryAtomicMesh.vertices[source].coord.set(
                 axis, 0, package.coordinates[source][axis]);
         }
     }
@@ -1592,6 +1859,10 @@ int main(int argc, char **argv)
         face.spontCurvature = package.parameters.spontCurv;
     }
     for (Face &face : atomicPublicationMesh.faces)
+    {
+        face.spontCurvature = package.parameters.spontCurv;
+    }
+    for (Face &face : geometryAtomicMesh.faces)
     {
         face.spontCurvature = package.parameters.spontCurv;
     }
@@ -1657,6 +1928,7 @@ int main(int argc, char **argv)
             publicationMesh,
             facePublicationMesh,
             atomicPublicationMesh,
+            geometryAtomicMesh,
             package,
             scientificForceAlgebra,
             scattered);
@@ -1775,6 +2047,14 @@ int main(int argc, char **argv)
         scientificRequest.defaultOffAtomicPublicationRejected &&
         scientificRequest.atomicFaceLoopPublicationExecuted &&
         scientificRequest.onlyReviewedFamiliesPublishedAtomically &&
+        scientificRequest
+            .defaultOffGeometryAwareCompositionRejected &&
+        scientificRequest.geometryAwareAtomicCompositionExecuted &&
+        scientificRequest
+            .stagedGeometryUsedForScientificEvaluation &&
+        scientificRequest.staleMeshGlobalsIgnored &&
+        scientificRequest
+            .onlyReviewedGeometryScientificFamiliesPublishedAtomically &&
         scientificRequest.productionCallShadowExecuted &&
         scientificRequest.atomicPublishedForces.size() ==
             kSourceCount &&
@@ -1791,6 +2071,12 @@ int main(int argc, char **argv)
         scientificRequest.maxAtomicPublishedForceDifference <=
             kTolerance &&
         scientificRequest.maxAtomicPublishedFaceObservableDifference <=
+            kTolerance &&
+        scientificRequest.maxGeometryAwareForceDifference <=
+            kTolerance &&
+        scientificRequest.maxGeometryAwareFaceObservableDifference <=
+            kTolerance &&
+        scientificRequest.maxGeometryAwareGeometryDifference <=
             kTolerance;
 
     std::cout << std::setprecision(17);
@@ -1916,6 +2202,50 @@ int main(int argc, char **argv)
                           .onlyReviewedFamiliesPublishedAtomically
                       ? "true"
                       : "false")
+              << ',';
+    std::cout
+        << "\"default_off_geometry_aware_composition_rejected\":"
+        << (scientificRequest
+                    .defaultOffGeometryAwareCompositionRejected
+                ? "true"
+                : "false")
+        << ',';
+    std::cout << "\"geometry_aware_atomic_composition_executed\":"
+              << (scientificRequest
+                          .geometryAwareAtomicCompositionExecuted
+                      ? "true"
+                      : "false")
+              << ',';
+    std::cout
+        << "\"staged_geometry_used_for_scientific_evaluation\":"
+        << (scientificRequest
+                    .stagedGeometryUsedForScientificEvaluation
+                ? "true"
+                : "false")
+        << ',';
+    std::cout << "\"stale_mesh_globals_ignored\":"
+              << (scientificRequest.staleMeshGlobalsIgnored
+                      ? "true"
+                      : "false")
+              << ',';
+    std::cout
+        << "\"only_reviewed_geometry_scientific_families_published_atomically\":"
+        << (scientificRequest
+                    .onlyReviewedGeometryScientificFamiliesPublishedAtomically
+                ? "true"
+                : "false")
+        << ',';
+    std::cout << "\"max_geometry_aware_force_difference\":"
+              << scientificRequest.maxGeometryAwareForceDifference
+              << ',';
+    std::cout
+        << "\"max_geometry_aware_face_observable_difference\":"
+        << scientificRequest
+               .maxGeometryAwareFaceObservableDifference
+        << ',';
+    std::cout << "\"max_geometry_aware_geometry_difference\":"
+              << scientificRequest
+                     .maxGeometryAwareGeometryDifference
               << ',';
     std::cout << "\"route_remained_disabled\":"
               << (scientificRequest.routeRemainedDisabled ? "true" : "false")
@@ -2086,10 +2416,9 @@ int main(int argc, char **argv)
               << (negativeGatesPassed ? "true" : "false") << "},";
     std::cout << "\"residual_boundary\":"
                  "\"fresh OpenSubdiv valence-4 rows now pass through "
-                 "production C++ geometry staging plus the existing atomic "
-                 "force/observable transaction and serial/OpenMP shadow; "
-                 "geometry-aware atomic composition and route activation "
-                 "remain separately reviewed\",";
+                 "production C++ geometry-aware atomic composition; a real "
+                 "Mesh::Compute_Energy_And_Force caller, serial/OpenMP caller "
+                 "parity, and route activation remain separately reviewed\",";
     std::cout << "\"passed\":" << (passed ? "true" : "false");
     std::cout << "}\n";
     return passed ? 0 : 1;
