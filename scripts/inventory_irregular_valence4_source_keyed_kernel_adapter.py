@@ -141,6 +141,15 @@ PRODUCTION_CALL_SHADOW_SUCCESSOR_PATHS = {
         "tests/test_irregular_valence4_production_call_shadow_parity_inventory.py"
     ),
 }
+PRODUCTION_GEOMETRY_STAGING_SUCCESSOR_PATHS = {
+    Path("docs/irregular_valence4_production_geometry_staging.md"),
+    Path(
+        "scripts/inventory_irregular_valence4_production_geometry_staging.py"
+    ),
+    Path(
+        "tests/test_irregular_valence4_production_geometry_staging_inventory.py"
+    ),
+}
 
 ALLOWED_PATHS = {
     HEADER,
@@ -152,7 +161,7 @@ ALLOWED_PATHS = {
     TEST,
 } | PREDECESSOR_INVENTORIES | PRODUCTION_KERNEL_CALL_PROOF_PATHS | (
     PRODUCTION_CALL_SHADOW_SUCCESSOR_PATHS
-)
+) | PRODUCTION_GEOMETRY_STAGING_SUCCESSOR_PATHS
 
 ANCHORS = {
     HEADER: (

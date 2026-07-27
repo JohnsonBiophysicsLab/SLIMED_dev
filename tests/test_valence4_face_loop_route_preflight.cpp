@@ -183,6 +183,79 @@ Valence4FaceLoopScientificRequest make_scientific_request(
     return request;
 }
 
+Valence4FaceGeometryStagingRequest make_geometry_staging_request(
+    const Valence4FaceLoopRoutePreflightResult &preflight,
+    const bool reviewerApprovedExplicitStaging)
+{
+    Valence4FaceGeometryStagingRequest request;
+    request.reviewerApprovedExplicitStaging =
+        reviewerApprovedExplicitStaging;
+    for (const SourceMappingView &mapping : preflight.mappings)
+    {
+        request.rows.push_back(
+            make_scientific_rows_for_mapping(mapping));
+    }
+    return request;
+}
+
+Valence4FaceGeometry geometry_oracle(
+    const Mesh &mesh,
+    const SourceMappingView &mapping)
+{
+    std::array<Vec3, 3> corners{};
+    for (int corner = 0; corner < 3; ++corner)
+    {
+        const Matrix &coordinate =
+            mesh.vertices[mapping.orientedFaceVertices[corner]].coord;
+        for (int axis = 0; axis < kAxisCount; ++axis)
+        {
+            corners[corner][axis] = coordinate.get(axis, 0);
+        }
+    }
+    Vec3 position{};
+    Vec3 derivativeV{};
+    Vec3 derivativeW{};
+    for (int axis = 0; axis < kAxisCount; ++axis)
+    {
+        position[axis] =
+            (corners[0][axis] + corners[1][axis] +
+             corners[2][axis]) /
+            3.0;
+        derivativeV[axis] =
+            corners[1][axis] - corners[0][axis];
+        derivativeW[axis] =
+            corners[2][axis] - corners[0][axis];
+    }
+    const Vec3 areaVector{{
+        derivativeV[1] * derivativeW[2] -
+            derivativeV[2] * derivativeW[1],
+        derivativeV[2] * derivativeW[0] -
+            derivativeV[0] * derivativeW[2],
+        derivativeV[0] * derivativeW[1] -
+            derivativeV[1] * derivativeW[0],
+    }};
+    double weightSum = 0.0;
+    for (int sample = 0;
+         sample < mesh.param.gaussQuadratureCoeff.nrow();
+         ++sample)
+    {
+        weightSum +=
+            mesh.param.gaussQuadratureCoeff.get(sample, 0);
+    }
+
+    Valence4FaceGeometry geometry;
+    geometry.faceIndex = mapping.faceIndex;
+    geometry.elementArea =
+        0.5 * weightSum *
+        std::sqrt(areaVector[0] * areaVector[0] +
+                  areaVector[1] * areaVector[1] +
+                  areaVector[2] * areaVector[2]);
+    geometry.elementVolume =
+        0.16666666666 * weightSum *
+        position[0] * areaVector[0];
+    return geometry;
+}
+
 void seed_mesh_owned_scientific_state(Mesh &mesh)
 {
     for (Face &face : mesh.faces)
@@ -884,6 +957,121 @@ TEST(ValenceFourFaceLoopRoutePreflight,
     {
         EXPECT_TRUE(face.oneRingVertices.empty());
     }
+}
+
+TEST(ValenceFourFaceLoopRoutePreflight,
+     GeometryStagingRejectsByDefaultWithoutMutation)
+{
+    ApprovedValence4MeshFixture fixture;
+    Mesh &mesh = *fixture.mesh;
+    const Valence4FaceLoopRoutePreflightResult preflight =
+        build_guarded_valence4_face_loop_route_preflight(mesh);
+    ASSERT_TRUE(preflight.supported) << preflight.rejectionReason;
+    seed_face_observable_publication_state(mesh);
+    const std::vector<Face> beforeFaces = mesh.faces;
+    const double beforeArea = mesh.param.area;
+    const double beforeVolume = mesh.param.vol;
+
+    const Valence4FaceGeometryStagingRequest request =
+        make_geometry_staging_request(preflight, false);
+    const Valence4FaceGeometryStagingResult result =
+        stage_guarded_valence4_face_geometry(mesh, request);
+
+    EXPECT_FALSE(result.accepted);
+    EXPECT_FALSE(result.explicitStagingRequested);
+    EXPECT_FALSE(result.productionGeometryEvaluated);
+    EXPECT_NE(result.rejectionReason.find("default-off"),
+              std::string::npos);
+    EXPECT_TRUE(result.faceGeometry.empty());
+    expect_face_observable_publication_state_unchanged(
+        mesh, beforeFaces);
+    EXPECT_DOUBLE_EQ(mesh.param.area, beforeArea);
+    EXPECT_DOUBLE_EQ(mesh.param.vol, beforeVolume);
+}
+
+TEST(ValenceFourFaceLoopRoutePreflight,
+     GeometryStagingMatchesIndependentOrientedTriangleOracle)
+{
+    ApprovedValence4MeshFixture fixture;
+    Mesh &mesh = *fixture.mesh;
+    const Valence4FaceLoopRoutePreflightResult preflight =
+        build_guarded_valence4_face_loop_route_preflight(mesh);
+    ASSERT_TRUE(preflight.supported) << preflight.rejectionReason;
+    seed_face_observable_publication_state(mesh);
+    const std::vector<Face> beforeFaces = mesh.faces;
+    const auto beforeForces = capture_all_vertex_forces(mesh);
+    const double beforeArea = mesh.param.area;
+    const double beforeVolume = mesh.param.vol;
+
+    const Valence4FaceGeometryStagingRequest request =
+        make_geometry_staging_request(preflight, true);
+    const Valence4FaceGeometryStagingResult result =
+        stage_guarded_valence4_face_geometry(mesh, request);
+
+    ASSERT_TRUE(result.accepted) << result.rejectionReason;
+    EXPECT_TRUE(result.explicitStagingRequested);
+    EXPECT_TRUE(result.productionGeometryEvaluated);
+    ASSERT_EQ(result.faceGeometry.size(), preflight.mappings.size());
+    double expectedArea = 0.0;
+    double expectedVolume = 0.0;
+    for (std::size_t face = 0;
+         face < preflight.mappings.size();
+         ++face)
+    {
+        const Valence4FaceGeometry expected =
+            geometry_oracle(mesh, preflight.mappings[face]);
+        EXPECT_EQ(result.faceGeometry[face].faceIndex,
+                  expected.faceIndex);
+        EXPECT_NEAR(result.faceGeometry[face].elementArea,
+                    expected.elementArea, 1.0e-14);
+        EXPECT_NEAR(result.faceGeometry[face].elementVolume,
+                    expected.elementVolume, 1.0e-14);
+        expectedArea += expected.elementArea;
+        expectedVolume += expected.elementVolume;
+    }
+    EXPECT_NEAR(result.totalArea, expectedArea, 1.0e-14);
+    EXPECT_NEAR(result.totalVolume, expectedVolume, 1.0e-14);
+    EXPECT_GT(result.totalArea, 0.0);
+    EXPECT_FALSE(result.productionRouteEnabled);
+    EXPECT_FALSE(result.actualProductionForcePathExecuted);
+    EXPECT_FALSE(result.productionFaceLoopExecuted);
+    EXPECT_FALSE(result.productionOneRingsPopulated);
+    EXPECT_FALSE(result.defaultEvaluatorCaller);
+    expect_face_observable_publication_state_unchanged(
+        mesh, beforeFaces);
+    EXPECT_EQ(capture_all_vertex_forces(mesh), beforeForces);
+    EXPECT_DOUBLE_EQ(mesh.param.area, beforeArea);
+    EXPECT_DOUBLE_EQ(mesh.param.vol, beforeVolume);
+}
+
+TEST(ValenceFourFaceLoopRoutePreflight,
+     GeometryStagingRejectsLateNonfiniteRowWithoutPartialOutput)
+{
+    ApprovedValence4MeshFixture fixture;
+    Mesh &mesh = *fixture.mesh;
+    const Valence4FaceLoopRoutePreflightResult preflight =
+        build_guarded_valence4_face_loop_route_preflight(mesh);
+    ASSERT_TRUE(preflight.supported) << preflight.rejectionReason;
+    seed_face_observable_publication_state(mesh);
+    const std::vector<Face> beforeFaces = mesh.faces;
+    const double beforeArea = mesh.param.area;
+    const double beforeVolume = mesh.param.vol;
+
+    Valence4FaceGeometryStagingRequest request =
+        make_geometry_staging_request(preflight, true);
+    request.rows.back().samples.back().rows[2].coefficients.back() =
+        std::numeric_limits<double>::infinity();
+    const Valence4FaceGeometryStagingResult result =
+        stage_guarded_valence4_face_geometry(mesh, request);
+
+    EXPECT_FALSE(result.accepted);
+    EXPECT_TRUE(result.explicitStagingRequested);
+    EXPECT_FALSE(result.productionGeometryEvaluated);
+    EXPECT_TRUE(result.faceGeometry.empty());
+    expect_face_observable_publication_state_unchanged(
+        mesh, beforeFaces);
+    EXPECT_DOUBLE_EQ(mesh.param.area, beforeArea);
+    EXPECT_DOUBLE_EQ(mesh.param.vol, beforeVolume);
 }
 
 TEST(ValenceFourFaceLoopRoutePreflight,

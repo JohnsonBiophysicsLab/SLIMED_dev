@@ -16,6 +16,7 @@ namespace slimed::valence4_route_preflight
 namespace
 {
 constexpr std::size_t kReviewedSampleCountPerFace = 3;
+constexpr double kLegacyVolumeQuadratureFactor = 0.16666666666;
 
 Valence4FaceLoopRoutePreflightResult reject(std::string reason)
 {
@@ -43,6 +44,16 @@ Valence4FaceLoopScientificRequestResult reject_scientific_request(
     Valence4FaceLoopScientificRequestResult result;
     result.rejectionReason = std::move(reason);
     result.explicitRouteRequested = explicitRouteRequested;
+    return result;
+}
+
+Valence4FaceGeometryStagingResult reject_geometry_staging(
+    std::string reason,
+    const bool explicitStagingRequested)
+{
+    Valence4FaceGeometryStagingResult result;
+    result.rejectionReason = std::move(reason);
+    result.explicitStagingRequested = explicitStagingRequested;
     return result;
 }
 
@@ -149,6 +160,92 @@ std::vector<Matrix> shape_functions_for_face(
         shapeFunctions.push_back(std::move(rows));
     }
     return shapeFunctions;
+}
+
+source_keyed_kernel::Vec3 cross(
+    const source_keyed_kernel::Vec3 &left,
+    const source_keyed_kernel::Vec3 &right)
+{
+    return {{
+        left[1] * right[2] - left[2] * right[1],
+        left[2] * right[0] - left[0] * right[2],
+        left[0] * right[1] - left[1] * right[0],
+    }};
+}
+
+double norm(const source_keyed_kernel::Vec3 &value)
+{
+    return std::sqrt(value[0] * value[0] +
+                     value[1] * value[1] +
+                     value[2] * value[2]);
+}
+
+Valence4FaceGeometry evaluate_face_geometry(
+    const Mesh &mesh,
+    const source_keyed_kernel::PreparedSourceKeyedFace &face)
+{
+    Valence4FaceGeometry geometry;
+    geometry.faceIndex = face.mapping.faceIndex;
+    const std::vector<int> &sourceIds =
+        face.mapping.originalSourceIds;
+    const std::vector<Matrix> coordinates =
+        coordinates_for_sources(mesh, sourceIds);
+
+    if (mesh.param.gaussQuadratureCoeff.nrow() !=
+            static_cast<int>(face.samples.size()) ||
+        mesh.param.gaussQuadratureCoeff.ncol() != 1)
+    {
+        throw std::invalid_argument(
+            "valence-4 geometry staging quadrature weights must match "
+            "the reviewed sample count");
+    }
+
+    for (std::size_t sampleIndex = 0;
+         sampleIndex < face.samples.size();
+         ++sampleIndex)
+    {
+        const source_keyed_kernel::SourceKeyedSampleRows &sample =
+            face.samples[sampleIndex];
+        std::array<source_keyed_kernel::Vec3, 3> evaluated{};
+        for (int row = 0; row < 3; ++row)
+        {
+            const source_keyed_kernel::SourceKeyedRow &weightedRow =
+                sample.rows[row];
+            for (std::size_t source = 0;
+                 source < sourceIds.size();
+                 ++source)
+            {
+                for (int axis = 0;
+                     axis < source_keyed_kernel::kAxisCount;
+                     ++axis)
+                {
+                    evaluated[row][axis] +=
+                        weightedRow.coefficients[source] *
+                        coordinates[source].get(axis, 0);
+                }
+            }
+        }
+        const source_keyed_kernel::Vec3 areaVector =
+            cross(evaluated[1], evaluated[2]);
+        const double coefficient =
+            mesh.param.gaussQuadratureCoeff.get(
+                static_cast<int>(sampleIndex), 0);
+        geometry.elementArea +=
+            0.5 * coefficient * norm(areaVector);
+        // Match Mesh::enumerate_regular_patch_area_volume_with_limit_surface_evaluator.
+        geometry.elementVolume +=
+            kLegacyVolumeQuadratureFactor * coefficient *
+            evaluated[0][0] * areaVector[0];
+    }
+
+    if (!std::isfinite(geometry.elementArea) ||
+        !std::isfinite(geometry.elementVolume) ||
+        geometry.elementArea < 0.0)
+    {
+        throw std::invalid_argument(
+            "valence-4 geometry staging produced invalid output");
+    }
+    return geometry;
 }
 
 bool matrix_is_finite(const Matrix &matrix)
@@ -297,6 +394,92 @@ evaluate_guarded_valence4_face_loop_route_request(
     result.accepted = true;
     result.explicitRouteRequestAccepted = true;
     result.sourceKeyedAccumulationExecuted = true;
+    result.rejectionReason.clear();
+    return result;
+}
+
+Valence4FaceGeometryStagingResult
+stage_guarded_valence4_face_geometry(
+    const Mesh &mesh,
+    const Valence4FaceGeometryStagingRequest &request)
+{
+    const bool explicitStagingRequested =
+        request.reviewerApprovedExplicitStaging;
+    const Valence4FaceLoopRoutePreflightResult preflight =
+        build_guarded_valence4_face_loop_route_preflight(mesh);
+    if (!preflight.supported)
+    {
+        return reject_geometry_staging(preflight.rejectionReason,
+                                       explicitStagingRequested);
+    }
+    if (!request.reviewerApprovedExplicitStaging)
+    {
+        return reject_geometry_staging(
+            "valence-4 geometry staging remains default-off without an "
+            "explicit reviewer-approved request",
+            explicitStagingRequested);
+    }
+    for (const auto &faceRows : request.rows)
+    {
+        if (faceRows.samples.size() != kReviewedSampleCountPerFace)
+        {
+            return reject_geometry_staging(
+                "valence-4 geometry staging requires exactly three "
+                "samples per face",
+                explicitStagingRequested);
+        }
+    }
+
+    source_keyed_kernel::SourceKeyedKernelCallInput validationInput;
+    validationInput.sourceCount = preflight.sourceCount;
+    validationInput.mappings = preflight.mappings;
+    validationInput.rows = request.rows;
+    validationInput.forces =
+        zero_forces_for_mappings(preflight.mappings);
+
+    source_keyed_kernel::PreparedSourceKeyedKernelCall preparedRows;
+    try
+    {
+        preparedRows =
+            source_keyed_kernel::prepare_source_keyed_kernel_call(
+                validationInput);
+    }
+    catch (const std::invalid_argument &error)
+    {
+        return reject_geometry_staging(error.what(),
+                                       explicitStagingRequested);
+    }
+
+    Valence4FaceGeometryStagingResult result;
+    result.explicitStagingRequested = true;
+    result.faceGeometry.reserve(preparedRows.faces.size());
+    try
+    {
+        for (const auto &preparedFace : preparedRows.faces)
+        {
+            Valence4FaceGeometry geometry =
+                evaluate_face_geometry(mesh, preparedFace);
+            result.totalArea += geometry.elementArea;
+            result.totalVolume += geometry.elementVolume;
+            result.faceGeometry.push_back(std::move(geometry));
+        }
+    }
+    catch (const std::invalid_argument &error)
+    {
+        return reject_geometry_staging(error.what(),
+                                       explicitStagingRequested);
+    }
+    if (!std::isfinite(result.totalArea) ||
+        !std::isfinite(result.totalVolume) ||
+        result.totalArea < 0.0)
+    {
+        return reject_geometry_staging(
+            "valence-4 geometry staging produced invalid global output",
+            explicitStagingRequested);
+    }
+
+    result.accepted = true;
+    result.productionGeometryEvaluated = true;
     result.rejectionReason.clear();
     return result;
 }

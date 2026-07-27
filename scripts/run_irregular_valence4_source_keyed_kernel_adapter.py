@@ -337,6 +337,14 @@ def main() -> int:
         and adapter.get("scientific_force_algebra_nonzero")
         and isinstance(composition, dict)
         and composition.get("fresh_opensubdiv_rows_consumed")
+        and composition.get("default_off_geometry_staging_rejected")
+        and composition.get("geometry_staging_executed")
+        and composition.get("geometry_staging_mesh_state_unchanged")
+        and isinstance(
+            composition.get("max_geometry_staging_difference"),
+            (int, float),
+        )
+        and composition["max_geometry_staging_difference"] <= 1.0e-12
         and composition.get("default_off_request_rejected")
         and composition.get("explicit_request_accepted")
         and composition.get("production_scientific_algebra_executed")

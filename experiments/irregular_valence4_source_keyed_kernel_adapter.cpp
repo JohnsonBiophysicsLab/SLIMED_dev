@@ -457,6 +457,7 @@ struct ScientificForceAlgebraProof
     double area = 0.0;
     double legacyVolume = 0.0;
     std::array<double, kForceKindCount> maxAbsForce{{0.0, 0.0, 0.0}};
+    std::vector<Valence4FaceGeometry> faceGeometry;
     std::vector<Valence4FaceScientificObservables> faceObservables;
 };
 
@@ -570,6 +571,11 @@ ScientificForceAlgebraProof invoke_scientific_force_algebra(
         result.area += faceArea;
         result.legacyVolume += faceLegacyVolume;
         result.productionShapedGeometryEvaluated = true;
+        Valence4FaceGeometry faceGeometry;
+        faceGeometry.faceIndex = preparedFace.mapping.faceIndex;
+        faceGeometry.elementArea = faceArea;
+        faceGeometry.elementVolume = faceLegacyVolume;
+        result.faceGeometry.push_back(faceGeometry);
 
         Face face;
         face.index = preparedFace.mapping.faceIndex;
@@ -648,6 +654,8 @@ struct MeshScientificState
 {
     std::vector<Face> faces;
     std::vector<Vertex> vertices;
+    double area = 0.0;
+    double volume = 0.0;
 };
 
 void seed_energy(Energy &energy, const double base)
@@ -868,6 +876,8 @@ MeshScientificState capture_mesh_scientific_state(const Mesh &mesh)
     MeshScientificState state;
     state.faces = mesh.faces;
     state.vertices = mesh.vertices;
+    state.area = mesh.param.area;
+    state.volume = mesh.param.vol;
     return state;
 }
 
@@ -875,7 +885,9 @@ bool mesh_scientific_state_matches(const Mesh &mesh,
                                    const MeshScientificState &state)
 {
     if (mesh.faces.size() != state.faces.size() ||
-        mesh.vertices.size() != state.vertices.size())
+        mesh.vertices.size() != state.vertices.size() ||
+        mesh.param.area != state.area ||
+        mesh.param.vol != state.volume)
     {
         return false;
     }
@@ -1189,6 +1201,9 @@ double compare_face_observables(
 
 struct ScientificRequestCompositionProof
 {
+    bool defaultOffGeometryStagingRejected = false;
+    bool geometryStagingExecuted = false;
+    bool geometryStagingMeshStateUnchanged = false;
     bool defaultOffRejected = false;
     bool accepted = false;
     bool productionScientificAlgebraExecuted = false;
@@ -1208,6 +1223,7 @@ struct ScientificRequestCompositionProof
     bool productionCallShadowExecuted = false;
     bool routeRemainedDisabled = false;
     double maxObservableDifference = 0.0;
+    double maxGeometryDifference = 0.0;
     double maxSourceForceDifference = 0.0;
     double maxProductionShapedScatterDifference = 0.0;
     double maxPublishedForceDifference = 0.0;
@@ -1232,6 +1248,57 @@ ScientificRequestCompositionProof invoke_guarded_scientific_request(
     seed_mesh_scientific_state(mesh);
     const MeshScientificState before =
         capture_mesh_scientific_state(mesh);
+
+    Valence4FaceGeometryStagingRequest defaultOffGeometryRequest;
+    defaultOffGeometryRequest.rows = package.rows;
+    const Valence4FaceGeometryStagingResult defaultOffGeometry =
+        stage_guarded_valence4_face_geometry(
+            mesh, defaultOffGeometryRequest);
+    proof.defaultOffGeometryStagingRejected =
+        !defaultOffGeometry.accepted &&
+        !defaultOffGeometry.productionGeometryEvaluated &&
+        defaultOffGeometry.rejectionReason.find("default-off") !=
+            std::string::npos &&
+        mesh_scientific_state_matches(mesh, before);
+
+    Valence4FaceGeometryStagingRequest geometryRequest;
+    geometryRequest.reviewerApprovedExplicitStaging = true;
+    geometryRequest.rows = package.rows;
+    const Valence4FaceGeometryStagingResult geometry =
+        stage_guarded_valence4_face_geometry(mesh, geometryRequest);
+    proof.geometryStagingExecuted =
+        geometry.accepted && geometry.productionGeometryEvaluated &&
+        geometry.faceGeometry.size() == reference.faceGeometry.size();
+    if (geometry.accepted &&
+        geometry.faceGeometry.size() == reference.faceGeometry.size())
+    {
+        proof.maxGeometryDifference = std::max(
+            std::abs(geometry.totalArea - reference.area),
+            std::abs(geometry.totalVolume - reference.legacyVolume));
+        for (std::size_t face = 0;
+             face < geometry.faceGeometry.size();
+             ++face)
+        {
+            if (geometry.faceGeometry[face].faceIndex !=
+                reference.faceGeometry[face].faceIndex)
+            {
+                proof.maxGeometryDifference =
+                    std::numeric_limits<double>::infinity();
+                break;
+            }
+            proof.maxGeometryDifference = std::max({
+                proof.maxGeometryDifference,
+                std::abs(
+                    geometry.faceGeometry[face].elementArea -
+                    reference.faceGeometry[face].elementArea),
+                std::abs(
+                    geometry.faceGeometry[face].elementVolume -
+                    reference.faceGeometry[face].elementVolume),
+            });
+        }
+    }
+    proof.geometryStagingMeshStateUnchanged =
+        mesh_scientific_state_matches(mesh, before);
 
     Valence4FaceLoopScientificRequest defaultOffRequest;
     defaultOffRequest.rows = package.rows;
@@ -1687,6 +1754,10 @@ int main(int argc, char **argv)
         scientificForceAlgebra.nonzero &&
         scientificForceAlgebra.productionShapedGeometryEvaluated &&
         scientificForceAlgebra.maxForceDifference <= kTolerance &&
+        scientificRequest.defaultOffGeometryStagingRejected &&
+        scientificRequest.geometryStagingExecuted &&
+        scientificRequest.geometryStagingMeshStateUnchanged &&
+        scientificRequest.maxGeometryDifference <= kTolerance &&
         scientificRequest.defaultOffRejected &&
         scientificRequest.accepted &&
         scientificRequest.productionScientificAlgebraExecuted &&
@@ -1755,6 +1826,23 @@ int main(int argc, char **argv)
               << scientificForceAlgebra.maxAbsForce[2] << "],";
     std::cout << "\"guarded_scientific_request_composition\":{";
     std::cout << "\"fresh_opensubdiv_rows_consumed\":true,";
+    std::cout << "\"default_off_geometry_staging_rejected\":"
+              << (scientificRequest.defaultOffGeometryStagingRejected
+                      ? "true"
+                      : "false")
+              << ',';
+    std::cout << "\"geometry_staging_executed\":"
+              << (scientificRequest.geometryStagingExecuted
+                      ? "true"
+                      : "false")
+              << ',';
+    std::cout << "\"geometry_staging_mesh_state_unchanged\":"
+              << (scientificRequest.geometryStagingMeshStateUnchanged
+                      ? "true"
+                      : "false")
+              << ',';
+    std::cout << "\"max_geometry_staging_difference\":"
+              << scientificRequest.maxGeometryDifference << ',';
     std::cout << "\"default_off_request_rejected\":"
               << (scientificRequest.defaultOffRejected ? "true" : "false")
               << ',';
@@ -1998,10 +2086,10 @@ int main(int argc, char **argv)
               << (negativeGatesPassed ? "true" : "false") << "},";
     std::cout << "\"residual_boundary\":"
                  "\"fresh OpenSubdiv valence-4 rows now pass through "
-                 "one atomic guarded vertex-force and face-observable "
-                 "publication transaction and a serial/OpenMP "
-                 "production-call shadow; route activation remains "
-                 "separately reviewed\",";
+                 "production C++ geometry staging plus the existing atomic "
+                 "force/observable transaction and serial/OpenMP shadow; "
+                 "geometry-aware atomic composition and route activation "
+                 "remain separately reviewed\",";
     std::cout << "\"passed\":" << (passed ? "true" : "false");
     std::cout << "}\n";
     return passed ? 0 : 1;

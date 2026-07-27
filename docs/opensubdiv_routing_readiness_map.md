@@ -281,6 +281,11 @@ activation remains a separate reviewer/user-gated decision. The guarded
 production-call shadow now compares complete atomic-publication output between
 serial and OpenMP builds and requires the independent actual OpenMP
 team/reduction proof. No real production face-loop caller or route is enabled.
+The next production C++ boundary now stages per-face area and current legacy
+visible volume plus global totals from the same canonical source-keyed rows.
+It is explicit-request-only, caller-owned, and nonmutating; it does not yet
+compose geometry-dependent force evaluation with the atomic publication or
+enter `Mesh::Compute_Energy_And_Force()`.
 
 ## Inventory Check
 
