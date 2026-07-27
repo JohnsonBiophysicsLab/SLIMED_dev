@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Inventory the guarded valence-4 vertex-force publication lane."""
+"""Inventory the guarded valence-4 face-observable publication lane."""
 
 from __future__ import annotations
 
@@ -9,9 +9,7 @@ from pathlib import Path
 import subprocess
 
 
-BASE = "47456f059cd5a9714655add1b6cbc26a4e8b3181"
-SOURCE_HEADER = Path("include/energy_force/Source_keyed_kernel_call.hpp")
-SOURCE = Path("src/energy_force/Source_keyed_kernel_call.cpp")
+BASE = "d6919d00ee97dcd6a274cee3cc0bb4b9c2dbc71f"
 ROUTE_HEADER = Path(
     "include/energy_force/Valence4_face_loop_route_preflight.hpp"
 )
@@ -26,122 +24,95 @@ ADAPTER_RUNNER = Path(
 ADAPTER_TEST = Path(
     "tests/test_irregular_valence4_source_keyed_kernel_adapter_inventory.py"
 )
-OPENMP = Path("experiments/irregular_valence4_production_openmp_shadow.cpp")
-OPENMP_RUNNER = Path(
-    "scripts/run_irregular_valence4_production_openmp_shadow.py"
-)
-OPENMP_TEST = Path(
-    "tests/test_irregular_valence4_production_openmp_shadow_inventory.py"
-)
-DOC = Path("docs/irregular_valence4_vertex_force_publication.md")
-SCATTER_DOC = Path("docs/irregular_valence4_production_scatter_buffer.md")
+DOC = Path("docs/irregular_valence4_face_observable_publication.md")
+VERTEX_DOC = Path("docs/irregular_valence4_vertex_force_publication.md")
 ADAPTER_DOC = Path("docs/irregular_valence4_source_keyed_kernel_adapter.md")
 READINESS_DOC = Path("docs/opensubdiv_routing_readiness_map.md")
 INVENTORY = Path(
-    "scripts/inventory_irregular_valence4_vertex_force_publication.py"
+    "scripts/inventory_irregular_valence4_face_observable_publication.py"
 )
 TEST = Path(
-    "tests/test_irregular_valence4_vertex_force_publication_inventory.py"
+    "tests/test_irregular_valence4_face_observable_publication_inventory.py"
 )
 
+PREDECESSOR_INVENTORIES = {
+    Path("scripts/inventory_irregular_valence4_vertex_force_publication.py"),
+    Path("scripts/inventory_irregular_valence4_production_scatter_buffer.py"),
+    Path("scripts/inventory_irregular_valence4_source_keyed_kernel_adapter.py"),
+    Path("scripts/inventory_irregular_valence4_production_kernel_call_proof.py"),
+    Path("scripts/inventory_irregular_valence4_production_openmp_shadow.py"),
+}
+
 ALLOWED_PATHS = {
-    SOURCE_HEADER,
-    SOURCE,
     ROUTE_HEADER,
     ROUTE_SOURCE,
     CPP_TEST,
     ADAPTER,
     ADAPTER_RUNNER,
     ADAPTER_TEST,
-    OPENMP,
-    OPENMP_RUNNER,
-    OPENMP_TEST,
     DOC,
-    SCATTER_DOC,
+    VERTEX_DOC,
     ADAPTER_DOC,
     READINESS_DOC,
     INVENTORY,
     TEST,
-    Path("scripts/inventory_irregular_valence4_production_scatter_buffer.py"),
-    Path("scripts/inventory_irregular_valence4_source_keyed_kernel_adapter.py"),
-    Path("scripts/inventory_irregular_valence4_production_kernel_call_proof.py"),
-    Path("scripts/inventory_irregular_valence4_production_openmp_shadow.py"),
-    Path("docs/irregular_valence4_face_observable_publication.md"),
-    Path(
-        "scripts/inventory_irregular_valence4_face_observable_publication.py"
-    ),
-    Path(
-        "tests/test_irregular_valence4_face_observable_publication_inventory.py"
-    ),
+    *PREDECESSOR_INVENTORIES,
 }
 
 ANCHORS = {
-    SOURCE_HEADER: (
-        "publish_source_keyed_membrane_forces_to_vertices",
-        "overwrites only forceCurvature, forceArea, and",
-    ),
-    SOURCE: (
-        "source-keyed vertex-force publication rejected source/vertex",
-        "requires empty",
-        "destination shape drift",
-        "std::vector<SourceForceKinds> staged = sourceForces",
-        "All validation and allocation complete before the first Mesh write",
-        "&vertex.force.forceCurvature",
-        "&vertex.force.forceArea",
-        "&vertex.force.forceVolume",
-    ),
     ROUTE_HEADER: (
-        "Valence4VertexForcePublicationRequest",
-        "reviewerApprovedExplicitPublication",
-        "Valence4VertexForcePublicationResult",
-        "vertexForcePublicationExecuted",
-        "evaluate_guarded_valence4_vertex_force_publication",
+        "Valence4FaceObservablePublicationRequest",
+        "Valence4FaceObservablePublicationResult",
+        "faceObservablePublicationExecuted",
+        "publish_valence4_face_scientific_observables_to_faces",
+        "evaluate_guarded_valence4_face_observable_publication",
+        "overwrites only meanCurvature, energy.energyCurvature",
     ),
     ROUTE_SOURCE: (
-        "valence-4 vertex-force publication remains default-off",
-        "evaluate_guarded_valence4_face_loop_scientific_request",
-        "publish_source_keyed_membrane_forces_to_vertices",
+        "valence-4 face-observable publication remains default-off",
+        "cardinality drift",
+        "rejected duplicate",
+        "nonfinite normal data",
+        "requires empty",
+        "Validation and replacement-normal allocation finish before any write",
+        "face.meanCurvature =",
+        "face.energy.energyCurvature =",
+        "std::swap(face.normVector.mat",
     ),
     CPP_TEST: (
-        "VertexForcePublicationRejectsByDefaultWithoutMutation",
-        "VertexForcePublicationOverwritesOnlyThreeMembraneFamilies",
-        "VertexForcePublicationRejectsMalformedLateRowWithoutMutation",
-        "VertexForcePublicationPrimitiveRejectsLateDestinationDriftAtomically",
-        "VertexForcePublicationPrimitiveRejectsSourceCardinalityAtomically",
-        "VertexForcePublicationPrimitiveRejectsNullLateDestinationAtomically",
-        "VertexForcePublicationPrimitiveRejectsWrongShapedLateDestinationAtomically",
-        "expect_only_membrane_forces_published",
+        "FaceObservablePublicationRejectsByDefaultWithoutMutation",
+        "FaceObservablePublicationOverwritesOnlyCurrentFaceObservables",
+        "FaceObservablePublicationRejectsMalformedLateRowWithoutMutation",
+        "FaceObservablePublicationPrimitiveRejectsLateDriftAtomically",
+        "FaceObservablePublicationPrimitiveUsesFaceIdentityNotInputOrder",
+        "expect_only_face_observables_published",
     ),
     ADAPTER: (
-        "defaultOffPublicationRejected",
-        "vertexForcePublicationExecuted",
-        "onlyMembraneForcesPublished",
-        "maxPublishedForceDifference",
-        "mesh_matches_membrane_force_publication",
+        "defaultOffFaceObservablePublicationRejected",
+        "faceObservablePublicationExecuted",
+        "onlyFaceObservablesPublished",
+        "maxPublishedFaceObservableDifference",
+        "mesh_matches_face_observable_publication",
     ),
     ADAPTER_RUNNER: (
-        "default_off_vertex_force_publication_rejected",
-        "vertex_force_publication_executed",
-        "only_membrane_force_families_published",
-        "max_published_force_difference",
+        "default_off_face_observable_publication_rejected",
+        "face_observable_publication_executed",
+        "only_face_observables_published",
+        "max_published_face_observable_difference",
     ),
-    OPENMP: (
-        "publish_source_keyed_membrane_forces_to_vertices",
-        "extract_published_membrane_forces",
-        "vertex_force_publication_executed",
-        "vertex_force_publication_overwrites_only_membrane_families",
-        "max_abs_vertex_force_publication_difference",
-    ),
-    OPENMP_RUNNER: (
-        "vertex_force_publication_executed",
-        "vertex_force_publication_overwrites_only_membrane_families",
-        "max_abs_vertex_force_publication_difference",
+    ADAPTER_TEST: (
+        "default_off_face_observable_publication_rejected",
+        "face_observable_publication_executed",
+        "only_face_observables_published",
+        "max_published_face_observable_difference",
     ),
     DOC: (
-        "vertex_force_publication_executed: true",
+        "Face::meanCurvature",
+        "Face::energy.energyCurvature",
+        "Face::normVector",
+        "Face::elementArea",
         "production_face_loop_executed: false",
-        "does not calculate or update `forceTotal`",
-        "successor face-observable publication",
+        "face_observable_publication_executed: true",
     ),
 }
 
@@ -212,21 +183,21 @@ def collect(root: Path) -> dict[str, object]:
         errors.append("production route/default/fixture surfaces changed")
 
     helper_text = (
-        (root / SOURCE_HEADER).read_text(encoding="utf-8")
-        + (root / SOURCE).read_text(encoding="utf-8")
-        + (root / ROUTE_HEADER).read_text(encoding="utf-8")
+        (root / ROUTE_HEADER).read_text(encoding="utf-8")
         + (root / ROUTE_SOURCE).read_text(encoding="utf-8")
     ).lower()
     opensubdiv_leak = "opensubdiv/" in helper_text
     if opensubdiv_leak:
-        errors.append("publication helpers leak OpenSubdiv types")
+        errors.append("face-observable helpers leak OpenSubdiv types")
 
     face_loop = (
         root / "src/energy_force/Compute_energy_and_force_on_mesh.cpp"
     ).read_text(encoding="utf-8")
     production_caller = (
-        "publish_source_keyed_membrane_forces_to_vertices" in face_loop
-        or "evaluate_guarded_valence4_vertex_force_publication" in face_loop
+        "publish_valence4_face_scientific_observables_to_faces"
+        in face_loop
+        or "evaluate_guarded_valence4_face_observable_publication"
+        in face_loop
     )
     if production_caller:
         errors.append("real production face loop calls publication boundary")
@@ -239,7 +210,7 @@ def collect(root: Path) -> dict[str, object]:
         "production_route_enabled": False,
         "actual_production_force_path_executed": False,
         "production_face_loop_executed": False,
-        "vertex_force_publication_executed": True,
+        "face_observable_publication_executed": True,
         "production_one_rings_populated": False,
         "default_dependency_changed": False,
         "backend_neutral_opensubdiv_free": not opensubdiv_leak,

@@ -363,6 +363,209 @@ void expect_publication_unrelated_state_unchanged(const Mesh &mesh)
     }
 }
 
+void seed_face_observable_publication_state(Mesh &mesh)
+{
+    for (Face &face : mesh.faces)
+    {
+        face.meanCurvature = 7100.0 + face.index;
+        face.normVector = Matrix(2, 1, true);
+        face.normVector.set(0, 0, 7200.0 + face.index);
+        face.normVector.set(1, 0, 7300.0 + face.index);
+        face.elementArea = 7400.0 + face.index;
+        face.elementVolume = 7500.0 + face.index;
+        face.energy.energyCurvature = 7600.0 + face.index;
+        face.energy.energyArea = 7700.0 + face.index;
+        face.energy.energyVolume = 7800.0 + face.index;
+        face.energy.energyThickness = 7900.0 + face.index;
+        face.energy.energyTilt = 8000.0 + face.index;
+        face.energy.energyRegularization = 8100.0 + face.index;
+        face.energy.energyHarmonicBond = 8200.0 + face.index;
+        face.energy.energyGagScaffolding = 8300.0 + face.index;
+        face.energy.energyIdealizedProteinLattice =
+            8400.0 + face.index;
+        face.energy.energyTotal = 8500.0 + face.index;
+        face.energyPrev.energyCurvature = 8600.0 + face.index;
+        face.energyPrev.energyArea = 8700.0 + face.index;
+        face.energyPrev.energyVolume = 8800.0 + face.index;
+        face.energyPrev.energyThickness = 8900.0 + face.index;
+        face.energyPrev.energyTilt = 9000.0 + face.index;
+        face.energyPrev.energyRegularization = 9100.0 + face.index;
+        face.energyPrev.energyHarmonicBond = 9200.0 + face.index;
+        face.energyPrev.energyGagScaffolding = 9300.0 + face.index;
+        face.energyPrev.energyIdealizedProteinLattice =
+            9400.0 + face.index;
+        face.energyPrev.energyTotal = 9500.0 + face.index;
+    }
+}
+
+std::vector<std::array<double, kAxisCount>> capture_vertex_coordinates(
+    const Mesh &mesh)
+{
+    std::vector<std::array<double, kAxisCount>> coordinates(
+        mesh.vertices.size());
+    for (std::size_t source = 0; source < mesh.vertices.size(); ++source)
+    {
+        for (int axis = 0; axis < kAxisCount; ++axis)
+        {
+            coordinates[source][axis] =
+                mesh.vertices[source].coord.get(axis, 0);
+        }
+    }
+    return coordinates;
+}
+
+void expect_energy_equal(const Energy &actual,
+                         const Energy &expected,
+                         const bool ignoreCurvature)
+{
+    if (!ignoreCurvature)
+    {
+        EXPECT_DOUBLE_EQ(actual.energyCurvature,
+                         expected.energyCurvature);
+    }
+    EXPECT_DOUBLE_EQ(actual.energyArea, expected.energyArea);
+    EXPECT_DOUBLE_EQ(actual.energyVolume, expected.energyVolume);
+    EXPECT_DOUBLE_EQ(actual.energyThickness, expected.energyThickness);
+    EXPECT_DOUBLE_EQ(actual.energyTilt, expected.energyTilt);
+    EXPECT_DOUBLE_EQ(actual.energyRegularization,
+                     expected.energyRegularization);
+    EXPECT_DOUBLE_EQ(actual.energyHarmonicBond,
+                     expected.energyHarmonicBond);
+    EXPECT_DOUBLE_EQ(actual.energyGagScaffolding,
+                     expected.energyGagScaffolding);
+    EXPECT_DOUBLE_EQ(actual.energyIdealizedProteinLattice,
+                     expected.energyIdealizedProteinLattice);
+    EXPECT_DOUBLE_EQ(actual.energyTotal, expected.energyTotal);
+}
+
+void expect_only_face_observables_published(
+    const Mesh &mesh,
+    const std::vector<Face> &before,
+    const std::vector<Valence4FaceScientificObservables> &expected)
+{
+    ASSERT_EQ(mesh.faces.size(), before.size());
+    ASSERT_EQ(mesh.faces.size(), expected.size());
+    for (std::size_t faceIndex = 0;
+         faceIndex < mesh.faces.size();
+         ++faceIndex)
+    {
+        const Face &actual = mesh.faces[faceIndex];
+        const Face &reference = before[faceIndex];
+        const Valence4FaceScientificObservables &observable =
+            expected[faceIndex];
+        EXPECT_EQ(observable.faceIndex,
+                  static_cast<int>(faceIndex));
+        EXPECT_DOUBLE_EQ(actual.meanCurvature,
+                         observable.meanCurvature);
+        EXPECT_DOUBLE_EQ(actual.energy.energyCurvature,
+                         observable.bendingEnergy);
+        ASSERT_NE(actual.normVector.mat, nullptr);
+        ASSERT_EQ(actual.normVector.nrow(), kAxisCount);
+        ASSERT_EQ(actual.normVector.ncol(), 1);
+        for (int axis = 0; axis < kAxisCount; ++axis)
+        {
+            EXPECT_DOUBLE_EQ(actual.normVector.get(axis, 0),
+                             observable.normal[axis]);
+        }
+
+        EXPECT_EQ(actual.index, reference.index);
+        EXPECT_EQ(actual.layerIndex, reference.layerIndex);
+        EXPECT_EQ(actual.isBoundary, reference.isBoundary);
+        EXPECT_EQ(actual.isGhost, reference.isGhost);
+        EXPECT_EQ(actual.isInsertionPatch,
+                  reference.isInsertionPatch);
+        EXPECT_EQ(actual.adjacentVertices,
+                  reference.adjacentVertices);
+        EXPECT_EQ(actual.oneRingVertices,
+                  reference.oneRingVertices);
+        EXPECT_EQ(actual.adjacentFaces, reference.adjacentFaces);
+        EXPECT_DOUBLE_EQ(actual.spontCurvature,
+                         reference.spontCurvature);
+        EXPECT_DOUBLE_EQ(actual.elementArea,
+                         reference.elementArea);
+        EXPECT_DOUBLE_EQ(actual.elementVolume,
+                         reference.elementVolume);
+        expect_energy_equal(actual.energy, reference.energy, true);
+        expect_energy_equal(actual.energyPrev,
+                            reference.energyPrev,
+                            false);
+    }
+}
+
+void expect_face_observable_publication_state_unchanged(
+    const Mesh &mesh,
+    const std::vector<Face> &before)
+{
+    ASSERT_EQ(mesh.faces.size(), before.size());
+    for (std::size_t faceIndex = 0;
+         faceIndex < mesh.faces.size();
+         ++faceIndex)
+    {
+        const Face &actual = mesh.faces[faceIndex];
+        const Face &reference = before[faceIndex];
+        EXPECT_EQ(actual.index, reference.index);
+        EXPECT_EQ(actual.layerIndex, reference.layerIndex);
+        EXPECT_EQ(actual.isBoundary, reference.isBoundary);
+        EXPECT_EQ(actual.isGhost, reference.isGhost);
+        EXPECT_EQ(actual.isInsertionPatch,
+                  reference.isInsertionPatch);
+        EXPECT_EQ(actual.adjacentVertices,
+                  reference.adjacentVertices);
+        EXPECT_EQ(actual.oneRingVertices,
+                  reference.oneRingVertices);
+        EXPECT_EQ(actual.adjacentFaces, reference.adjacentFaces);
+        EXPECT_DOUBLE_EQ(actual.spontCurvature,
+                         reference.spontCurvature);
+        EXPECT_DOUBLE_EQ(actual.meanCurvature,
+                         reference.meanCurvature);
+        ASSERT_NE(actual.normVector.mat, nullptr);
+        ASSERT_NE(reference.normVector.mat, nullptr);
+        ASSERT_EQ(actual.normVector.nrow(),
+                  reference.normVector.nrow());
+        ASSERT_EQ(actual.normVector.ncol(),
+                  reference.normVector.ncol());
+        for (int row = 0; row < actual.normVector.nrow(); ++row)
+        {
+            for (int column = 0;
+                 column < actual.normVector.ncol();
+                 ++column)
+            {
+                EXPECT_DOUBLE_EQ(actual.normVector.get(row, column),
+                                 reference.normVector.get(row, column));
+            }
+        }
+        EXPECT_DOUBLE_EQ(actual.elementArea,
+                         reference.elementArea);
+        EXPECT_DOUBLE_EQ(actual.elementVolume,
+                         reference.elementVolume);
+        expect_energy_equal(actual.energy, reference.energy, false);
+        expect_energy_equal(actual.energyPrev,
+                            reference.energyPrev,
+                            false);
+    }
+}
+
+std::vector<Valence4FaceScientificObservables>
+make_face_observables(const Mesh &mesh)
+{
+    std::vector<Valence4FaceScientificObservables> observables;
+    observables.reserve(mesh.faces.size());
+    for (const Face &face : mesh.faces)
+    {
+        Valence4FaceScientificObservables observable;
+        observable.faceIndex = face.index;
+        observable.meanCurvature = 101.0 + face.index;
+        observable.bendingEnergy = 201.0 + face.index;
+        for (int axis = 0; axis < kAxisCount; ++axis)
+        {
+            observable.normal[axis] =
+                301.0 + 10.0 * face.index + axis;
+        }
+        observables.push_back(observable);
+    }
+    return observables;
+}
+
 void expect_only_membrane_forces_published(
     const Mesh &mesh,
     const std::vector<VertexForceSnapshot> &before,
@@ -1041,4 +1244,204 @@ TEST(ValenceFourFaceLoopRoutePreflight,
     mesh.vertices.back().force.forceVolume = originalVolume;
     EXPECT_EQ(capture_all_vertex_forces(mesh), before);
     expect_publication_unrelated_state_unchanged(mesh);
+}
+
+TEST(ValenceFourFaceLoopRoutePreflight,
+     FaceObservablePublicationRejectsByDefaultWithoutMutation)
+{
+    ApprovedValence4MeshFixture fixture;
+    Mesh &mesh = *fixture.mesh;
+    const Valence4FaceLoopRoutePreflightResult preflight =
+        build_guarded_valence4_face_loop_route_preflight(mesh);
+    ASSERT_TRUE(preflight.supported) << preflight.rejectionReason;
+    seed_face_observable_publication_state(mesh);
+    seed_all_vertex_forces(mesh);
+    const std::vector<Face> beforeFaces = mesh.faces;
+    const auto beforeForces = capture_all_vertex_forces(mesh);
+    const auto beforeCoordinates = capture_vertex_coordinates(mesh);
+
+    Valence4FaceObservablePublicationRequest request;
+    for (const SourceMappingView &mapping : preflight.mappings)
+    {
+        request.rows.push_back(
+            make_scientific_rows_for_mapping(mapping));
+    }
+    const Valence4FaceObservablePublicationResult result =
+        evaluate_guarded_valence4_face_observable_publication(
+            mesh, request);
+
+    EXPECT_FALSE(result.accepted);
+    EXPECT_FALSE(result.explicitPublicationRequested);
+    EXPECT_FALSE(result.faceObservablePublicationExecuted);
+    EXPECT_NE(result.rejectionReason.find("default-off"),
+              std::string::npos);
+    EXPECT_FALSE(result.scientificRequest.accepted);
+    expect_face_observable_publication_state_unchanged(
+        mesh, beforeFaces);
+    EXPECT_EQ(capture_all_vertex_forces(mesh), beforeForces);
+    EXPECT_EQ(capture_vertex_coordinates(mesh), beforeCoordinates);
+}
+
+TEST(ValenceFourFaceLoopRoutePreflight,
+     FaceObservablePublicationOverwritesOnlyCurrentFaceObservables)
+{
+    ApprovedValence4MeshFixture fixture;
+    Mesh &mesh = *fixture.mesh;
+    const Valence4FaceLoopRoutePreflightResult preflight =
+        build_guarded_valence4_face_loop_route_preflight(mesh);
+    ASSERT_TRUE(preflight.supported) << preflight.rejectionReason;
+    seed_face_observable_publication_state(mesh);
+    seed_all_vertex_forces(mesh);
+    const std::vector<Face> beforeFaces = mesh.faces;
+    const auto beforeForces = capture_all_vertex_forces(mesh);
+    const auto beforeCoordinates = capture_vertex_coordinates(mesh);
+
+    Valence4FaceObservablePublicationRequest request;
+    request.reviewerApprovedExplicitPublication = true;
+    for (const SourceMappingView &mapping : preflight.mappings)
+    {
+        request.rows.push_back(
+            make_scientific_rows_for_mapping(mapping));
+    }
+    const Valence4FaceObservablePublicationResult result =
+        evaluate_guarded_valence4_face_observable_publication(
+            mesh, request);
+
+    ASSERT_TRUE(result.accepted) << result.rejectionReason;
+    EXPECT_TRUE(result.explicitPublicationRequested);
+    EXPECT_TRUE(result.faceObservablePublicationExecuted);
+    EXPECT_TRUE(result.scientificRequest.accepted);
+    EXPECT_TRUE(
+        result.scientificRequest.productionScientificAlgebraExecuted);
+    EXPECT_FALSE(result.productionRouteEnabled);
+    EXPECT_FALSE(result.actualProductionForcePathExecuted);
+    EXPECT_FALSE(result.productionFaceLoopExecuted);
+    EXPECT_FALSE(result.productionOneRingsPopulated);
+    EXPECT_FALSE(result.defaultEvaluatorCaller);
+    expect_only_face_observables_published(
+        mesh,
+        beforeFaces,
+        result.scientificRequest.faceObservables);
+    EXPECT_EQ(capture_all_vertex_forces(mesh), beforeForces);
+    EXPECT_EQ(capture_vertex_coordinates(mesh), beforeCoordinates);
+}
+
+TEST(ValenceFourFaceLoopRoutePreflight,
+     FaceObservablePublicationRejectsMalformedLateRowWithoutMutation)
+{
+    ApprovedValence4MeshFixture fixture;
+    Mesh &mesh = *fixture.mesh;
+    const Valence4FaceLoopRoutePreflightResult preflight =
+        build_guarded_valence4_face_loop_route_preflight(mesh);
+    ASSERT_TRUE(preflight.supported) << preflight.rejectionReason;
+    seed_face_observable_publication_state(mesh);
+    seed_all_vertex_forces(mesh);
+    const std::vector<Face> beforeFaces = mesh.faces;
+    const auto beforeForces = capture_all_vertex_forces(mesh);
+
+    Valence4FaceObservablePublicationRequest request;
+    request.reviewerApprovedExplicitPublication = true;
+    for (const SourceMappingView &mapping : preflight.mappings)
+    {
+        request.rows.push_back(
+            make_scientific_rows_for_mapping(mapping));
+    }
+    request.rows.back().samples.back().rows[0].sourceIds[0] =
+        preflight.sourceCount + 1;
+    const Valence4FaceObservablePublicationResult result =
+        evaluate_guarded_valence4_face_observable_publication(
+            mesh, request);
+
+    EXPECT_FALSE(result.accepted);
+    EXPECT_TRUE(result.explicitPublicationRequested);
+    EXPECT_FALSE(result.faceObservablePublicationExecuted);
+    EXPECT_NE(result.rejectionReason.find("out-of-range"),
+              std::string::npos);
+    expect_face_observable_publication_state_unchanged(
+        mesh, beforeFaces);
+    EXPECT_EQ(capture_all_vertex_forces(mesh), beforeForces);
+}
+
+TEST(ValenceFourFaceLoopRoutePreflight,
+     FaceObservablePublicationPrimitiveRejectsLateDriftAtomically)
+{
+    ApprovedValence4MeshFixture fixture;
+    Mesh &mesh = *fixture.mesh;
+    seed_face_observable_publication_state(mesh);
+    seed_all_vertex_forces(mesh);
+    const std::vector<Face> beforeFaces = mesh.faces;
+    const auto beforeForces = capture_all_vertex_forces(mesh);
+    std::vector<Valence4FaceScientificObservables> observables =
+        make_face_observables(mesh);
+
+    observables.pop_back();
+    EXPECT_THROW(
+        publish_valence4_face_scientific_observables_to_faces(
+            observables, mesh),
+        std::invalid_argument);
+    expect_face_observable_publication_state_unchanged(
+        mesh, beforeFaces);
+    EXPECT_EQ(capture_all_vertex_forces(mesh), beforeForces);
+
+    observables = make_face_observables(mesh);
+    observables.back().faceIndex = observables.front().faceIndex;
+    EXPECT_THROW(
+        publish_valence4_face_scientific_observables_to_faces(
+            observables, mesh),
+        std::invalid_argument);
+    expect_face_observable_publication_state_unchanged(
+        mesh, beforeFaces);
+
+    observables = make_face_observables(mesh);
+    observables.back().normal.back() =
+        std::numeric_limits<double>::infinity();
+    EXPECT_THROW(
+        publish_valence4_face_scientific_observables_to_faces(
+            observables, mesh),
+        std::invalid_argument);
+    expect_face_observable_publication_state_unchanged(
+        mesh, beforeFaces);
+
+    observables = make_face_observables(mesh);
+    mesh.faces.back().index += 1;
+    EXPECT_THROW(
+        publish_valence4_face_scientific_observables_to_faces(
+            observables, mesh),
+        std::invalid_argument);
+    mesh.faces.back().index -= 1;
+    expect_face_observable_publication_state_unchanged(
+        mesh, beforeFaces);
+
+    mesh.faces.back().oneRingVertices = {0};
+    EXPECT_THROW(
+        publish_valence4_face_scientific_observables_to_faces(
+            observables, mesh),
+        std::invalid_argument);
+    mesh.faces.back().oneRingVertices.clear();
+    expect_face_observable_publication_state_unchanged(
+        mesh, beforeFaces);
+    EXPECT_EQ(capture_all_vertex_forces(mesh), beforeForces);
+}
+
+TEST(ValenceFourFaceLoopRoutePreflight,
+     FaceObservablePublicationPrimitiveUsesFaceIdentityNotInputOrder)
+{
+    ApprovedValence4MeshFixture fixture;
+    Mesh &mesh = *fixture.mesh;
+    seed_face_observable_publication_state(mesh);
+    seed_all_vertex_forces(mesh);
+    const std::vector<Face> beforeFaces = mesh.faces;
+    const auto beforeForces = capture_all_vertex_forces(mesh);
+    std::vector<Valence4FaceScientificObservables> observables =
+        make_face_observables(mesh);
+    const std::vector<Valence4FaceScientificObservables> expected =
+        observables;
+    std::reverse(observables.begin(), observables.end());
+
+    EXPECT_NO_THROW(
+        publish_valence4_face_scientific_observables_to_faces(
+            observables, mesh));
+    expect_only_face_observables_published(
+        mesh, beforeFaces, expected);
+    EXPECT_EQ(capture_all_vertex_forces(mesh), beforeForces);
 }

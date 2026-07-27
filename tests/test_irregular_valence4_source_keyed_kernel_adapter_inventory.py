@@ -110,6 +110,15 @@ class ValenceFourSourceKeyedKernelAdapterInventoryTest(unittest.TestCase):
         self.assertTrue(
             composition["only_membrane_force_families_published"]
         )
+        self.assertTrue(
+            composition[
+                "default_off_face_observable_publication_rejected"
+            ]
+        )
+        self.assertTrue(
+            composition["face_observable_publication_executed"]
+        )
+        self.assertTrue(composition["only_face_observables_published"])
         self.assertTrue(composition["route_remained_disabled"])
         self.assertLessEqual(composition["max_observable_difference"], 1.0e-12)
         self.assertLessEqual(composition["max_source_force_difference"], 1.0e-12)
@@ -119,6 +128,10 @@ class ValenceFourSourceKeyedKernelAdapterInventoryTest(unittest.TestCase):
         )
         self.assertLessEqual(
             composition["max_published_force_difference"],
+            1.0e-12,
+        )
+        self.assertLessEqual(
+            composition["max_published_face_observable_difference"],
             1.0e-12,
         )
 

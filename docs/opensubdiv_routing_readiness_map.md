@@ -272,9 +272,11 @@ families, face state, and empty one-rings remain unchanged.
 The existing actual OpenMP shadow calls the same scatter, ascending reduction,
 and publication helpers while retaining independent raw-layout and named-
 matrix oracles. Neither path enters the production face loop. Real route
-activation remains a separate reviewer/user-gated decision requiring atomic
-face-observable/geometry publication, guarded real face-loop integration, and
-serial/OpenMP observable parity after that integration.
+activation remains a separate reviewer/user-gated decision. The next
+default-off boundary publishes only mean curvature, bending energy, and face
+normal after complete validation and allocation; area, legacy volume, vertex
+state, and routing remain unchanged. Guarded real face-loop integration and
+serial/OpenMP observable parity after that integration are still required.
 
 ## Inventory Check
 
