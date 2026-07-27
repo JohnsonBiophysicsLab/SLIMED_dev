@@ -83,6 +83,27 @@ struct Valence4FaceLoopScientificRequestResult
     bool defaultEvaluatorCaller = false;
 };
 
+struct Valence4VertexForcePublicationRequest
+{
+    bool reviewerApprovedExplicitPublication = false;
+    std::vector<source_keyed_kernel::SourceKeyedFaceRows> rows;
+};
+
+struct Valence4VertexForcePublicationResult
+{
+    bool accepted = false;
+    std::string rejectionReason;
+    bool explicitPublicationRequested = false;
+    bool vertexForcePublicationExecuted = false;
+    Valence4FaceLoopScientificRequestResult scientificRequest;
+
+    bool productionRouteEnabled = false;
+    bool actualProductionForcePathExecuted = false;
+    bool productionFaceLoopExecuted = false;
+    bool productionOneRingsPopulated = false;
+    bool defaultEvaluatorCaller = false;
+};
+
 /**
  * Build an owned, source-keyed face-loop route candidate for the approved
  * closed valence-4 topology.
@@ -120,4 +141,18 @@ Valence4FaceLoopScientificRequestResult
 evaluate_guarded_valence4_face_loop_scientific_request(
     Mesh &mesh,
     const Valence4FaceLoopScientificRequest &request);
+
+/**
+ * Publish the three reduced membrane-force families for an explicitly
+ * approved valence-4 scientific request.
+ *
+ * The request remains default-off. The complete scientific request and all
+ * six vertex destinations are validated before forceCurvature, forceArea,
+ * and forceVolume are overwritten. Face state, forceTotal, other force
+ * families, one-rings, and routing remain unchanged.
+ */
+Valence4VertexForcePublicationResult
+evaluate_guarded_valence4_vertex_force_publication(
+    Mesh &mesh,
+    const Valence4VertexForcePublicationRequest &request);
 } // namespace slimed::valence4_route_preflight

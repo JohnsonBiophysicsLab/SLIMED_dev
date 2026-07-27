@@ -758,6 +758,35 @@ bool force_matches(const Force &candidate, const Force &reference)
     return true;
 }
 
+bool force_matches_except_membrane_publication(
+    const Force &candidate,
+    const Force &reference)
+{
+    const std::array<const Matrix *, 5> candidateMatrices{{
+        &candidate.forceThickness,
+        &candidate.forceTilt,
+        &candidate.forceRegularization,
+        &candidate.forceHarmonicBond,
+        &candidate.forceTotal}};
+    const std::array<const Matrix *, 5> referenceMatrices{{
+        &reference.forceThickness,
+        &reference.forceTilt,
+        &reference.forceRegularization,
+        &reference.forceHarmonicBond,
+        &reference.forceTotal}};
+    for (std::size_t index = 0;
+         index < candidateMatrices.size();
+         ++index)
+    {
+        if (!matrix_matches(*candidateMatrices[index],
+                            *referenceMatrices[index]))
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
 bool face_matches(const Face &candidate, const Face &reference)
 {
     return candidate.index == reference.index &&
@@ -825,6 +854,66 @@ bool mesh_scientific_state_matches(const Mesh &mesh,
                             state.vertices[source]))
         {
             return false;
+        }
+    }
+    return true;
+}
+
+bool mesh_matches_membrane_force_publication(
+    const Mesh &mesh,
+    const MeshScientificState &state,
+    const std::vector<SourceForceKinds> &expected)
+{
+    if (mesh.faces.size() != state.faces.size() ||
+        mesh.vertices.size() != state.vertices.size() ||
+        mesh.vertices.size() != expected.size())
+    {
+        return false;
+    }
+    for (std::size_t face = 0; face < mesh.faces.size(); ++face)
+    {
+        if (!face_matches(mesh.faces[face], state.faces[face]))
+        {
+            return false;
+        }
+    }
+    for (std::size_t source = 0; source < mesh.vertices.size(); ++source)
+    {
+        const Vertex &candidate = mesh.vertices[source];
+        const Vertex &reference = state.vertices[source];
+        if (candidate.index != reference.index ||
+            !matrix_matches(candidate.coord, reference.coord) ||
+            !matrix_matches(candidate.coordPrev, reference.coordPrev) ||
+            !matrix_matches(candidate.coordRef, reference.coordRef) ||
+            candidate.adjacentVertices != reference.adjacentVertices ||
+            candidate.adjacentFaces != reference.adjacentFaces ||
+            !matrix_matches(candidate.normVector, reference.normVector) ||
+            candidate.layerIndex != reference.layerIndex ||
+            candidate.type != reference.type ||
+            candidate.reflectiveVertexIndex !=
+                reference.reflectiveVertexIndex ||
+            candidate.isBoundary != reference.isBoundary ||
+            !force_matches_except_membrane_publication(
+                candidate.force, reference.force) ||
+            !force_matches(candidate.forcePrev, reference.forcePrev) ||
+            candidate.isGhost != reference.isGhost)
+        {
+            return false;
+        }
+        const std::array<const Matrix *, kForceKindCount> published{{
+            &candidate.force.forceCurvature,
+            &candidate.force.forceArea,
+            &candidate.force.forceVolume}};
+        for (int kind = 0; kind < kForceKindCount; ++kind)
+        {
+            for (int axis = 0; axis < kAxisCount; ++axis)
+            {
+                if (published[kind]->get(axis, 0) !=
+                    expected[source][kind][axis])
+                {
+                    return false;
+                }
+            }
         }
     }
     return true;
@@ -923,14 +1012,19 @@ struct ScientificRequestCompositionProof
     bool meshStateUnchanged = false;
     bool meshStateMutationGateBinding = false;
     bool productionShapedScatterExecuted = false;
+    bool defaultOffPublicationRejected = false;
+    bool vertexForcePublicationExecuted = false;
+    bool onlyMembraneForcesPublished = false;
     bool routeRemainedDisabled = false;
     double maxObservableDifference = 0.0;
     double maxSourceForceDifference = 0.0;
     double maxProductionShapedScatterDifference = 0.0;
+    double maxPublishedForceDifference = 0.0;
 };
 
 ScientificRequestCompositionProof invoke_guarded_scientific_request(
     Mesh &mesh,
+    Mesh &publicationMesh,
     const InputPackage &package,
     const ScientificForceAlgebraProof &reference,
     const std::vector<SourceForceKinds> &referenceForces)
@@ -994,6 +1088,43 @@ ScientificRequestCompositionProof invoke_guarded_scientific_request(
         mesh_scientific_state_matches(mesh, before);
     proof.meshStateMutationGateBinding =
         mesh_state_mutation_gate_is_binding(mesh, before);
+
+    seed_mesh_scientific_state(publicationMesh);
+    const MeshScientificState beforePublication =
+        capture_mesh_scientific_state(publicationMesh);
+    Valence4VertexForcePublicationRequest defaultOffPublication;
+    defaultOffPublication.rows = package.rows;
+    const Valence4VertexForcePublicationResult defaultOffPublicationResult =
+        evaluate_guarded_valence4_vertex_force_publication(
+            publicationMesh, defaultOffPublication);
+    proof.defaultOffPublicationRejected =
+        !defaultOffPublicationResult.accepted &&
+        !defaultOffPublicationResult.vertexForcePublicationExecuted &&
+        defaultOffPublicationResult.rejectionReason.find("default-off") !=
+            std::string::npos &&
+        mesh_scientific_state_matches(
+            publicationMesh, beforePublication);
+
+    Valence4VertexForcePublicationRequest publicationRequest;
+    publicationRequest.reviewerApprovedExplicitPublication = true;
+    publicationRequest.rows = package.rows;
+    const Valence4VertexForcePublicationResult publicationResult =
+        evaluate_guarded_valence4_vertex_force_publication(
+            publicationMesh, publicationRequest);
+    proof.vertexForcePublicationExecuted =
+        publicationResult.accepted &&
+        publicationResult.vertexForcePublicationExecuted;
+    if (publicationResult.accepted)
+    {
+        const auto &published =
+            publicationResult.scientificRequest.sourceKeyedRequest
+                .accumulatedSourceForces;
+        proof.maxPublishedForceDifference =
+            compare_scattered(published, referenceForces);
+        proof.onlyMembraneForcesPublished =
+            mesh_matches_membrane_force_publication(
+                publicationMesh, beforePublication, published);
+    }
     proof.routeRemainedDisabled =
         !result.productionRouteEnabled &&
         !result.actualProductionForcePathExecuted &&
@@ -1004,7 +1135,12 @@ ScientificRequestCompositionProof invoke_guarded_scientific_request(
         !result.sourceKeyedRequest.actualProductionForcePathExecuted &&
         !result.sourceKeyedRequest.productionFaceLoopExecuted &&
         !result.sourceKeyedRequest.productionOneRingsPopulated &&
-        !result.sourceKeyedRequest.defaultEvaluatorCaller;
+        !result.sourceKeyedRequest.defaultEvaluatorCaller &&
+        !publicationResult.productionRouteEnabled &&
+        !publicationResult.actualProductionForcePathExecuted &&
+        !publicationResult.productionFaceLoopExecuted &&
+        !publicationResult.productionOneRingsPopulated &&
+        !publicationResult.defaultEvaluatorCaller;
     return proof;
 }
 
@@ -1048,18 +1184,27 @@ int main(int argc, char **argv)
     {
         param.gaussQuadratureCoeff.set(sample, 0, 1.0 / 3.0);
     }
+    const auto verticesData = read_data_from_csv<double>(argv[1]);
+    const auto facesData = read_data_from_csv<int>(argv[2]);
     Mesh mesh(param);
-    mesh.setup_from_vertices_faces(read_data_from_csv<double>(argv[1]),
-                                   read_data_from_csv<int>(argv[2]));
+    mesh.setup_from_vertices_faces(verticesData, facesData);
+    Mesh publicationMesh(param);
+    publicationMesh.setup_from_vertices_faces(verticesData, facesData);
     for (int source = 0; source < kSourceCount; ++source)
     {
         for (int axis = 0; axis < kAxisCount; ++axis)
         {
             mesh.vertices[source].coord.set(
                 axis, 0, package.coordinates[source][axis]);
+            publicationMesh.vertices[source].coord.set(
+                axis, 0, package.coordinates[source][axis]);
         }
     }
     for (Face &face : mesh.faces)
+    {
+        face.spontCurvature = package.parameters.spontCurv;
+    }
+    for (Face &face : publicationMesh.faces)
     {
         face.spontCurvature = package.parameters.spontCurv;
     }
@@ -1121,7 +1266,11 @@ int main(int argc, char **argv)
         invoke_scientific_force_algebra(adapted, package);
     const ScientificRequestCompositionProof scientificRequest =
         invoke_guarded_scientific_request(
-            mesh, package, scientificForceAlgebra, scattered);
+            mesh,
+            publicationMesh,
+            package,
+            scientificForceAlgebra,
+            scattered);
 
     const bool outOfRangeRejected = rejected(
         [](auto &, auto &input) {
@@ -1222,11 +1371,15 @@ int main(int argc, char **argv)
         scientificRequest.meshStateUnchanged &&
         scientificRequest.meshStateMutationGateBinding &&
         scientificRequest.productionShapedScatterExecuted &&
+        scientificRequest.defaultOffPublicationRejected &&
+        scientificRequest.vertexForcePublicationExecuted &&
+        scientificRequest.onlyMembraneForcesPublished &&
         scientificRequest.routeRemainedDisabled &&
         scientificRequest.maxObservableDifference <= kTolerance &&
         scientificRequest.maxSourceForceDifference <= kTolerance &&
         scientificRequest.maxProductionShapedScatterDifference <=
-            kTolerance;
+            kTolerance &&
+        scientificRequest.maxPublishedForceDifference <= kTolerance;
 
     std::cout << std::setprecision(17);
     std::cout << '{';
@@ -1287,6 +1440,21 @@ int main(int argc, char **argv)
                       ? "true"
                       : "false")
               << ',';
+    std::cout << "\"default_off_vertex_force_publication_rejected\":"
+              << (scientificRequest.defaultOffPublicationRejected
+                      ? "true"
+                      : "false")
+              << ',';
+    std::cout << "\"vertex_force_publication_executed\":"
+              << (scientificRequest.vertexForcePublicationExecuted
+                      ? "true"
+                      : "false")
+              << ',';
+    std::cout << "\"only_membrane_force_families_published\":"
+              << (scientificRequest.onlyMembraneForcesPublished
+                      ? "true"
+                      : "false")
+              << ',';
     std::cout << "\"route_remained_disabled\":"
               << (scientificRequest.routeRemainedDisabled ? "true" : "false")
               << ',';
@@ -1296,6 +1464,9 @@ int main(int argc, char **argv)
               << scientificRequest.maxSourceForceDifference << ',';
     std::cout << "\"max_production_shaped_scatter_difference\":"
               << scientificRequest.maxProductionShapedScatterDifference
+              << ',';
+    std::cout << "\"max_published_force_difference\":"
+              << scientificRequest.maxPublishedForceDifference
               << "},";
     std::cout << "\"variable_cardinality_source_keyed\":true,";
     std::cout << "\"canonicalized_by_original_source_id\":true,";

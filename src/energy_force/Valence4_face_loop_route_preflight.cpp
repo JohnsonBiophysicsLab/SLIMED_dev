@@ -45,6 +45,16 @@ Valence4FaceLoopScientificRequestResult reject_scientific_request(
     return result;
 }
 
+Valence4VertexForcePublicationResult reject_publication_request(
+    std::string reason,
+    const bool explicitPublicationRequested)
+{
+    Valence4VertexForcePublicationResult result;
+    result.rejectionReason = std::move(reason);
+    result.explicitPublicationRequested = explicitPublicationRequested;
+    return result;
+}
+
 std::vector<source_keyed_kernel::SourceKeyedFaceForces>
 zero_forces_for_mappings(
     const std::vector<source_keyed_kernel::SourceMappingView> &mappings)
@@ -445,6 +455,57 @@ evaluate_guarded_valence4_face_loop_scientific_request(
     result.productionScientificAlgebraExecuted = true;
     result.faceObservables = std::move(observables);
     result.sourceKeyedRequest = std::move(sourceKeyedResult);
+    return result;
+}
+
+Valence4VertexForcePublicationResult
+evaluate_guarded_valence4_vertex_force_publication(
+    Mesh &mesh,
+    const Valence4VertexForcePublicationRequest &request)
+{
+    if (!request.reviewerApprovedExplicitPublication)
+    {
+        return reject_publication_request(
+            "valence-4 vertex-force publication remains default-off without "
+            "an explicit reviewer-approved publication request",
+            false);
+    }
+
+    Valence4FaceLoopScientificRequest scientificRequest;
+    scientificRequest.reviewerApprovedExplicitRequest = true;
+    scientificRequest.rows = request.rows;
+    Valence4FaceLoopScientificRequestResult scientificResult =
+        evaluate_guarded_valence4_face_loop_scientific_request(
+            mesh, scientificRequest);
+    if (!scientificResult.accepted)
+    {
+        Valence4VertexForcePublicationResult rejected =
+            reject_publication_request(
+                scientificResult.rejectionReason, true);
+        rejected.scientificRequest = std::move(scientificResult);
+        return rejected;
+    }
+
+    Valence4VertexForcePublicationResult result;
+    result.explicitPublicationRequested = true;
+    result.scientificRequest = std::move(scientificResult);
+    try
+    {
+        source_keyed_kernel::
+            publish_source_keyed_membrane_forces_to_vertices(
+                result.scientificRequest.sourceKeyedRequest
+                    .accumulatedSourceForces,
+                mesh);
+    }
+    catch (const std::invalid_argument &error)
+    {
+        result.rejectionReason = error.what();
+        return result;
+    }
+
+    result.accepted = true;
+    result.vertexForcePublicationExecuted = true;
+    result.rejectionReason.clear();
     return result;
 }
 } // namespace slimed::valence4_route_preflight

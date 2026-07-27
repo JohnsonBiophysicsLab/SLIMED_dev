@@ -96,6 +96,16 @@ SCATTER_BUFFER_SUCCESSOR_PATHS = {
     TEST,
     SCATTER_BUFFER_INVENTORY,
 }
+VERTEX_PUBLICATION_INVENTORY = Path(
+    "scripts/inventory_irregular_valence4_vertex_force_publication.py"
+)
+VERTEX_PUBLICATION_SUCCESSOR_PATHS = {
+    Path("docs/irregular_valence4_vertex_force_publication.md"),
+    VERTEX_PUBLICATION_INVENTORY,
+    Path(
+        "tests/test_irregular_valence4_vertex_force_publication_inventory.py"
+    ),
+}
 
 ALLOWED_PATHS = {
     PROBE,
@@ -260,6 +270,12 @@ def collect(root: Path) -> dict[str, object]:
             path
             for path in paths
             if Path(path) not in SCATTER_BUFFER_SUCCESSOR_PATHS
+        ]
+    if (root / VERTEX_PUBLICATION_INVENTORY).is_file():
+        paths = [
+            path
+            for path in paths
+            if Path(path) not in VERTEX_PUBLICATION_SUCCESSOR_PATHS
         ]
     unexpected = sorted(
         path for path in paths if Path(path) not in ALLOWED_PATHS

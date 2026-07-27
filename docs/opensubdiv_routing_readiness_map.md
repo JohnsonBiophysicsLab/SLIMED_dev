@@ -264,13 +264,17 @@ explicit boundaries do not call OpenSubdiv, the production face loop, or any
 default evaluator path. The scientific request calls only the existing per-face
 scientific algebra with caller-provided rows; it does not scatter or route.
 The fresh-row proof now also passes those caller-owned forces through a
-backend-neutral production-shaped `source x 9` component-buffer scatter.
-The existing actual OpenMP shadow calls the same helper and reduces buffers in
-ascending thread order while retaining an independent raw-layout oracle.
-Neither path writes production vertex forces or enters the production face
-loop. Real route activation remains a separate reviewer/user-gated decision
-requiring guarded face-loop/vertex-force integration and serial/OpenMP
-observable parity after that integration.
+backend-neutral production-shaped `source x 9` component-buffer scatter and a
+default-off vertex-force publication boundary. The publication validates the
+complete six-source result and every destination before overwriting only
+`forceCurvature`, `forceArea`, and `forceVolume`; `forceTotal`, other force
+families, face state, and empty one-rings remain unchanged.
+The existing actual OpenMP shadow calls the same scatter, ascending reduction,
+and publication helpers while retaining independent raw-layout and named-
+matrix oracles. Neither path enters the production face loop. Real route
+activation remains a separate reviewer/user-gated decision requiring atomic
+face-observable/geometry publication, guarded real face-loop integration, and
+serial/OpenMP observable parity after that integration.
 
 ## Inventory Check
 

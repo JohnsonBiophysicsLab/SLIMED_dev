@@ -1,5 +1,7 @@
 #include "energy_force/Source_keyed_kernel_call.hpp"
 
+#include "mesh/Mesh.hpp"
+
 #include <algorithm>
 #include <cmath>
 #include <stdexcept>
@@ -463,5 +465,83 @@ std::vector<SourceForceKinds> reduce_source_keyed_force_component_buffers(
         }
     }
     return reduced;
+}
+
+void publish_source_keyed_membrane_forces_to_vertices(
+    const std::vector<SourceForceKinds> &sourceForces,
+    Mesh &mesh)
+{
+    if (sourceForces.empty() ||
+        sourceForces.size() != mesh.vertices.size())
+    {
+        throw std::invalid_argument(
+            "source-keyed vertex-force publication rejected source/vertex "
+            "cardinality drift");
+    }
+    if (!std::all_of(mesh.faces.begin(),
+                     mesh.faces.end(),
+                     [](const Face &face) {
+                         return face.oneRingVertices.empty();
+                     }))
+    {
+        throw std::invalid_argument(
+            "source-keyed vertex-force publication requires empty "
+            "production one-rings");
+    }
+
+    std::vector<SourceForceKinds> staged = sourceForces;
+    for (std::size_t source = 0; source < staged.size(); ++source)
+    {
+        const Vertex &vertex = mesh.vertices[source];
+        if (vertex.index != static_cast<int>(source))
+        {
+            throw std::invalid_argument(
+                "source-keyed vertex-force publication rejected vertex "
+                "identity drift");
+        }
+        const std::array<const Matrix *, kForceKindCount> destinations{{
+            &vertex.force.forceCurvature,
+            &vertex.force.forceArea,
+            &vertex.force.forceVolume}};
+        for (int kind = 0; kind < kForceKindCount; ++kind)
+        {
+            const Matrix *destination = destinations[kind];
+            if (destination->mat == nullptr ||
+                destination->nrow() != kAxisCount ||
+                destination->ncol() != 1)
+            {
+                throw std::invalid_argument(
+                    "source-keyed vertex-force publication rejected "
+                    "destination shape drift");
+            }
+            for (int axis = 0; axis < kAxisCount; ++axis)
+            {
+                if (!std::isfinite(staged[source][kind][axis]))
+                {
+                    throw std::invalid_argument(
+                        "source-keyed vertex-force publication rejected "
+                        "nonfinite force data");
+                }
+            }
+        }
+    }
+
+    // All validation and allocation complete before the first Mesh write.
+    for (std::size_t source = 0; source < staged.size(); ++source)
+    {
+        Vertex &vertex = mesh.vertices[source];
+        const std::array<Matrix *, kForceKindCount> destinations{{
+            &vertex.force.forceCurvature,
+            &vertex.force.forceArea,
+            &vertex.force.forceVolume}};
+        for (int kind = 0; kind < kForceKindCount; ++kind)
+        {
+            for (int axis = 0; axis < kAxisCount; ++axis)
+            {
+                destinations[kind]->set(
+                    axis, 0, staged[source][kind][axis]);
+            }
+        }
+    }
 }
 } // namespace slimed::source_keyed_kernel

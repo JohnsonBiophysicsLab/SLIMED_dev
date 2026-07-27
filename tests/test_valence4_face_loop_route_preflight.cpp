@@ -1,5 +1,7 @@
 #include <algorithm>
+#include <array>
 #include <cmath>
+#include <limits>
 #include <memory>
 #include <stdexcept>
 #include <string>
@@ -226,6 +228,173 @@ void expect_mesh_owned_scientific_state_unchanged(const Mesh &mesh)
                 vertex.force.forceVolume.get(axis, 0),
                 2.0 * sentinel);
         }
+    }
+}
+
+constexpr int kForceFamilyCount = 16;
+using VertexForceSnapshot =
+    std::array<std::array<double, kAxisCount>, kForceFamilyCount>;
+
+std::array<Matrix *, kForceFamilyCount> mutable_force_matrices(
+    Vertex &vertex)
+{
+    return {{
+        &vertex.force.forceCurvature,
+        &vertex.force.forceArea,
+        &vertex.force.forceVolume,
+        &vertex.force.forceThickness,
+        &vertex.force.forceTilt,
+        &vertex.force.forceRegularization,
+        &vertex.force.forceHarmonicBond,
+        &vertex.force.forceTotal,
+        &vertex.forcePrev.forceCurvature,
+        &vertex.forcePrev.forceArea,
+        &vertex.forcePrev.forceVolume,
+        &vertex.forcePrev.forceThickness,
+        &vertex.forcePrev.forceTilt,
+        &vertex.forcePrev.forceRegularization,
+        &vertex.forcePrev.forceHarmonicBond,
+        &vertex.forcePrev.forceTotal,
+    }};
+}
+
+std::array<const Matrix *, kForceFamilyCount> force_matrices(
+    const Vertex &vertex)
+{
+    return {{
+        &vertex.force.forceCurvature,
+        &vertex.force.forceArea,
+        &vertex.force.forceVolume,
+        &vertex.force.forceThickness,
+        &vertex.force.forceTilt,
+        &vertex.force.forceRegularization,
+        &vertex.force.forceHarmonicBond,
+        &vertex.force.forceTotal,
+        &vertex.forcePrev.forceCurvature,
+        &vertex.forcePrev.forceArea,
+        &vertex.forcePrev.forceVolume,
+        &vertex.forcePrev.forceThickness,
+        &vertex.forcePrev.forceTilt,
+        &vertex.forcePrev.forceRegularization,
+        &vertex.forcePrev.forceHarmonicBond,
+        &vertex.forcePrev.forceTotal,
+    }};
+}
+
+void seed_all_vertex_forces(Mesh &mesh)
+{
+    for (Vertex &vertex : mesh.vertices)
+    {
+        const auto matrices = mutable_force_matrices(vertex);
+        for (int family = 0; family < kForceFamilyCount; ++family)
+        {
+            for (int axis = 0; axis < kAxisCount; ++axis)
+            {
+                matrices[family]->set(
+                    axis,
+                    0,
+                    100000.0 * vertex.index +
+                        1000.0 * family + axis + 0.25);
+            }
+        }
+    }
+}
+
+std::vector<VertexForceSnapshot> capture_all_vertex_forces(
+    const Mesh &mesh)
+{
+    std::vector<VertexForceSnapshot> snapshot(mesh.vertices.size());
+    for (std::size_t source = 0; source < mesh.vertices.size(); ++source)
+    {
+        const auto matrices = force_matrices(mesh.vertices[source]);
+        for (int family = 0; family < kForceFamilyCount; ++family)
+        {
+            for (int axis = 0; axis < kAxisCount; ++axis)
+            {
+                snapshot[source][family][axis] =
+                    matrices[family]->get(axis, 0);
+            }
+        }
+    }
+    return snapshot;
+}
+
+void seed_publication_unrelated_state(Mesh &mesh)
+{
+    for (Face &face : mesh.faces)
+    {
+        face.meanCurvature = 2000.0 + face.index;
+        face.elementArea = 3000.0 + face.index;
+        face.elementVolume = 4000.0 + face.index;
+        face.energy.energyCurvature = 5000.0 + face.index;
+    }
+    for (Vertex &vertex : mesh.vertices)
+    {
+        for (int axis = 0; axis < kAxisCount; ++axis)
+        {
+            vertex.coord.set(
+                axis, 0, 6000.0 + 10.0 * vertex.index + axis);
+        }
+    }
+}
+
+void expect_publication_unrelated_state_unchanged(const Mesh &mesh)
+{
+    for (const Face &face : mesh.faces)
+    {
+        EXPECT_DOUBLE_EQ(face.meanCurvature,
+                         2000.0 + face.index);
+        EXPECT_DOUBLE_EQ(face.elementArea,
+                         3000.0 + face.index);
+        EXPECT_DOUBLE_EQ(face.elementVolume,
+                         4000.0 + face.index);
+        EXPECT_DOUBLE_EQ(face.energy.energyCurvature,
+                         5000.0 + face.index);
+        EXPECT_TRUE(face.oneRingVertices.empty());
+    }
+    for (const Vertex &vertex : mesh.vertices)
+    {
+        for (int axis = 0; axis < kAxisCount; ++axis)
+        {
+            EXPECT_DOUBLE_EQ(
+                vertex.coord.get(axis, 0),
+                6000.0 + 10.0 * vertex.index + axis);
+        }
+    }
+}
+
+void expect_only_membrane_forces_published(
+    const Mesh &mesh,
+    const std::vector<VertexForceSnapshot> &before,
+    const std::vector<SourceForceKinds> &expected)
+{
+    ASSERT_EQ(mesh.vertices.size(), before.size());
+    ASSERT_EQ(mesh.vertices.size(), expected.size());
+    for (std::size_t source = 0; source < mesh.vertices.size(); ++source)
+    {
+        const auto matrices = force_matrices(mesh.vertices[source]);
+        for (int family = 0; family < kForceFamilyCount; ++family)
+        {
+            for (int axis = 0; axis < kAxisCount; ++axis)
+            {
+                if (family < kForceKindCount)
+                {
+                    EXPECT_DOUBLE_EQ(
+                        matrices[family]->get(axis, 0),
+                        expected[source][family][axis]);
+                }
+                else
+                {
+                    EXPECT_DOUBLE_EQ(
+                        matrices[family]->get(axis, 0),
+                        before[source][family][axis]);
+                }
+            }
+        }
+    }
+    for (const Face &face : mesh.faces)
+    {
+        EXPECT_TRUE(face.oneRingVertices.empty());
     }
 }
 } // namespace
@@ -641,4 +810,235 @@ TEST(ValenceFourFaceLoopRoutePreflight,
     EXPECT_FALSE(result.actualProductionForcePathExecuted);
     EXPECT_FALSE(result.productionFaceLoopExecuted);
     expect_mesh_owned_scientific_state_unchanged(mesh);
+}
+
+TEST(ValenceFourFaceLoopRoutePreflight,
+     VertexForcePublicationRejectsByDefaultWithoutMutation)
+{
+    ApprovedValence4MeshFixture fixture;
+    Mesh &mesh = *fixture.mesh;
+    const Valence4FaceLoopRoutePreflightResult preflight =
+        build_guarded_valence4_face_loop_route_preflight(mesh);
+    ASSERT_TRUE(preflight.supported) << preflight.rejectionReason;
+    seed_all_vertex_forces(mesh);
+    const auto before = capture_all_vertex_forces(mesh);
+
+    Valence4VertexForcePublicationRequest request;
+    for (const SourceMappingView &mapping : preflight.mappings)
+    {
+        request.rows.push_back(
+            make_scientific_rows_for_mapping(mapping));
+    }
+    const Valence4VertexForcePublicationResult result =
+        evaluate_guarded_valence4_vertex_force_publication(
+            mesh, request);
+
+    EXPECT_FALSE(result.accepted);
+    EXPECT_FALSE(result.explicitPublicationRequested);
+    EXPECT_FALSE(result.vertexForcePublicationExecuted);
+    EXPECT_NE(result.rejectionReason.find("default-off"),
+              std::string::npos);
+    EXPECT_FALSE(result.scientificRequest.accepted);
+    EXPECT_EQ(capture_all_vertex_forces(mesh), before);
+}
+
+TEST(ValenceFourFaceLoopRoutePreflight,
+     VertexForcePublicationOverwritesOnlyThreeMembraneFamilies)
+{
+    ApprovedValence4MeshFixture fixture;
+    Mesh &mesh = *fixture.mesh;
+    const Valence4FaceLoopRoutePreflightResult preflight =
+        build_guarded_valence4_face_loop_route_preflight(mesh);
+    ASSERT_TRUE(preflight.supported) << preflight.rejectionReason;
+    seed_all_vertex_forces(mesh);
+    const auto before = capture_all_vertex_forces(mesh);
+
+    Valence4VertexForcePublicationRequest request;
+    request.reviewerApprovedExplicitPublication = true;
+    for (const SourceMappingView &mapping : preflight.mappings)
+    {
+        request.rows.push_back(
+            make_scientific_rows_for_mapping(mapping));
+    }
+    const Valence4VertexForcePublicationResult result =
+        evaluate_guarded_valence4_vertex_force_publication(
+            mesh, request);
+
+    ASSERT_TRUE(result.accepted) << result.rejectionReason;
+    EXPECT_TRUE(result.explicitPublicationRequested);
+    EXPECT_TRUE(result.vertexForcePublicationExecuted);
+    EXPECT_TRUE(result.scientificRequest.accepted);
+    EXPECT_TRUE(
+        result.scientificRequest.productionScientificAlgebraExecuted);
+    EXPECT_FALSE(result.productionRouteEnabled);
+    EXPECT_FALSE(result.actualProductionForcePathExecuted);
+    EXPECT_FALSE(result.productionFaceLoopExecuted);
+    EXPECT_FALSE(result.productionOneRingsPopulated);
+    EXPECT_FALSE(result.defaultEvaluatorCaller);
+    expect_only_membrane_forces_published(
+        mesh,
+        before,
+        result.scientificRequest.sourceKeyedRequest
+            .accumulatedSourceForces);
+}
+
+TEST(ValenceFourFaceLoopRoutePreflight,
+     VertexForcePublicationRejectsMalformedLateRowWithoutMutation)
+{
+    ApprovedValence4MeshFixture fixture;
+    Mesh &mesh = *fixture.mesh;
+    const Valence4FaceLoopRoutePreflightResult preflight =
+        build_guarded_valence4_face_loop_route_preflight(mesh);
+    ASSERT_TRUE(preflight.supported) << preflight.rejectionReason;
+    seed_all_vertex_forces(mesh);
+    const auto before = capture_all_vertex_forces(mesh);
+
+    Valence4VertexForcePublicationRequest request;
+    request.reviewerApprovedExplicitPublication = true;
+    for (const SourceMappingView &mapping : preflight.mappings)
+    {
+        request.rows.push_back(
+            make_scientific_rows_for_mapping(mapping));
+    }
+    request.rows.back().samples.back().rows[0].sourceIds[0] =
+        preflight.sourceCount + 1;
+    const Valence4VertexForcePublicationResult result =
+        evaluate_guarded_valence4_vertex_force_publication(
+            mesh, request);
+
+    EXPECT_FALSE(result.accepted);
+    EXPECT_TRUE(result.explicitPublicationRequested);
+    EXPECT_FALSE(result.vertexForcePublicationExecuted);
+    EXPECT_NE(result.rejectionReason.find("out-of-range"),
+              std::string::npos);
+    EXPECT_EQ(capture_all_vertex_forces(mesh), before);
+}
+
+TEST(ValenceFourFaceLoopRoutePreflight,
+     VertexForcePublicationPrimitiveRejectsLateDestinationDriftAtomically)
+{
+    ApprovedValence4MeshFixture fixture;
+    Mesh &mesh = *fixture.mesh;
+    seed_all_vertex_forces(mesh);
+    const auto before = capture_all_vertex_forces(mesh);
+    std::vector<SourceForceKinds> sourceForces(mesh.vertices.size());
+    for (std::size_t source = 0; source < sourceForces.size(); ++source)
+    {
+        for (int kind = 0; kind < kForceKindCount; ++kind)
+        {
+            for (int axis = 0; axis < kAxisCount; ++axis)
+            {
+                sourceForces[source][kind][axis] =
+                    100.0 * source + 10.0 * kind + axis + 0.5;
+            }
+        }
+    }
+
+    mesh.vertices.back().index += 1;
+    EXPECT_THROW(
+        publish_source_keyed_membrane_forces_to_vertices(
+            sourceForces, mesh),
+        std::invalid_argument);
+    EXPECT_EQ(capture_all_vertex_forces(mesh), before);
+
+    mesh.vertices.back().index -= 1;
+    sourceForces.back()[2][2] =
+        std::numeric_limits<double>::infinity();
+    EXPECT_THROW(
+        publish_source_keyed_membrane_forces_to_vertices(
+            sourceForces, mesh),
+        std::invalid_argument);
+    EXPECT_EQ(capture_all_vertex_forces(mesh), before);
+
+    sourceForces.back()[2][2] = 1.0;
+    mesh.faces.back().oneRingVertices = {0};
+    EXPECT_THROW(
+        publish_source_keyed_membrane_forces_to_vertices(
+            sourceForces, mesh),
+        std::invalid_argument);
+    EXPECT_EQ(capture_all_vertex_forces(mesh), before);
+}
+
+TEST(ValenceFourFaceLoopRoutePreflight,
+     VertexForcePublicationPrimitiveRejectsSourceCardinalityAtomically)
+{
+    ApprovedValence4MeshFixture fixture;
+    Mesh &mesh = *fixture.mesh;
+    seed_all_vertex_forces(mesh);
+    seed_publication_unrelated_state(mesh);
+    const auto before = capture_all_vertex_forces(mesh);
+    std::vector<SourceForceKinds> sourceForces(mesh.vertices.size());
+
+    sourceForces.pop_back();
+    EXPECT_THROW(
+        publish_source_keyed_membrane_forces_to_vertices(
+            sourceForces, mesh),
+        std::invalid_argument);
+    EXPECT_EQ(capture_all_vertex_forces(mesh), before);
+    expect_publication_unrelated_state_unchanged(mesh);
+
+    sourceForces.resize(mesh.vertices.size() + 1);
+    EXPECT_THROW(
+        publish_source_keyed_membrane_forces_to_vertices(
+            sourceForces, mesh),
+        std::invalid_argument);
+    EXPECT_EQ(capture_all_vertex_forces(mesh), before);
+    expect_publication_unrelated_state_unchanged(mesh);
+}
+
+TEST(ValenceFourFaceLoopRoutePreflight,
+     VertexForcePublicationPrimitiveRejectsNullLateDestinationAtomically)
+{
+    ApprovedValence4MeshFixture fixture;
+    Mesh &mesh = *fixture.mesh;
+    seed_all_vertex_forces(mesh);
+    seed_publication_unrelated_state(mesh);
+    const auto before = capture_all_vertex_forces(mesh);
+    std::vector<SourceForceKinds> sourceForces(mesh.vertices.size());
+    Matrix originalVolume = mesh.vertices.back().force.forceVolume;
+
+    mesh.vertices.back().force.forceVolume.free();
+    ASSERT_EQ(mesh.vertices.back().force.forceVolume.mat, nullptr);
+    EXPECT_THROW(
+        publish_source_keyed_membrane_forces_to_vertices(
+            sourceForces, mesh),
+        std::invalid_argument);
+    EXPECT_EQ(mesh.vertices.back().force.forceVolume.mat, nullptr);
+
+    mesh.vertices.back().force.forceVolume = originalVolume;
+    EXPECT_EQ(capture_all_vertex_forces(mesh), before);
+    expect_publication_unrelated_state_unchanged(mesh);
+}
+
+TEST(ValenceFourFaceLoopRoutePreflight,
+     VertexForcePublicationPrimitiveRejectsWrongShapedLateDestinationAtomically)
+{
+    ApprovedValence4MeshFixture fixture;
+    Mesh &mesh = *fixture.mesh;
+    seed_all_vertex_forces(mesh);
+    seed_publication_unrelated_state(mesh);
+    const auto before = capture_all_vertex_forces(mesh);
+    std::vector<SourceForceKinds> sourceForces(mesh.vertices.size());
+    Matrix originalVolume = mesh.vertices.back().force.forceVolume;
+    Matrix wrongShapedVolume(2, 1, true);
+    wrongShapedVolume.set(0, 0, 7001.25);
+    wrongShapedVolume.set(1, 0, 7002.25);
+    mesh.vertices.back().force.forceVolume = wrongShapedVolume;
+
+    EXPECT_THROW(
+        publish_source_keyed_membrane_forces_to_vertices(
+            sourceForces, mesh),
+        std::invalid_argument);
+    EXPECT_EQ(mesh.vertices.back().force.forceVolume.nrow(), 2);
+    EXPECT_EQ(mesh.vertices.back().force.forceVolume.ncol(), 1);
+    EXPECT_DOUBLE_EQ(
+        mesh.vertices.back().force.forceVolume.get(0, 0),
+        7001.25);
+    EXPECT_DOUBLE_EQ(
+        mesh.vertices.back().force.forceVolume.get(1, 0),
+        7002.25);
+
+    mesh.vertices.back().force.forceVolume = originalVolume;
+    EXPECT_EQ(capture_all_vertex_forces(mesh), before);
+    expect_publication_unrelated_state_unchanged(mesh);
 }

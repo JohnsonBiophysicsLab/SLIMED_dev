@@ -344,6 +344,11 @@ def main() -> int:
         and composition.get("mesh_state_unchanged")
         and composition.get("mesh_state_mutation_gate_binding")
         and composition.get("production_shaped_source_scatter_executed")
+        and composition.get(
+            "default_off_vertex_force_publication_rejected"
+        )
+        and composition.get("vertex_force_publication_executed")
+        and composition.get("only_membrane_force_families_published")
         and composition.get("route_remained_disabled")
         and isinstance(
             composition.get("max_observable_difference"), (int, float)
@@ -359,6 +364,11 @@ def main() -> int:
         )
         and composition["max_production_shaped_scatter_difference"]
         <= 1.0e-12
+        and isinstance(
+            composition.get("max_published_force_difference"),
+            (int, float),
+        )
+        and composition["max_published_force_difference"] <= 1.0e-12
         and isinstance(
             adapter.get("max_scientific_force_algebra_difference"),
             (int, float),

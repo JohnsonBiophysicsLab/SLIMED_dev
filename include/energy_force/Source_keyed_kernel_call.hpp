@@ -8,6 +8,8 @@
 #include <array>
 #include <vector>
 
+class Mesh;
+
 namespace slimed::source_keyed_kernel
 {
 constexpr int kDerivativeRowCount = 7;
@@ -114,4 +116,15 @@ void scatter_source_keyed_face_forces_to_component_buffer(
 std::vector<SourceForceKinds> reduce_source_keyed_force_component_buffers(
     const std::vector<SourceForceComponentBuffer> &componentBuffers,
     int sourceCount);
+
+/**
+ * Publish reduced source-keyed membrane forces to matching Mesh vertices.
+ *
+ * The complete source vector and every destination are validated before the
+ * first write. Publication overwrites only forceCurvature, forceArea, and
+ * forceVolume; it does not update forceTotal or any other Mesh state.
+ */
+void publish_source_keyed_membrane_forces_to_vertices(
+    const std::vector<SourceForceKinds> &sourceForces,
+    Mesh &mesh);
 } // namespace slimed::source_keyed_kernel
