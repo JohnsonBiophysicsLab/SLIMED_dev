@@ -136,6 +136,13 @@ the replacement `3 x 1` face normal after complete face-index, finiteness,
 one-ring, and allocation validation. Area, legacy volume, other current and
 previous energy fields, topology, and all vertex state remain unchanged.
 
+A third disposable mesh binds the atomic publication successor. It rejects by
+default, evaluates the scientific request once, validates both destination
+families and allocates all replacement normals before the first write, then
+publishes the reviewed membrane-force and face-observable families together.
+Its complete mesh state must match the two separately exercised predecessor
+publication meshes, while route and real face-loop flags remain false.
+
 ## Run
 
 Dependency-absent behavior is a clean skip:

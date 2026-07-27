@@ -1445,3 +1445,195 @@ TEST(ValenceFourFaceLoopRoutePreflight,
         mesh, beforeFaces, expected);
     EXPECT_EQ(capture_all_vertex_forces(mesh), beforeForces);
 }
+
+TEST(ValenceFourFaceLoopRoutePreflight,
+     AtomicFaceLoopPublicationRejectsByDefaultWithoutMutation)
+{
+    ApprovedValence4MeshFixture fixture;
+    Mesh &mesh = *fixture.mesh;
+    const Valence4FaceLoopRoutePreflightResult preflight =
+        build_guarded_valence4_face_loop_route_preflight(mesh);
+    ASSERT_TRUE(preflight.supported) << preflight.rejectionReason;
+    seed_face_observable_publication_state(mesh);
+    seed_all_vertex_forces(mesh);
+    const std::vector<Face> beforeFaces = mesh.faces;
+    const auto beforeForces = capture_all_vertex_forces(mesh);
+    const auto beforeCoordinates = capture_vertex_coordinates(mesh);
+
+    Valence4FaceLoopPublicationRequest request;
+    for (const SourceMappingView &mapping : preflight.mappings)
+    {
+        request.rows.push_back(
+            make_scientific_rows_for_mapping(mapping));
+    }
+    const Valence4FaceLoopPublicationResult result =
+        evaluate_guarded_valence4_face_loop_publication(
+            mesh, request);
+
+    EXPECT_FALSE(result.accepted);
+    EXPECT_FALSE(result.explicitPublicationRequested);
+    EXPECT_FALSE(result.vertexForcePublicationExecuted);
+    EXPECT_FALSE(result.faceObservablePublicationExecuted);
+    EXPECT_FALSE(result.atomicFaceLoopPublicationExecuted);
+    EXPECT_NE(result.rejectionReason.find("default-off"),
+              std::string::npos);
+    expect_face_observable_publication_state_unchanged(
+        mesh, beforeFaces);
+    EXPECT_EQ(capture_all_vertex_forces(mesh), beforeForces);
+    EXPECT_EQ(capture_vertex_coordinates(mesh), beforeCoordinates);
+}
+
+TEST(ValenceFourFaceLoopRoutePreflight,
+     AtomicFaceLoopPublicationCommitsBothReviewedFamilies)
+{
+    ApprovedValence4MeshFixture fixture;
+    Mesh &mesh = *fixture.mesh;
+    const Valence4FaceLoopRoutePreflightResult preflight =
+        build_guarded_valence4_face_loop_route_preflight(mesh);
+    ASSERT_TRUE(preflight.supported) << preflight.rejectionReason;
+    seed_face_observable_publication_state(mesh);
+    seed_all_vertex_forces(mesh);
+    const std::vector<Face> beforeFaces = mesh.faces;
+    const auto beforeForces = capture_all_vertex_forces(mesh);
+    const auto beforeCoordinates = capture_vertex_coordinates(mesh);
+
+    Valence4FaceLoopPublicationRequest request;
+    request.reviewerApprovedExplicitPublication = true;
+    for (const SourceMappingView &mapping : preflight.mappings)
+    {
+        request.rows.push_back(
+            make_scientific_rows_for_mapping(mapping));
+    }
+    const Valence4FaceLoopPublicationResult result =
+        evaluate_guarded_valence4_face_loop_publication(
+            mesh, request);
+
+    ASSERT_TRUE(result.accepted) << result.rejectionReason;
+    EXPECT_TRUE(result.explicitPublicationRequested);
+    EXPECT_TRUE(result.vertexForcePublicationExecuted);
+    EXPECT_TRUE(result.faceObservablePublicationExecuted);
+    EXPECT_TRUE(result.atomicFaceLoopPublicationExecuted);
+    ASSERT_TRUE(result.scientificRequest.accepted);
+    expect_only_membrane_forces_published(
+        mesh,
+        beforeForces,
+        result.scientificRequest.sourceKeyedRequest
+            .accumulatedSourceForces);
+    expect_only_face_observables_published(
+        mesh,
+        beforeFaces,
+        result.scientificRequest.faceObservables);
+    EXPECT_EQ(capture_vertex_coordinates(mesh), beforeCoordinates);
+    EXPECT_FALSE(result.productionRouteEnabled);
+    EXPECT_FALSE(result.actualProductionForcePathExecuted);
+    EXPECT_FALSE(result.productionFaceLoopExecuted);
+    EXPECT_FALSE(result.productionOneRingsPopulated);
+    EXPECT_FALSE(result.defaultEvaluatorCaller);
+}
+
+TEST(ValenceFourFaceLoopRoutePreflight,
+     AtomicFaceLoopPublicationRejectsMalformedRowsWithoutMutation)
+{
+    ApprovedValence4MeshFixture fixture;
+    Mesh &mesh = *fixture.mesh;
+    const Valence4FaceLoopRoutePreflightResult preflight =
+        build_guarded_valence4_face_loop_route_preflight(mesh);
+    ASSERT_TRUE(preflight.supported) << preflight.rejectionReason;
+    seed_face_observable_publication_state(mesh);
+    seed_all_vertex_forces(mesh);
+    const std::vector<Face> beforeFaces = mesh.faces;
+    const auto beforeForces = capture_all_vertex_forces(mesh);
+
+    Valence4FaceLoopPublicationRequest request;
+    request.reviewerApprovedExplicitPublication = true;
+    for (const SourceMappingView &mapping : preflight.mappings)
+    {
+        request.rows.push_back(
+            make_scientific_rows_for_mapping(mapping));
+    }
+    request.rows.back().samples.back().rows[0].sourceIds[0] =
+        preflight.sourceCount + 1;
+    const Valence4FaceLoopPublicationResult result =
+        evaluate_guarded_valence4_face_loop_publication(
+            mesh, request);
+
+    EXPECT_FALSE(result.accepted);
+    EXPECT_TRUE(result.explicitPublicationRequested);
+    EXPECT_FALSE(result.atomicFaceLoopPublicationExecuted);
+    EXPECT_NE(result.rejectionReason.find("out-of-range"),
+              std::string::npos);
+    expect_face_observable_publication_state_unchanged(
+        mesh, beforeFaces);
+    EXPECT_EQ(capture_all_vertex_forces(mesh), beforeForces);
+}
+
+TEST(ValenceFourFaceLoopRoutePreflight,
+     AtomicFaceLoopPrimitiveRejectsLateFaceDriftBeforeVertexWrites)
+{
+    ApprovedValence4MeshFixture fixture;
+    Mesh &mesh = *fixture.mesh;
+    const Valence4FaceLoopRoutePreflightResult preflight =
+        build_guarded_valence4_face_loop_route_preflight(mesh);
+    ASSERT_TRUE(preflight.supported) << preflight.rejectionReason;
+    const Valence4FaceLoopScientificRequest request =
+        make_scientific_request(preflight, true);
+    Valence4FaceLoopScientificRequestResult scientificResult =
+        evaluate_guarded_valence4_face_loop_scientific_request(
+            mesh, request);
+    ASSERT_TRUE(scientificResult.accepted)
+        << scientificResult.rejectionReason;
+
+    seed_face_observable_publication_state(mesh);
+    seed_all_vertex_forces(mesh);
+    const std::vector<Face> beforeFaces = mesh.faces;
+    const auto beforeForces = capture_all_vertex_forces(mesh);
+    scientificResult.faceObservables.back().normal.back() =
+        std::numeric_limits<double>::infinity();
+
+    EXPECT_THROW(
+        publish_valence4_face_loop_scientific_result_atomically(
+            scientificResult, mesh),
+        std::invalid_argument);
+    expect_face_observable_publication_state_unchanged(
+        mesh, beforeFaces);
+    EXPECT_EQ(capture_all_vertex_forces(mesh), beforeForces);
+}
+
+TEST(ValenceFourFaceLoopRoutePreflight,
+     AtomicFaceLoopPrimitiveRejectsLateVertexDriftBeforeFaceWrites)
+{
+    ApprovedValence4MeshFixture fixture;
+    Mesh &mesh = *fixture.mesh;
+    const Valence4FaceLoopRoutePreflightResult preflight =
+        build_guarded_valence4_face_loop_route_preflight(mesh);
+    ASSERT_TRUE(preflight.supported) << preflight.rejectionReason;
+    const Valence4FaceLoopScientificRequest request =
+        make_scientific_request(preflight, true);
+    const Valence4FaceLoopScientificRequestResult scientificResult =
+        evaluate_guarded_valence4_face_loop_scientific_request(
+            mesh, request);
+    ASSERT_TRUE(scientificResult.accepted)
+        << scientificResult.rejectionReason;
+
+    seed_face_observable_publication_state(mesh);
+    seed_all_vertex_forces(mesh);
+    const std::vector<Face> beforeFaces = mesh.faces;
+    const auto beforeForces = capture_all_vertex_forces(mesh);
+    Matrix originalVolume = mesh.vertices.back().force.forceVolume;
+    Matrix wrongShapedVolume(2, 1, true);
+    wrongShapedVolume.set(0, 0, 9701.25);
+    wrongShapedVolume.set(1, 0, 9702.25);
+    mesh.vertices.back().force.forceVolume = wrongShapedVolume;
+
+    EXPECT_THROW(
+        publish_valence4_face_loop_scientific_result_atomically(
+            scientificResult, mesh),
+        std::invalid_argument);
+    EXPECT_EQ(mesh.vertices.back().force.forceVolume.nrow(), 2);
+    EXPECT_EQ(mesh.vertices.back().force.forceVolume.ncol(), 1);
+    expect_face_observable_publication_state_unchanged(
+        mesh, beforeFaces);
+
+    mesh.vertices.back().force.forceVolume = originalVolume;
+    EXPECT_EQ(capture_all_vertex_forces(mesh), beforeForces);
+}
