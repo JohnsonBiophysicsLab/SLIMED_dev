@@ -38,8 +38,8 @@ requests reject before publication.
 The approved closed valence-4 octahedron tests bind:
 
 - default-off and malformed-late-row rejection with no force mutation;
-- destination identity, finiteness, one-ring, and shape rejection before any
-  write;
+- source-cardinality, destination identity, finiteness, one-ring, null
+  destination, and wrong-shape rejection before any write;
 - exact publication of all `6 x 3 x 3` membrane-force components;
 - unchanged `forceTotal`, other current force families, all previous force
   families, and face state;

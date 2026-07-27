@@ -100,6 +100,9 @@ ANCHORS = {
         "VertexForcePublicationOverwritesOnlyThreeMembraneFamilies",
         "VertexForcePublicationRejectsMalformedLateRowWithoutMutation",
         "VertexForcePublicationPrimitiveRejectsLateDestinationDriftAtomically",
+        "VertexForcePublicationPrimitiveRejectsSourceCardinalityAtomically",
+        "VertexForcePublicationPrimitiveRejectsNullLateDestinationAtomically",
+        "VertexForcePublicationPrimitiveRejectsWrongShapedLateDestinationAtomically",
         "expect_only_membrane_forces_published",
     ),
     ADAPTER: (

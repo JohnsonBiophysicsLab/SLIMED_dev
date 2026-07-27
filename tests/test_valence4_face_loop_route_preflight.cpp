@@ -319,6 +319,50 @@ std::vector<VertexForceSnapshot> capture_all_vertex_forces(
     return snapshot;
 }
 
+void seed_publication_unrelated_state(Mesh &mesh)
+{
+    for (Face &face : mesh.faces)
+    {
+        face.meanCurvature = 2000.0 + face.index;
+        face.elementArea = 3000.0 + face.index;
+        face.elementVolume = 4000.0 + face.index;
+        face.energy.energyCurvature = 5000.0 + face.index;
+    }
+    for (Vertex &vertex : mesh.vertices)
+    {
+        for (int axis = 0; axis < kAxisCount; ++axis)
+        {
+            vertex.coord.set(
+                axis, 0, 6000.0 + 10.0 * vertex.index + axis);
+        }
+    }
+}
+
+void expect_publication_unrelated_state_unchanged(const Mesh &mesh)
+{
+    for (const Face &face : mesh.faces)
+    {
+        EXPECT_DOUBLE_EQ(face.meanCurvature,
+                         2000.0 + face.index);
+        EXPECT_DOUBLE_EQ(face.elementArea,
+                         3000.0 + face.index);
+        EXPECT_DOUBLE_EQ(face.elementVolume,
+                         4000.0 + face.index);
+        EXPECT_DOUBLE_EQ(face.energy.energyCurvature,
+                         5000.0 + face.index);
+        EXPECT_TRUE(face.oneRingVertices.empty());
+    }
+    for (const Vertex &vertex : mesh.vertices)
+    {
+        for (int axis = 0; axis < kAxisCount; ++axis)
+        {
+            EXPECT_DOUBLE_EQ(
+                vertex.coord.get(axis, 0),
+                6000.0 + 10.0 * vertex.index + axis);
+        }
+    }
+}
+
 void expect_only_membrane_forces_published(
     const Mesh &mesh,
     const std::vector<VertexForceSnapshot> &before,
@@ -913,4 +957,88 @@ TEST(ValenceFourFaceLoopRoutePreflight,
             sourceForces, mesh),
         std::invalid_argument);
     EXPECT_EQ(capture_all_vertex_forces(mesh), before);
+}
+
+TEST(ValenceFourFaceLoopRoutePreflight,
+     VertexForcePublicationPrimitiveRejectsSourceCardinalityAtomically)
+{
+    ApprovedValence4MeshFixture fixture;
+    Mesh &mesh = *fixture.mesh;
+    seed_all_vertex_forces(mesh);
+    seed_publication_unrelated_state(mesh);
+    const auto before = capture_all_vertex_forces(mesh);
+    std::vector<SourceForceKinds> sourceForces(mesh.vertices.size());
+
+    sourceForces.pop_back();
+    EXPECT_THROW(
+        publish_source_keyed_membrane_forces_to_vertices(
+            sourceForces, mesh),
+        std::invalid_argument);
+    EXPECT_EQ(capture_all_vertex_forces(mesh), before);
+    expect_publication_unrelated_state_unchanged(mesh);
+
+    sourceForces.resize(mesh.vertices.size() + 1);
+    EXPECT_THROW(
+        publish_source_keyed_membrane_forces_to_vertices(
+            sourceForces, mesh),
+        std::invalid_argument);
+    EXPECT_EQ(capture_all_vertex_forces(mesh), before);
+    expect_publication_unrelated_state_unchanged(mesh);
+}
+
+TEST(ValenceFourFaceLoopRoutePreflight,
+     VertexForcePublicationPrimitiveRejectsNullLateDestinationAtomically)
+{
+    ApprovedValence4MeshFixture fixture;
+    Mesh &mesh = *fixture.mesh;
+    seed_all_vertex_forces(mesh);
+    seed_publication_unrelated_state(mesh);
+    const auto before = capture_all_vertex_forces(mesh);
+    std::vector<SourceForceKinds> sourceForces(mesh.vertices.size());
+    Matrix originalVolume = mesh.vertices.back().force.forceVolume;
+
+    mesh.vertices.back().force.forceVolume.free();
+    ASSERT_EQ(mesh.vertices.back().force.forceVolume.mat, nullptr);
+    EXPECT_THROW(
+        publish_source_keyed_membrane_forces_to_vertices(
+            sourceForces, mesh),
+        std::invalid_argument);
+    EXPECT_EQ(mesh.vertices.back().force.forceVolume.mat, nullptr);
+
+    mesh.vertices.back().force.forceVolume = originalVolume;
+    EXPECT_EQ(capture_all_vertex_forces(mesh), before);
+    expect_publication_unrelated_state_unchanged(mesh);
+}
+
+TEST(ValenceFourFaceLoopRoutePreflight,
+     VertexForcePublicationPrimitiveRejectsWrongShapedLateDestinationAtomically)
+{
+    ApprovedValence4MeshFixture fixture;
+    Mesh &mesh = *fixture.mesh;
+    seed_all_vertex_forces(mesh);
+    seed_publication_unrelated_state(mesh);
+    const auto before = capture_all_vertex_forces(mesh);
+    std::vector<SourceForceKinds> sourceForces(mesh.vertices.size());
+    Matrix originalVolume = mesh.vertices.back().force.forceVolume;
+    Matrix wrongShapedVolume(2, 1, true);
+    wrongShapedVolume.set(0, 0, 7001.25);
+    wrongShapedVolume.set(1, 0, 7002.25);
+    mesh.vertices.back().force.forceVolume = wrongShapedVolume;
+
+    EXPECT_THROW(
+        publish_source_keyed_membrane_forces_to_vertices(
+            sourceForces, mesh),
+        std::invalid_argument);
+    EXPECT_EQ(mesh.vertices.back().force.forceVolume.nrow(), 2);
+    EXPECT_EQ(mesh.vertices.back().force.forceVolume.ncol(), 1);
+    EXPECT_DOUBLE_EQ(
+        mesh.vertices.back().force.forceVolume.get(0, 0),
+        7001.25);
+    EXPECT_DOUBLE_EQ(
+        mesh.vertices.back().force.forceVolume.get(1, 0),
+        7002.25);
+
+    mesh.vertices.back().force.forceVolume = originalVolume;
+    EXPECT_EQ(capture_all_vertex_forces(mesh), before);
+    expect_publication_unrelated_state_unchanged(mesh);
 }
