@@ -109,6 +109,16 @@ VERTEX_PUBLICATION_SUCCESSOR_PATHS = {
         "tests/test_irregular_valence4_vertex_force_publication_inventory.py"
     ),
 }
+FACE_OBSERVABLE_PUBLICATION_INVENTORY = Path(
+    "scripts/inventory_irregular_valence4_face_observable_publication.py"
+)
+FACE_OBSERVABLE_PUBLICATION_SUCCESSOR_PATHS = {
+    Path("docs/irregular_valence4_face_observable_publication.md"),
+    FACE_OBSERVABLE_PUBLICATION_INVENTORY,
+    Path(
+        "tests/test_irregular_valence4_face_observable_publication_inventory.py"
+    ),
+}
 
 ALLOWED_PATHS = {
     HEADER,
@@ -282,6 +292,13 @@ def collect(root: Path) -> dict[str, object]:
             path
             for path in paths
             if Path(path) not in VERTEX_PUBLICATION_SUCCESSOR_PATHS
+        ]
+    if (root / FACE_OBSERVABLE_PUBLICATION_INVENTORY).is_file():
+        paths = [
+            path
+            for path in paths
+            if Path(path)
+            not in FACE_OBSERVABLE_PUBLICATION_SUCCESSOR_PATHS
         ]
     unexpected = sorted(path for path in paths if Path(path) not in ALLOWED_PATHS)
     if unexpected:

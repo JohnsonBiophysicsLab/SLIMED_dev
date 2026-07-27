@@ -3,6 +3,7 @@
 #include "mesh/Mesh.hpp"
 #include "mesh/Valence4_topology_source_mapping.hpp"
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstddef>
@@ -50,6 +51,17 @@ Valence4VertexForcePublicationResult reject_publication_request(
     const bool explicitPublicationRequested)
 {
     Valence4VertexForcePublicationResult result;
+    result.rejectionReason = std::move(reason);
+    result.explicitPublicationRequested = explicitPublicationRequested;
+    return result;
+}
+
+Valence4FaceObservablePublicationResult
+reject_face_observable_publication_request(
+    std::string reason,
+    const bool explicitPublicationRequested)
+{
+    Valence4FaceObservablePublicationResult result;
     result.rejectionReason = std::move(reason);
     result.explicitPublicationRequested = explicitPublicationRequested;
     return result;
@@ -505,6 +517,163 @@ evaluate_guarded_valence4_vertex_force_publication(
 
     result.accepted = true;
     result.vertexForcePublicationExecuted = true;
+    result.rejectionReason.clear();
+    return result;
+}
+
+void publish_valence4_face_scientific_observables_to_faces(
+    const std::vector<Valence4FaceScientificObservables> &observables,
+    Mesh &mesh)
+{
+    if (observables.empty() ||
+        observables.size() != mesh.faces.size())
+    {
+        throw std::invalid_argument(
+            "valence-4 face-observable publication rejected face "
+            "cardinality drift");
+    }
+
+    std::vector<Valence4FaceScientificObservables> staged(
+        mesh.faces.size());
+    std::vector<bool> assigned(mesh.faces.size(), false);
+    for (std::size_t facePosition = 0;
+         facePosition < mesh.faces.size();
+         ++facePosition)
+    {
+        const Face &face = mesh.faces[facePosition];
+        if (face.index != static_cast<int>(facePosition))
+        {
+            throw std::invalid_argument(
+                "valence-4 face-observable publication rejected face "
+                "identity drift");
+        }
+        if (!face.oneRingVertices.empty())
+        {
+            throw std::invalid_argument(
+                "valence-4 face-observable publication requires empty "
+                "production one-rings");
+        }
+    }
+    for (const Valence4FaceScientificObservables &observable :
+         observables)
+    {
+        if (observable.faceIndex < 0 ||
+            observable.faceIndex >=
+                static_cast<int>(mesh.faces.size()))
+        {
+            throw std::invalid_argument(
+                "valence-4 face-observable publication rejected "
+                "out-of-range face identity");
+        }
+        const std::size_t faceIndex =
+            static_cast<std::size_t>(observable.faceIndex);
+        if (assigned[faceIndex])
+        {
+            throw std::invalid_argument(
+                "valence-4 face-observable publication rejected duplicate "
+                "face identity");
+        }
+        if (!std::isfinite(observable.meanCurvature) ||
+            !std::isfinite(observable.bendingEnergy))
+        {
+            throw std::invalid_argument(
+                "valence-4 face-observable publication rejected nonfinite "
+                "scalar data");
+        }
+        for (const double component : observable.normal)
+        {
+            if (!std::isfinite(component))
+            {
+                throw std::invalid_argument(
+                    "valence-4 face-observable publication rejected "
+                    "nonfinite normal data");
+            }
+        }
+        staged[faceIndex] = observable;
+        assigned[faceIndex] = true;
+    }
+    if (!std::all_of(assigned.begin(), assigned.end(),
+                     [](const bool value) { return value; }))
+    {
+        throw std::invalid_argument(
+            "valence-4 face-observable publication rejected incomplete "
+            "face coverage");
+    }
+
+    std::vector<Matrix> stagedNormals;
+    stagedNormals.reserve(staged.size());
+    for (const Valence4FaceScientificObservables &observable : staged)
+    {
+        stagedNormals.emplace_back(
+            source_keyed_kernel::kAxisCount, 1, true);
+        for (int axis = 0;
+             axis < source_keyed_kernel::kAxisCount;
+             ++axis)
+        {
+            stagedNormals.back().set(
+                axis, 0, observable.normal[axis]);
+        }
+    }
+
+    // Validation and replacement-normal allocation finish before any write.
+    for (std::size_t faceIndex = 0;
+         faceIndex < mesh.faces.size();
+         ++faceIndex)
+    {
+        Face &face = mesh.faces[faceIndex];
+        face.meanCurvature = staged[faceIndex].meanCurvature;
+        face.energy.energyCurvature =
+            staged[faceIndex].bendingEnergy;
+        std::swap(face.normVector.mat,
+                  stagedNormals[faceIndex].mat);
+    }
+}
+
+Valence4FaceObservablePublicationResult
+evaluate_guarded_valence4_face_observable_publication(
+    Mesh &mesh,
+    const Valence4FaceObservablePublicationRequest &request)
+{
+    if (!request.reviewerApprovedExplicitPublication)
+    {
+        return reject_face_observable_publication_request(
+            "valence-4 face-observable publication remains default-off "
+            "without an explicit reviewer-approved publication request",
+            false);
+    }
+
+    Valence4FaceLoopScientificRequest scientificRequest;
+    scientificRequest.reviewerApprovedExplicitRequest = true;
+    scientificRequest.rows = request.rows;
+    Valence4FaceLoopScientificRequestResult scientificResult =
+        evaluate_guarded_valence4_face_loop_scientific_request(
+            mesh, scientificRequest);
+    if (!scientificResult.accepted)
+    {
+        Valence4FaceObservablePublicationResult rejected =
+            reject_face_observable_publication_request(
+                scientificResult.rejectionReason, true);
+        rejected.scientificRequest = std::move(scientificResult);
+        return rejected;
+    }
+
+    Valence4FaceObservablePublicationResult result;
+    result.explicitPublicationRequested = true;
+    result.scientificRequest = std::move(scientificResult);
+    try
+    {
+        publish_valence4_face_scientific_observables_to_faces(
+            result.scientificRequest.faceObservables,
+            mesh);
+    }
+    catch (const std::invalid_argument &error)
+    {
+        result.rejectionReason = error.what();
+        return result;
+    }
+
+    result.accepted = true;
+    result.faceObservablePublicationExecuted = true;
     result.rejectionReason.clear();
     return result;
 }

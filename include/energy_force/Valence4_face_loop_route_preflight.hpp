@@ -104,6 +104,27 @@ struct Valence4VertexForcePublicationResult
     bool defaultEvaluatorCaller = false;
 };
 
+struct Valence4FaceObservablePublicationRequest
+{
+    bool reviewerApprovedExplicitPublication = false;
+    std::vector<source_keyed_kernel::SourceKeyedFaceRows> rows;
+};
+
+struct Valence4FaceObservablePublicationResult
+{
+    bool accepted = false;
+    std::string rejectionReason;
+    bool explicitPublicationRequested = false;
+    bool faceObservablePublicationExecuted = false;
+    Valence4FaceLoopScientificRequestResult scientificRequest;
+
+    bool productionRouteEnabled = false;
+    bool actualProductionForcePathExecuted = false;
+    bool productionFaceLoopExecuted = false;
+    bool productionOneRingsPopulated = false;
+    bool defaultEvaluatorCaller = false;
+};
+
 /**
  * Build an owned, source-keyed face-loop route candidate for the approved
  * closed valence-4 topology.
@@ -155,4 +176,25 @@ Valence4VertexForcePublicationResult
 evaluate_guarded_valence4_vertex_force_publication(
     Mesh &mesh,
     const Valence4VertexForcePublicationRequest &request);
+
+/**
+ * Publish caller-owned face observables after validating the complete face
+ * package and allocating every replacement normal.
+ *
+ * The helper overwrites only meanCurvature, energy.energyCurvature, and the
+ * face normal. Area, volume, other energy fields, topology, vertex state,
+ * one-rings, and routing remain unchanged.
+ */
+void publish_valence4_face_scientific_observables_to_faces(
+    const std::vector<Valence4FaceScientificObservables> &observables,
+    Mesh &mesh);
+
+/**
+ * Publish face observables for an explicitly approved valence-4 scientific
+ * request without installing or executing a production route.
+ */
+Valence4FaceObservablePublicationResult
+evaluate_guarded_valence4_face_observable_publication(
+    Mesh &mesh,
+    const Valence4FaceObservablePublicationRequest &request);
 } // namespace slimed::valence4_route_preflight

@@ -63,6 +63,7 @@ Default dependency behavior, OpenSubdiv ownership, formulas, quadrature,
 scatter layout, OpenMP scheduling/reduction order, checkpoint/output,
 propagation, fixtures, and broader-valence routing are unchanged.
 
-The next separately reviewed boundary is atomic face-observable and geometry
-publication. Only after that evidence is green should the real production face
-loop be considered for guarded integration and full serial/OpenMP parity.
+The successor face-observable publication adds the separate atomic boundary
+for mean curvature, bending energy, and face normal while preserving area,
+legacy volume, and all vertex state. The real production face loop remains a
+later guarded integration and full serial/OpenMP parity decision.

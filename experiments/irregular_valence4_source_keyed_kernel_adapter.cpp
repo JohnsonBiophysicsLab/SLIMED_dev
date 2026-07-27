@@ -919,6 +919,123 @@ bool mesh_matches_membrane_force_publication(
     return true;
 }
 
+bool mesh_matches_face_observable_publication(
+    const Mesh &mesh,
+    const MeshScientificState &state,
+    const std::vector<Valence4FaceScientificObservables> &expected)
+{
+    if (mesh.faces.size() != state.faces.size() ||
+        mesh.faces.size() != expected.size() ||
+        mesh.vertices.size() != state.vertices.size())
+    {
+        return false;
+    }
+    for (std::size_t face = 0; face < mesh.faces.size(); ++face)
+    {
+        const Face &candidate = mesh.faces[face];
+        const Face &reference = state.faces[face];
+        const Valence4FaceScientificObservables &observable =
+            expected[face];
+        if (observable.faceIndex != static_cast<int>(face) ||
+            candidate.index != reference.index ||
+            candidate.layerIndex != reference.layerIndex ||
+            candidate.isBoundary != reference.isBoundary ||
+            candidate.isGhost != reference.isGhost ||
+            candidate.isInsertionPatch != reference.isInsertionPatch ||
+            candidate.adjacentVertices != reference.adjacentVertices ||
+            candidate.oneRingVertices != reference.oneRingVertices ||
+            candidate.adjacentFaces != reference.adjacentFaces ||
+            candidate.spontCurvature != reference.spontCurvature ||
+            candidate.elementArea != reference.elementArea ||
+            candidate.elementVolume != reference.elementVolume ||
+            !energy_matches(candidate.energyPrev, reference.energyPrev) ||
+            candidate.energy.energyArea !=
+                reference.energy.energyArea ||
+            candidate.energy.energyVolume !=
+                reference.energy.energyVolume ||
+            candidate.energy.energyThickness !=
+                reference.energy.energyThickness ||
+            candidate.energy.energyTilt !=
+                reference.energy.energyTilt ||
+            candidate.energy.energyRegularization !=
+                reference.energy.energyRegularization ||
+            candidate.energy.energyHarmonicBond !=
+                reference.energy.energyHarmonicBond ||
+            candidate.energy.energyGagScaffolding !=
+                reference.energy.energyGagScaffolding ||
+            candidate.energy.energyIdealizedProteinLattice !=
+                reference.energy.energyIdealizedProteinLattice ||
+            candidate.energy.energyTotal !=
+                reference.energy.energyTotal ||
+            candidate.meanCurvature != observable.meanCurvature ||
+            candidate.energy.energyCurvature !=
+                observable.bendingEnergy ||
+            candidate.normVector.mat == nullptr ||
+            candidate.normVector.nrow() != kAxisCount ||
+            candidate.normVector.ncol() != 1)
+        {
+            return false;
+        }
+        for (int axis = 0; axis < kAxisCount; ++axis)
+        {
+            if (candidate.normVector.get(axis, 0) !=
+                observable.normal[axis])
+            {
+                return false;
+            }
+        }
+    }
+    for (std::size_t source = 0; source < mesh.vertices.size(); ++source)
+    {
+        if (!vertex_matches(mesh.vertices[source],
+                            state.vertices[source]))
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+double compare_published_face_observables(
+    const Mesh &mesh,
+    const std::vector<Valence4FaceScientificObservables> &expected)
+{
+    if (mesh.faces.size() != expected.size())
+    {
+        return std::numeric_limits<double>::infinity();
+    }
+    double maximum = 0.0;
+    for (std::size_t face = 0; face < mesh.faces.size(); ++face)
+    {
+        if (expected[face].faceIndex != static_cast<int>(face))
+        {
+            return std::numeric_limits<double>::infinity();
+        }
+        maximum = std::max(
+            maximum,
+            std::abs(mesh.faces[face].meanCurvature -
+                     expected[face].meanCurvature));
+        maximum = std::max(
+            maximum,
+            std::abs(mesh.faces[face].energy.energyCurvature -
+                     expected[face].bendingEnergy));
+        if (mesh.faces[face].normVector.mat == nullptr ||
+            mesh.faces[face].normVector.nrow() != kAxisCount ||
+            mesh.faces[face].normVector.ncol() != 1)
+        {
+            return std::numeric_limits<double>::infinity();
+        }
+        for (int axis = 0; axis < kAxisCount; ++axis)
+        {
+            maximum = std::max(
+                maximum,
+                std::abs(mesh.faces[face].normVector.get(axis, 0) -
+                         expected[face].normal[axis]));
+        }
+    }
+    return maximum;
+}
+
 bool mesh_state_mutation_gate_is_binding(
     Mesh &mesh,
     const MeshScientificState &state)
@@ -1015,16 +1132,21 @@ struct ScientificRequestCompositionProof
     bool defaultOffPublicationRejected = false;
     bool vertexForcePublicationExecuted = false;
     bool onlyMembraneForcesPublished = false;
+    bool defaultOffFaceObservablePublicationRejected = false;
+    bool faceObservablePublicationExecuted = false;
+    bool onlyFaceObservablesPublished = false;
     bool routeRemainedDisabled = false;
     double maxObservableDifference = 0.0;
     double maxSourceForceDifference = 0.0;
     double maxProductionShapedScatterDifference = 0.0;
     double maxPublishedForceDifference = 0.0;
+    double maxPublishedFaceObservableDifference = 0.0;
 };
 
 ScientificRequestCompositionProof invoke_guarded_scientific_request(
     Mesh &mesh,
     Mesh &publicationMesh,
+    Mesh &facePublicationMesh,
     const InputPackage &package,
     const ScientificForceAlgebraProof &reference,
     const std::vector<SourceForceKinds> &referenceForces)
@@ -1125,6 +1247,48 @@ ScientificRequestCompositionProof invoke_guarded_scientific_request(
             mesh_matches_membrane_force_publication(
                 publicationMesh, beforePublication, published);
     }
+
+    seed_mesh_scientific_state(facePublicationMesh);
+    const MeshScientificState beforeFacePublication =
+        capture_mesh_scientific_state(facePublicationMesh);
+    Valence4FaceObservablePublicationRequest
+        defaultOffFacePublication;
+    defaultOffFacePublication.rows = package.rows;
+    const Valence4FaceObservablePublicationResult
+        defaultOffFacePublicationResult =
+            evaluate_guarded_valence4_face_observable_publication(
+                facePublicationMesh, defaultOffFacePublication);
+    proof.defaultOffFaceObservablePublicationRejected =
+        !defaultOffFacePublicationResult.accepted &&
+        !defaultOffFacePublicationResult
+             .faceObservablePublicationExecuted &&
+        defaultOffFacePublicationResult.rejectionReason.find(
+            "default-off") != std::string::npos &&
+        mesh_scientific_state_matches(
+            facePublicationMesh, beforeFacePublication);
+
+    Valence4FaceObservablePublicationRequest facePublicationRequest;
+    facePublicationRequest.reviewerApprovedExplicitPublication = true;
+    facePublicationRequest.rows = package.rows;
+    const Valence4FaceObservablePublicationResult facePublicationResult =
+        evaluate_guarded_valence4_face_observable_publication(
+            facePublicationMesh, facePublicationRequest);
+    proof.faceObservablePublicationExecuted =
+        facePublicationResult.accepted &&
+        facePublicationResult.faceObservablePublicationExecuted;
+    if (facePublicationResult.accepted)
+    {
+        const auto &published =
+            facePublicationResult.scientificRequest.faceObservables;
+        proof.maxPublishedFaceObservableDifference =
+            compare_published_face_observables(
+                facePublicationMesh, reference.faceObservables);
+        proof.onlyFaceObservablesPublished =
+            mesh_matches_face_observable_publication(
+                facePublicationMesh,
+                beforeFacePublication,
+                published);
+    }
     proof.routeRemainedDisabled =
         !result.productionRouteEnabled &&
         !result.actualProductionForcePathExecuted &&
@@ -1140,7 +1304,12 @@ ScientificRequestCompositionProof invoke_guarded_scientific_request(
         !publicationResult.actualProductionForcePathExecuted &&
         !publicationResult.productionFaceLoopExecuted &&
         !publicationResult.productionOneRingsPopulated &&
-        !publicationResult.defaultEvaluatorCaller;
+        !publicationResult.defaultEvaluatorCaller &&
+        !facePublicationResult.productionRouteEnabled &&
+        !facePublicationResult.actualProductionForcePathExecuted &&
+        !facePublicationResult.productionFaceLoopExecuted &&
+        !facePublicationResult.productionOneRingsPopulated &&
+        !facePublicationResult.defaultEvaluatorCaller;
     return proof;
 }
 
@@ -1190,6 +1359,8 @@ int main(int argc, char **argv)
     mesh.setup_from_vertices_faces(verticesData, facesData);
     Mesh publicationMesh(param);
     publicationMesh.setup_from_vertices_faces(verticesData, facesData);
+    Mesh facePublicationMesh(param);
+    facePublicationMesh.setup_from_vertices_faces(verticesData, facesData);
     for (int source = 0; source < kSourceCount; ++source)
     {
         for (int axis = 0; axis < kAxisCount; ++axis)
@@ -1198,6 +1369,8 @@ int main(int argc, char **argv)
                 axis, 0, package.coordinates[source][axis]);
             publicationMesh.vertices[source].coord.set(
                 axis, 0, package.coordinates[source][axis]);
+            facePublicationMesh.vertices[source].coord.set(
+                axis, 0, package.coordinates[source][axis]);
         }
     }
     for (Face &face : mesh.faces)
@@ -1205,6 +1378,10 @@ int main(int argc, char **argv)
         face.spontCurvature = package.parameters.spontCurv;
     }
     for (Face &face : publicationMesh.faces)
+    {
+        face.spontCurvature = package.parameters.spontCurv;
+    }
+    for (Face &face : facePublicationMesh.faces)
     {
         face.spontCurvature = package.parameters.spontCurv;
     }
@@ -1268,6 +1445,7 @@ int main(int argc, char **argv)
         invoke_guarded_scientific_request(
             mesh,
             publicationMesh,
+            facePublicationMesh,
             package,
             scientificForceAlgebra,
             scattered);
@@ -1374,12 +1552,18 @@ int main(int argc, char **argv)
         scientificRequest.defaultOffPublicationRejected &&
         scientificRequest.vertexForcePublicationExecuted &&
         scientificRequest.onlyMembraneForcesPublished &&
+        scientificRequest
+            .defaultOffFaceObservablePublicationRejected &&
+        scientificRequest.faceObservablePublicationExecuted &&
+        scientificRequest.onlyFaceObservablesPublished &&
         scientificRequest.routeRemainedDisabled &&
         scientificRequest.maxObservableDifference <= kTolerance &&
         scientificRequest.maxSourceForceDifference <= kTolerance &&
         scientificRequest.maxProductionShapedScatterDifference <=
             kTolerance &&
-        scientificRequest.maxPublishedForceDifference <= kTolerance;
+        scientificRequest.maxPublishedForceDifference <= kTolerance &&
+        scientificRequest.maxPublishedFaceObservableDifference <=
+            kTolerance;
 
     std::cout << std::setprecision(17);
     std::cout << '{';
@@ -1455,6 +1639,22 @@ int main(int argc, char **argv)
                       ? "true"
                       : "false")
               << ',';
+    std::cout << "\"default_off_face_observable_publication_rejected\":"
+              << (scientificRequest
+                          .defaultOffFaceObservablePublicationRejected
+                      ? "true"
+                      : "false")
+              << ',';
+    std::cout << "\"face_observable_publication_executed\":"
+              << (scientificRequest.faceObservablePublicationExecuted
+                      ? "true"
+                      : "false")
+              << ',';
+    std::cout << "\"only_face_observables_published\":"
+              << (scientificRequest.onlyFaceObservablesPublished
+                      ? "true"
+                      : "false")
+              << ',';
     std::cout << "\"route_remained_disabled\":"
               << (scientificRequest.routeRemainedDisabled ? "true" : "false")
               << ',';
@@ -1467,6 +1667,10 @@ int main(int argc, char **argv)
               << ',';
     std::cout << "\"max_published_force_difference\":"
               << scientificRequest.maxPublishedForceDifference
+              << ',';
+    std::cout << "\"max_published_face_observable_difference\":"
+              << scientificRequest
+                     .maxPublishedFaceObservableDifference
               << "},";
     std::cout << "\"variable_cardinality_source_keyed\":true,";
     std::cout << "\"canonicalized_by_original_source_id\":true,";
@@ -1529,10 +1733,10 @@ int main(int argc, char **argv)
     std::cout << "\"all_passed\":"
               << (negativeGatesPassed ? "true" : "false") << "},";
     std::cout << "\"residual_boundary\":"
-                 "\"fresh OpenSubdiv valence-4 rows now pass through the "
-                 "guarded default-off scientific request without mesh "
-                 "mutation; production face-loop integration remains a "
-                 "separately reviewed boundary\",";
+                 "\"fresh OpenSubdiv valence-4 rows now pass through "
+                 "separate guarded vertex-force and face-observable "
+                 "publication boundaries; production face-loop integration "
+                 "remains separately reviewed\",";
     std::cout << "\"passed\":" << (passed ? "true" : "false");
     std::cout << "}\n";
     return passed ? 0 : 1;

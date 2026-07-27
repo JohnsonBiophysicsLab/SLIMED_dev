@@ -349,6 +349,11 @@ def main() -> int:
         )
         and composition.get("vertex_force_publication_executed")
         and composition.get("only_membrane_force_families_published")
+        and composition.get(
+            "default_off_face_observable_publication_rejected"
+        )
+        and composition.get("face_observable_publication_executed")
+        and composition.get("only_face_observables_published")
         and composition.get("route_remained_disabled")
         and isinstance(
             composition.get("max_observable_difference"), (int, float)
@@ -369,6 +374,12 @@ def main() -> int:
             (int, float),
         )
         and composition["max_published_force_difference"] <= 1.0e-12
+        and isinstance(
+            composition.get("max_published_face_observable_difference"),
+            (int, float),
+        )
+        and composition["max_published_face_observable_difference"]
+        <= 1.0e-12
         and isinstance(
             adapter.get("max_scientific_force_algebra_difference"),
             (int, float),

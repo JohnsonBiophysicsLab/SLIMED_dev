@@ -130,6 +130,12 @@ comparison requires the published values to match the source-keyed reference
 under `1e-12`; all face state, `forceTotal`, other current force families, and
 all previous force families must remain unchanged.
 
+A separate disposable mesh now binds the face-observable successor. It
+rejects by default, then publishes only mean curvature, bending energy, and
+the replacement `3 x 1` face normal after complete face-index, finiteness,
+one-ring, and allocation validation. Area, legacy volume, other current and
+previous energy fields, topology, and all vertex state remain unchanged.
+
 ## Run
 
 Dependency-absent behavior is a clean skip:
