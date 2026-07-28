@@ -214,6 +214,22 @@ make_geometry_aware_composition_request(
     return request;
 }
 
+Valence4ProductionCallerShadowRequest
+make_production_caller_shadow_request(
+    const Valence4FaceLoopRoutePreflightResult &preflight,
+    const bool reviewerApprovedExplicitShadow)
+{
+    Valence4ProductionCallerShadowRequest request;
+    request.reviewerApprovedExplicitShadow =
+        reviewerApprovedExplicitShadow;
+    for (const SourceMappingView &mapping : preflight.mappings)
+    {
+        request.rows.push_back(
+            make_scientific_rows_for_mapping(mapping));
+    }
+    return request;
+}
+
 Valence4FaceGeometry geometry_oracle(
     const Mesh &mesh,
     const SourceMappingView &mapping)
@@ -2250,4 +2266,129 @@ TEST(ValenceFourFaceLoopRoutePreflight,
 
     target.vertices.back().force.forceVolume = originalVolume;
     EXPECT_EQ(capture_all_vertex_forces(target), beforeForces);
+}
+
+TEST(ValenceFourFaceLoopRoutePreflight,
+     ProductionCallerShadowRejectsBeforeClearingCurrentState)
+{
+    ApprovedValence4MeshFixture fixture;
+    Mesh &mesh = *fixture.mesh;
+    const Valence4FaceLoopRoutePreflightResult preflight =
+        build_guarded_valence4_face_loop_route_preflight(mesh);
+    ASSERT_TRUE(preflight.supported);
+    seed_face_observable_publication_state(mesh);
+    seed_all_vertex_forces(mesh);
+    const std::vector<Face> beforeFaces = mesh.faces;
+    const auto beforeForces = capture_all_vertex_forces(mesh);
+    const double beforeArea = mesh.param.area;
+    const double beforeVolume = mesh.param.vol;
+
+    Valence4ProductionCallerShadowRequest request =
+        make_production_caller_shadow_request(preflight, true);
+    request.rows.back().samples.back().rows.back()
+        .coefficients.back() =
+        std::numeric_limits<double>::infinity();
+    const Valence4ProductionCallerShadowResult malformed =
+        evaluate_guarded_valence4_production_caller_shadow(
+            mesh, request);
+
+    EXPECT_FALSE(malformed.accepted);
+    EXPECT_TRUE(malformed.explicitShadowRequested);
+    EXPECT_FALSE(malformed.currentStateCleared);
+    expect_face_observable_publication_state_unchanged(
+        mesh, beforeFaces);
+    EXPECT_EQ(capture_all_vertex_forces(mesh), beforeForces);
+    EXPECT_DOUBLE_EQ(mesh.param.area, beforeArea);
+    EXPECT_DOUBLE_EQ(mesh.param.vol, beforeVolume);
+}
+
+TEST(ValenceFourFaceLoopRoutePreflight,
+     ProductionCallerShadowRunsExactCompletionPhasesWithRouteDisabled)
+{
+    ApprovedValence4MeshFixture fixture;
+    Mesh &mesh = *fixture.mesh;
+    const Valence4FaceLoopRoutePreflightResult preflight =
+        build_guarded_valence4_face_loop_route_preflight(mesh);
+    ASSERT_TRUE(preflight.supported);
+    const auto beforeCoordinates = capture_vertex_coordinates(mesh);
+    for (Vertex &vertex : mesh.vertices)
+    {
+        vertex.coordRef = vertex.coord;
+    }
+    for (Face &face : mesh.faces)
+    {
+        face.energy.energyThickness = 7000.0 + face.index;
+    }
+    for (Vertex &vertex : mesh.vertices)
+    {
+        vertex.force.forceThickness.set_all(
+            8000.0 + vertex.index);
+    }
+
+    const Valence4ProductionCallerShadowResult result =
+        evaluate_guarded_valence4_production_caller_shadow(
+            mesh,
+            make_production_caller_shadow_request(
+                preflight, true));
+
+    ASSERT_TRUE(result.accepted) << result.rejectionReason;
+    EXPECT_TRUE(result.explicitShadowRequested);
+    EXPECT_TRUE(result.currentStateCleared);
+    EXPECT_TRUE(result.geometryAwareAtomicCompositionExecuted);
+    EXPECT_TRUE(result.productionCompletionPhasesExecuted);
+    EXPECT_TRUE(result.totalForcePublicationExecuted);
+    EXPECT_TRUE(result.totalEnergyPublicationExecuted);
+    EXPECT_TRUE(result.boundaryHandlingExecuted);
+    EXPECT_TRUE(result.composition.accepted);
+    EXPECT_TRUE(
+        result.composition
+            .atomicGeometryScientificPublicationExecuted);
+    EXPECT_FALSE(result.productionRouteEnabled);
+    EXPECT_FALSE(result.actualProductionForcePathExecuted);
+    EXPECT_FALSE(result.productionFaceLoopExecuted);
+    EXPECT_FALSE(result.productionOneRingsPopulated);
+    EXPECT_FALSE(result.defaultEvaluatorCaller);
+    EXPECT_EQ(capture_vertex_coordinates(mesh), beforeCoordinates);
+
+    for (const Vertex &vertex : mesh.vertices)
+    {
+        for (int axis = 0; axis < kAxisCount; ++axis)
+        {
+            EXPECT_DOUBLE_EQ(
+                vertex.force.forceThickness.get(axis, 0), 0.0);
+            const double expectedTotal =
+                vertex.force.forceCurvature.get(axis, 0) +
+                vertex.force.forceArea.get(axis, 0) +
+                vertex.force.forceVolume.get(axis, 0) +
+                vertex.force.forceThickness.get(axis, 0) +
+                vertex.force.forceTilt.get(axis, 0) +
+                vertex.force.forceRegularization.get(axis, 0) +
+                vertex.force.forceHarmonicBond.get(axis, 0);
+            EXPECT_DOUBLE_EQ(
+                vertex.force.forceTotal.get(axis, 0),
+                expectedTotal);
+        }
+    }
+
+    Energy expectedTotalEnergy;
+    for (const Face &face : mesh.faces)
+    {
+        EXPECT_DOUBLE_EQ(face.energy.energyThickness, 0.0);
+        Energy expectedFace = face.energy;
+        expectedFace.calculateTotalEnergy();
+        EXPECT_DOUBLE_EQ(
+            face.energy.energyTotal,
+            expectedFace.energyTotal);
+        expectedTotalEnergy += face.energy;
+        EXPECT_TRUE(face.oneRingVertices.empty());
+    }
+    expectedTotalEnergy.energyArea =
+        0.5 * mesh.param.uSurf / mesh.param.area0 *
+        std::pow(mesh.param.area - mesh.param.area0, 2.0);
+    expectedTotalEnergy.energyVolume =
+        0.5 * mesh.param.uVol / mesh.param.vol0 *
+        std::pow(mesh.param.vol - mesh.param.vol0, 2.0);
+    expectedTotalEnergy.calculateTotalEnergy();
+    expect_energy_equal(
+        mesh.param.energy, expectedTotalEnergy, false);
 }

@@ -1343,6 +1343,11 @@ struct ScientificRequestCompositionProof
     bool staleMeshGlobalsIgnored = false;
     bool onlyReviewedGeometryScientificFamiliesPublishedAtomically = false;
     bool productionCallShadowExecuted = false;
+    bool defaultOffProductionCallerShadowRejected = false;
+    bool productionCallerCompletionShadowExecuted = false;
+    bool productionCallerShadowClearedStaleState = false;
+    bool productionCallerShadowTotalsConsistent = false;
+    bool productionCallerShadowRouteRemainedDisabled = false;
     bool routeRemainedDisabled = false;
     double maxObservableDifference = 0.0;
     double maxGeometryDifference = 0.0;
@@ -1358,7 +1363,11 @@ struct ScientificRequestCompositionProof
     std::vector<SourceForceKinds> atomicPublishedForces;
     std::vector<Valence4FaceScientificObservables>
         atomicPublishedObservables;
+    std::vector<Vec3> productionCallerTotalForces;
+    double productionCallerEnergyTotal = 0.0;
 };
+
+bool all_production_one_rings_empty(const Mesh &mesh);
 
 ScientificRequestCompositionProof invoke_guarded_scientific_request(
     Mesh &mesh,
@@ -1366,6 +1375,7 @@ ScientificRequestCompositionProof invoke_guarded_scientific_request(
     Mesh &facePublicationMesh,
     Mesh &atomicPublicationMesh,
     Mesh &geometryAtomicMesh,
+    Mesh &productionCallerShadowMesh,
     const InputPackage &package,
     const ScientificForceAlgebraProof &reference,
     const std::vector<SourceForceKinds> &referenceForces)
@@ -1773,6 +1783,114 @@ ScientificRequestCompositionProof invoke_guarded_scientific_request(
         !geometryAwareResult.productionFaceLoopExecuted &&
         !geometryAwareResult.productionOneRingsPopulated &&
         !geometryAwareResult.defaultEvaluatorCaller;
+
+    seed_mesh_scientific_state(productionCallerShadowMesh);
+    for (Vertex &vertex : productionCallerShadowMesh.vertices)
+    {
+        vertex.coordRef = vertex.coord;
+        vertex.force.forceThickness.set_all(
+            9000.0 + static_cast<double>(vertex.index));
+    }
+    for (Face &face : productionCallerShadowMesh.faces)
+    {
+        face.energy.energyThickness =
+            10000.0 + static_cast<double>(face.index);
+    }
+    const MeshScientificState beforeProductionCallerShadow =
+        capture_mesh_scientific_state(productionCallerShadowMesh);
+    Valence4ProductionCallerShadowRequest
+        defaultOffProductionCallerShadow;
+    defaultOffProductionCallerShadow.rows = package.rows;
+    const Valence4ProductionCallerShadowResult
+        defaultOffProductionCallerShadowResult =
+            evaluate_guarded_valence4_production_caller_shadow(
+                productionCallerShadowMesh,
+                defaultOffProductionCallerShadow);
+    proof.defaultOffProductionCallerShadowRejected =
+        !defaultOffProductionCallerShadowResult.accepted &&
+        !defaultOffProductionCallerShadowResult.currentStateCleared &&
+        defaultOffProductionCallerShadowResult.rejectionReason.find(
+            "default-off") != std::string::npos &&
+        mesh_scientific_state_matches(
+            productionCallerShadowMesh,
+            beforeProductionCallerShadow);
+
+    Valence4ProductionCallerShadowRequest productionCallerShadowRequest;
+    productionCallerShadowRequest.reviewerApprovedExplicitShadow = true;
+    productionCallerShadowRequest.rows = package.rows;
+    const Valence4ProductionCallerShadowResult
+        productionCallerShadowResult =
+            evaluate_guarded_valence4_production_caller_shadow(
+                productionCallerShadowMesh,
+                productionCallerShadowRequest);
+    proof.productionCallerCompletionShadowExecuted =
+        productionCallerShadowResult.accepted &&
+        productionCallerShadowResult.currentStateCleared &&
+        productionCallerShadowResult
+            .geometryAwareAtomicCompositionExecuted &&
+        productionCallerShadowResult
+            .productionCompletionPhasesExecuted &&
+        productionCallerShadowResult.totalForcePublicationExecuted &&
+        productionCallerShadowResult.totalEnergyPublicationExecuted &&
+        productionCallerShadowResult.boundaryHandlingExecuted;
+    proof.productionCallerShadowClearedStaleState = true;
+    proof.productionCallerShadowTotalsConsistent = true;
+    proof.productionCallerTotalForces.resize(
+        productionCallerShadowMesh.vertices.size());
+    for (std::size_t source = 0;
+         source < productionCallerShadowMesh.vertices.size();
+         ++source)
+    {
+        const Force &force =
+            productionCallerShadowMesh.vertices[source].force;
+        for (int axis = 0; axis < kAxisCount; ++axis)
+        {
+            if (force.forceThickness.get(axis, 0) != 0.0)
+            {
+                proof.productionCallerShadowClearedStaleState = false;
+            }
+            const double expected =
+                force.forceCurvature.get(axis, 0) +
+                force.forceArea.get(axis, 0) +
+                force.forceVolume.get(axis, 0) +
+                force.forceThickness.get(axis, 0) +
+                force.forceTilt.get(axis, 0) +
+                force.forceRegularization.get(axis, 0) +
+                force.forceHarmonicBond.get(axis, 0);
+            const double total = force.forceTotal.get(axis, 0);
+            proof.productionCallerTotalForces[source][axis] = total;
+            if (!std::isfinite(total) || total != expected)
+            {
+                proof.productionCallerShadowTotalsConsistent = false;
+            }
+        }
+    }
+    for (const Face &face : productionCallerShadowMesh.faces)
+    {
+        if (face.energy.energyThickness != 0.0)
+        {
+            proof.productionCallerShadowClearedStaleState = false;
+        }
+        Energy expected = face.energy;
+        expected.calculateTotalEnergy();
+        if (!std::isfinite(face.energy.energyTotal) ||
+            face.energy.energyTotal != expected.energyTotal)
+        {
+            proof.productionCallerShadowTotalsConsistent = false;
+        }
+    }
+    proof.productionCallerEnergyTotal =
+        productionCallerShadowMesh.param.energy.energyTotal;
+    proof.productionCallerShadowTotalsConsistent =
+        proof.productionCallerShadowTotalsConsistent &&
+        std::isfinite(proof.productionCallerEnergyTotal);
+    proof.productionCallerShadowRouteRemainedDisabled =
+        !productionCallerShadowResult.productionRouteEnabled &&
+        !productionCallerShadowResult.actualProductionForcePathExecuted &&
+        !productionCallerShadowResult.productionFaceLoopExecuted &&
+        !productionCallerShadowResult.productionOneRingsPopulated &&
+        !productionCallerShadowResult.defaultEvaluatorCaller &&
+        all_production_one_rings_empty(productionCallerShadowMesh);
     return proof;
 }
 
@@ -1830,6 +1948,9 @@ int main(int argc, char **argv)
     Mesh geometryAtomicMesh(param);
     geometryAtomicMesh.setup_from_vertices_faces(
         verticesData, facesData);
+    Mesh productionCallerShadowMesh(param);
+    productionCallerShadowMesh.setup_from_vertices_faces(
+        verticesData, facesData);
     for (int source = 0; source < kSourceCount; ++source)
     {
         for (int axis = 0; axis < kAxisCount; ++axis)
@@ -1843,6 +1964,8 @@ int main(int argc, char **argv)
             atomicPublicationMesh.vertices[source].coord.set(
                 axis, 0, package.coordinates[source][axis]);
             geometryAtomicMesh.vertices[source].coord.set(
+                axis, 0, package.coordinates[source][axis]);
+            productionCallerShadowMesh.vertices[source].coord.set(
                 axis, 0, package.coordinates[source][axis]);
         }
     }
@@ -1863,6 +1986,10 @@ int main(int argc, char **argv)
         face.spontCurvature = package.parameters.spontCurv;
     }
     for (Face &face : geometryAtomicMesh.faces)
+    {
+        face.spontCurvature = package.parameters.spontCurv;
+    }
+    for (Face &face : productionCallerShadowMesh.faces)
     {
         face.spontCurvature = package.parameters.spontCurv;
     }
@@ -1929,6 +2056,7 @@ int main(int argc, char **argv)
             facePublicationMesh,
             atomicPublicationMesh,
             geometryAtomicMesh,
+            productionCallerShadowMesh,
             package,
             scientificForceAlgebra,
             scattered);
@@ -2055,6 +2183,16 @@ int main(int argc, char **argv)
         scientificRequest.staleMeshGlobalsIgnored &&
         scientificRequest
             .onlyReviewedGeometryScientificFamiliesPublishedAtomically &&
+        scientificRequest
+            .defaultOffProductionCallerShadowRejected &&
+        scientificRequest
+            .productionCallerCompletionShadowExecuted &&
+        scientificRequest
+            .productionCallerShadowClearedStaleState &&
+        scientificRequest
+            .productionCallerShadowTotalsConsistent &&
+        scientificRequest
+            .productionCallerShadowRouteRemainedDisabled &&
         scientificRequest.productionCallShadowExecuted &&
         scientificRequest.atomicPublishedForces.size() ==
             kSourceCount &&
@@ -2235,6 +2373,67 @@ int main(int argc, char **argv)
                 ? "true"
                 : "false")
         << ',';
+    std::cout
+        << "\"default_off_production_caller_shadow_rejected\":"
+        << (scientificRequest
+                    .defaultOffProductionCallerShadowRejected
+                ? "true"
+                : "false")
+        << ',';
+    std::cout
+        << "\"production_caller_completion_shadow_executed\":"
+        << (scientificRequest
+                    .productionCallerCompletionShadowExecuted
+                ? "true"
+                : "false")
+        << ',';
+    std::cout
+        << "\"production_caller_shadow_cleared_stale_state\":"
+        << (scientificRequest
+                    .productionCallerShadowClearedStaleState
+                ? "true"
+                : "false")
+        << ',';
+    std::cout
+        << "\"production_caller_shadow_totals_consistent\":"
+        << (scientificRequest
+                    .productionCallerShadowTotalsConsistent
+                ? "true"
+                : "false")
+        << ',';
+    std::cout
+        << "\"production_caller_shadow_route_remained_disabled\":"
+        << (scientificRequest
+                    .productionCallerShadowRouteRemainedDisabled
+                ? "true"
+                : "false")
+        << ',';
+    std::cout << "\"production_caller_energy_total\":"
+              << scientificRequest.productionCallerEnergyTotal
+              << ',';
+    std::cout << "\"production_caller_total_forces\":[";
+    for (std::size_t source = 0;
+         source < scientificRequest.productionCallerTotalForces.size();
+         ++source)
+    {
+        if (source != 0)
+        {
+            std::cout << ',';
+        }
+        std::cout << '[';
+        for (int axis = 0; axis < kAxisCount; ++axis)
+        {
+            if (axis != 0)
+            {
+                std::cout << ',';
+            }
+            std::cout
+                << scientificRequest
+                       .productionCallerTotalForces[source][axis];
+        }
+        std::cout << ']';
+    }
+    std::cout << "],";
     std::cout << "\"max_geometry_aware_force_difference\":"
               << scientificRequest.maxGeometryAwareForceDifference
               << ',';
@@ -2416,9 +2615,10 @@ int main(int argc, char **argv)
               << (negativeGatesPassed ? "true" : "false") << "},";
     std::cout << "\"residual_boundary\":"
                  "\"fresh OpenSubdiv valence-4 rows now pass through "
-                 "production C++ geometry-aware atomic composition; a real "
-                 "Mesh::Compute_Energy_And_Force caller, serial/OpenMP caller "
-                 "parity, and route activation remain separately reviewed\",";
+                 "the production caller completion shadow with serial/OpenMP "
+                 "total-force and total-energy parity; actual production "
+                 "face-loop integration and route activation remain "
+                 "separately reviewed\",";
     std::cout << "\"passed\":" << (passed ? "true" : "false");
     std::cout << "}\n";
     return passed ? 0 : 1;

@@ -223,11 +223,37 @@ def validated_output(payload: dict[str, object]) -> dict[str, object]:
 
     if max(abs(value) for value in force_values) <= 1.0e-10:
         raise RuntimeError("production-call force output is unexpectedly zero")
+
+    composition = payload.get("guarded_scientific_request_composition")
+    if not isinstance(composition, dict) or not all(
+        composition.get(key)
+        for key in (
+            "default_off_production_caller_shadow_rejected",
+            "production_caller_completion_shadow_executed",
+            "production_caller_shadow_cleared_stale_state",
+            "production_caller_shadow_totals_consistent",
+            "production_caller_shadow_route_remained_disabled",
+        )
+    ):
+        raise RuntimeError("production caller completion shadow is invalid")
+    caller_forces: list[float] = []
+    raw_caller_forces = composition.get("production_caller_total_forces")
+    if not isinstance(raw_caller_forces, list) or len(raw_caller_forces) != 6:
+        raise RuntimeError("production caller total-force output is malformed")
+    for source_force in raw_caller_forces:
+        caller_forces.extend(finite_vector(source_force, 3))
+    caller_energy = composition.get("production_caller_energy_total")
+    if not isinstance(caller_energy, (int, float)) or not math.isfinite(
+        float(caller_energy)
+    ):
+        raise RuntimeError("production caller total energy is malformed")
     return {
         "area": float(area),
         "legacy_volume": float(volume),
         "forces": force_values,
         "observables": observable_values,
+        "production_caller_total_forces": caller_forces,
+        "production_caller_energy_total": float(caller_energy),
     }
 
 
@@ -288,6 +314,14 @@ def main() -> int:
         observable_delta = maximum_delta(
             serial["observables"], openmp["observables"]
         )
+        production_caller_force_delta = maximum_delta(
+            serial["production_caller_total_forces"],
+            openmp["production_caller_total_forces"],
+        )
+        production_caller_energy_delta = abs(
+            float(serial["production_caller_energy_total"])
+            - float(openmp["production_caller_energy_total"])
+        )
         area_delta = abs(float(serial["area"]) - float(openmp["area"]))
         volume_delta = abs(
             float(serial["legacy_volume"])
@@ -336,6 +370,8 @@ def main() -> int:
             and openmp_area_oracle_delta <= TOLERANCE
             and serial_volume_oracle_delta <= TOLERANCE
             and openmp_volume_oracle_delta <= TOLERANCE
+            and production_caller_force_delta <= TOLERANCE
+            and production_caller_energy_delta <= TOLERANCE
         )
     except (RuntimeError, json.JSONDecodeError) as error:
         emit({"status": "failed", "reason": str(error)}, args.json)
@@ -354,6 +390,13 @@ def main() -> int:
             "atomic_face_loop_publication_executed": True,
             "production_shaped_geometry_evaluated": True,
             "serial_openmp_output_parity_passed": parity_passed,
+            "production_caller_completion_shadow_executed": True,
+            "production_caller_route_enabled": False,
+            "production_caller_actual_face_loop_executed": False,
+            "max_serial_openmp_production_caller_total_force_delta":
+                production_caller_force_delta,
+            "serial_openmp_production_caller_total_energy_delta":
+                production_caller_energy_delta,
             "actual_openmp_runtime_parity_passed": actual_runtime_passed,
             "max_serial_openmp_force_delta": force_delta,
             "max_serial_openmp_face_observable_delta": observable_delta,

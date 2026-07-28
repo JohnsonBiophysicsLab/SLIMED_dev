@@ -83,6 +83,13 @@ class ValenceFourProductionCallShadowParityInventoryTest(
         self.assertEqual(payload["status"], "passed")
         self.assertTrue(payload["production_call_shadow"])
         self.assertTrue(payload["serial_openmp_output_parity_passed"])
+        self.assertTrue(
+            payload["production_caller_completion_shadow_executed"]
+        )
+        self.assertFalse(payload["production_caller_route_enabled"])
+        self.assertFalse(
+            payload["production_caller_actual_face_loop_executed"]
+        )
         self.assertTrue(payload["actual_openmp_runtime_parity_passed"])
         self.assertTrue(payload["production_shaped_geometry_evaluated"])
         self.assertTrue(
@@ -112,6 +119,18 @@ class ValenceFourProductionCallShadowParityInventoryTest(
         )
         self.assertLessEqual(
             payload["openmp_legacy_volume_oracle_delta"], 1.0e-12
+        )
+        self.assertLessEqual(
+            payload[
+                "max_serial_openmp_production_caller_total_force_delta"
+            ],
+            1.0e-12,
+        )
+        self.assertLessEqual(
+            payload[
+                "serial_openmp_production_caller_total_energy_delta"
+            ],
+            1.0e-12,
         )
         self.assertEqual(
             payload["serial_output"]["forces"],

@@ -546,6 +546,16 @@ public:
      */
     void clear_force_on_vertices_and_energy_on_faces();
 
+    /**
+     * Complete the existing energy/force evaluation after membrane face
+     * forces and observables have been accumulated.
+     *
+     * This preserves the production ordering for regularization, total-force
+     * and total-energy publication, optional scaffolding, and boundary/ghost
+     * handling.
+     */
+    void complete_energy_force_after_membrane_accumulation();
+
     // implemented in scaffolding_points.cpp
 
     int findClosestRcap(double membraneCapRadius);

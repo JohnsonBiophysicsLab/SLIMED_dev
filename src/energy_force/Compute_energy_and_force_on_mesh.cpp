@@ -296,6 +296,11 @@ void Mesh::Compute_Energy_And_Force()
     // Step 2.
     accumulate_membrane_face_energy_and_forces(*this);
 
+    complete_energy_force_after_membrane_accumulation();
+}
+
+void Mesh::complete_energy_force_after_membrane_accumulation()
+{
     // Step 3.
     energy_force_regularization(); // regularization Force and Energy
 

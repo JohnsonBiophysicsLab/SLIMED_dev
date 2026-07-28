@@ -13,6 +13,13 @@
 
 namespace slimed::valence4_route_preflight
 {
+Valence4FaceLoopScientificRequestResult
+evaluate_scientific_request_with_evaluator(
+    Mesh &mesh,
+    Mesh &scientificEvaluator,
+    const Valence4FaceLoopScientificRequest &request,
+    bool stagedGeometryUsed);
+
 namespace
 {
 constexpr std::size_t kReviewedSampleCountPerFace = 3;
@@ -97,6 +104,17 @@ reject_geometry_aware_composition_request(
     Valence4GeometryAwareAtomicCompositionResult result;
     result.rejectionReason = std::move(reason);
     result.explicitCompositionRequested = explicitCompositionRequested;
+    return result;
+}
+
+Valence4ProductionCallerShadowResult
+reject_production_caller_shadow_request(
+    std::string reason,
+    const bool explicitShadowRequested)
+{
+    Valence4ProductionCallerShadowResult result;
+    result.rejectionReason = std::move(reason);
+    result.explicitShadowRequested = explicitShadowRequested;
     return result;
 }
 
@@ -387,6 +405,104 @@ validate_geometry_aware_publication(
             "geometry accumulation drift");
     }
     return staged;
+}
+
+struct PreparedGeometryAwareComposition
+{
+    bool accepted = false;
+    std::string rejectionReason;
+    Valence4FaceGeometryStagingResult geometry;
+    Valence4FaceLoopScientificRequestResult scientific;
+};
+
+PreparedGeometryAwareComposition
+prepare_geometry_aware_composition(
+    Mesh &mesh,
+    const std::vector<source_keyed_kernel::SourceKeyedFaceRows> &rows)
+{
+    PreparedGeometryAwareComposition prepared;
+
+    Valence4FaceGeometryStagingRequest geometryRequest;
+    geometryRequest.reviewerApprovedExplicitStaging = true;
+    geometryRequest.rows = rows;
+    prepared.geometry =
+        stage_guarded_valence4_face_geometry(mesh, geometryRequest);
+    if (!prepared.geometry.accepted)
+    {
+        prepared.rejectionReason = prepared.geometry.rejectionReason;
+        return prepared;
+    }
+
+    Param stagedParam = mesh.param;
+    Mesh stagedScientificEvaluator(stagedParam);
+    // Mesh construction initializes Param-owned derived tables. Restore the
+    // caller's complete parameter state so staging and scientific evaluation
+    // use the same quadrature plan, then replace only the staged globals.
+    stagedParam = mesh.param;
+    stagedParam.area = prepared.geometry.totalArea;
+    stagedParam.vol = prepared.geometry.totalVolume;
+
+    Valence4FaceLoopScientificRequest scientificRequest;
+    scientificRequest.reviewerApprovedExplicitRequest = true;
+    scientificRequest.rows = rows;
+    prepared.scientific =
+        evaluate_scientific_request_with_evaluator(
+            mesh,
+            stagedScientificEvaluator,
+            scientificRequest,
+            true);
+    if (!prepared.scientific.accepted)
+    {
+        prepared.rejectionReason = prepared.scientific.rejectionReason;
+        return prepared;
+    }
+
+    prepared.accepted = true;
+    return prepared;
+}
+
+void validate_production_caller_shadow_destinations(const Mesh &mesh)
+{
+    for (std::size_t source = 0; source < mesh.vertices.size(); ++source)
+    {
+        const Vertex &vertex = mesh.vertices[source];
+        if (vertex.index != static_cast<int>(source))
+        {
+            throw std::invalid_argument(
+                "valence-4 production caller shadow rejected vertex "
+                "identity drift");
+        }
+        const std::array<const Matrix *,
+                         source_keyed_kernel::kForceKindCount>
+            destinations{{
+                &vertex.force.forceCurvature,
+                &vertex.force.forceArea,
+                &vertex.force.forceVolume}};
+        for (const Matrix *destination : destinations)
+        {
+            if (destination->mat == nullptr ||
+                destination->nrow() != source_keyed_kernel::kAxisCount ||
+                destination->ncol() != 1)
+            {
+                throw std::invalid_argument(
+                    "valence-4 production caller shadow rejected vertex "
+                    "destination shape drift");
+            }
+        }
+    }
+    for (std::size_t faceIndex = 0;
+         faceIndex < mesh.faces.size();
+         ++faceIndex)
+    {
+        const Face &face = mesh.faces[faceIndex];
+        if (face.index != static_cast<int>(faceIndex) ||
+            !face.oneRingVertices.empty())
+        {
+            throw std::invalid_argument(
+                "valence-4 production caller shadow rejected face identity "
+                "or one-ring drift");
+        }
+    }
 }
 } // namespace
 
@@ -1308,52 +1424,22 @@ evaluate_guarded_valence4_geometry_aware_atomic_composition(
             false);
     }
 
-    Valence4FaceGeometryStagingRequest geometryRequest;
-    geometryRequest.reviewerApprovedExplicitStaging = true;
-    geometryRequest.rows = request.rows;
-    Valence4FaceGeometryStagingResult geometryResult =
-        stage_guarded_valence4_face_geometry(mesh, geometryRequest);
-    if (!geometryResult.accepted)
+    PreparedGeometryAwareComposition prepared =
+        prepare_geometry_aware_composition(mesh, request.rows);
+    if (!prepared.accepted)
     {
         Valence4GeometryAwareAtomicCompositionResult rejected =
             reject_geometry_aware_composition_request(
-                geometryResult.rejectionReason, true);
-        rejected.geometryStaging = std::move(geometryResult);
-        return rejected;
-    }
-
-    Param stagedParam = mesh.param;
-    Mesh stagedScientificEvaluator(stagedParam);
-    // Mesh construction initializes Param-owned derived tables. Restore the
-    // caller's complete parameter state so staging and scientific evaluation
-    // use the same quadrature plan, then replace only the staged globals.
-    stagedParam = mesh.param;
-    stagedParam.area = geometryResult.totalArea;
-    stagedParam.vol = geometryResult.totalVolume;
-
-    Valence4FaceLoopScientificRequest scientificRequest;
-    scientificRequest.reviewerApprovedExplicitRequest = true;
-    scientificRequest.rows = request.rows;
-    Valence4FaceLoopScientificRequestResult scientificResult =
-        evaluate_scientific_request_with_evaluator(
-            mesh,
-            stagedScientificEvaluator,
-            scientificRequest,
-            true);
-    if (!scientificResult.accepted)
-    {
-        Valence4GeometryAwareAtomicCompositionResult rejected =
-            reject_geometry_aware_composition_request(
-                scientificResult.rejectionReason, true);
-        rejected.geometryStaging = std::move(geometryResult);
-        rejected.scientificRequest = std::move(scientificResult);
+                prepared.rejectionReason, true);
+        rejected.geometryStaging = std::move(prepared.geometry);
+        rejected.scientificRequest = std::move(prepared.scientific);
         return rejected;
     }
 
     Valence4GeometryAwareAtomicCompositionResult result;
     result.explicitCompositionRequested = true;
-    result.geometryStaging = std::move(geometryResult);
-    result.scientificRequest = std::move(scientificResult);
+    result.geometryStaging = std::move(prepared.geometry);
+    result.scientificRequest = std::move(prepared.scientific);
     try
     {
         publish_valence4_geometry_and_scientific_result_atomically(
@@ -1373,6 +1459,74 @@ evaluate_guarded_valence4_geometry_aware_atomic_composition(
     result.vertexForcePublicationExecuted = true;
     result.faceObservablePublicationExecuted = true;
     result.atomicGeometryScientificPublicationExecuted = true;
+    result.rejectionReason.clear();
+    return result;
+}
+
+Valence4ProductionCallerShadowResult
+evaluate_guarded_valence4_production_caller_shadow(
+    Mesh &mesh,
+    const Valence4ProductionCallerShadowRequest &request)
+{
+    if (!request.reviewerApprovedExplicitShadow)
+    {
+        return reject_production_caller_shadow_request(
+            "valence-4 production caller shadow remains default-off without "
+            "an explicit reviewer-approved shadow request",
+            false);
+    }
+
+    PreparedGeometryAwareComposition prepared =
+        prepare_geometry_aware_composition(mesh, request.rows);
+    if (!prepared.accepted)
+    {
+        Valence4ProductionCallerShadowResult rejected =
+            reject_production_caller_shadow_request(
+                prepared.rejectionReason, true);
+        rejected.composition.geometryStaging =
+            std::move(prepared.geometry);
+        rejected.composition.scientificRequest =
+            std::move(prepared.scientific);
+        return rejected;
+    }
+
+    try
+    {
+        validate_production_caller_shadow_destinations(mesh);
+        validate_geometry_aware_publication(
+            prepared.geometry, prepared.scientific, mesh);
+    }
+    catch (const std::invalid_argument &error)
+    {
+        return reject_production_caller_shadow_request(
+            error.what(), true);
+    }
+
+    mesh.clear_force_on_vertices_and_energy_on_faces();
+    publish_valence4_geometry_and_scientific_result_atomically(
+        prepared.geometry, prepared.scientific, mesh);
+
+    Valence4ProductionCallerShadowResult result;
+    result.explicitShadowRequested = true;
+    result.currentStateCleared = true;
+    result.composition.explicitCompositionRequested = true;
+    result.composition.stagedGeometryUsedForScientificEvaluation = true;
+    result.composition.geometryPublicationExecuted = true;
+    result.composition.vertexForcePublicationExecuted = true;
+    result.composition.faceObservablePublicationExecuted = true;
+    result.composition.atomicGeometryScientificPublicationExecuted = true;
+    result.composition.geometryStaging = std::move(prepared.geometry);
+    result.composition.scientificRequest = std::move(prepared.scientific);
+    result.composition.accepted = true;
+    result.geometryAwareAtomicCompositionExecuted = true;
+
+    mesh.complete_energy_force_after_membrane_accumulation();
+
+    result.accepted = true;
+    result.productionCompletionPhasesExecuted = true;
+    result.totalForcePublicationExecuted = true;
+    result.totalEnergyPublicationExecuted = true;
+    result.boundaryHandlingExecuted = true;
     result.rejectionReason.clear();
     return result;
 }

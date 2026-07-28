@@ -207,6 +207,32 @@ struct Valence4GeometryAwareAtomicCompositionResult
     bool defaultEvaluatorCaller = false;
 };
 
+struct Valence4ProductionCallerShadowRequest
+{
+    bool reviewerApprovedExplicitShadow = false;
+    std::vector<source_keyed_kernel::SourceKeyedFaceRows> rows;
+};
+
+struct Valence4ProductionCallerShadowResult
+{
+    bool accepted = false;
+    std::string rejectionReason;
+    bool explicitShadowRequested = false;
+    bool currentStateCleared = false;
+    bool geometryAwareAtomicCompositionExecuted = false;
+    bool productionCompletionPhasesExecuted = false;
+    bool totalForcePublicationExecuted = false;
+    bool totalEnergyPublicationExecuted = false;
+    bool boundaryHandlingExecuted = false;
+    Valence4GeometryAwareAtomicCompositionResult composition;
+
+    bool productionRouteEnabled = false;
+    bool actualProductionForcePathExecuted = false;
+    bool productionFaceLoopExecuted = false;
+    bool productionOneRingsPopulated = false;
+    bool defaultEvaluatorCaller = false;
+};
+
 /**
  * Build an owned, source-keyed face-loop route candidate for the approved
  * closed valence-4 topology.
@@ -341,4 +367,18 @@ Valence4GeometryAwareAtomicCompositionResult
 evaluate_guarded_valence4_geometry_aware_atomic_composition(
     Mesh &mesh,
     const Valence4GeometryAwareAtomicCompositionRequest &request);
+
+/**
+ * Exercise the reviewed valence-4 transaction at the production caller's
+ * post-face-loop timing boundary.
+ *
+ * The explicit shadow validates all inputs and destinations before clearing
+ * current force/face-energy state, atomically publishes the reviewed
+ * geometry/scientific package, then invokes the exact production completion
+ * phases. It does not enter the production face loop or enable routing.
+ */
+Valence4ProductionCallerShadowResult
+evaluate_guarded_valence4_production_caller_shadow(
+    Mesh &mesh,
+    const Valence4ProductionCallerShadowRequest &request);
 } // namespace slimed::valence4_route_preflight
