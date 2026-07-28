@@ -31,7 +31,10 @@ PRODUCTION_PATHS = (
 ALLOWED_PRODUCTION_OPENSUBDIV_PATHS = {
     Path("include/mesh/Mesh.hpp"),
     Path("include/mesh/OpenSubdiv_regular_evaluator.hpp"),
+    Path("include/mesh/OpenSubdiv_valence4_row_provider.hpp"),
+    Path("include/mesh/Regular_limit_surface_row_cache.hpp"),
     Path("src/mesh/OpenSubdiv_regular_evaluator.cpp"),
+    Path("src/mesh/OpenSubdiv_valence4_row_provider.cpp"),
     Path("src/mesh/Mesh.cpp"),
     Path("src/energy_force/Compute_energy_and_force_on_mesh.cpp"),
     MAKEFILE_PATH,

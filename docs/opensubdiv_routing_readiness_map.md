@@ -245,10 +245,13 @@ default-off route request boundary. A guarded scientific-request successor now
 validates the complete three-sample source-keyed package, reads real approved
 mesh coordinates, invokes `Mesh::element_energy_force_regular`, and returns
 caller-owned observables and source-keyed forces without mutating mesh state.
-Fresh OpenSubdiv rows remain
-proof-provided and are bound as an `8 x 3 x 7 x 6` tensor to exact original
-source IDs, while the real production entry point is still required to reject
-before mutation because `Face::oneRingVertices` remains empty.
+The proof package still supplies rows to the scientific shadows, while the
+guarded production row-provider prerequisite can now generate the same
+`8 x 3 x 7 x 6` tensor directly from OpenSubdiv and bind it to exact original
+source IDs. The provider is default-off, returns caller-owned backend-neutral
+rows only after complete validation, and does not call or install a route.
+The real production entry point is still required to reject before mutation
+because `Face::oneRingVertices` remains empty.
 
 This is not production valence-4 force execution or route approval. The
 production-route preflight composes the approved topology/source mapping with
@@ -299,6 +302,20 @@ optional-scaffold ordering, and boundary handling at production caller timing.
 Serial/OpenMP total-force and total-energy parity are required. The production
 face loop remains uncalled, production one-rings remain empty, and routing
 remains disabled; activation is still a separate reviewer/user-gated change.
+
+The next prerequisite resolves the remaining row-source gap:
+`build_guarded_opensubdiv_valence4_rows(...)` consumes the canonical guarded
+topology/source mapping and generates the complete frozen three-sample,
+seven-row, six-source package with OpenSubdiv's double limit-stencil factory
+behind the existing OpenSubdiv build gate and an
+explicit reviewed request. Dependency-free builds reject explicitly, malformed
+topology returns an empty package, and present-dependency evidence compares all
+provider coefficients against the separately generated reviewed float
+force-proof tensor while independently enforcing partition-of-unity and
+derivative-zero-sum invariants at `1e-12`. It leaves
+production one-rings empty and does not enter the production face loop. A
+guarded real production face-loop caller, followed by a separate activation
+decision, remains the next reviewer/user-gated boundary.
 
 ## Inventory Check
 
