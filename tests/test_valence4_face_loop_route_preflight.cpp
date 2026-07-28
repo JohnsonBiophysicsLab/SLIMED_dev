@@ -14,6 +14,7 @@
 #include "energy_force/Valence4_face_loop_route_preflight.hpp"
 #include "io/io.hpp"
 #include "mesh/Mesh.hpp"
+#include "mesh/OpenSubdiv_valence4_row_provider.hpp"
 
 namespace
 {
@@ -2533,3 +2534,162 @@ TEST(ValenceFourFaceLoopRoutePreflight,
     expect_energy_equal(
         mesh.param.energy, expectedTotalEnergy, false);
 }
+
+TEST(ValenceFourFaceLoopRoutePreflight,
+     OpenSubdivRowProviderRemainsDefaultOff)
+{
+    ApprovedValence4MeshFixture fixture;
+    Mesh &mesh = *fixture.mesh;
+    const auto beforeCoordinates = capture_vertex_coordinates(mesh);
+
+    const auto result =
+        slimed::opensubdiv_valence4::
+            build_guarded_opensubdiv_valence4_rows(
+                mesh, {});
+
+    EXPECT_FALSE(result.accepted);
+    EXPECT_FALSE(result.explicitRequestReceived);
+    EXPECT_FALSE(result.rowsGenerated);
+    EXPECT_TRUE(result.rows.empty());
+    EXPECT_FALSE(result.productionRouteEnabled);
+    EXPECT_FALSE(result.actualProductionForcePathExecuted);
+    EXPECT_FALSE(result.productionFaceLoopExecuted);
+    EXPECT_FALSE(result.productionOneRingsPopulated);
+    EXPECT_FALSE(result.defaultEvaluatorCaller);
+    EXPECT_EQ(capture_vertex_coordinates(mesh), beforeCoordinates);
+    for (const Face &face : mesh.faces)
+    {
+        EXPECT_TRUE(face.oneRingVertices.empty());
+    }
+}
+
+#ifndef USE_OPENSUBDIV_REGULAR
+TEST(ValenceFourFaceLoopRoutePreflight,
+     OpenSubdivRowProviderRejectsExplicitRequestWithoutDependency)
+{
+    ApprovedValence4MeshFixture fixture;
+    slimed::opensubdiv_valence4::
+        OpenSubdivValence4RowProviderRequest request;
+    request.reviewerApprovedExplicitRequest = true;
+
+    const auto result =
+        slimed::opensubdiv_valence4::
+            build_guarded_opensubdiv_valence4_rows(
+                *fixture.mesh, request);
+
+    EXPECT_FALSE(result.accepted);
+    EXPECT_FALSE(result.opensubdivCompiled);
+    EXPECT_TRUE(result.explicitRequestReceived);
+    EXPECT_FALSE(result.rowsGenerated);
+    EXPECT_TRUE(result.rows.empty());
+    EXPECT_NE(result.rejectionReason.find("OpenSubdiv-enabled build"),
+              std::string::npos);
+}
+#else
+TEST(ValenceFourFaceLoopRoutePreflight,
+     OpenSubdivRowProviderReturnsCompleteApprovedPackage)
+{
+    ApprovedValence4MeshFixture fixture;
+    Mesh &mesh = *fixture.mesh;
+    const auto beforeCoordinates = capture_vertex_coordinates(mesh);
+    slimed::opensubdiv_valence4::
+        OpenSubdivValence4RowProviderRequest request;
+    request.reviewerApprovedExplicitRequest = true;
+
+    const auto result =
+        slimed::opensubdiv_valence4::
+            build_guarded_opensubdiv_valence4_rows(
+                mesh, request);
+
+    ASSERT_TRUE(result.accepted) << result.rejectionReason;
+    EXPECT_TRUE(result.opensubdivCompiled);
+    EXPECT_TRUE(result.explicitRequestReceived);
+    EXPECT_TRUE(result.topologySourceMappingValidated);
+    EXPECT_TRUE(result.ptexFaceIdentityValidated);
+    EXPECT_TRUE(result.exactSamplePlanValidated);
+    EXPECT_TRUE(result.exactSourceCoverageValidated);
+    EXPECT_TRUE(result.doublePrecisionRowsGenerated);
+    EXPECT_TRUE(result.constantFieldInvariantsValidated);
+    EXPECT_TRUE(result.mixedDerivativeRowsDuplicated);
+    EXPECT_TRUE(result.rowsGenerated);
+    ASSERT_EQ(result.rows.size(), 8u);
+    for (std::size_t face = 0; face < result.rows.size(); ++face)
+    {
+        const SourceKeyedFaceRows &faceRows = result.rows[face];
+        EXPECT_EQ(faceRows.faceIndex, static_cast<int>(face));
+        ASSERT_EQ(faceRows.samples.size(), 3u);
+        for (const SourceKeyedSampleRows &sample :
+             faceRows.samples)
+        {
+            for (int rowIndex = 0;
+                 rowIndex < kDerivativeRowCount;
+                 ++rowIndex)
+            {
+                const SourceKeyedRow &row =
+                    sample.rows[rowIndex];
+                EXPECT_EQ(row.sourceIds,
+                          (std::vector<int>{0, 1, 2, 3, 4, 5}));
+                ASSERT_EQ(row.coefficients.size(), 6u);
+                double coefficientSum = 0.0;
+                for (const double coefficient : row.coefficients)
+                {
+                    EXPECT_TRUE(std::isfinite(coefficient));
+                    coefficientSum += coefficient;
+                }
+                EXPECT_NEAR(
+                    coefficientSum,
+                    rowIndex == 0 ? 1.0 : 0.0,
+                    1.0e-12);
+            }
+            EXPECT_EQ(sample.rows[5].sourceIds,
+                      sample.rows[6].sourceIds);
+            EXPECT_EQ(sample.rows[5].coefficients,
+                      sample.rows[6].coefficients);
+        }
+    }
+    EXPECT_FALSE(result.productionRouteEnabled);
+    EXPECT_FALSE(result.actualProductionForcePathExecuted);
+    EXPECT_FALSE(result.productionFaceLoopExecuted);
+    EXPECT_FALSE(result.productionOneRingsPopulated);
+    EXPECT_FALSE(result.defaultEvaluatorCaller);
+    EXPECT_EQ(capture_vertex_coordinates(mesh), beforeCoordinates);
+    for (const Face &face : mesh.faces)
+    {
+        EXPECT_TRUE(face.oneRingVertices.empty());
+    }
+}
+
+TEST(ValenceFourFaceLoopRoutePreflight,
+     OpenSubdivRowProviderRejectsTopologyDriftAtomically)
+{
+    ApprovedValence4MeshFixture fixture;
+    Mesh &mesh = *fixture.mesh;
+    std::swap(mesh.faces[0].adjacentVertices[1],
+              mesh.faces[0].adjacentVertices[2]);
+    const auto beforeCoordinates = capture_vertex_coordinates(mesh);
+    const std::vector<int> beforeOrientation =
+        mesh.faces[0].adjacentVertices;
+    slimed::opensubdiv_valence4::
+        OpenSubdivValence4RowProviderRequest request;
+    request.reviewerApprovedExplicitRequest = true;
+
+    const auto result =
+        slimed::opensubdiv_valence4::
+            build_guarded_opensubdiv_valence4_rows(
+                mesh, request);
+
+    EXPECT_FALSE(result.accepted);
+    EXPECT_TRUE(result.opensubdivCompiled);
+    EXPECT_TRUE(result.explicitRequestReceived);
+    EXPECT_FALSE(result.rowsGenerated);
+    EXPECT_TRUE(result.rows.empty());
+    EXPECT_NE(result.rejectionReason.find("canonical face orientation"),
+              std::string::npos);
+    EXPECT_EQ(capture_vertex_coordinates(mesh), beforeCoordinates);
+    EXPECT_EQ(mesh.faces[0].adjacentVertices, beforeOrientation);
+    for (const Face &face : mesh.faces)
+    {
+        EXPECT_TRUE(face.oneRingVertices.empty());
+    }
+}
+#endif

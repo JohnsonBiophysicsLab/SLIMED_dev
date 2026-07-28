@@ -55,6 +55,19 @@ PREDECESSOR_INVENTORIES = {
         "scripts/inventory_irregular_valence4_source_keyed_kernel_adapter.py"
     ),
 }
+ROW_PROVIDER_SUCCESSOR_PATHS = {
+    Path("include/mesh/OpenSubdiv_valence4_row_provider.hpp"),
+    Path("src/mesh/OpenSubdiv_valence4_row_provider.cpp"),
+    Path("experiments/irregular_valence4_opensubdiv_row_provider.cpp"),
+    Path("scripts/run_irregular_valence4_opensubdiv_row_provider.py"),
+    Path("scripts/run_irregular_valence4_opensubdiv_row_provider.sh"),
+    Path("docs/irregular_valence4_opensubdiv_row_provider.md"),
+    Path("scripts/inventory_irregular_valence4_opensubdiv_row_provider.py"),
+    Path(
+        "tests/test_irregular_valence4_opensubdiv_row_provider_inventory.py"
+    ),
+    Path("scripts/inventory_opensubdiv_regular_cpp_adapter_proof.py"),
+}
 
 ALLOWED_PATHS = {
     MESH_HEADER,
@@ -72,6 +85,7 @@ ALLOWED_PATHS = {
     INVENTORY,
     TEST,
     *PREDECESSOR_INVENTORIES,
+    *ROW_PROVIDER_SUCCESSOR_PATHS,
 }
 
 ANCHORS = {
