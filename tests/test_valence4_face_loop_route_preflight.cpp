@@ -2303,6 +2303,147 @@ TEST(ValenceFourFaceLoopRoutePreflight,
 }
 
 TEST(ValenceFourFaceLoopRoutePreflight,
+     ProductionCallerShadowRejectsMalformedCompletionDestinationBeforeClear)
+{
+    ApprovedValence4MeshFixture fixture;
+    Mesh &mesh = *fixture.mesh;
+    const Valence4FaceLoopRoutePreflightResult preflight =
+        build_guarded_valence4_face_loop_route_preflight(mesh);
+    ASSERT_TRUE(preflight.supported);
+    seed_face_observable_publication_state(mesh);
+    seed_all_vertex_forces(mesh);
+    for (Vertex &vertex : mesh.vertices)
+    {
+        vertex.coordRef = vertex.coord;
+    }
+    Matrix malformedRegularization(4, 1, true);
+    for (int row = 0; row < 4; ++row)
+    {
+        malformedRegularization.set(row, 0, 9000.0 + row);
+    }
+    mesh.vertices.back().force.forceRegularization =
+        malformedRegularization;
+    const std::vector<Face> beforeFaces = mesh.faces;
+    const auto beforeForces = capture_all_vertex_forces(mesh);
+    const double beforeArea = mesh.param.area;
+    const double beforeVolume = mesh.param.vol;
+
+    const Valence4ProductionCallerShadowResult malformed =
+        evaluate_guarded_valence4_production_caller_shadow(
+            mesh,
+            make_production_caller_shadow_request(
+                preflight, true));
+
+    EXPECT_FALSE(malformed.accepted);
+    EXPECT_TRUE(malformed.explicitShadowRequested);
+    EXPECT_FALSE(malformed.currentStateCleared);
+    EXPECT_NE(malformed.rejectionReason.find("destination shape drift"),
+              std::string::npos);
+    expect_face_observable_publication_state_unchanged(
+        mesh, beforeFaces);
+    EXPECT_EQ(capture_all_vertex_forces(mesh), beforeForces);
+    EXPECT_EQ(
+        mesh.vertices.back().force.forceRegularization.nrow(), 4);
+    EXPECT_EQ(
+        mesh.vertices.back().force.forceRegularization.ncol(), 1);
+    EXPECT_DOUBLE_EQ(
+        mesh.vertices.back().force.forceRegularization.get(3, 0),
+        9003.0);
+    EXPECT_DOUBLE_EQ(mesh.param.area, beforeArea);
+    EXPECT_DOUBLE_EQ(mesh.param.vol, beforeVolume);
+}
+
+TEST(ValenceFourFaceLoopRoutePreflight,
+     ProductionCallerShadowRejectsMalformedReferenceShapeBeforeClear)
+{
+    ApprovedValence4MeshFixture fixture;
+    Mesh &mesh = *fixture.mesh;
+    const Valence4FaceLoopRoutePreflightResult preflight =
+        build_guarded_valence4_face_loop_route_preflight(mesh);
+    ASSERT_TRUE(preflight.supported);
+    seed_face_observable_publication_state(mesh);
+    seed_all_vertex_forces(mesh);
+    for (Vertex &vertex : mesh.vertices)
+    {
+        vertex.coordRef = vertex.coord;
+    }
+    Matrix malformedReference(2, 1, true);
+    malformedReference.set(0, 0, 7100.0);
+    malformedReference.set(1, 0, 7101.0);
+    mesh.vertices.back().coordRef = malformedReference;
+    const std::vector<Face> beforeFaces = mesh.faces;
+    const auto beforeForces = capture_all_vertex_forces(mesh);
+    const double beforeArea = mesh.param.area;
+    const double beforeVolume = mesh.param.vol;
+
+    const Valence4ProductionCallerShadowResult malformed =
+        evaluate_guarded_valence4_production_caller_shadow(
+            mesh,
+            make_production_caller_shadow_request(
+                preflight, true));
+
+    EXPECT_FALSE(malformed.accepted);
+    EXPECT_TRUE(malformed.explicitShadowRequested);
+    EXPECT_FALSE(malformed.currentStateCleared);
+    EXPECT_NE(
+        malformed.rejectionReason.find(
+            "reference coordinate shape drift"),
+        std::string::npos);
+    expect_face_observable_publication_state_unchanged(
+        mesh, beforeFaces);
+    EXPECT_EQ(capture_all_vertex_forces(mesh), beforeForces);
+    EXPECT_EQ(mesh.vertices.back().coordRef.nrow(), 2);
+    EXPECT_EQ(mesh.vertices.back().coordRef.ncol(), 1);
+    EXPECT_DOUBLE_EQ(
+        mesh.vertices.back().coordRef.get(1, 0), 7101.0);
+    EXPECT_DOUBLE_EQ(mesh.param.area, beforeArea);
+    EXPECT_DOUBLE_EQ(mesh.param.vol, beforeVolume);
+}
+
+TEST(ValenceFourFaceLoopRoutePreflight,
+     ProductionCallerShadowRejectsNonfiniteReferenceBeforeClear)
+{
+    ApprovedValence4MeshFixture fixture;
+    Mesh &mesh = *fixture.mesh;
+    const Valence4FaceLoopRoutePreflightResult preflight =
+        build_guarded_valence4_face_loop_route_preflight(mesh);
+    ASSERT_TRUE(preflight.supported);
+    seed_face_observable_publication_state(mesh);
+    seed_all_vertex_forces(mesh);
+    for (Vertex &vertex : mesh.vertices)
+    {
+        vertex.coordRef = vertex.coord;
+    }
+    mesh.vertices.back().coordRef.set(
+        2, 0, std::numeric_limits<double>::infinity());
+    const std::vector<Face> beforeFaces = mesh.faces;
+    const auto beforeForces = capture_all_vertex_forces(mesh);
+    const double beforeArea = mesh.param.area;
+    const double beforeVolume = mesh.param.vol;
+
+    const Valence4ProductionCallerShadowResult malformed =
+        evaluate_guarded_valence4_production_caller_shadow(
+            mesh,
+            make_production_caller_shadow_request(
+                preflight, true));
+
+    EXPECT_FALSE(malformed.accepted);
+    EXPECT_TRUE(malformed.explicitShadowRequested);
+    EXPECT_FALSE(malformed.currentStateCleared);
+    EXPECT_NE(
+        malformed.rejectionReason.find(
+            "nonfinite reference coordinate"),
+        std::string::npos);
+    expect_face_observable_publication_state_unchanged(
+        mesh, beforeFaces);
+    EXPECT_EQ(capture_all_vertex_forces(mesh), beforeForces);
+    EXPECT_TRUE(std::isinf(
+        mesh.vertices.back().coordRef.get(2, 0)));
+    EXPECT_DOUBLE_EQ(mesh.param.area, beforeArea);
+    EXPECT_DOUBLE_EQ(mesh.param.vol, beforeVolume);
+}
+
+TEST(ValenceFourFaceLoopRoutePreflight,
      ProductionCallerShadowRunsExactCompletionPhasesWithRouteDisabled)
 {
     ApprovedValence4MeshFixture fixture;

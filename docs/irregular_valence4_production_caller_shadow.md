@@ -29,8 +29,8 @@ requires an explicit reviewer-approved request. Before the first write it:
 - stages all eight faces' area and current legacy visible volume;
 - evaluates the unchanged scientific algebra against staged global area and
   volume;
-- validates the six force destinations, eight face identities, and empty
-  production one-rings.
+- validates all eight current force destinations, finite reference
+  coordinates, eight face identities, and empty production one-rings.
 
 Only after no-write validation succeeds does the shadow clear current force
 and face-energy state, atomically publish the reviewed geometry/scientific
@@ -46,6 +46,8 @@ precondition rather than skipping the regularization phase.
 The focused C++ tests require:
 
 - default-off and malformed-row rejection before any clear or mutation;
+- malformed completion-only force destinations and reference coordinates to
+  reject before any clear or mutation;
 - stale current thickness force and face energy to be cleared;
 - exact per-vertex total-force recomposition;
 - exact per-face and global total-energy recomposition;

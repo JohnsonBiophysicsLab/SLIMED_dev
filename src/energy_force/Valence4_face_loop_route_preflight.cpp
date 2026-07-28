@@ -472,12 +472,16 @@ void validate_production_caller_shadow_destinations(const Mesh &mesh)
                 "valence-4 production caller shadow rejected vertex "
                 "identity drift");
         }
-        const std::array<const Matrix *,
-                         source_keyed_kernel::kForceKindCount>
+        const std::array<const Matrix *, 8>
             destinations{{
                 &vertex.force.forceCurvature,
                 &vertex.force.forceArea,
-                &vertex.force.forceVolume}};
+                &vertex.force.forceVolume,
+                &vertex.force.forceThickness,
+                &vertex.force.forceTilt,
+                &vertex.force.forceRegularization,
+                &vertex.force.forceHarmonicBond,
+                &vertex.force.forceTotal}};
         for (const Matrix *destination : destinations)
         {
             if (destination->mat == nullptr ||
@@ -487,6 +491,25 @@ void validate_production_caller_shadow_destinations(const Mesh &mesh)
                 throw std::invalid_argument(
                     "valence-4 production caller shadow rejected vertex "
                     "destination shape drift");
+            }
+        }
+        if (vertex.coordRef.mat == nullptr ||
+            vertex.coordRef.nrow() != source_keyed_kernel::kAxisCount ||
+            vertex.coordRef.ncol() != 1)
+        {
+            throw std::invalid_argument(
+                "valence-4 production caller shadow rejected reference "
+                "coordinate shape drift");
+        }
+        for (int axis = 0;
+             axis < source_keyed_kernel::kAxisCount;
+             ++axis)
+        {
+            if (!std::isfinite(vertex.coordRef.get(axis, 0)))
+            {
+                throw std::invalid_argument(
+                    "valence-4 production caller shadow rejected nonfinite "
+                    "reference coordinate");
             }
         }
     }

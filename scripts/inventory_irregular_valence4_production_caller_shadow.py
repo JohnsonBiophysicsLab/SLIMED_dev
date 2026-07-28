@@ -51,6 +51,9 @@ PREDECESSOR_INVENTORIES = {
     Path(
         "scripts/inventory_irregular_valence4_production_call_shadow_parity.py"
     ),
+    Path(
+        "scripts/inventory_irregular_valence4_source_keyed_kernel_adapter.py"
+    ),
 }
 
 ALLOWED_PATHS = {
@@ -93,6 +96,9 @@ ANCHORS = {
     PREFLIGHT_SOURCE: (
         "prepare_geometry_aware_composition",
         "validate_production_caller_shadow_destinations",
+        "&vertex.force.forceRegularization",
+        "vertex.coordRef.mat == nullptr",
+        "!std::isfinite(vertex.coordRef.get(axis, 0))",
         "production caller shadow remains default-off",
         "mesh.clear_force_on_vertices_and_energy_on_faces();",
         "publish_valence4_geometry_and_scientific_result_atomically",
@@ -100,6 +106,9 @@ ANCHORS = {
     ),
     CPP_TEST: (
         "ProductionCallerShadowRejectsBeforeClearingCurrentState",
+        "ProductionCallerShadowRejectsMalformedCompletionDestinationBeforeClear",
+        "ProductionCallerShadowRejectsMalformedReferenceShapeBeforeClear",
+        "ProductionCallerShadowRejectsNonfiniteReferenceBeforeClear",
         "ProductionCallerShadowRunsExactCompletionPhasesWithRouteDisabled",
         "vertex.coordRef = vertex.coord",
     ),
