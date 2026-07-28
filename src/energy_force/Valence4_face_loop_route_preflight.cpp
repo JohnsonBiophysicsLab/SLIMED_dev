@@ -1,5 +1,6 @@
 #include "energy_force/Valence4_face_loop_route_preflight.hpp"
 
+#include "energy_force/Valence4_production_face_loop.hpp"
 #include "mesh/Mesh.hpp"
 #include "mesh/Valence4_topology_source_mapping.hpp"
 
@@ -139,6 +140,106 @@ reject_opensubdiv_production_caller_request(
     result.rejectionReason = std::move(reason);
     result.explicitCallerRequested = explicitCallerRequested;
     return result;
+}
+
+Valence4OpenSubdivProductionFaceLoopCallerResult
+reject_opensubdiv_production_face_loop_caller_request(
+    std::string reason,
+    const bool explicitCallerRequested)
+{
+    Valence4OpenSubdivProductionFaceLoopCallerResult result;
+    result.rejectionReason = std::move(reason);
+    result.explicitCallerRequested = explicitCallerRequested;
+    return result;
+}
+
+struct PreparedOpenSubdivCallerRows
+{
+    bool accepted = false;
+    std::string rejectionReason;
+    bool exactQuadratureSamplePlanValidated = false;
+    bool exactQuadratureWeightsValidated = false;
+    bool opensubdivRowProviderExecuted = false;
+    slimed::opensubdiv_valence4::OpenSubdivValence4RowProviderResult
+        rowProvider;
+};
+
+PreparedOpenSubdivCallerRows prepare_opensubdiv_caller_rows(
+    const Mesh &mesh)
+{
+    PreparedOpenSubdivCallerRows prepared;
+    if (mesh.param.gaussQuadratureN !=
+            kReviewedGaussQuadratureOrder ||
+        mesh.param.VWU.nrow() !=
+            static_cast<int>(kReviewedSampleCountPerFace) ||
+        mesh.param.VWU.ncol() != 3)
+    {
+        prepared.rejectionReason =
+            "valence-4 OpenSubdiv production caller requires the exact "
+            "ordered N=2 quadrature sample plan";
+        return prepared;
+    }
+    for (int sample = 0;
+         sample < static_cast<int>(kReviewedSampleCountPerFace);
+         ++sample)
+    {
+        for (int coordinate = 0; coordinate < 3; ++coordinate)
+        {
+            if (mesh.param.VWU.get(sample, coordinate) !=
+                kReviewedValence4QuadratureSamples[sample][coordinate])
+            {
+                prepared.rejectionReason =
+                    "valence-4 OpenSubdiv production caller rejected "
+                    "ordered quadrature sample drift";
+                return prepared;
+            }
+        }
+    }
+    prepared.exactQuadratureSamplePlanValidated = true;
+
+    if (mesh.param.gaussQuadratureCoeff.nrow() !=
+            static_cast<int>(kReviewedSampleCountPerFace) ||
+        mesh.param.gaussQuadratureCoeff.ncol() != 1)
+    {
+        prepared.rejectionReason =
+            "valence-4 OpenSubdiv production caller requires exactly "
+            "three reviewed quadrature weights";
+        return prepared;
+    }
+    for (int sample = 0;
+         sample < static_cast<int>(kReviewedSampleCountPerFace);
+         ++sample)
+    {
+        if (mesh.param.gaussQuadratureCoeff.get(sample, 0) !=
+            kReviewedValence4QuadratureWeights[sample])
+        {
+            prepared.rejectionReason =
+                "valence-4 OpenSubdiv production caller rejected "
+                "quadrature weight drift";
+            return prepared;
+        }
+    }
+    prepared.exactQuadratureWeightsValidated = true;
+    prepared.opensubdivRowProviderExecuted = true;
+
+    slimed::opensubdiv_valence4::OpenSubdivValence4RowProviderRequest
+        rowRequest;
+    rowRequest.reviewerApprovedExplicitRequest = true;
+    prepared.rowProvider =
+        slimed::opensubdiv_valence4::
+            build_guarded_opensubdiv_valence4_rows(mesh, rowRequest);
+    if (!prepared.rowProvider.accepted)
+    {
+        prepared.rejectionReason =
+            prepared.rowProvider.rejectionReason.empty()
+                ? "valence-4 OpenSubdiv production caller rejected row "
+                  "provider output"
+                : prepared.rowProvider.rejectionReason;
+        return prepared;
+    }
+
+    prepared.accepted = true;
+    return prepared;
 }
 
 std::vector<source_keyed_kernel::SourceKeyedFaceForces>
@@ -1592,74 +1693,18 @@ evaluate_guarded_valence4_opensubdiv_production_caller(
 
     Valence4OpenSubdivProductionCallerResult result;
     result.explicitCallerRequested = true;
-
-    if (mesh.param.gaussQuadratureN !=
-            kReviewedGaussQuadratureOrder ||
-        mesh.param.VWU.nrow() !=
-            static_cast<int>(kReviewedSampleCountPerFace) ||
-        mesh.param.VWU.ncol() != 3)
+    PreparedOpenSubdivCallerRows preparedRows =
+        prepare_opensubdiv_caller_rows(mesh);
+    result.exactQuadratureSamplePlanValidated =
+        preparedRows.exactQuadratureSamplePlanValidated;
+    result.exactQuadratureWeightsValidated =
+        preparedRows.exactQuadratureWeightsValidated;
+    result.opensubdivRowProviderExecuted =
+        preparedRows.opensubdivRowProviderExecuted;
+    result.rowProvider = std::move(preparedRows.rowProvider);
+    if (!preparedRows.accepted)
     {
-        result.rejectionReason =
-            "valence-4 OpenSubdiv production caller requires the exact "
-            "ordered N=2 quadrature sample plan";
-        return result;
-    }
-    for (int sample = 0;
-         sample < static_cast<int>(kReviewedSampleCountPerFace);
-         ++sample)
-    {
-        for (int coordinate = 0; coordinate < 3; ++coordinate)
-        {
-            if (mesh.param.VWU.get(sample, coordinate) !=
-                kReviewedValence4QuadratureSamples[sample][coordinate])
-            {
-                result.rejectionReason =
-                    "valence-4 OpenSubdiv production caller rejected "
-                    "ordered quadrature sample drift";
-                return result;
-            }
-        }
-    }
-    result.exactQuadratureSamplePlanValidated = true;
-
-    if (mesh.param.gaussQuadratureCoeff.nrow() !=
-            static_cast<int>(kReviewedSampleCountPerFace) ||
-        mesh.param.gaussQuadratureCoeff.ncol() != 1)
-    {
-        result.rejectionReason =
-            "valence-4 OpenSubdiv production caller requires exactly "
-            "three reviewed quadrature weights";
-        return result;
-    }
-    for (int sample = 0;
-         sample < static_cast<int>(kReviewedSampleCountPerFace);
-         ++sample)
-    {
-        if (mesh.param.gaussQuadratureCoeff.get(sample, 0) !=
-            kReviewedValence4QuadratureWeights[sample])
-        {
-            result.rejectionReason =
-                "valence-4 OpenSubdiv production caller rejected "
-                "quadrature weight drift";
-            return result;
-        }
-    }
-    result.exactQuadratureWeightsValidated = true;
-    result.opensubdivRowProviderExecuted = true;
-
-    slimed::opensubdiv_valence4::OpenSubdivValence4RowProviderRequest
-        rowRequest;
-    rowRequest.reviewerApprovedExplicitRequest = true;
-    result.rowProvider =
-        slimed::opensubdiv_valence4::
-            build_guarded_opensubdiv_valence4_rows(mesh, rowRequest);
-    if (!result.rowProvider.accepted)
-    {
-        result.rejectionReason =
-            result.rowProvider.rejectionReason.empty()
-                ? "valence-4 OpenSubdiv production caller rejected row "
-                  "provider output"
-                : result.rowProvider.rejectionReason;
+        result.rejectionReason = std::move(preparedRows.rejectionReason);
         return result;
     }
 
@@ -1693,6 +1738,100 @@ evaluate_guarded_valence4_opensubdiv_production_caller(
     result.productionRouteEnabled = false;
     result.actualProductionForcePathExecuted = false;
     result.productionFaceLoopExecuted = false;
+    result.productionOneRingsPopulated = false;
+    result.defaultEvaluatorCaller = false;
+    result.rejectionReason.clear();
+    return result;
+}
+
+Valence4OpenSubdivProductionFaceLoopCallerResult
+evaluate_guarded_valence4_opensubdiv_production_face_loop_caller(
+    Mesh &mesh,
+    const Valence4OpenSubdivProductionFaceLoopCallerRequest &request)
+{
+    if (!request.reviewerApprovedExplicitCaller)
+    {
+        return reject_opensubdiv_production_face_loop_caller_request(
+            "valence-4 OpenSubdiv production face-loop caller remains "
+            "default-off without an explicit reviewer-approved caller "
+            "request",
+            false);
+    }
+
+    Valence4OpenSubdivProductionFaceLoopCallerResult result;
+    result.explicitCallerRequested = true;
+    PreparedOpenSubdivCallerRows preparedRows =
+        prepare_opensubdiv_caller_rows(mesh);
+    result.exactQuadratureSamplePlanValidated =
+        preparedRows.exactQuadratureSamplePlanValidated;
+    result.exactQuadratureWeightsValidated =
+        preparedRows.exactQuadratureWeightsValidated;
+    result.opensubdivRowProviderExecuted =
+        preparedRows.opensubdivRowProviderExecuted;
+    result.rowProvider = std::move(preparedRows.rowProvider);
+    if (!preparedRows.accepted)
+    {
+        result.rejectionReason = std::move(preparedRows.rejectionReason);
+        return result;
+    }
+    result.opensubdivRowsGenerated = true;
+
+    PreparedGeometryAwareComposition prepared =
+        prepare_geometry_aware_composition(
+            mesh, result.rowProvider.rows);
+    if (!prepared.accepted)
+    {
+        result.rejectionReason = std::move(prepared.rejectionReason);
+        result.preparedComposition.geometryStaging =
+            std::move(prepared.geometry);
+        result.preparedComposition.scientificRequest =
+            std::move(prepared.scientific);
+        return result;
+    }
+
+    try
+    {
+        validate_production_caller_shadow_destinations(mesh);
+        validate_geometry_aware_publication(
+            prepared.geometry, prepared.scientific, mesh);
+    }
+    catch (const std::invalid_argument &error)
+    {
+        result.rejectionReason = error.what();
+        return result;
+    }
+
+    result.completeTransactionValidatedBeforeMutation = true;
+    result.preparedComposition.explicitCompositionRequested = true;
+    result.preparedComposition.stagedGeometryUsedForScientificEvaluation =
+        true;
+    result.preparedComposition.geometryStaging =
+        std::move(prepared.geometry);
+    result.preparedComposition.scientificRequest =
+        std::move(prepared.scientific);
+
+    try
+    {
+        execute_guarded_valence4_production_face_loop(
+            mesh,
+            result.preparedComposition.geometryStaging,
+            result.preparedComposition.scientificRequest);
+    }
+    catch (const std::invalid_argument &error)
+    {
+        result.rejectionReason = error.what();
+        return result;
+    }
+
+    result.accepted = true;
+    result.currentStateCleared = true;
+    result.productionCompletionPhasesExecuted = true;
+    result.totalForcePublicationExecuted = true;
+    result.totalEnergyPublicationExecuted = true;
+    result.boundaryHandlingExecuted = true;
+    result.productionRouteEnabled = false;
+    result.actualProductionForcePathExecuted = true;
+    result.productionFaceLoopExecuted = true;
     result.productionOneRingsPopulated = false;
     result.defaultEvaluatorCaller = false;
     result.rejectionReason.clear();

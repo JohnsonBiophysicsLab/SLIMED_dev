@@ -1,5 +1,7 @@
 #include "mesh/Mesh.hpp"
 
+#include "energy_force/Source_keyed_kernel_call.hpp"
+#include "energy_force/Valence4_production_face_loop.hpp"
 #include "mesh/Limit_surface_evaluator.hpp"
 #include "mesh/OpenSubdiv_regular_evaluator.hpp"
 
@@ -102,9 +104,61 @@ void refresh_energy_force_geometry(Mesh &mesh)
     mesh.sum_membrane_area_and_volume(mesh.param.area, mesh.param.vol);
 }
 
-void accumulate_membrane_face_energy_and_forces(Mesh &mesh)
+std::vector<Matrix> valence4_shape_functions(
+    const slimed::source_keyed_kernel::PreparedSourceKeyedFace &preparedFace)
+{
+    const int sourceCount = static_cast<int>(
+        preparedFace.mapping.originalSourceIds.size());
+    std::vector<Matrix> shapeFunctions;
+    shapeFunctions.reserve(preparedFace.samples.size());
+    for (const auto &sample : preparedFace.samples)
+    {
+        Matrix shapeFunction(
+            slimed::source_keyed_kernel::kDerivativeRowCount,
+            sourceCount,
+            true);
+        for (int row = 0;
+             row < slimed::source_keyed_kernel::kDerivativeRowCount;
+             ++row)
+        {
+            const auto &sourceRow = sample.rows[row];
+            if (sourceRow.sourceIds !=
+                    preparedFace.mapping.originalSourceIds ||
+                static_cast<int>(sourceRow.coefficients.size()) != sourceCount)
+            {
+                throw std::invalid_argument(
+                    "guarded valence-4 production face loop rejected row "
+                    "source/cardinality drift");
+            }
+            for (int source = 0; source < sourceCount; ++source)
+            {
+                shapeFunction.set(
+                    row, source, sourceRow.coefficients[source]);
+            }
+        }
+        shapeFunctions.push_back(std::move(shapeFunction));
+    }
+    return shapeFunctions;
+}
+
+void accumulate_membrane_face_energy_and_forces(
+    Mesh &mesh,
+    const slimed::source_keyed_kernel::PreparedSourceKeyedKernelCall
+        *guardedValence4Rows = nullptr,
+    const std::vector<std::vector<Matrix>>
+        *guardedValence4ShapeFunctions = nullptr)
 {
     assert_supported_membrane_force_routing(mesh);
+    if ((guardedValence4Rows == nullptr) !=
+            (guardedValence4ShapeFunctions == nullptr) ||
+        (guardedValence4Rows != nullptr &&
+         (guardedValence4Rows->faces.size() != mesh.faces.size() ||
+          guardedValence4ShapeFunctions->size() != mesh.faces.size())))
+    {
+        throw std::invalid_argument(
+            "guarded valence-4 production face loop requires complete "
+            "prevalidated rows");
+    }
     const std::shared_ptr<const RegularLimitSurfaceRowTable>
         routedRegularShapeFunctions =
             cached_opensubdiv_regular_shape_functions_by_face(mesh);
@@ -134,12 +188,28 @@ void accumulate_membrane_face_energy_and_forces(Mesh &mesh)
         if (face.isBoundary)
             continue;
 
-        // Get number of one ring vertices
-        int nOneRingVertices = face.oneRingVertices.size();
+        const slimed::source_keyed_kernel::PreparedSourceKeyedFace
+            *guardedValence4Face = nullptr;
+        if (guardedValence4Rows != nullptr)
+        {
+            guardedValence4Face =
+                &guardedValence4Rows->faces[face.index];
+        }
+
+        // Get number of one ring vertices or guarded original sources.
+        int nOneRingVertices =
+            guardedValence4Face == nullptr
+                ? static_cast<int>(face.oneRingVertices.size())
+                : static_cast<int>(
+                      guardedValence4Face->mapping.originalSourceIds.size());
 //cout << "CEAF 54" << endl;
-        // Get coord of one ring vertices
+        // Get coordinates of one-ring vertices or guarded original sources.
         std::vector<Matrix> coordOneRingVertices(nOneRingVertices);
-        std::transform(face.oneRingVertices.begin(), face.oneRingVertices.end(),
+        const std::vector<int> &forceSourceIds =
+            guardedValence4Face == nullptr
+                ? face.oneRingVertices
+                : guardedValence4Face->mapping.originalSourceIds;
+        std::transform(forceSourceIds.begin(), forceSourceIds.end(),
                        coordOneRingVertices.begin(),
                        [&mesh](int iVertex)
                        { return mesh.vertices[iVertex].coord; });
@@ -190,6 +260,21 @@ void accumulate_membrane_face_energy_and_forces(Mesh &mesh)
                                                    fArea,
                                                    fVol);
         }
+        else if (guardedValence4Face != nullptr)
+        {
+            mesh.element_energy_force_regular(coordOneRingVertices,
+                                               face,
+                                               spontCurv,
+                                               meanCurv,
+                                               face.normVector,
+                                               eBend,
+                                               fBend,
+                                               fArea,
+                                               fVol,
+                                               false,
+                                               &(*guardedValence4ShapeFunctions)
+                                                    [face.index]);
+        }
         face.energy.energyCurvature = eBend; ///< store curvature energy in face object
 
         
@@ -205,17 +290,35 @@ void accumulate_membrane_face_energy_and_forces(Mesh &mesh)
             std::cout << "estimateEbend = " << estimate_ebend << std::endl;
         }*/
 
-        for (int j = 0; j < nOneRingVertices; j++)
+        if (guardedValence4Face == nullptr)
         {
-            int iVertex = face.oneRingVertices[j];
-            const int baseIndex = iVertex * 9;
-            for (int axis = 0; axis < 3; ++axis)
+            for (int j = 0; j < nOneRingVertices; j++)
             {
-                localForceComponents[baseIndex + axis] += fBend(j, axis);
-                localForceComponents[baseIndex + 3 + axis] += fArea(j, axis);
-                localForceComponents[baseIndex + 6 + axis] += fVol(j, axis);
+                int iVertex = face.oneRingVertices[j];
+                const int baseIndex = iVertex * 9;
+                for (int axis = 0; axis < 3; ++axis)
+                {
+                    localForceComponents[baseIndex + axis] += fBend(j, axis);
+                    localForceComponents[baseIndex + 3 + axis] += fArea(j, axis);
+                    localForceComponents[baseIndex + 6 + axis] += fVol(j, axis);
+                }
+                // std::cout << "Force at node: " << fBend[j][0] << fBend[j][1]<< fBend[j][2] << F_consA[j][0] << F_consV[j][0] << endl;
             }
-            // std::cout << "Force at node: " << fBend[j][0] << fBend[j][1]<< fBend[j][2] << F_consA[j][0] << F_consV[j][0] << endl;
+        }
+        else
+        {
+            for (int j = 0; j < nOneRingVertices; ++j)
+            {
+                const int iVertex =
+                    guardedValence4Face->mapping.originalSourceIds[j];
+                const int baseIndex = iVertex * 9;
+                for (int axis = 0; axis < 3; ++axis)
+                {
+                    localForceComponents[baseIndex + axis] += fBend(j, axis);
+                    localForceComponents[baseIndex + 3 + axis] += fArea(j, axis);
+                    localForceComponents[baseIndex + 6 + axis] += fVol(j, axis);
+                }
+            }
         }
 
         // Free allocation
@@ -247,6 +350,96 @@ void accumulate_membrane_face_energy_and_forces(Mesh &mesh)
     }
 }
 } // namespace
+
+namespace slimed::valence4_route_preflight
+{
+void execute_guarded_valence4_production_face_loop(
+    Mesh &mesh,
+    const Valence4FaceGeometryStagingResult &geometry,
+    const Valence4FaceLoopScientificRequestResult &scientific)
+{
+    const auto &prepared =
+        scientific.sourceKeyedRequest.prepared;
+    if (!geometry.accepted ||
+        !geometry.productionGeometryEvaluated ||
+        !scientific.accepted ||
+        !scientific.productionScientificAlgebraExecuted ||
+        !scientific.sourceKeyedRequest.accepted ||
+        prepared.sourceCount != static_cast<int>(mesh.vertices.size()) ||
+        geometry.faceGeometry.size() != mesh.faces.size() ||
+        prepared.faces.size() != mesh.faces.size())
+    {
+        throw std::invalid_argument(
+            "guarded valence-4 production face loop requires a complete "
+            "validated transaction");
+    }
+
+    for (std::size_t faceIndex = 0;
+         faceIndex < mesh.faces.size();
+         ++faceIndex)
+    {
+        const Face &face = mesh.faces[faceIndex];
+        const Valence4FaceGeometry &faceGeometry =
+            geometry.faceGeometry[faceIndex];
+        const auto &preparedFace = prepared.faces[faceIndex];
+        if (face.index != static_cast<int>(faceIndex) ||
+            faceGeometry.faceIndex != static_cast<int>(faceIndex) ||
+            preparedFace.mapping.faceIndex != static_cast<int>(faceIndex) ||
+            !face.oneRingVertices.empty() ||
+            !preparedFace.mapping.productionOneRingEmpty ||
+            preparedFace.mapping.originalSourceIds.empty() ||
+            !std::isfinite(faceGeometry.elementArea) ||
+            !std::isfinite(faceGeometry.elementVolume) ||
+            faceGeometry.elementArea < 0.0)
+        {
+            throw std::invalid_argument(
+                "guarded valence-4 production face loop rejected prepared "
+                "face or destination drift");
+        }
+    }
+    if (!std::isfinite(geometry.totalArea) ||
+        !std::isfinite(geometry.totalVolume) ||
+        geometry.totalArea < 0.0)
+    {
+        throw std::invalid_argument(
+            "guarded valence-4 production face loop rejected global geometry "
+            "drift");
+    }
+
+    std::vector<std::vector<Matrix>> shapeFunctionsByFace;
+    shapeFunctionsByFace.reserve(prepared.faces.size());
+    for (const auto &preparedFace : prepared.faces)
+    {
+        shapeFunctionsByFace.push_back(
+            valence4_shape_functions(preparedFace));
+        if (shapeFunctionsByFace.back().size() !=
+            static_cast<std::size_t>(
+                mesh.param.gaussQuadratureCoeff.nrow()))
+        {
+            throw std::invalid_argument(
+                "guarded valence-4 production face loop rejected sample "
+                "cardinality drift");
+        }
+    }
+
+    // All route inputs and destinations are validated before the first write.
+    for (std::size_t faceIndex = 0;
+         faceIndex < mesh.faces.size();
+         ++faceIndex)
+    {
+        mesh.faces[faceIndex].elementArea =
+            geometry.faceGeometry[faceIndex].elementArea;
+        mesh.faces[faceIndex].elementVolume =
+            geometry.faceGeometry[faceIndex].elementVolume;
+    }
+    mesh.param.area = geometry.totalArea;
+    mesh.param.vol = geometry.totalVolume;
+    mesh.clear_force_on_vertices_and_energy_on_faces();
+    accumulate_membrane_face_energy_and_forces(
+        mesh, &prepared, &shapeFunctionsByFace);
+    mesh.complete_energy_force_after_membrane_accumulation();
+}
+} // namespace slimed::valence4_route_preflight
 
 /**
  * @brief Clear current force and face-energy state before recomputing energy and force.

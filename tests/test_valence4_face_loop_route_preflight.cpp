@@ -2579,6 +2579,39 @@ TEST(ValenceFourFaceLoopRoutePreflight,
 }
 
 TEST(ValenceFourFaceLoopRoutePreflight,
+     OpenSubdivProductionFaceLoopCallerRemainsDefaultOff)
+{
+    ApprovedValence4MeshFixture fixture;
+    Mesh &mesh = *fixture.mesh;
+    seed_face_observable_publication_state(mesh);
+    seed_all_vertex_forces(mesh);
+    const std::vector<Face> beforeFaces = mesh.faces;
+    const auto beforeForces = capture_all_vertex_forces(mesh);
+    const auto beforeCoordinates = capture_vertex_coordinates(mesh);
+    const double beforeArea = mesh.param.area;
+    const double beforeVolume = mesh.param.vol;
+
+    const Valence4OpenSubdivProductionFaceLoopCallerResult result =
+        evaluate_guarded_valence4_opensubdiv_production_face_loop_caller(
+            mesh, {});
+
+    EXPECT_FALSE(result.accepted);
+    EXPECT_FALSE(result.explicitCallerRequested);
+    EXPECT_FALSE(result.opensubdivRowProviderExecuted);
+    EXPECT_FALSE(result.completeTransactionValidatedBeforeMutation);
+    EXPECT_FALSE(result.currentStateCleared);
+    EXPECT_FALSE(result.actualProductionForcePathExecuted);
+    EXPECT_FALSE(result.productionFaceLoopExecuted);
+    EXPECT_FALSE(result.productionRouteEnabled);
+    expect_face_observable_publication_state_unchanged(
+        mesh, beforeFaces);
+    EXPECT_EQ(capture_all_vertex_forces(mesh), beforeForces);
+    EXPECT_EQ(capture_vertex_coordinates(mesh), beforeCoordinates);
+    EXPECT_DOUBLE_EQ(mesh.param.area, beforeArea);
+    EXPECT_DOUBLE_EQ(mesh.param.vol, beforeVolume);
+}
+
+TEST(ValenceFourFaceLoopRoutePreflight,
      OpenSubdivProductionCallerRejectsQuadratureSampleDriftAtomically)
 {
     ApprovedValence4MeshFixture fixture;
@@ -2656,6 +2689,89 @@ TEST(ValenceFourFaceLoopRoutePreflight,
     EXPECT_DOUBLE_EQ(mesh.param.vol, beforeVolume);
 }
 
+TEST(ValenceFourFaceLoopRoutePreflight,
+     OpenSubdivProductionFaceLoopCallerRejectsSampleDriftAtomically)
+{
+    ApprovedValence4MeshFixture fixture;
+    Mesh &mesh = *fixture.mesh;
+    seed_reference_coordinates_from_current(mesh);
+    seed_face_observable_publication_state(mesh);
+    seed_all_vertex_forces(mesh);
+    mesh.param.VWU.set(0, 0, 0.25);
+    const std::vector<Face> beforeFaces = mesh.faces;
+    const auto beforeForces = capture_all_vertex_forces(mesh);
+    const auto beforeCoordinates = capture_vertex_coordinates(mesh);
+    const double beforeArea = mesh.param.area;
+    const double beforeVolume = mesh.param.vol;
+
+    Valence4OpenSubdivProductionFaceLoopCallerRequest request;
+    request.reviewerApprovedExplicitCaller = true;
+    const Valence4OpenSubdivProductionFaceLoopCallerResult result =
+        evaluate_guarded_valence4_opensubdiv_production_face_loop_caller(
+            mesh, request);
+
+    EXPECT_FALSE(result.accepted);
+    EXPECT_TRUE(result.explicitCallerRequested);
+    EXPECT_FALSE(result.exactQuadratureSamplePlanValidated);
+    EXPECT_FALSE(result.opensubdivRowProviderExecuted);
+    EXPECT_FALSE(result.completeTransactionValidatedBeforeMutation);
+    EXPECT_FALSE(result.currentStateCleared);
+    EXPECT_FALSE(result.actualProductionForcePathExecuted);
+    EXPECT_FALSE(result.productionFaceLoopExecuted);
+    EXPECT_FALSE(result.productionRouteEnabled);
+    EXPECT_NE(result.rejectionReason.find("sample drift"),
+              std::string::npos);
+    expect_face_observable_publication_state_unchanged(
+        mesh, beforeFaces);
+    EXPECT_EQ(capture_all_vertex_forces(mesh), beforeForces);
+    EXPECT_EQ(capture_vertex_coordinates(mesh), beforeCoordinates);
+    EXPECT_DOUBLE_EQ(mesh.param.area, beforeArea);
+    EXPECT_DOUBLE_EQ(mesh.param.vol, beforeVolume);
+}
+
+TEST(ValenceFourFaceLoopRoutePreflight,
+     OpenSubdivProductionFaceLoopCallerRejectsWeightDriftAtomically)
+{
+    ApprovedValence4MeshFixture fixture;
+    Mesh &mesh = *fixture.mesh;
+    seed_reference_coordinates_from_current(mesh);
+    seed_face_observable_publication_state(mesh);
+    seed_all_vertex_forces(mesh);
+    mesh.param.gaussQuadratureCoeff.set(0, 0, 0.8);
+    mesh.param.gaussQuadratureCoeff.set(1, 0, 0.1);
+    mesh.param.gaussQuadratureCoeff.set(2, 0, 0.1);
+    const std::vector<Face> beforeFaces = mesh.faces;
+    const auto beforeForces = capture_all_vertex_forces(mesh);
+    const auto beforeCoordinates = capture_vertex_coordinates(mesh);
+    const double beforeArea = mesh.param.area;
+    const double beforeVolume = mesh.param.vol;
+
+    Valence4OpenSubdivProductionFaceLoopCallerRequest request;
+    request.reviewerApprovedExplicitCaller = true;
+    const Valence4OpenSubdivProductionFaceLoopCallerResult result =
+        evaluate_guarded_valence4_opensubdiv_production_face_loop_caller(
+            mesh, request);
+
+    EXPECT_FALSE(result.accepted);
+    EXPECT_TRUE(result.explicitCallerRequested);
+    EXPECT_TRUE(result.exactQuadratureSamplePlanValidated);
+    EXPECT_FALSE(result.exactQuadratureWeightsValidated);
+    EXPECT_FALSE(result.opensubdivRowProviderExecuted);
+    EXPECT_FALSE(result.completeTransactionValidatedBeforeMutation);
+    EXPECT_FALSE(result.currentStateCleared);
+    EXPECT_FALSE(result.actualProductionForcePathExecuted);
+    EXPECT_FALSE(result.productionFaceLoopExecuted);
+    EXPECT_FALSE(result.productionRouteEnabled);
+    EXPECT_NE(result.rejectionReason.find("weight drift"),
+              std::string::npos);
+    expect_face_observable_publication_state_unchanged(
+        mesh, beforeFaces);
+    EXPECT_EQ(capture_all_vertex_forces(mesh), beforeForces);
+    EXPECT_EQ(capture_vertex_coordinates(mesh), beforeCoordinates);
+    EXPECT_DOUBLE_EQ(mesh.param.area, beforeArea);
+    EXPECT_DOUBLE_EQ(mesh.param.vol, beforeVolume);
+}
+
 #ifndef USE_OPENSUBDIV_REGULAR
 TEST(ValenceFourFaceLoopRoutePreflight,
      OpenSubdivProductionCallerRejectsExplicitRequestWithoutDependency)
@@ -2693,6 +2809,47 @@ TEST(ValenceFourFaceLoopRoutePreflight,
     expect_face_observable_publication_state_unchanged(
         mesh, beforeFaces);
     EXPECT_EQ(capture_all_vertex_forces(mesh), beforeForces);
+    EXPECT_DOUBLE_EQ(mesh.param.area, beforeArea);
+    EXPECT_DOUBLE_EQ(mesh.param.vol, beforeVolume);
+}
+
+TEST(ValenceFourFaceLoopRoutePreflight,
+     OpenSubdivProductionFaceLoopCallerRejectsWithoutDependencyAtomically)
+{
+    ApprovedValence4MeshFixture fixture;
+    Mesh &mesh = *fixture.mesh;
+    seed_reference_coordinates_from_current(mesh);
+    seed_face_observable_publication_state(mesh);
+    seed_all_vertex_forces(mesh);
+    const std::vector<Face> beforeFaces = mesh.faces;
+    const auto beforeForces = capture_all_vertex_forces(mesh);
+    const auto beforeCoordinates = capture_vertex_coordinates(mesh);
+    const double beforeArea = mesh.param.area;
+    const double beforeVolume = mesh.param.vol;
+
+    Valence4OpenSubdivProductionFaceLoopCallerRequest request;
+    request.reviewerApprovedExplicitCaller = true;
+    const Valence4OpenSubdivProductionFaceLoopCallerResult result =
+        evaluate_guarded_valence4_opensubdiv_production_face_loop_caller(
+            mesh, request);
+
+    EXPECT_FALSE(result.accepted);
+    EXPECT_TRUE(result.explicitCallerRequested);
+    EXPECT_TRUE(result.exactQuadratureSamplePlanValidated);
+    EXPECT_TRUE(result.exactQuadratureWeightsValidated);
+    EXPECT_TRUE(result.opensubdivRowProviderExecuted);
+    EXPECT_FALSE(result.opensubdivRowsGenerated);
+    EXPECT_FALSE(result.completeTransactionValidatedBeforeMutation);
+    EXPECT_FALSE(result.currentStateCleared);
+    EXPECT_FALSE(result.actualProductionForcePathExecuted);
+    EXPECT_FALSE(result.productionFaceLoopExecuted);
+    EXPECT_FALSE(result.productionRouteEnabled);
+    EXPECT_NE(result.rejectionReason.find("OpenSubdiv-enabled build"),
+              std::string::npos);
+    expect_face_observable_publication_state_unchanged(
+        mesh, beforeFaces);
+    EXPECT_EQ(capture_all_vertex_forces(mesh), beforeForces);
+    EXPECT_EQ(capture_vertex_coordinates(mesh), beforeCoordinates);
     EXPECT_DOUBLE_EQ(mesh.param.area, beforeArea);
     EXPECT_DOUBLE_EQ(mesh.param.vol, beforeVolume);
 }
@@ -2770,6 +2927,93 @@ TEST(ValenceFourFaceLoopRoutePreflight,
     {
         EXPECT_DOUBLE_EQ(face.energy.energyThickness, 0.0);
         EXPECT_TRUE(face.oneRingVertices.empty());
+    }
+}
+
+TEST(ValenceFourFaceLoopRoutePreflight,
+     OpenSubdivProductionFaceLoopCallerMatchesReviewedCompletionShadow)
+{
+    ApprovedValence4MeshFixture shadowFixture;
+    ApprovedValence4MeshFixture faceLoopFixture;
+    Mesh &shadowMesh = *shadowFixture.mesh;
+    Mesh &faceLoopMesh = *faceLoopFixture.mesh;
+    seed_reference_coordinates_from_current(shadowMesh);
+    seed_reference_coordinates_from_current(faceLoopMesh);
+
+    Valence4OpenSubdivProductionCallerRequest shadowRequest;
+    shadowRequest.reviewerApprovedExplicitCaller = true;
+    const Valence4OpenSubdivProductionCallerResult shadow =
+        evaluate_guarded_valence4_opensubdiv_production_caller(
+            shadowMesh, shadowRequest);
+    ASSERT_TRUE(shadow.accepted) << shadow.rejectionReason;
+
+    Valence4OpenSubdivProductionFaceLoopCallerRequest faceLoopRequest;
+    faceLoopRequest.reviewerApprovedExplicitCaller = true;
+    const Valence4OpenSubdivProductionFaceLoopCallerResult faceLoop =
+        evaluate_guarded_valence4_opensubdiv_production_face_loop_caller(
+            faceLoopMesh, faceLoopRequest);
+    ASSERT_TRUE(faceLoop.accepted) << faceLoop.rejectionReason;
+    EXPECT_TRUE(faceLoop.exactQuadratureSamplePlanValidated);
+    EXPECT_TRUE(faceLoop.exactQuadratureWeightsValidated);
+    EXPECT_TRUE(faceLoop.opensubdivRowProviderExecuted);
+    EXPECT_TRUE(faceLoop.opensubdivRowsGenerated);
+    EXPECT_TRUE(faceLoop.completeTransactionValidatedBeforeMutation);
+    EXPECT_TRUE(faceLoop.currentStateCleared);
+    EXPECT_TRUE(faceLoop.actualProductionForcePathExecuted);
+    EXPECT_TRUE(faceLoop.productionFaceLoopExecuted);
+    EXPECT_TRUE(faceLoop.productionCompletionPhasesExecuted);
+    EXPECT_TRUE(faceLoop.totalForcePublicationExecuted);
+    EXPECT_TRUE(faceLoop.totalEnergyPublicationExecuted);
+    EXPECT_TRUE(faceLoop.boundaryHandlingExecuted);
+    EXPECT_FALSE(faceLoop.productionRouteEnabled);
+    EXPECT_FALSE(faceLoop.productionOneRingsPopulated);
+    EXPECT_FALSE(faceLoop.defaultEvaluatorCaller);
+
+    EXPECT_NEAR(faceLoopMesh.param.area, shadowMesh.param.area, 1.0e-12);
+    EXPECT_NEAR(faceLoopMesh.param.vol, shadowMesh.param.vol, 1.0e-12);
+    expect_energy_equal(faceLoopMesh.param.energy,
+                        shadowMesh.param.energy,
+                        false);
+    ASSERT_EQ(faceLoopMesh.faces.size(), shadowMesh.faces.size());
+    for (std::size_t faceIndex = 0;
+         faceIndex < faceLoopMesh.faces.size();
+         ++faceIndex)
+    {
+        const Face &actual = faceLoopMesh.faces[faceIndex];
+        const Face &expected = shadowMesh.faces[faceIndex];
+        EXPECT_NEAR(actual.elementArea, expected.elementArea, 1.0e-12);
+        EXPECT_NEAR(actual.elementVolume, expected.elementVolume, 1.0e-12);
+        EXPECT_NEAR(actual.meanCurvature, expected.meanCurvature, 1.0e-12);
+        expect_energy_equal(actual.energy, expected.energy, false);
+        ASSERT_EQ(actual.normVector.nrow(), kAxisCount);
+        ASSERT_EQ(actual.normVector.ncol(), 1);
+        for (int axis = 0; axis < kAxisCount; ++axis)
+        {
+            EXPECT_NEAR(actual.normVector.get(axis, 0),
+                        expected.normVector.get(axis, 0),
+                        1.0e-12);
+        }
+        EXPECT_TRUE(actual.oneRingVertices.empty());
+    }
+
+    ASSERT_EQ(faceLoopMesh.vertices.size(), shadowMesh.vertices.size());
+    for (std::size_t source = 0;
+         source < faceLoopMesh.vertices.size();
+         ++source)
+    {
+        const auto actualForces =
+            force_matrices(faceLoopMesh.vertices[source]);
+        const auto expectedForces =
+            force_matrices(shadowMesh.vertices[source]);
+        for (int family = 0; family < 8; ++family)
+        {
+            for (int axis = 0; axis < kAxisCount; ++axis)
+            {
+                EXPECT_NEAR(actualForces[family]->get(axis, 0),
+                            expectedForces[family]->get(axis, 0),
+                            1.0e-12);
+            }
+        }
     }
 }
 #endif

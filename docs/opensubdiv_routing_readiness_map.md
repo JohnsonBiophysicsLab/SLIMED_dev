@@ -329,6 +329,20 @@ check is required. This still does not enter
 loop, populate production one-rings, or enable routing. Route activation
 remains a separate reviewer/user decision.
 
+The guarded real face-loop successor now adds
+`evaluate_guarded_valence4_opensubdiv_production_face_loop_caller(...)`.
+After complete row, mapping, geometry/scientific, destination, and shape-matrix
+prevalidation, it feeds the OpenSubdiv-derived six-source rows through the
+shared production membrane face loop, current regular force formulas,
+production-shaped per-thread scatter, ascending-thread reduction, and shared
+completion phase. Present-dependency evidence requires parity with the
+reviewed completion shadow and between serial/OpenMP builds at `1e-12`.
+`Mesh::Compute_Energy_And_Force()` and default evaluator paths do not call this
+guarded entry point, production one-rings remain empty, and routing remains
+disabled. The next boundary is a separate explicit reviewer/user decision on
+default route activation for only the approved canonical closed valence-4
+topology.
+
 ## Inventory Check
 
 Run the readiness-anchor inventory with:

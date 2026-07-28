@@ -264,6 +264,37 @@ struct Valence4OpenSubdivProductionCallerResult
     bool defaultEvaluatorCaller = false;
 };
 
+struct Valence4OpenSubdivProductionFaceLoopCallerRequest
+{
+    bool reviewerApprovedExplicitCaller = false;
+};
+
+struct Valence4OpenSubdivProductionFaceLoopCallerResult
+{
+    bool accepted = false;
+    std::string rejectionReason;
+    bool explicitCallerRequested = false;
+    bool exactQuadratureSamplePlanValidated = false;
+    bool exactQuadratureWeightsValidated = false;
+    bool opensubdivRowProviderExecuted = false;
+    bool opensubdivRowsGenerated = false;
+    bool completeTransactionValidatedBeforeMutation = false;
+    bool currentStateCleared = false;
+    bool productionCompletionPhasesExecuted = false;
+    bool totalForcePublicationExecuted = false;
+    bool totalEnergyPublicationExecuted = false;
+    bool boundaryHandlingExecuted = false;
+    slimed::opensubdiv_valence4::OpenSubdivValence4RowProviderResult
+        rowProvider;
+    Valence4GeometryAwareAtomicCompositionResult preparedComposition;
+
+    bool productionRouteEnabled = false;
+    bool actualProductionForcePathExecuted = false;
+    bool productionFaceLoopExecuted = false;
+    bool productionOneRingsPopulated = false;
+    bool defaultEvaluatorCaller = false;
+};
+
 /**
  * Build an owned, source-keyed face-loop route candidate for the approved
  * closed valence-4 topology.
@@ -426,4 +457,19 @@ Valence4OpenSubdivProductionCallerResult
 evaluate_guarded_valence4_opensubdiv_production_caller(
     Mesh &mesh,
     const Valence4OpenSubdivProductionCallerRequest &request);
+
+/**
+ * Generate reviewed OpenSubdiv valence-4 rows and execute them through the
+ * shared production membrane face loop.
+ *
+ * The caller remains explicit and default-off. It validates the complete
+ * geometry/scientific transaction and all destinations before clearing state,
+ * then uses the existing source-keyed scatter buffers and production
+ * completion phase. It does not install a default route, populate production
+ * one-rings, or authorize broader valence.
+ */
+Valence4OpenSubdivProductionFaceLoopCallerResult
+evaluate_guarded_valence4_opensubdiv_production_face_loop_caller(
+    Mesh &mesh,
+    const Valence4OpenSubdivProductionFaceLoopCallerRequest &request);
 } // namespace slimed::valence4_route_preflight

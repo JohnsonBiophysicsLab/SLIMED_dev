@@ -234,6 +234,7 @@ def validate_output(payload: dict[str, object]) -> dict[str, object]:
         "row_provider_accepted",
         "row_provider_rows_generated",
         "production_caller_shadow_executed",
+        "complete_transaction_validated_before_mutation",
         "production_completion_phases_executed",
         "total_force_publication_executed",
         "total_energy_publication_executed",
@@ -243,18 +244,28 @@ def validate_output(payload: dict[str, object]) -> dict[str, object]:
         "production_caller_shadow_totals_consistent",
         "nonzero_membrane_forces",
         "production_one_rings_empty",
+        "shadow_face_loop_parity_passed",
+        "actual_production_force_path_executed",
+        "production_face_loop_executed",
         "not_production_routing",
     )
     required_false = (
         "production_route_enabled",
-        "actual_production_force_path_executed",
-        "production_face_loop_executed",
         "default_evaluator_caller",
     )
     if not all(payload.get(key) for key in required_true):
         raise RuntimeError("OpenSubdiv production caller flags are invalid")
     if any(payload.get(key) for key in required_false):
         raise RuntimeError("OpenSubdiv production caller enabled routing")
+    shadow_delta = payload.get("max_shadow_face_loop_delta")
+    if (
+        not isinstance(shadow_delta, (int, float))
+        or not math.isfinite(float(shadow_delta))
+        or float(shadow_delta) > TOLERANCE
+    ):
+        raise RuntimeError(
+            "OpenSubdiv production face-loop caller drifted from shadow"
+        )
 
     force_values: list[float] = []
     forces = payload.get("vertex_forces")
@@ -379,6 +390,8 @@ def main() -> int:
         "opensubdiv_row_provider_executed": True,
         "opensubdiv_rows_generated": True,
         "production_caller_shadow_executed": True,
+        "real_production_face_loop_caller": True,
+        "complete_transaction_validated_before_mutation": True,
         "production_completion_phases_executed": True,
         "serial_openmp_provider_fed_caller_parity_passed": parity_passed,
         "max_serial_openmp_provider_fed_force_delta": force_delta,
@@ -387,13 +400,13 @@ def main() -> int:
         "absolute_tolerance": TOLERANCE,
         "not_production_routing": True,
         "production_route_enabled": False,
-        "actual_production_force_path_executed": False,
-        "production_face_loop_executed": False,
+        "actual_production_force_path_executed": True,
+        "production_face_loop_executed": True,
         "production_one_rings_populated": False,
         "default_dependency_changed": False,
         "next_boundary": (
-            "route activation remains a separate explicit reviewer/user "
-            "decision"
+            "default route activation remains a separate explicit "
+            "reviewer/user decision"
         ),
         "serial_output": serial_payload,
         "openmp_output": openmp_payload,
