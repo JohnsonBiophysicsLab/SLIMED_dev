@@ -159,6 +159,15 @@ GEOMETRY_ATOMIC_COMPOSITION_SUCCESSOR_PATHS = {
         "tests/test_irregular_valence4_geometry_atomic_composition_inventory.py"
     ),
 }
+PRODUCTION_CALLER_SHADOW_SUCCESSOR_PATHS = {
+    Path("docs/irregular_valence4_production_caller_shadow.md"),
+    Path(
+        "scripts/inventory_irregular_valence4_production_caller_shadow.py"
+    ),
+    Path(
+        "tests/test_irregular_valence4_production_caller_shadow_inventory.py"
+    ),
+}
 
 ALLOWED_PATHS = (
     {
@@ -175,6 +184,7 @@ ALLOWED_PATHS = (
     | PRODUCTION_CALL_SHADOW_SUCCESSOR_PATHS
     | PRODUCTION_GEOMETRY_STAGING_SUCCESSOR_PATHS
     | GEOMETRY_ATOMIC_COMPOSITION_SUCCESSOR_PATHS
+    | PRODUCTION_CALLER_SHADOW_SUCCESSOR_PATHS
 )
 
 ANCHORS = {

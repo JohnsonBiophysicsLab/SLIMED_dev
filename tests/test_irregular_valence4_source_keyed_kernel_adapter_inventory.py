@@ -159,6 +159,34 @@ class ValenceFourSourceKeyedKernelAdapterInventoryTest(unittest.TestCase):
                 "only_reviewed_geometry_scientific_families_published_atomically"
             ]
         )
+        self.assertTrue(
+            composition[
+                "default_off_production_caller_shadow_rejected"
+            ]
+        )
+        self.assertTrue(
+            composition[
+                "production_caller_completion_shadow_executed"
+            ]
+        )
+        self.assertTrue(
+            composition[
+                "production_caller_shadow_cleared_stale_state"
+            ]
+        )
+        self.assertTrue(
+            composition[
+                "production_caller_shadow_totals_consistent"
+            ]
+        )
+        self.assertTrue(
+            composition[
+                "production_caller_shadow_route_remained_disabled"
+            ]
+        )
+        self.assertEqual(
+            len(composition["production_caller_total_forces"]), 6
+        )
         self.assertTrue(composition["route_remained_disabled"])
         self.assertLessEqual(composition["max_observable_difference"], 1.0e-12)
         self.assertLessEqual(composition["max_source_force_difference"], 1.0e-12)

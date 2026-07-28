@@ -67,6 +67,17 @@ GEOMETRY_ATOMIC_COMPOSITION_SUCCESSOR_PATHS = {
         "tests/test_irregular_valence4_geometry_atomic_composition_inventory.py"
     ),
 }
+PRODUCTION_CALLER_SHADOW_SUCCESSOR_PATHS = {
+    Path("include/mesh/Mesh.hpp"),
+    Path("src/energy_force/Compute_energy_and_force_on_mesh.cpp"),
+    Path("docs/irregular_valence4_production_caller_shadow.md"),
+    Path(
+        "scripts/inventory_irregular_valence4_production_caller_shadow.py"
+    ),
+    Path(
+        "tests/test_irregular_valence4_production_caller_shadow_inventory.py"
+    ),
+}
 
 ALLOWED_PATHS = {
     EXPERIMENT,
@@ -79,7 +90,8 @@ ALLOWED_PATHS = {
     TEST,
     *PREDECESSOR_INVENTORIES,
 } | PRODUCTION_GEOMETRY_STAGING_SUCCESSOR_PATHS | \
-    GEOMETRY_ATOMIC_COMPOSITION_SUCCESSOR_PATHS
+    GEOMETRY_ATOMIC_COMPOSITION_SUCCESSOR_PATHS | \
+    PRODUCTION_CALLER_SHADOW_SUCCESSOR_PATHS
 
 ANCHORS = {
     EXPERIMENT: (
@@ -191,6 +203,7 @@ def collect(root: Path) -> dict[str, object]:
             or path in {"Makefile", "scripts/verify_pr_ready.sh"}
         )
         and Path(path) not in PRODUCTION_GEOMETRY_STAGING_SUCCESSOR_PATHS
+        and Path(path) not in PRODUCTION_CALLER_SHADOW_SUCCESSOR_PATHS
         for path in paths
     )
     if forbidden:

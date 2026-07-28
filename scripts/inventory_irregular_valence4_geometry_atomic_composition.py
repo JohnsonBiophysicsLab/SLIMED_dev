@@ -53,6 +53,24 @@ PREDECESSOR_INVENTORIES = {
     ),
 }
 
+PRODUCTION_CALLER_SHADOW_SUCCESSOR_PATHS = {
+    Path("include/mesh/Mesh.hpp"),
+    Path("src/energy_force/Compute_energy_and_force_on_mesh.cpp"),
+    Path("docs/irregular_valence4_production_caller_shadow.md"),
+    Path(
+        "scripts/inventory_irregular_valence4_production_caller_shadow.py"
+    ),
+    Path(
+        "tests/test_irregular_valence4_production_caller_shadow_inventory.py"
+    ),
+    Path(
+        "scripts/run_irregular_valence4_production_call_shadow_parity.py"
+    ),
+    Path(
+        "tests/test_irregular_valence4_production_call_shadow_parity_inventory.py"
+    ),
+}
+
 ALLOWED_PATHS = {
     HEADER,
     SOURCE,
@@ -66,7 +84,7 @@ ALLOWED_PATHS = {
     INVENTORY,
     TEST,
     *PREDECESSOR_INVENTORIES,
-}
+} | PRODUCTION_CALLER_SHADOW_SUCCESSOR_PATHS
 
 ANCHORS = {
     HEADER: (
@@ -79,8 +97,8 @@ ANCHORS = {
     SOURCE: (
         "validate_geometry_aware_publication",
         "geometry-aware atomic composition remains default-off",
-        "stagedParam.area = geometryResult.totalArea",
-        "stagedParam.vol = geometryResult.totalVolume",
+        "stagedParam.area = prepared.geometry.totalArea",
+        "stagedParam.vol = prepared.geometry.totalVolume",
         "Mesh stagedScientificEvaluator(stagedParam)",
         "evaluate_scientific_request_with_evaluator",
         "stagedGeometryUsedForScientificEvaluation",
@@ -197,6 +215,7 @@ def collect(root: Path) -> dict[str, object]:
             "include/mesh/Vertex.hpp",
             "src/energy_force/Compute_energy_and_force_on_mesh.cpp",
         }
+        and Path(path) not in PRODUCTION_CALLER_SHADOW_SUCCESSOR_PATHS
         for path in paths
     )
     if forbidden:

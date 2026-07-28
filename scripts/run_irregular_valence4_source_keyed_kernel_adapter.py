@@ -380,6 +380,29 @@ def main() -> int:
         and composition.get(
             "only_reviewed_geometry_scientific_families_published_atomically"
         )
+        and composition.get(
+            "default_off_production_caller_shadow_rejected"
+        )
+        and composition.get(
+            "production_caller_completion_shadow_executed"
+        )
+        and composition.get(
+            "production_caller_shadow_cleared_stale_state"
+        )
+        and composition.get(
+            "production_caller_shadow_totals_consistent"
+        )
+        and composition.get(
+            "production_caller_shadow_route_remained_disabled"
+        )
+        and isinstance(
+            composition.get("production_caller_energy_total"),
+            (int, float),
+        )
+        and isinstance(
+            composition.get("production_caller_total_forces"), list
+        )
+        and len(composition["production_caller_total_forces"]) == 6
         and composition.get("route_remained_disabled")
         and isinstance(
             composition.get("max_observable_difference"), (int, float)

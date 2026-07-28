@@ -291,6 +291,15 @@ reviewed face observables. It remains caller-owned and does not enter
 `Mesh::Compute_Energy_And_Force()`. A real-caller shadow/parity lane and
 serial/OpenMP caller evidence remain required before route activation.
 
+The guarded production-caller completion shadow now shares the exact
+post-membrane completion phase with `Mesh::Compute_Energy_And_Force()`. It
+validates the complete valence-4 transaction before clearing current state,
+then proves regularization, total-force publication, total-energy accounting,
+optional-scaffold ordering, and boundary handling at production caller timing.
+Serial/OpenMP total-force and total-energy parity are required. The production
+face loop remains uncalled, production one-rings remain empty, and routing
+remains disabled; activation is still a separate reviewer/user-gated change.
+
 ## Inventory Check
 
 Run the readiness-anchor inventory with:
