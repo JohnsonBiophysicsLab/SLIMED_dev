@@ -24,6 +24,18 @@ namespace
 {
 constexpr std::size_t kReviewedSampleCountPerFace = 3;
 constexpr double kLegacyVolumeQuadratureFactor = 0.16666666666;
+constexpr int kReviewedGaussQuadratureOrder = 2;
+constexpr std::array<std::array<double, 3>, 3>
+    kReviewedValence4QuadratureSamples{{
+        {{1.0 / 6.0, 1.0 / 6.0, 4.0 / 6.0}},
+        {{1.0 / 6.0, 4.0 / 6.0, 1.0 / 6.0}},
+        {{4.0 / 6.0, 1.0 / 6.0, 1.0 / 6.0}},
+    }};
+constexpr std::array<double, 3> kReviewedValence4QuadratureWeights{{
+    1.0 / 3.0,
+    1.0 / 3.0,
+    1.0 / 3.0,
+}};
 
 Valence4FaceLoopRoutePreflightResult reject(std::string reason)
 {
@@ -115,6 +127,17 @@ reject_production_caller_shadow_request(
     Valence4ProductionCallerShadowResult result;
     result.rejectionReason = std::move(reason);
     result.explicitShadowRequested = explicitShadowRequested;
+    return result;
+}
+
+Valence4OpenSubdivProductionCallerResult
+reject_opensubdiv_production_caller_request(
+    std::string reason,
+    const bool explicitCallerRequested)
+{
+    Valence4OpenSubdivProductionCallerResult result;
+    result.rejectionReason = std::move(reason);
+    result.explicitCallerRequested = explicitCallerRequested;
     return result;
 }
 
@@ -1550,6 +1573,128 @@ evaluate_guarded_valence4_production_caller_shadow(
     result.totalForcePublicationExecuted = true;
     result.totalEnergyPublicationExecuted = true;
     result.boundaryHandlingExecuted = true;
+    result.rejectionReason.clear();
+    return result;
+}
+
+Valence4OpenSubdivProductionCallerResult
+evaluate_guarded_valence4_opensubdiv_production_caller(
+    Mesh &mesh,
+    const Valence4OpenSubdivProductionCallerRequest &request)
+{
+    if (!request.reviewerApprovedExplicitCaller)
+    {
+        return reject_opensubdiv_production_caller_request(
+            "valence-4 OpenSubdiv production caller remains default-off "
+            "without an explicit reviewer-approved caller request",
+            false);
+    }
+
+    Valence4OpenSubdivProductionCallerResult result;
+    result.explicitCallerRequested = true;
+
+    if (mesh.param.gaussQuadratureN !=
+            kReviewedGaussQuadratureOrder ||
+        mesh.param.VWU.nrow() !=
+            static_cast<int>(kReviewedSampleCountPerFace) ||
+        mesh.param.VWU.ncol() != 3)
+    {
+        result.rejectionReason =
+            "valence-4 OpenSubdiv production caller requires the exact "
+            "ordered N=2 quadrature sample plan";
+        return result;
+    }
+    for (int sample = 0;
+         sample < static_cast<int>(kReviewedSampleCountPerFace);
+         ++sample)
+    {
+        for (int coordinate = 0; coordinate < 3; ++coordinate)
+        {
+            if (mesh.param.VWU.get(sample, coordinate) !=
+                kReviewedValence4QuadratureSamples[sample][coordinate])
+            {
+                result.rejectionReason =
+                    "valence-4 OpenSubdiv production caller rejected "
+                    "ordered quadrature sample drift";
+                return result;
+            }
+        }
+    }
+    result.exactQuadratureSamplePlanValidated = true;
+
+    if (mesh.param.gaussQuadratureCoeff.nrow() !=
+            static_cast<int>(kReviewedSampleCountPerFace) ||
+        mesh.param.gaussQuadratureCoeff.ncol() != 1)
+    {
+        result.rejectionReason =
+            "valence-4 OpenSubdiv production caller requires exactly "
+            "three reviewed quadrature weights";
+        return result;
+    }
+    for (int sample = 0;
+         sample < static_cast<int>(kReviewedSampleCountPerFace);
+         ++sample)
+    {
+        if (mesh.param.gaussQuadratureCoeff.get(sample, 0) !=
+            kReviewedValence4QuadratureWeights[sample])
+        {
+            result.rejectionReason =
+                "valence-4 OpenSubdiv production caller rejected "
+                "quadrature weight drift";
+            return result;
+        }
+    }
+    result.exactQuadratureWeightsValidated = true;
+    result.opensubdivRowProviderExecuted = true;
+
+    slimed::opensubdiv_valence4::OpenSubdivValence4RowProviderRequest
+        rowRequest;
+    rowRequest.reviewerApprovedExplicitRequest = true;
+    result.rowProvider =
+        slimed::opensubdiv_valence4::
+            build_guarded_opensubdiv_valence4_rows(mesh, rowRequest);
+    if (!result.rowProvider.accepted)
+    {
+        result.rejectionReason =
+            result.rowProvider.rejectionReason.empty()
+                ? "valence-4 OpenSubdiv production caller rejected row "
+                  "provider output"
+                : result.rowProvider.rejectionReason;
+        return result;
+    }
+
+    result.opensubdivRowsGenerated = true;
+    Valence4ProductionCallerShadowRequest callerRequest;
+    callerRequest.reviewerApprovedExplicitShadow = true;
+    callerRequest.rows = result.rowProvider.rows;
+    result.callerShadow =
+        evaluate_guarded_valence4_production_caller_shadow(
+            mesh, callerRequest);
+    if (!result.callerShadow.accepted)
+    {
+        result.rejectionReason =
+            result.callerShadow.rejectionReason.empty()
+                ? "valence-4 OpenSubdiv production caller rejected "
+                  "production caller shadow output"
+                : result.callerShadow.rejectionReason;
+        return result;
+    }
+
+    result.accepted = true;
+    result.productionCallerShadowExecuted = true;
+    result.productionCompletionPhasesExecuted =
+        result.callerShadow.productionCompletionPhasesExecuted;
+    result.totalForcePublicationExecuted =
+        result.callerShadow.totalForcePublicationExecuted;
+    result.totalEnergyPublicationExecuted =
+        result.callerShadow.totalEnergyPublicationExecuted;
+    result.boundaryHandlingExecuted =
+        result.callerShadow.boundaryHandlingExecuted;
+    result.productionRouteEnabled = false;
+    result.actualProductionForcePathExecuted = false;
+    result.productionFaceLoopExecuted = false;
+    result.productionOneRingsPopulated = false;
+    result.defaultEvaluatorCaller = false;
     result.rejectionReason.clear();
     return result;
 }

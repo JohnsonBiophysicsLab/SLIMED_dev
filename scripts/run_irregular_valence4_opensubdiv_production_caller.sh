@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+exec python3 \
+    "${script_dir}/run_irregular_valence4_opensubdiv_production_caller.py" \
+    "$@"

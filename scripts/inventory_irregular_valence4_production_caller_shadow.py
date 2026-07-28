@@ -68,6 +68,18 @@ ROW_PROVIDER_SUCCESSOR_PATHS = {
     ),
     Path("scripts/inventory_opensubdiv_regular_cpp_adapter_proof.py"),
 }
+OPENSUBDIV_PRODUCTION_CALLER_SUCCESSOR_PATHS = {
+    Path("experiments/irregular_valence4_opensubdiv_production_caller.cpp"),
+    Path("scripts/run_irregular_valence4_opensubdiv_production_caller.py"),
+    Path("scripts/run_irregular_valence4_opensubdiv_production_caller.sh"),
+    Path("docs/irregular_valence4_opensubdiv_production_caller.md"),
+    Path(
+        "scripts/inventory_irregular_valence4_opensubdiv_production_caller.py"
+    ),
+    Path(
+        "tests/test_irregular_valence4_opensubdiv_production_caller_inventory.py"
+    ),
+}
 
 ALLOWED_PATHS = {
     MESH_HEADER,
@@ -86,6 +98,7 @@ ALLOWED_PATHS = {
     TEST,
     *PREDECESSOR_INVENTORIES,
     *ROW_PROVIDER_SUCCESSOR_PATHS,
+    *OPENSUBDIV_PRODUCTION_CALLER_SUCCESSOR_PATHS,
 }
 
 ANCHORS = {

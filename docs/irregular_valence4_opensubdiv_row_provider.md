@@ -69,11 +69,11 @@ Focused C++ tests bind the default-off and dependency-absent behavior, complete
 present package, mixed-row identity, canonical source coverage, topology-drift
 rejection, empty one-rings, and unchanged mesh coordinates.
 
-## Remaining boundary
+## Successor boundary
 
-The next separate reviewer/user-gated unit is a guarded real production
-face-loop caller that obtains rows from this provider and runs the already
-reviewed atomic scientific/publication/completion path. This provider does not
-authorize that caller or route activation. Default dependency behavior,
-broader valence, formulas, scatter semantics, OpenMP reductions,
+The next separate reviewer/user-gated unit composes this provider with the
+guarded production caller shadow, so the rows are generated from OpenSubdiv
+before the reviewed atomic scientific/publication/completion path executes.
+This provider still does not authorize route activation. Default dependency
+behavior, broader valence, formulas, scatter semantics, OpenMP reductions,
 checkpoint/output, and propagation remain unchanged.
