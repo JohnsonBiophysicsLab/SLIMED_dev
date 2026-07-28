@@ -78,6 +78,31 @@ PRODUCTION_CALLER_SHADOW_SUCCESSOR_PATHS = {
         "tests/test_irregular_valence4_production_caller_shadow_inventory.py"
     ),
 }
+ROW_PROVIDER_SUCCESSOR_PATHS = {
+    Path("include/mesh/OpenSubdiv_valence4_row_provider.hpp"),
+    Path("src/mesh/OpenSubdiv_valence4_row_provider.cpp"),
+    Path("experiments/irregular_valence4_opensubdiv_row_provider.cpp"),
+    Path("scripts/run_irregular_valence4_opensubdiv_row_provider.py"),
+    Path("scripts/run_irregular_valence4_opensubdiv_row_provider.sh"),
+    Path("docs/irregular_valence4_opensubdiv_row_provider.md"),
+    Path("scripts/inventory_irregular_valence4_opensubdiv_row_provider.py"),
+    Path(
+        "tests/test_irregular_valence4_opensubdiv_row_provider_inventory.py"
+    ),
+    Path("scripts/inventory_opensubdiv_regular_cpp_adapter_proof.py"),
+}
+OPENSUBDIV_PRODUCTION_CALLER_SUCCESSOR_PATHS = {
+    Path("experiments/irregular_valence4_opensubdiv_production_caller.cpp"),
+    Path("scripts/run_irregular_valence4_opensubdiv_production_caller.py"),
+    Path("scripts/run_irregular_valence4_opensubdiv_production_caller.sh"),
+    Path("docs/irregular_valence4_opensubdiv_production_caller.md"),
+    Path(
+        "scripts/inventory_irregular_valence4_opensubdiv_production_caller.py"
+    ),
+    Path(
+        "tests/test_irregular_valence4_opensubdiv_production_caller_inventory.py"
+    ),
+}
 
 ALLOWED_PATHS = {
     EXPERIMENT,
@@ -91,7 +116,9 @@ ALLOWED_PATHS = {
     *PREDECESSOR_INVENTORIES,
 } | PRODUCTION_GEOMETRY_STAGING_SUCCESSOR_PATHS | \
     GEOMETRY_ATOMIC_COMPOSITION_SUCCESSOR_PATHS | \
-    PRODUCTION_CALLER_SHADOW_SUCCESSOR_PATHS
+    PRODUCTION_CALLER_SHADOW_SUCCESSOR_PATHS | \
+    ROW_PROVIDER_SUCCESSOR_PATHS | \
+    OPENSUBDIV_PRODUCTION_CALLER_SUCCESSOR_PATHS
 
 ANCHORS = {
     EXPERIMENT: (
@@ -204,6 +231,8 @@ def collect(root: Path) -> dict[str, object]:
         )
         and Path(path) not in PRODUCTION_GEOMETRY_STAGING_SUCCESSOR_PATHS
         and Path(path) not in PRODUCTION_CALLER_SHADOW_SUCCESSOR_PATHS
+        and Path(path) not in ROW_PROVIDER_SUCCESSOR_PATHS
+        and Path(path) not in OPENSUBDIV_PRODUCTION_CALLER_SUCCESSOR_PATHS
         for path in paths
     )
     if forbidden:

@@ -6,6 +6,7 @@
 #pragma once
 
 #include "energy_force/Source_keyed_kernel_call.hpp"
+#include "mesh/OpenSubdiv_valence4_row_provider.hpp"
 
 #include <string>
 #include <vector>
@@ -233,6 +234,34 @@ struct Valence4ProductionCallerShadowResult
     bool defaultEvaluatorCaller = false;
 };
 
+struct Valence4OpenSubdivProductionCallerRequest
+{
+    bool reviewerApprovedExplicitCaller = false;
+};
+
+struct Valence4OpenSubdivProductionCallerResult
+{
+    bool accepted = false;
+    std::string rejectionReason;
+    bool explicitCallerRequested = false;
+    bool opensubdivRowProviderExecuted = false;
+    bool opensubdivRowsGenerated = false;
+    bool productionCallerShadowExecuted = false;
+    bool productionCompletionPhasesExecuted = false;
+    bool totalForcePublicationExecuted = false;
+    bool totalEnergyPublicationExecuted = false;
+    bool boundaryHandlingExecuted = false;
+    slimed::opensubdiv_valence4::OpenSubdivValence4RowProviderResult
+        rowProvider;
+    Valence4ProductionCallerShadowResult callerShadow;
+
+    bool productionRouteEnabled = false;
+    bool actualProductionForcePathExecuted = false;
+    bool productionFaceLoopExecuted = false;
+    bool productionOneRingsPopulated = false;
+    bool defaultEvaluatorCaller = false;
+};
+
 /**
  * Build an owned, source-keyed face-loop route candidate for the approved
  * closed valence-4 topology.
@@ -381,4 +410,18 @@ Valence4ProductionCallerShadowResult
 evaluate_guarded_valence4_production_caller_shadow(
     Mesh &mesh,
     const Valence4ProductionCallerShadowRequest &request);
+
+/**
+ * Generate reviewed OpenSubdiv valence-4 rows and feed them into the guarded
+ * production caller shadow.
+ *
+ * This default-off prerequisite validates the row-provider package before the
+ * production-shaped caller shadow can clear state, publish the reviewed
+ * geometry/scientific transaction, and run the shared completion phase. It
+ * does not enter the default evaluator face loop or authorize routing.
+ */
+Valence4OpenSubdivProductionCallerResult
+evaluate_guarded_valence4_opensubdiv_production_caller(
+    Mesh &mesh,
+    const Valence4OpenSubdivProductionCallerRequest &request);
 } // namespace slimed::valence4_route_preflight

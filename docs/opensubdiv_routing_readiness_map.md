@@ -317,6 +317,18 @@ production one-rings empty and does not enter the production face loop. A
 guarded real production face-loop caller, followed by a separate activation
 decision, remains the next reviewer/user-gated boundary.
 
+The provider-fed production-caller prerequisite now composes that row provider
+with the existing guarded production caller shadow through
+`evaluate_guarded_valence4_opensubdiv_production_caller(...)`. The caller is
+default-off, requires an explicit reviewed request, rejects dependency-free
+builds through the row-provider gate, and requires complete OpenSubdiv rows
+before running the already reviewed geometry/scientific atomic publication and
+shared production completion phase. A serial/OpenMP provider-fed caller parity
+check is required. This still does not enter
+`Mesh::Compute_Energy_And_Force()`, call the default evaluator membrane face
+loop, populate production one-rings, or enable routing. Route activation
+remains a separate reviewer/user decision.
+
 ## Inventory Check
 
 Run the readiness-anchor inventory with:

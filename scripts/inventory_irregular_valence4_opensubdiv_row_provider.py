@@ -30,12 +30,33 @@ INVENTORY = Path(
 TEST = Path(
     "tests/test_irregular_valence4_opensubdiv_row_provider_inventory.py"
 )
+PREFLIGHT_HEADER = Path(
+    "include/energy_force/Valence4_face_loop_route_preflight.hpp"
+)
+PREFLIGHT_SOURCE = Path(
+    "src/energy_force/Valence4_face_loop_route_preflight.cpp"
+)
 PREDECESSOR = Path(
     "scripts/inventory_irregular_valence4_production_caller_shadow.py"
+)
+PRODUCTION_CALL_SHADOW_PARITY_INVENTORY = Path(
+    "scripts/inventory_irregular_valence4_production_call_shadow_parity.py"
 )
 GLOBAL_OPENSUBDIV_INVENTORY = Path(
     "scripts/inventory_opensubdiv_regular_cpp_adapter_proof.py"
 )
+OPENSUBDIV_PRODUCTION_CALLER_SUCCESSOR_PATHS = {
+    Path("experiments/irregular_valence4_opensubdiv_production_caller.cpp"),
+    Path("scripts/run_irregular_valence4_opensubdiv_production_caller.py"),
+    Path("scripts/run_irregular_valence4_opensubdiv_production_caller.sh"),
+    Path("docs/irregular_valence4_opensubdiv_production_caller.md"),
+    Path(
+        "scripts/inventory_irregular_valence4_opensubdiv_production_caller.py"
+    ),
+    Path(
+        "tests/test_irregular_valence4_opensubdiv_production_caller_inventory.py"
+    ),
+}
 
 ALLOWED_PATHS = {
     HEADER,
@@ -48,8 +69,12 @@ ALLOWED_PATHS = {
     READINESS,
     INVENTORY,
     TEST,
+    PREFLIGHT_HEADER,
+    PREFLIGHT_SOURCE,
     PREDECESSOR,
+    PRODUCTION_CALL_SHADOW_PARITY_INVENTORY,
     GLOBAL_OPENSUBDIV_INVENTORY,
+    *OPENSUBDIV_PRODUCTION_CALLER_SUCCESSOR_PATHS,
 }
 
 ANCHORS = {
@@ -97,12 +122,12 @@ ANCHORS = {
         "Why the provider comes first",
         "8 x 3 x 7 x 6",
         "returns an empty row package on every rejection",
-        "real production",
+        "Successor boundary",
     ),
     READINESS: (
         "guarded production row-provider prerequisite",
         "build_guarded_opensubdiv_valence4_rows",
-        "guarded real production face-loop caller",
+        "provider-fed production-caller prerequisite",
     ),
 }
 

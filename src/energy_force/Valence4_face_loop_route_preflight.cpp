@@ -118,6 +118,17 @@ reject_production_caller_shadow_request(
     return result;
 }
 
+Valence4OpenSubdivProductionCallerResult
+reject_opensubdiv_production_caller_request(
+    std::string reason,
+    const bool explicitCallerRequested)
+{
+    Valence4OpenSubdivProductionCallerResult result;
+    result.rejectionReason = std::move(reason);
+    result.explicitCallerRequested = explicitCallerRequested;
+    return result;
+}
+
 std::vector<source_keyed_kernel::SourceKeyedFaceForces>
 zero_forces_for_mappings(
     const std::vector<source_keyed_kernel::SourceMappingView> &mappings)
@@ -1550,6 +1561,75 @@ evaluate_guarded_valence4_production_caller_shadow(
     result.totalForcePublicationExecuted = true;
     result.totalEnergyPublicationExecuted = true;
     result.boundaryHandlingExecuted = true;
+    result.rejectionReason.clear();
+    return result;
+}
+
+Valence4OpenSubdivProductionCallerResult
+evaluate_guarded_valence4_opensubdiv_production_caller(
+    Mesh &mesh,
+    const Valence4OpenSubdivProductionCallerRequest &request)
+{
+    if (!request.reviewerApprovedExplicitCaller)
+    {
+        return reject_opensubdiv_production_caller_request(
+            "valence-4 OpenSubdiv production caller remains default-off "
+            "without an explicit reviewer-approved caller request",
+            false);
+    }
+
+    Valence4OpenSubdivProductionCallerResult result;
+    result.explicitCallerRequested = true;
+    result.opensubdivRowProviderExecuted = true;
+
+    slimed::opensubdiv_valence4::OpenSubdivValence4RowProviderRequest
+        rowRequest;
+    rowRequest.reviewerApprovedExplicitRequest = true;
+    result.rowProvider =
+        slimed::opensubdiv_valence4::
+            build_guarded_opensubdiv_valence4_rows(mesh, rowRequest);
+    if (!result.rowProvider.accepted)
+    {
+        result.rejectionReason =
+            result.rowProvider.rejectionReason.empty()
+                ? "valence-4 OpenSubdiv production caller rejected row "
+                  "provider output"
+                : result.rowProvider.rejectionReason;
+        return result;
+    }
+
+    result.opensubdivRowsGenerated = true;
+    Valence4ProductionCallerShadowRequest callerRequest;
+    callerRequest.reviewerApprovedExplicitShadow = true;
+    callerRequest.rows = result.rowProvider.rows;
+    result.callerShadow =
+        evaluate_guarded_valence4_production_caller_shadow(
+            mesh, callerRequest);
+    if (!result.callerShadow.accepted)
+    {
+        result.rejectionReason =
+            result.callerShadow.rejectionReason.empty()
+                ? "valence-4 OpenSubdiv production caller rejected "
+                  "production caller shadow output"
+                : result.callerShadow.rejectionReason;
+        return result;
+    }
+
+    result.accepted = true;
+    result.productionCallerShadowExecuted = true;
+    result.productionCompletionPhasesExecuted =
+        result.callerShadow.productionCompletionPhasesExecuted;
+    result.totalForcePublicationExecuted =
+        result.callerShadow.totalForcePublicationExecuted;
+    result.totalEnergyPublicationExecuted =
+        result.callerShadow.totalEnergyPublicationExecuted;
+    result.boundaryHandlingExecuted =
+        result.callerShadow.boundaryHandlingExecuted;
+    result.productionRouteEnabled = false;
+    result.actualProductionForcePathExecuted = false;
+    result.productionFaceLoopExecuted = false;
+    result.productionOneRingsPopulated = false;
+    result.defaultEvaluatorCaller = false;
     result.rejectionReason.clear();
     return result;
 }

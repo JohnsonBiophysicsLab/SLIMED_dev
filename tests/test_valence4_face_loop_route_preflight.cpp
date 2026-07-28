@@ -406,6 +406,14 @@ void seed_all_vertex_forces(Mesh &mesh)
     }
 }
 
+void seed_reference_coordinates_from_current(Mesh &mesh)
+{
+    for (Vertex &vertex : mesh.vertices)
+    {
+        vertex.coordRef = vertex.coord;
+    }
+}
+
 std::vector<VertexForceSnapshot> capture_all_vertex_forces(
     const Mesh &mesh)
 {
@@ -2534,6 +2542,155 @@ TEST(ValenceFourFaceLoopRoutePreflight,
     expect_energy_equal(
         mesh.param.energy, expectedTotalEnergy, false);
 }
+
+TEST(ValenceFourFaceLoopRoutePreflight,
+     OpenSubdivProductionCallerRemainsDefaultOff)
+{
+    ApprovedValence4MeshFixture fixture;
+    Mesh &mesh = *fixture.mesh;
+    seed_face_observable_publication_state(mesh);
+    seed_all_vertex_forces(mesh);
+    const std::vector<Face> beforeFaces = mesh.faces;
+    const auto beforeForces = capture_all_vertex_forces(mesh);
+    const auto beforeCoordinates = capture_vertex_coordinates(mesh);
+    const double beforeArea = mesh.param.area;
+    const double beforeVolume = mesh.param.vol;
+
+    const Valence4OpenSubdivProductionCallerResult result =
+        evaluate_guarded_valence4_opensubdiv_production_caller(
+            mesh, {});
+
+    EXPECT_FALSE(result.accepted);
+    EXPECT_FALSE(result.explicitCallerRequested);
+    EXPECT_FALSE(result.opensubdivRowProviderExecuted);
+    EXPECT_FALSE(result.opensubdivRowsGenerated);
+    EXPECT_FALSE(result.productionCallerShadowExecuted);
+    EXPECT_FALSE(result.productionRouteEnabled);
+    EXPECT_FALSE(result.actualProductionForcePathExecuted);
+    EXPECT_FALSE(result.productionFaceLoopExecuted);
+    EXPECT_FALSE(result.productionOneRingsPopulated);
+    EXPECT_FALSE(result.defaultEvaluatorCaller);
+    expect_face_observable_publication_state_unchanged(
+        mesh, beforeFaces);
+    EXPECT_EQ(capture_all_vertex_forces(mesh), beforeForces);
+    EXPECT_EQ(capture_vertex_coordinates(mesh), beforeCoordinates);
+    EXPECT_DOUBLE_EQ(mesh.param.area, beforeArea);
+    EXPECT_DOUBLE_EQ(mesh.param.vol, beforeVolume);
+}
+
+#ifndef USE_OPENSUBDIV_REGULAR
+TEST(ValenceFourFaceLoopRoutePreflight,
+     OpenSubdivProductionCallerRejectsExplicitRequestWithoutDependency)
+{
+    ApprovedValence4MeshFixture fixture;
+    Mesh &mesh = *fixture.mesh;
+    seed_reference_coordinates_from_current(mesh);
+    seed_face_observable_publication_state(mesh);
+    seed_all_vertex_forces(mesh);
+    const std::vector<Face> beforeFaces = mesh.faces;
+    const auto beforeForces = capture_all_vertex_forces(mesh);
+    const double beforeArea = mesh.param.area;
+    const double beforeVolume = mesh.param.vol;
+
+    Valence4OpenSubdivProductionCallerRequest request;
+    request.reviewerApprovedExplicitCaller = true;
+    const Valence4OpenSubdivProductionCallerResult result =
+        evaluate_guarded_valence4_opensubdiv_production_caller(
+            mesh, request);
+
+    EXPECT_FALSE(result.accepted);
+    EXPECT_TRUE(result.explicitCallerRequested);
+    EXPECT_TRUE(result.opensubdivRowProviderExecuted);
+    EXPECT_FALSE(result.opensubdivRowsGenerated);
+    EXPECT_FALSE(result.productionCallerShadowExecuted);
+    EXPECT_FALSE(result.rowProvider.accepted);
+    EXPECT_TRUE(result.rowProvider.explicitRequestReceived);
+    EXPECT_FALSE(result.rowProvider.opensubdivCompiled);
+    EXPECT_TRUE(result.rowProvider.rows.empty());
+    EXPECT_FALSE(result.callerShadow.accepted);
+    EXPECT_NE(result.rejectionReason.find("OpenSubdiv-enabled build"),
+              std::string::npos);
+    expect_face_observable_publication_state_unchanged(
+        mesh, beforeFaces);
+    EXPECT_EQ(capture_all_vertex_forces(mesh), beforeForces);
+    EXPECT_DOUBLE_EQ(mesh.param.area, beforeArea);
+    EXPECT_DOUBLE_EQ(mesh.param.vol, beforeVolume);
+}
+#else
+TEST(ValenceFourFaceLoopRoutePreflight,
+     OpenSubdivProductionCallerRunsProviderFedCompletionShadow)
+{
+    ApprovedValence4MeshFixture fixture;
+    Mesh &mesh = *fixture.mesh;
+    const auto beforeCoordinates = capture_vertex_coordinates(mesh);
+    seed_reference_coordinates_from_current(mesh);
+    for (Face &face : mesh.faces)
+    {
+        face.energy.energyThickness = 7000.0 + face.index;
+    }
+    for (Vertex &vertex : mesh.vertices)
+    {
+        vertex.force.forceThickness.set_all(
+            8000.0 + vertex.index);
+    }
+
+    Valence4OpenSubdivProductionCallerRequest request;
+    request.reviewerApprovedExplicitCaller = true;
+    const Valence4OpenSubdivProductionCallerResult result =
+        evaluate_guarded_valence4_opensubdiv_production_caller(
+            mesh, request);
+
+    ASSERT_TRUE(result.accepted) << result.rejectionReason;
+    EXPECT_TRUE(result.explicitCallerRequested);
+    EXPECT_TRUE(result.opensubdivRowProviderExecuted);
+    EXPECT_TRUE(result.opensubdivRowsGenerated);
+    EXPECT_TRUE(result.rowProvider.accepted);
+    EXPECT_TRUE(result.rowProvider.rowsGenerated);
+    EXPECT_TRUE(result.productionCallerShadowExecuted);
+    EXPECT_TRUE(result.productionCompletionPhasesExecuted);
+    EXPECT_TRUE(result.totalForcePublicationExecuted);
+    EXPECT_TRUE(result.totalEnergyPublicationExecuted);
+    EXPECT_TRUE(result.boundaryHandlingExecuted);
+    EXPECT_TRUE(result.callerShadow.accepted);
+    EXPECT_TRUE(result.callerShadow.currentStateCleared);
+    EXPECT_TRUE(
+        result.callerShadow.composition
+            .atomicGeometryScientificPublicationExecuted);
+    EXPECT_FALSE(result.productionRouteEnabled);
+    EXPECT_FALSE(result.actualProductionForcePathExecuted);
+    EXPECT_FALSE(result.productionFaceLoopExecuted);
+    EXPECT_FALSE(result.productionOneRingsPopulated);
+    EXPECT_FALSE(result.defaultEvaluatorCaller);
+    EXPECT_FALSE(result.rowProvider.productionRouteEnabled);
+    EXPECT_FALSE(result.callerShadow.productionRouteEnabled);
+    EXPECT_EQ(capture_vertex_coordinates(mesh), beforeCoordinates);
+
+    for (const Vertex &vertex : mesh.vertices)
+    {
+        for (int axis = 0; axis < kAxisCount; ++axis)
+        {
+            EXPECT_DOUBLE_EQ(
+                vertex.force.forceThickness.get(axis, 0), 0.0);
+            const double expectedTotal =
+                vertex.force.forceCurvature.get(axis, 0) +
+                vertex.force.forceArea.get(axis, 0) +
+                vertex.force.forceVolume.get(axis, 0) +
+                vertex.force.forceThickness.get(axis, 0) +
+                vertex.force.forceTilt.get(axis, 0) +
+                vertex.force.forceRegularization.get(axis, 0) +
+                vertex.force.forceHarmonicBond.get(axis, 0);
+            EXPECT_DOUBLE_EQ(
+                vertex.force.forceTotal.get(axis, 0),
+                expectedTotal);
+        }
+    }
+    for (const Face &face : mesh.faces)
+    {
+        EXPECT_DOUBLE_EQ(face.energy.energyThickness, 0.0);
+        EXPECT_TRUE(face.oneRingVertices.empty());
+    }
+}
+#endif
 
 TEST(ValenceFourFaceLoopRoutePreflight,
      OpenSubdivRowProviderRemainsDefaultOff)
