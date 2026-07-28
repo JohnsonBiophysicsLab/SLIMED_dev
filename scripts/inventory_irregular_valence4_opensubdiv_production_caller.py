@@ -29,6 +29,12 @@ SHELL = Path(
 DOC = Path("docs/irregular_valence4_opensubdiv_production_caller.md")
 ROW_PROVIDER_DOC = Path("docs/irregular_valence4_opensubdiv_row_provider.md")
 READINESS = Path("docs/opensubdiv_routing_readiness_map.md")
+READINESS_INVENTORY = Path(
+    "scripts/inventory_opensubdiv_routing_readiness.py"
+)
+READINESS_TEST = Path(
+    "tests/test_opensubdiv_routing_readiness_inventory.py"
+)
 INVENTORY = Path(
     "scripts/inventory_irregular_valence4_opensubdiv_production_caller.py"
 )
@@ -64,6 +70,8 @@ ALLOWED_PATHS = {
     DOC,
     ROW_PROVIDER_DOC,
     READINESS,
+    READINESS_INVENTORY,
+    READINESS_TEST,
     INVENTORY,
     ROW_PROVIDER_INVENTORY,
     PRODUCTION_CALLER_SHADOW_INVENTORY,
@@ -157,12 +165,30 @@ ANCHORS = {
         "Route activation remains",
     ),
     READINESS: (
-        "provider-fed production-caller prerequisite",
-        "evaluate_guarded_valence4_opensubdiv_production_caller",
-        "serial/OpenMP provider-fed caller parity",
-        "guarded real face-loop successor",
         "evaluate_guarded_valence4_opensubdiv_production_face_loop_caller",
+        "real production valence-4 force execution through an explicit, default-off",
+        "executes those rows through the shared production membrane face loop",
+        "`productionFaceLoopExecuted` and `actualProductionForcePathExecuted` are",
+        "`productionRouteEnabled` and `defaultEvaluatorCaller` remain false",
+        "continues to reject this unsupported topology and the explicit caller remains",
+        "separate explicit reviewer/user decision on guarded",
         "default route activation",
+    ),
+    READINESS_INVENTORY: (
+        "FORBIDDEN_READINESS_CLAIMS",
+        "pre-PR141 production entry rejection claim",
+        "pre-PR141 force-execution denial",
+        "pre-PR141 missing real caller claim",
+        "pre-PR141 no caller enabled claim",
+        "pre-PR141 next-caller claim",
+        "explicit guarded production face-loop caller",
+        "route and default caller remain disabled",
+        "collect_forbidden_claims",
+    ),
+    READINESS_TEST: (
+        "test_valence4_current_state_anchors_distinguish_execution_from_routing",
+        "test_pre_pr141_readiness_claims_fail_the_inventory",
+        "collect_forbidden_claims",
     ),
     PRODUCTION_LOOP_HEADER: (
         "execute_guarded_valence4_production_face_loop",
