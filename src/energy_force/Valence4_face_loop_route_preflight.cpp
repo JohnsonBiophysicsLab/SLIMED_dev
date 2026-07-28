@@ -24,6 +24,18 @@ namespace
 {
 constexpr std::size_t kReviewedSampleCountPerFace = 3;
 constexpr double kLegacyVolumeQuadratureFactor = 0.16666666666;
+constexpr int kReviewedGaussQuadratureOrder = 2;
+constexpr std::array<std::array<double, 3>, 3>
+    kReviewedValence4QuadratureSamples{{
+        {{1.0 / 6.0, 1.0 / 6.0, 4.0 / 6.0}},
+        {{1.0 / 6.0, 4.0 / 6.0, 1.0 / 6.0}},
+        {{4.0 / 6.0, 1.0 / 6.0, 1.0 / 6.0}},
+    }};
+constexpr std::array<double, 3> kReviewedValence4QuadratureWeights{{
+    1.0 / 3.0,
+    1.0 / 3.0,
+    1.0 / 3.0,
+}};
 
 Valence4FaceLoopRoutePreflightResult reject(std::string reason)
 {
@@ -1580,6 +1592,59 @@ evaluate_guarded_valence4_opensubdiv_production_caller(
 
     Valence4OpenSubdivProductionCallerResult result;
     result.explicitCallerRequested = true;
+
+    if (mesh.param.gaussQuadratureN !=
+            kReviewedGaussQuadratureOrder ||
+        mesh.param.VWU.nrow() !=
+            static_cast<int>(kReviewedSampleCountPerFace) ||
+        mesh.param.VWU.ncol() != 3)
+    {
+        result.rejectionReason =
+            "valence-4 OpenSubdiv production caller requires the exact "
+            "ordered N=2 quadrature sample plan";
+        return result;
+    }
+    for (int sample = 0;
+         sample < static_cast<int>(kReviewedSampleCountPerFace);
+         ++sample)
+    {
+        for (int coordinate = 0; coordinate < 3; ++coordinate)
+        {
+            if (mesh.param.VWU.get(sample, coordinate) !=
+                kReviewedValence4QuadratureSamples[sample][coordinate])
+            {
+                result.rejectionReason =
+                    "valence-4 OpenSubdiv production caller rejected "
+                    "ordered quadrature sample drift";
+                return result;
+            }
+        }
+    }
+    result.exactQuadratureSamplePlanValidated = true;
+
+    if (mesh.param.gaussQuadratureCoeff.nrow() !=
+            static_cast<int>(kReviewedSampleCountPerFace) ||
+        mesh.param.gaussQuadratureCoeff.ncol() != 1)
+    {
+        result.rejectionReason =
+            "valence-4 OpenSubdiv production caller requires exactly "
+            "three reviewed quadrature weights";
+        return result;
+    }
+    for (int sample = 0;
+         sample < static_cast<int>(kReviewedSampleCountPerFace);
+         ++sample)
+    {
+        if (mesh.param.gaussQuadratureCoeff.get(sample, 0) !=
+            kReviewedValence4QuadratureWeights[sample])
+        {
+            result.rejectionReason =
+                "valence-4 OpenSubdiv production caller rejected "
+                "quadrature weight drift";
+            return result;
+        }
+    }
+    result.exactQuadratureWeightsValidated = true;
     result.opensubdivRowProviderExecuted = true;
 
     slimed::opensubdiv_valence4::OpenSubdivValence4RowProviderRequest

@@ -226,6 +226,8 @@ int main(int argc, char **argv)
         !defaultOff.accepted &&
         !defaultOff.opensubdivRowProviderExecuted &&
         called.accepted &&
+        called.exactQuadratureSamplePlanValidated &&
+        called.exactQuadratureWeightsValidated &&
         called.opensubdivRowProviderExecuted &&
         called.opensubdivRowsGenerated &&
         called.rowProvider.accepted &&
@@ -254,6 +256,14 @@ int main(int argc, char **argv)
     std::cout << ",\"passed\":" << (passed ? "true" : "false");
     std::cout << ",\"default_off_caller_rejected\":"
               << (!defaultOff.accepted ? "true" : "false");
+    std::cout << ",\"exact_quadrature_sample_plan_validated\":"
+              << (called.exactQuadratureSamplePlanValidated
+                      ? "true"
+                      : "false");
+    std::cout << ",\"exact_quadrature_weights_validated\":"
+              << (called.exactQuadratureWeightsValidated
+                      ? "true"
+                      : "false");
     std::cout << ",\"opensubdiv_row_provider_executed\":"
               << (called.opensubdivRowProviderExecuted ? "true" : "false");
     std::cout << ",\"opensubdiv_rows_generated\":"

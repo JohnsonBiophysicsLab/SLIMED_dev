@@ -2578,6 +2578,84 @@ TEST(ValenceFourFaceLoopRoutePreflight,
     EXPECT_DOUBLE_EQ(mesh.param.vol, beforeVolume);
 }
 
+TEST(ValenceFourFaceLoopRoutePreflight,
+     OpenSubdivProductionCallerRejectsQuadratureSampleDriftAtomically)
+{
+    ApprovedValence4MeshFixture fixture;
+    Mesh &mesh = *fixture.mesh;
+    seed_reference_coordinates_from_current(mesh);
+    seed_face_observable_publication_state(mesh);
+    seed_all_vertex_forces(mesh);
+    mesh.param.VWU.set(0, 0, 0.25);
+    const std::vector<Face> beforeFaces = mesh.faces;
+    const auto beforeForces = capture_all_vertex_forces(mesh);
+    const auto beforeCoordinates = capture_vertex_coordinates(mesh);
+    const double beforeArea = mesh.param.area;
+    const double beforeVolume = mesh.param.vol;
+
+    Valence4OpenSubdivProductionCallerRequest request;
+    request.reviewerApprovedExplicitCaller = true;
+    const Valence4OpenSubdivProductionCallerResult result =
+        evaluate_guarded_valence4_opensubdiv_production_caller(
+            mesh, request);
+
+    EXPECT_FALSE(result.accepted);
+    EXPECT_TRUE(result.explicitCallerRequested);
+    EXPECT_FALSE(result.exactQuadratureSamplePlanValidated);
+    EXPECT_FALSE(result.exactQuadratureWeightsValidated);
+    EXPECT_FALSE(result.opensubdivRowProviderExecuted);
+    EXPECT_FALSE(result.opensubdivRowsGenerated);
+    EXPECT_FALSE(result.productionCallerShadowExecuted);
+    EXPECT_NE(result.rejectionReason.find("sample drift"),
+              std::string::npos);
+    expect_face_observable_publication_state_unchanged(
+        mesh, beforeFaces);
+    EXPECT_EQ(capture_all_vertex_forces(mesh), beforeForces);
+    EXPECT_EQ(capture_vertex_coordinates(mesh), beforeCoordinates);
+    EXPECT_DOUBLE_EQ(mesh.param.area, beforeArea);
+    EXPECT_DOUBLE_EQ(mesh.param.vol, beforeVolume);
+}
+
+TEST(ValenceFourFaceLoopRoutePreflight,
+     OpenSubdivProductionCallerRejectsQuadratureWeightDriftAtomically)
+{
+    ApprovedValence4MeshFixture fixture;
+    Mesh &mesh = *fixture.mesh;
+    seed_reference_coordinates_from_current(mesh);
+    seed_face_observable_publication_state(mesh);
+    seed_all_vertex_forces(mesh);
+    mesh.param.gaussQuadratureCoeff.set(0, 0, 0.8);
+    mesh.param.gaussQuadratureCoeff.set(1, 0, 0.1);
+    mesh.param.gaussQuadratureCoeff.set(2, 0, 0.1);
+    const std::vector<Face> beforeFaces = mesh.faces;
+    const auto beforeForces = capture_all_vertex_forces(mesh);
+    const auto beforeCoordinates = capture_vertex_coordinates(mesh);
+    const double beforeArea = mesh.param.area;
+    const double beforeVolume = mesh.param.vol;
+
+    Valence4OpenSubdivProductionCallerRequest request;
+    request.reviewerApprovedExplicitCaller = true;
+    const Valence4OpenSubdivProductionCallerResult result =
+        evaluate_guarded_valence4_opensubdiv_production_caller(
+            mesh, request);
+
+    EXPECT_FALSE(result.accepted);
+    EXPECT_TRUE(result.explicitCallerRequested);
+    EXPECT_TRUE(result.exactQuadratureSamplePlanValidated);
+    EXPECT_FALSE(result.exactQuadratureWeightsValidated);
+    EXPECT_FALSE(result.opensubdivRowProviderExecuted);
+    EXPECT_FALSE(result.opensubdivRowsGenerated);
+    EXPECT_FALSE(result.productionCallerShadowExecuted);
+    EXPECT_NE(result.rejectionReason.find("weight drift"),
+              std::string::npos);
+    expect_face_observable_publication_state_unchanged(
+        mesh, beforeFaces);
+    EXPECT_EQ(capture_all_vertex_forces(mesh), beforeForces);
+    EXPECT_EQ(capture_vertex_coordinates(mesh), beforeCoordinates);
+    EXPECT_DOUBLE_EQ(mesh.param.area, beforeArea);
+    EXPECT_DOUBLE_EQ(mesh.param.vol, beforeVolume);
+}
+
 #ifndef USE_OPENSUBDIV_REGULAR
 TEST(ValenceFourFaceLoopRoutePreflight,
      OpenSubdivProductionCallerRejectsExplicitRequestWithoutDependency)
@@ -2600,6 +2678,8 @@ TEST(ValenceFourFaceLoopRoutePreflight,
 
     EXPECT_FALSE(result.accepted);
     EXPECT_TRUE(result.explicitCallerRequested);
+    EXPECT_TRUE(result.exactQuadratureSamplePlanValidated);
+    EXPECT_TRUE(result.exactQuadratureWeightsValidated);
     EXPECT_TRUE(result.opensubdivRowProviderExecuted);
     EXPECT_FALSE(result.opensubdivRowsGenerated);
     EXPECT_FALSE(result.productionCallerShadowExecuted);
@@ -2642,6 +2722,8 @@ TEST(ValenceFourFaceLoopRoutePreflight,
 
     ASSERT_TRUE(result.accepted) << result.rejectionReason;
     EXPECT_TRUE(result.explicitCallerRequested);
+    EXPECT_TRUE(result.exactQuadratureSamplePlanValidated);
+    EXPECT_TRUE(result.exactQuadratureWeightsValidated);
     EXPECT_TRUE(result.opensubdivRowProviderExecuted);
     EXPECT_TRUE(result.opensubdivRowsGenerated);
     EXPECT_TRUE(result.rowProvider.accepted);

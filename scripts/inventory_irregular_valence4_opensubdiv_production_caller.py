@@ -74,6 +74,8 @@ ANCHORS = {
         "Valence4OpenSubdivProductionCallerRequest",
         "Valence4OpenSubdivProductionCallerResult",
         "reviewerApprovedExplicitCaller",
+        "exactQuadratureSamplePlanValidated",
+        "exactQuadratureWeightsValidated",
         "opensubdivRowProviderExecuted",
         "productionCallerShadowExecuted",
         "evaluate_guarded_valence4_opensubdiv_production_caller",
@@ -82,6 +84,8 @@ ANCHORS = {
     PREFLIGHT_SOURCE: (
         "reject_opensubdiv_production_caller_request",
         "OpenSubdiv production caller remains default-off",
+        "ordered quadrature sample drift",
+        "quadrature weight drift",
         "build_guarded_opensubdiv_valence4_rows",
         "evaluate_guarded_valence4_production_caller_shadow",
         "opensubdivRowsGenerated = true",
@@ -90,6 +94,8 @@ ANCHORS = {
     ),
     CPP_TEST: (
         "OpenSubdivProductionCallerRemainsDefaultOff",
+        "OpenSubdivProductionCallerRejectsQuadratureSampleDriftAtomically",
+        "OpenSubdivProductionCallerRejectsQuadratureWeightDriftAtomically",
         "OpenSubdivProductionCallerRejectsExplicitRequestWithoutDependency",
         "OpenSubdivProductionCallerRunsProviderFedCompletionShadow",
         "opensubdivRowProviderExecuted",
@@ -98,6 +104,8 @@ ANCHORS = {
     EXPERIMENT: (
         "guarded_valence4_opensubdiv_production_caller",
         "default_off_caller_rejected",
+        "exact_quadrature_sample_plan_validated",
+        "exact_quadrature_weights_validated",
         "opensubdiv_row_provider_executed",
         "production_caller_shadow_executed",
         "production_caller_shadow_totals_consistent",
@@ -105,6 +113,8 @@ ANCHORS = {
     ),
     RUNNER: (
         "provider_fed_production_caller",
+        "exact_quadrature_sample_plan_validated",
+        "exact_quadrature_weights_validated",
         "serial_openmp_provider_fed_caller_parity_passed",
         "max_serial_openmp_provider_fed_force_delta",
         "OpenSubdiv production caller is explicit opt-in only",
@@ -115,6 +125,8 @@ ANCHORS = {
     DOC: (
         "OpenSubdiv-Fed Valence-4 Production Caller Prerequisite",
         "provider-fed caller",
+        "exact ordered `N=2`",
+        "three exact `1/3` quadrature weights",
         "does not enter `Mesh::Compute_Energy_And_Force()`",
         "route activation remains a separate reviewer/user decision",
     ),

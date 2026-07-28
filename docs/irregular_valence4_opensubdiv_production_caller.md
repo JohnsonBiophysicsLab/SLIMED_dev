@@ -17,9 +17,13 @@ previously separated guarded pieces:
 
 The function is default-off. Without
 `reviewerApprovedExplicitCaller = true`, it rejects before calling the row
-provider. With an explicit request, row generation must fully succeed before
-the production caller shadow can validate destinations, clear current state,
-publish geometry/scientific output, and run completion.
+provider. With an explicit request, it first requires the exact ordered `N=2`
+quadrature sample plan and three exact `1/3` quadrature weights used to
+generate the provider rows. Sample or weight drift rejects before the provider
+or caller shadow executes and before any mesh-owned state is cleared. Row
+generation must then fully succeed before the production caller shadow can
+validate destinations, clear current state, publish geometry/scientific
+output, and run completion.
 
 ## Guarded Boundary
 
@@ -49,6 +53,8 @@ harnesses and compares provider-fed caller output:
 
 ```text
 provider_fed_production_caller: true
+exact_quadrature_sample_plan_validated: true
+exact_quadrature_weights_validated: true
 opensubdiv_row_provider_executed: true
 opensubdiv_rows_generated: true
 production_caller_shadow_executed: true

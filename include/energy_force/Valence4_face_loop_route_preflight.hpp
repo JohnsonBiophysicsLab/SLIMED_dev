@@ -244,6 +244,8 @@ struct Valence4OpenSubdivProductionCallerResult
     bool accepted = false;
     std::string rejectionReason;
     bool explicitCallerRequested = false;
+    bool exactQuadratureSamplePlanValidated = false;
+    bool exactQuadratureWeightsValidated = false;
     bool opensubdivRowProviderExecuted = false;
     bool opensubdivRowsGenerated = false;
     bool productionCallerShadowExecuted = false;

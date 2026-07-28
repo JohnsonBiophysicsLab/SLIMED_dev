@@ -86,6 +86,10 @@ class ValenceFourOpenSubdivProductionCallerInventoryTest(
         payload = json.loads(result.stdout)
         self.assertEqual(payload["status"], "passed")
         self.assertTrue(payload["provider_fed_production_caller"])
+        self.assertTrue(
+            payload["exact_quadrature_sample_plan_validated"]
+        )
+        self.assertTrue(payload["exact_quadrature_weights_validated"])
         self.assertTrue(payload["opensubdiv_row_provider_executed"])
         self.assertTrue(payload["opensubdiv_rows_generated"])
         self.assertTrue(payload["production_caller_shadow_executed"])

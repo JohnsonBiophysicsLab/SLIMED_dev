@@ -227,6 +227,8 @@ def finite_vector(value: object, size: int) -> list[float]:
 def validate_output(payload: dict[str, object]) -> dict[str, object]:
     required_true = (
         "default_off_caller_rejected",
+        "exact_quadrature_sample_plan_validated",
+        "exact_quadrature_weights_validated",
         "opensubdiv_row_provider_executed",
         "opensubdiv_rows_generated",
         "row_provider_accepted",
@@ -372,6 +374,8 @@ def main() -> int:
     payload = {
         "status": "passed" if parity_passed else "failed",
         "provider_fed_production_caller": True,
+        "exact_quadrature_sample_plan_validated": True,
+        "exact_quadrature_weights_validated": True,
         "opensubdiv_row_provider_executed": True,
         "opensubdiv_rows_generated": True,
         "production_caller_shadow_executed": True,
