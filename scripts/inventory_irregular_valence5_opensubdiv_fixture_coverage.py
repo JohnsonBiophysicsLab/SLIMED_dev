@@ -92,7 +92,7 @@ def collect(root: Path) -> dict[str, object]:
         "not_production_routing": True,
         "production_route_enabled": False,
         "production_force_path_executed": False,
-        "next_gate": "per-face source-order and weighted-transpose contract",
+        "next_gate": "actual valence-5 fBend/fArea/fVolume parity",
         "anchors": {"located": located, "expected": expected},
         "errors": errors,
     }

@@ -3,7 +3,9 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
+import tempfile
 import unittest
 
 
@@ -36,10 +38,38 @@ class ValenceFiveSourceOrderTransposeInventoryTest(unittest.TestCase):
         self.assertEqual(report["anchors"]["located"], report["anchors"]["expected"])
         self.assertTrue(report["proof_only"])
         self.assertFalse(report["production_route_enabled"])
+        self.assertFalse(report["production_scatter_executed"])
         self.assertTrue(
             report["existing_dependency_free_production_baseline_executed"]
         )
         self.assertFalse(report["opensubdiv_production_force_path_executed"])
+        self.assertEqual(report["forbidden_stale_claims"]["located"], 0)
+        self.assertEqual(report["forbidden_stale_claims"]["expected"], 2)
+
+    def test_stale_readiness_claims_are_rejected(self):
+        inventory = load_module(INVENTORY, "val5_stale_inventory")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for relative in inventory.ANCHORS:
+                destination = root / relative
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(ROOT / relative, destination)
+
+            readiness = root / inventory.READINESS
+            readiness.write_text(
+                readiness.read_text(encoding="utf-8")
+                + "\nThe next reviewed step is a per-face source-order and "
+                "weighted-transpose contract.\n",
+                encoding="utf-8",
+            )
+            rejected = inventory.collect(root)
+            self.assertEqual(rejected["status"], "failed")
+            self.assertEqual(
+                rejected["forbidden_stale_claims"]["located"], 1
+            )
+            self.assertTrue(
+                any("contains stale claim" in error for error in rejected["errors"])
+            )
 
     def test_canonical_order_mutation_is_binding(self):
         comparator = load_module(COMPARATOR, "val5_comparator")
@@ -157,6 +187,7 @@ class ValenceFiveSourceOrderTransposeInventoryTest(unittest.TestCase):
         self.assertTrue(report["exact_production_one_ring_order_match"])
         self.assertTrue(report["per_face_opensubdiv_source_sets_match"])
         self.assertTrue(report["all_face_weighted_transposes_passed"])
+        self.assertFalse(report["production_scatter_executed"])
         self.assertEqual(report["slot_backprojection_component_count"], 660)
         self.assertLessEqual(
             report["duplicate_slot_rescatter_max_abs_difference"], 1.0e-12

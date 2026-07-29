@@ -105,6 +105,8 @@ class OpenSubdivRoutingReadinessInventoryTest(unittest.TestCase):
         self.assertIn("atomic dependency rejection", anchor_names)
         self.assertIn("successful route flag promotion", anchor_names)
         self.assertIn("broader valence remains separate", anchor_names)
+        self.assertIn("source-order transpose contract complete", anchor_names)
+        self.assertIn("force parity is next", anchor_names)
 
         self.assertFalse(
             inventory.collect_forbidden_claims(inventory.repo_root())

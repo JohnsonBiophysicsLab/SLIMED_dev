@@ -193,6 +193,7 @@ def compare_reports(
         "proof_only": True,
         "not_production_routing": True,
         "production_route_enabled": False,
+        "production_scatter_executed": False,
         "existing_dependency_free_production_baseline_executed": True,
         "opensubdiv_production_force_path_executed": False,
         "production_face_count": len(production_rings),

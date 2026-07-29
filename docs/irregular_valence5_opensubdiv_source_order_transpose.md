@@ -30,8 +30,9 @@ skip. With the dependency present, it:
 - independently recomputes the control-space dot product from the serialized
   double coordinates; and
 - projects each source-keyed back-projection into the ordered 11 production
-  slots with an asymmetric `1/3,2/3` duplicate split, then proves production
-  source scatter reconstructs the original source-keyed vector.
+  slots with an asymmetric `1/3,2/3` duplicate split, then performs a
+  proof-local re-aggregation that reconstructs the original source-keyed
+  vector.
 
 The reviewed tolerances separate the two numerical boundaries. The
 OpenSubdiv-float versus serialized-double independent dot comparison uses
@@ -40,7 +41,9 @@ OpenSubdiv-float versus serialized-double independent dot comparison uses
 This is a source-order and linear-transpose proof only. It emits
 `proof_only:true`, `not_production_routing:true`,
 `production_route_enabled:false`, and
-`opensubdiv_production_force_path_executed:false`. The separate
+`production_scatter_executed:false`. The duplicate-slot reconstruction is
+proof-local scatter-shape evidence; it does not invoke production scatter.
+It also emits `opensubdiv_production_force_path_executed:false`. The separate
 `existing_dependency_free_production_baseline_executed:true` field records
 that the current production reporter supplied the baseline; it does not imply
 that an OpenSubdiv production route ran. This proof does not compare actual

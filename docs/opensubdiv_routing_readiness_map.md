@@ -293,9 +293,12 @@ approved closed valence-5 icosahedron is the next proof-only fixture: its
 OpenSubdiv aggregate value, first-derivative, and second-derivative source
 coverage reaches all 12 serialized source IDs across 20 Ptex faces and 180
 sample locations. A single face exposes only nine source IDs, so this evidence
-does not yet bind the production `Face::oneRingVertices` 11-control order.
-The next reviewed step is a per-face source-order and weighted-transpose
-contract against the existing positive-depth `11 = 4+3+4` route.
+is supplemented by a passing proof-only per-face source-order and
+weighted-transpose contract against the canonical production
+`Face::oneRingVertices` 11-control order. Its duplicate-slot reconstruction is
+proof-local and does not execute production scatter. The next reviewed step is
+actual valence-5 `fBend`, `fArea`, and `fVolume` parity against the existing
+positive-depth `11 = 4+3+4` route.
 Broader-valence production routing remains unsupported and must not inherit the
 valence-4 gate.
 

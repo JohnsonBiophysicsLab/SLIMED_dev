@@ -36,6 +36,9 @@ class ValenceFiveOpenSubdivFixtureCoverageInventoryTest(unittest.TestCase):
         self.assertTrue(report["not_production_routing"])
         self.assertFalse(report["production_route_enabled"])
         self.assertFalse(report["production_force_path_executed"])
+        self.assertEqual(
+            report["next_gate"], "actual valence-5 fBend/fArea/fVolume parity"
+        )
         self.assertEqual(report["anchors"]["located"], report["anchors"]["expected"])
 
     def test_coverage_failure_is_binding(self):

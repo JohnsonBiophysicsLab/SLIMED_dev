@@ -17,6 +17,9 @@ COMPARATOR = Path(
 )
 DOC = Path("docs/irregular_valence5_opensubdiv_source_order_transpose.md")
 READINESS = Path("docs/opensubdiv_routing_readiness_map.md")
+FIXTURE_COVERAGE_INVENTORY = Path(
+    "scripts/inventory_irregular_valence5_opensubdiv_fixture_coverage.py"
+)
 
 ANCHORS = {
     PROBE: (
@@ -47,6 +50,7 @@ ANCHORS = {
         "per_face_opensubdiv_source_sets_match",
         "duplicate_slot_rescatter_max_abs_difference",
         "independent_weighted_transpose_max_abs_difference",
+        "production_scatter_executed",
         "existing_dependency_free_production_baseline_executed",
         "opensubdiv_production_force_path_executed",
         "actual fBend/fArea/fVolume parity",
@@ -59,6 +63,9 @@ ANCHORS = {
         "`proof_only:true`",
         "`not_production_routing:true`",
         "`production_route_enabled:false`",
+        "`production_scatter_executed:false`",
+        "proof-local scatter-shape evidence",
+        "does not invoke production scatter",
         "`opensubdiv_production_force_path_executed:false`",
         "`existing_dependency_free_production_baseline_executed:true`",
         "it does not imply",
@@ -67,7 +74,22 @@ ANCHORS = {
     READINESS: (
         "per-face source-order and weighted-transpose contract now passes",
         "Actual valence-5 bending/area/volume force parity remains unproven",
+        "The next reviewed step is",
+        "actual valence-5 `fBend`, `fArea`, and `fVolume` parity",
+        "does not execute production scatter",
         "Broader-valence production routing remains unsupported",
+    ),
+    FIXTURE_COVERAGE_INVENTORY: (
+        '"next_gate": "actual valence-5 fBend/fArea/fVolume parity"',
+    ),
+}
+
+FORBIDDEN_STALE_CLAIMS = {
+    READINESS: (
+        "The next reviewed step is a per-face source-order and weighted-transpose",
+    ),
+    FIXTURE_COVERAGE_INVENTORY: (
+        '"next_gate": "per-face source-order and weighted-transpose contract"',
     ),
 }
 
@@ -88,15 +110,29 @@ def collect(root: Path) -> dict[str, object]:
                 located += 1
             else:
                 errors.append(f"{relative} missing {needle!r}")
+    forbidden_located = 0
+    forbidden_expected = 0
+    for relative, needles in FORBIDDEN_STALE_CLAIMS.items():
+        source = (root / relative).read_text(encoding="utf-8")
+        for needle in needles:
+            forbidden_expected += 1
+            if needle in source:
+                forbidden_located += 1
+                errors.append(f"{relative} contains stale claim {needle!r}")
     return {
         "status": "passed" if not errors else "failed",
         "proof_only": True,
         "not_production_routing": True,
         "production_route_enabled": False,
+        "production_scatter_executed": False,
         "existing_dependency_free_production_baseline_executed": True,
         "opensubdiv_production_force_path_executed": False,
         "next_gate": "actual valence-5 fBend/fArea/fVolume parity",
         "anchors": {"located": located, "expected": expected},
+        "forbidden_stale_claims": {
+            "located": forbidden_located,
+            "expected": forbidden_expected,
+        },
         "errors": errors,
     }
 
