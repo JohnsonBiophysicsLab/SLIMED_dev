@@ -135,8 +135,8 @@ ROUTE_READINESS_MATRIX: tuple[dict[str, str], ...] = (
     {
         "route": "positive-depth 11 = 4+3+4 membrane force",
         "current_production_status": "supported narrowly by subdivision matrices",
-        "opensubdiv_evidence_status": "source-order, force, and child-domain diagnostics observe a valence-5 extraordinary vertex mask mismatch without proving causal sufficiency",
-        "readiness_result": "counterfactual mask-attribution diagnostic required; keep production route disabled",
+        "opensubdiv_evidence_status": "source-order, force, and child-domain diagnostics observe a valence-5 extraordinary vertex mask mismatch; the public Loop API cannot construct an evaluator-bound mask-only counterfactual",
+        "readiness_result": "explicit custom-scheme or library decision required; keep production route disabled",
     },
     {
         "route": "zero-depth 11-control and unsupported irregular topologies",
@@ -484,11 +484,19 @@ ANCHORS: tuple[Anchor, ...] = (
     ),
     Anchor(
         "valence-5 force diagnostic boundary",
-        "integration composition mask attribution",
+        "integration composition and public mask-counterfactual capability",
         READINESS_DOC_PATH,
-        "counterfactual valence-5 extraordinary-mask attribution diagnostic",
+        "completed counterfactual capability diagnostic",
         "diagnostic review boundary",
-        "The map records the completed child-domain diagnostic without overclaiming the observed mask mismatch as causally sufficient.",
+        "The map records the public API blocker without fabricating an evaluator-bound counterfactual.",
+    ),
+    Anchor(
+        "valence-5 force diagnostic boundary",
+        "custom Loop scheme decision",
+        READINESS_DOC_PATH,
+        "explicitly reviewed custom OpenSubdiv Loop scheme or library decision",
+        "required",
+        "The map keeps production routing disabled pending a separately reviewed library or custom-scheme decision.",
     ),
     Anchor(
         "backend policy",

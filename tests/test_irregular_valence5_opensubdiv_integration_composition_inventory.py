@@ -78,7 +78,7 @@ class ValenceFiveIntegrationCompositionInventoryTest(unittest.TestCase):
         self.assertFalse(report["mask_policy_causal_sufficiency_proven"])
         self.assertEqual(
             report["next_gate"],
-            "counterfactual valence-5 extraordinary mask attribution diagnostic",
+            "explicitly reviewed custom OpenSubdiv Loop scheme or library decision",
         )
 
     def test_component_and_domain_plan_mutations_are_binding(self):

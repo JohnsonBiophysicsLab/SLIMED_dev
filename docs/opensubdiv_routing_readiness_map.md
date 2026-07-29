@@ -311,9 +311,16 @@ a maximum position-row residual of `0.02817109760678843`. The diagnostic also
 observes a valence-5 extraordinary smooth-vertex mask difference: SLIMED uses
 neighbor/center weights `0.075`/`0.625`, while OpenSubdiv uses
 `0.08409321892578289`/`0.5795339053710855`. It does not prove that aligning
-only this mask eliminates the full residual. The next boundary is a
-counterfactual valence-5 extraordinary-mask attribution diagnostic. Production
-valence-5 routing remains disabled.
+only this mask eliminates the full residual.
+
+The completed counterfactual capability diagnostic reruns the evaluator-bound
+30,240-component baseline and inspects the installed public scheme API and
+embedded Loop formula. Its exact blocker is
+`OpenSubdiv public Loop scheme does not expose a custom extraordinary smooth-mask override`.
+No evaluator-bound mask-only counterfactual was constructed, no completed rows
+were edited, and causal sufficiency remains unproven. The next boundary is an
+`explicitly reviewed custom OpenSubdiv Loop scheme or library decision`.
+Production valence-5 routing remains disabled.
 Broader-valence production routing remains unsupported and must not inherit the
 valence-4 gate.
 
