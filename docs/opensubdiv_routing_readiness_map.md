@@ -54,7 +54,7 @@ regular route through separately reviewed production changes.
 | Regular 12-control membrane force | Supported through the direct evaluator by default. OpenSubdiv-enabled binaries may route supported non-boundary, non-ghost regular faces only when runtime opt-in is explicit. | The guarded double-row route passes regular row, production-call force/scatter, geometry, output-visible, and serial/OpenMP executable parity under the current tolerance. | Guarded regular route active; preserve parity gates and direct fallback. |
 | Positive-depth `11 = 4+3+4` membrane force | Supported narrowly through dependency-free subdivision matrices and child-force back-projection. | OpenSubdiv aggregate source/transpose reports are observational only. | Keep current route; do not replace with OpenSubdiv in the regular readiness lane. |
 | Zero-depth 11-control and unsupported irregular topologies | Guarded unsupported cases. | No production approval. | Must continue to fail loudly or use only reviewed diagnostics. |
-| Broader extraordinary valence | Not production supported. | The approved octahedron stand-in has proof-only Ptex/sample/source-row/linear-transpose, force-formula, scatter, real OpenMP shadow, and topology/source-mapping adapter design evidence. A guarded backend-neutral production representation now binds canonical production face identity to original source IDs while leaving production one-rings empty and remaining unused by the force path. | Future-only until production-call parity, generic scientific approval, and route review are complete. |
+| Broader extraordinary valence | Only the explicitly gated canonical valence-4 octahedron is production routed. Every other extraordinary topology remains unsupported by OpenSubdiv production routing. | The approved valence-5 icosahedron now has proof-only aggregate Ptex value/first/second-derivative source visibility over its exact serialized topology. This does not establish per-face 11-control ordering, force back-projection, scatter/OpenMP parity, or routing. | Next evidence gate is a per-face valence-5 source-order and weighted-transpose contract against the existing positive-depth 11-control route. |
 
 Default validation remains dependency-free. OpenSubdiv-present checks stay
 opt-in through `OPENSUBDIV_ROOT`, `scripts/run_opensubdiv_probe.sh`, and
@@ -288,10 +288,16 @@ dependency-based routing, broader-valence support, changed force formulas or
 scatter semantics, altered OpenMP reductions, or checkpoint/output/propagation
 changes.
 
-This is the complete approved canonical valence-4 route boundary. The next
-implementation-plan decision is separate scientific fixture approval and
-reviewed evidence for another extraordinary valence. Broader-valence
-production routing remains unsupported and must not inherit this gate.
+This is the complete approved canonical valence-4 route boundary. The already
+approved closed valence-5 icosahedron is the next proof-only fixture: its
+OpenSubdiv aggregate value, first-derivative, and second-derivative source
+coverage reaches all 12 serialized source IDs across 20 Ptex faces and 180
+sample locations. A single face exposes only nine source IDs, so this evidence
+does not yet bind the production `Face::oneRingVertices` 11-control order.
+The next reviewed step is a per-face source-order and weighted-transpose
+contract against the existing positive-depth `11 = 4+3+4` route.
+Broader-valence production routing remains unsupported and must not inherit the
+valence-4 gate.
 
 ## Inventory Check
 
