@@ -296,9 +296,15 @@ sample locations. A single face exposes only nine source IDs, so this evidence
 is supplemented by a passing proof-only per-face source-order and
 weighted-transpose contract against the canonical production
 `Face::oneRingVertices` 11-control order. Its duplicate-slot reconstruction is
-proof-local and does not execute production scatter. The next reviewed step is
-actual valence-5 `fBend`, `fArea`, and `fVolume` parity against the existing
-positive-depth `11 = 4+3+4` route.
+proof-local and does not execute production scatter. The subsequent force
+diagnostic executes both the positive-depth production irregular helper and
+the existing regular force algebra with fresh OpenSubdiv rows, but direct
+whole-Ptex OpenSubdiv evaluation does not match the current `11 = 4+3+4`
+composition. Maximum per-face source-component differences are `7.1083` for
+`fBend`, `0.4611` for `fArea`, and `0.06231` for `fVolume`, far above the
+reviewed scaled tolerance `1.25352e-4`. The next reviewed step is a proof-only
+integration-domain/composition diagnostic; production valence-5 routing
+remains disabled.
 Broader-valence production routing remains unsupported and must not inherit the
 valence-4 gate.
 

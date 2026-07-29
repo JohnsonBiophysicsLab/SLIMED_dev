@@ -4955,8 +4955,12 @@ static bool print_valence5_source_order_transpose_proof(MeshCase const &mesh) {
                   << mesh.vertIndices[3 * face] << ","
                   << mesh.vertIndices[3 * face + 1] << ","
                   << mesh.vertIndices[3 * face + 2] << "]";
+        std::cout << ",\"samples\":[";
 
         for (int sample = 0; sample < kSampleCount; ++sample) {
+            if (sample > 0) {
+                std::cout << ",";
+            }
             int const stencilIndex = face * kSampleCount + sample;
             Far::LimitStencil stencil = stencils->GetLimitStencil(stencilIndex);
             std::array<std::array<double, kSourceCount>, kRowCount>
@@ -5006,6 +5010,24 @@ static bool print_valence5_source_order_transpose_proof(MeshCase const &mesh) {
                 maxRowSumResidual =
                     std::max(maxRowSumResidual, rowSumResidual);
                 facePassed = facePassed && rowFinite && rowSumPassed;
+                if (row == 0) {
+                    std::cout << "{\"sample\":" << sample
+                              << ",\"rows\":[";
+                } else {
+                    std::cout << ",";
+                }
+                std::cout << "[";
+                for (int sourceId = 0; sourceId < kSourceCount; ++sourceId) {
+                    if (sourceId > 0) {
+                        std::cout << ",";
+                    }
+                    std::cout << std::setprecision(17)
+                              << denseRow[sourceId];
+                }
+                std::cout << "]";
+                if (row == kRowCount - 1) {
+                    std::cout << "]}";
+                }
                 for (int axis = 0; axis < 3; ++axis) {
                     double const gradient =
                         valence5_proof_gradient(face, sample, row, axis);
@@ -5026,6 +5048,7 @@ static bool print_valence5_source_order_transpose_proof(MeshCase const &mesh) {
                 allMixedRowsIdentical && mixedRowsIdentical;
             facePassed = facePassed && mixedRowsIdentical;
         }
+        std::cout << "]";
 
         double controlDot = 0.0;
         for (int sourceId = 0; sourceId < kSourceCount; ++sourceId) {

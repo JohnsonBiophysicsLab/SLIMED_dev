@@ -5,6 +5,7 @@
 #include "mesh/Mesh.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <iomanip>
 #include <iostream>
@@ -106,6 +107,9 @@ struct Snapshot
     std::vector<double> faceMeanCurvature;
     std::vector<int> activeFaceIds;
     std::vector<int> oneRingSourceIds;
+    std::vector<double> scientificCoordinates;
+    std::vector<double> perFaceSourceForces;
+    std::vector<double> forceFormulaParameters;
     int vertexCount = 0;
     int faceCount = 0;
     int elevenControlFaceCount = 0;
@@ -156,14 +160,25 @@ Snapshot run_snapshot()
     mesh.param.vol0 = 0.93 * mesh.param.vol;
 
     Snapshot snapshot;
+    snapshot.forceFormulaParameters = {
+        mesh.param.kCurv,
+        0.0,
+        mesh.param.uSurf,
+        mesh.param.area0,
+        mesh.param.uVol,
+        mesh.param.vol0,
+        mesh.param.area,
+        mesh.param.vol,
+    };
     snapshot.vertexCount = static_cast<int>(mesh.vertices.size());
     snapshot.faceCount = static_cast<int>(mesh.faces.size());
     for (const Vertex &vertex : mesh.vertices)
     {
+        append_matrix_column(snapshot.scientificCoordinates, vertex.coord);
         snapshot.allValenceFive =
             snapshot.allValenceFive && vertex.adjacentVertices.size() == 5;
     }
-    for (const Face &face : mesh.faces)
+    for (Face &face : mesh.faces)
     {
         snapshot.allPhysical =
             snapshot.allPhysical && !face.isGhost && !face.isBoundary;
@@ -179,6 +194,51 @@ Snapshot run_snapshot()
         snapshot.oneRingSourceIds.insert(snapshot.oneRingSourceIds.end(),
                                          face.oneRingVertices.begin(),
                                          face.oneRingVertices.end());
+
+        std::vector<Matrix> coordinates;
+        coordinates.reserve(face.oneRingVertices.size());
+        for (const int sourceId : face.oneRingVertices)
+        {
+            coordinates.push_back(mesh.vertices[sourceId].coord);
+        }
+        double meanCurvature = 0.0;
+        double bendingEnergy = 0.0;
+        Matrix normal = mat_calloc(3, 1);
+        Matrix fBend = mat_calloc(11, 3);
+        Matrix fArea = mat_calloc(11, 3);
+        Matrix fVolume = mat_calloc(11, 3);
+        mesh.element_energy_force_irregular_11(
+            coordinates,
+            face,
+            face.spontCurvature,
+            meanCurvature,
+            normal,
+            bendingEnergy,
+            fBend,
+            fArea,
+            fVolume);
+        std::vector<double> sourceForces(12 * 9, 0.0);
+        const std::array<const Matrix *, 3> forceKinds{{
+            &fBend,
+            &fArea,
+            &fVolume,
+        }};
+        for (int slot = 0; slot < 11; ++slot)
+        {
+            const int sourceId = face.oneRingVertices[slot];
+            for (int kind = 0; kind < 3; ++kind)
+            {
+                for (int axis = 0; axis < 3; ++axis)
+                {
+                    sourceForces[9 * sourceId + 3 * kind + axis] +=
+                        forceKinds[kind]->get(slot, axis);
+                }
+            }
+        }
+        snapshot.perFaceSourceForces.insert(
+            snapshot.perFaceSourceForces.end(),
+            sourceForces.begin(),
+            sourceForces.end());
     }
 
     {
@@ -211,7 +271,10 @@ Snapshot run_snapshot()
         all_finite(snapshot.faceNormals) &&
         all_finite(snapshot.faceArea) &&
         all_finite(snapshot.faceLegacyVolume) &&
-        all_finite(snapshot.faceMeanCurvature);
+        all_finite(snapshot.faceMeanCurvature) &&
+        all_finite(snapshot.scientificCoordinates) &&
+        all_finite(snapshot.perFaceSourceForces) &&
+        all_finite(snapshot.forceFormulaParameters);
     snapshot.nonzeroForce = std::any_of(
         snapshot.vertexForces.begin(), snapshot.vertexForces.end(),
         [](const double value) { return std::abs(value) > 1.0e-12; });
@@ -254,6 +317,13 @@ int main()
     print_int_array(snapshot.activeFaceIds);
     std::cout << ",\"one_ring_source_ids\":";
     print_int_array(snapshot.oneRingSourceIds);
+    std::cout << ",\"force_formula_parameters\":";
+    print_double_array(snapshot.forceFormulaParameters);
+    std::cout << ",\"scientific_coordinates\":";
+    print_double_array(snapshot.scientificCoordinates);
+    std::cout << ",\"per_face_source_forces\":";
+    print_double_array(snapshot.perFaceSourceForces);
+    std::cout << ",\"production_irregular_force_path_executed\":true";
     std::cout << ",\"global_energy\":";
     print_double_array(snapshot.globalEnergy);
     std::cout << ",\"face_energy\":";
