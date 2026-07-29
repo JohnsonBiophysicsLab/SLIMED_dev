@@ -208,6 +208,12 @@ FORBIDDEN_READINESS_CLAIMS: tuple[ForbiddenClaim, ...] = (
         "continues to reject this unsupported topology and the explicit caller remains",
         "The default-off path remains unchanged, but the dedicated runtime gate activates the canonical route.",
     ),
+    ForbiddenClaim(
+        "completed valence-5 source-order contract listed as next",
+        READINESS_DOC_PATH,
+        "The next reviewed step is a per-face source-order and weighted-transpose",
+        "The per-face contract now passes; actual valence-5 fBend/fArea/fVolume parity is next.",
+    ),
 )
 
 
@@ -467,6 +473,22 @@ ANCHORS: tuple[Anchor, ...] = (
         "Broader-valence",
         "future review boundary",
         "The map keeps every noncanonical topology outside this activation.",
+    ),
+    Anchor(
+        "valence-5 current state",
+        "source-order transpose contract complete",
+        READINESS_DOC_PATH,
+        "passing proof-only per-face source-order and",
+        "proof boundary",
+        "The map records the completed valence-5 per-face source-order and transpose proof.",
+    ),
+    Anchor(
+        "valence-5 next boundary",
+        "force parity is next",
+        READINESS_DOC_PATH,
+        "actual valence-5 `fBend`, `fArea`, and `fVolume` parity",
+        "future review boundary",
+        "The map advances the valence-5 boundary to actual force parity.",
     ),
     Anchor(
         "backend policy",

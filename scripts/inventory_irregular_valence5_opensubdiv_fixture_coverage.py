@@ -53,9 +53,9 @@ ANCHORS = {
         "Production routing is not authorized.",
     ),
     READINESS_PATH: (
-        "proof-only aggregate Ptex value/first/second-derivative source visibility",
+        "aggregate Ptex derivative coverage",
         "A single face exposes only nine source IDs",
-        "per-face valence-5 source-order and weighted-transpose contract",
+        "per-face source-order and weighted-transpose contract now passes",
         "Broader-valence production routing remains unsupported",
     ),
     FIXTURE_INVENTORY_PATH: (
@@ -92,7 +92,7 @@ def collect(root: Path) -> dict[str, object]:
         "not_production_routing": True,
         "production_route_enabled": False,
         "production_force_path_executed": False,
-        "next_gate": "per-face source-order and weighted-transpose contract",
+        "next_gate": "actual valence-5 fBend/fArea/fVolume parity",
         "anchors": {"located": located, "expected": expected},
         "errors": errors,
     }
