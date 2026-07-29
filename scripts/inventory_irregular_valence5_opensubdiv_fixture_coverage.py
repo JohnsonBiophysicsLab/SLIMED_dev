@@ -53,9 +53,9 @@ ANCHORS = {
         "Production routing is not authorized.",
     ),
     READINESS_PATH: (
-        "proof-only aggregate Ptex value/first/second-derivative source visibility",
+        "aggregate Ptex derivative coverage",
         "A single face exposes only nine source IDs",
-        "per-face valence-5 source-order and weighted-transpose contract",
+        "per-face source-order and weighted-transpose contract now passes",
         "Broader-valence production routing remains unsupported",
     ),
     FIXTURE_INVENTORY_PATH: (

@@ -41,6 +41,11 @@ The output therefore keeps `proof_only:true`, `not_production_routing:true`,
 dependency-free 11-control route, production formulas, scatter semantics,
 OpenMP reductions, checkpoint/output, and propagation are unchanged.
 
-The next reviewed evidence step, if this proof remains green, is a per-face
-source-order and weighted-transpose contract against the existing
-positive-depth 11-control route. Production routing is not authorized.
+The follow-up per-face source-order and weighted-transpose contract is recorded
+in `docs/irregular_valence5_opensubdiv_source_order_transpose.md`. It locks the
+production `20 x 11` source-slot order and proves source-keyed linear
+back-projection through that duplicate scatter boundary. Actual
+`fBend`/`fArea`/`fVolume` parity and production routing remain unproven and
+unauthorized.
+
+Production routing is not authorized.

@@ -88,6 +88,10 @@ using namespace OpenSubdiv;
 #define SLIMED_VALENCE5_FIXTURE_COVERAGE_REPORT 0
 #endif
 
+#ifndef SLIMED_VALENCE5_SOURCE_ORDER_TRANSPOSE_REPORT
+#define SLIMED_VALENCE5_SOURCE_ORDER_TRANSPOSE_REPORT 0
+#endif
+
 struct Point {
     float x;
     float y;
@@ -378,9 +382,9 @@ static MeshCase load_serialized_valence4_fixture(char const *verticesPath,
 }
 #endif
 
-#if SLIMED_VALENCE5_FIXTURE_COVERAGE_REPORT
+#if SLIMED_VALENCE5_FIXTURE_COVERAGE_REPORT || SLIMED_VALENCE5_SOURCE_ORDER_TRANSPOSE_REPORT
 static MeshCase load_serialized_valence5_fixture(char const *verticesPath,
-                                                 char const *facesPath) {
+                                                  char const *facesPath) {
     MeshCase mesh;
     mesh.name = "approved_closed_valence5_icosahedron";
     mesh.sampleFace = 0;
@@ -4822,8 +4826,286 @@ static bool print_valence4_force_formula_proof(MeshCase const &mesh) {
 #endif
 #endif
 
+#if SLIMED_VALENCE5_SOURCE_ORDER_TRANSPOSE_REPORT
+static double valence5_proof_gradient(int face, int sample, int row, int axis) {
+    return 0.071 * static_cast<double>(face + 1) +
+           0.037 * static_cast<double>(sample + 1) +
+           0.019 * static_cast<double>(row + 1) +
+           0.011 * static_cast<double>(axis + 1) +
+           0.003 * static_cast<double>((face + 1) * (row + 2)) +
+           0.001 * static_cast<double>((sample + 2) * (axis + 3));
+}
+
+static double valence5_point_component(Point const &point, int axis) {
+    if (axis == 0) {
+        return point.x;
+    }
+    return axis == 1 ? point.y : point.z;
+}
+
+static bool print_valence5_source_order_transpose_proof(MeshCase const &mesh) {
+    constexpr int kFaceCount = 20;
+    constexpr int kSourceCount = 12;
+    constexpr int kSampleCount = 3;
+    constexpr int kRowCount = 7;
+    constexpr double kQuadratureWeight = 1.0 / 3.0;
+    constexpr double kTransposeTolerance = 1.0e-12;
+    constexpr double kRowSumTolerance = 5.0e-6;
+    float const s[kSampleCount] = {
+        1.0f / 6.0f,
+        1.0f / 6.0f,
+        4.0f / 6.0f,
+    };
+    float const t[kSampleCount] = {
+        1.0f / 6.0f,
+        4.0f / 6.0f,
+        1.0f / 6.0f,
+    };
+
+    if (!valence5_fixture_identity_matches(mesh)) {
+        std::cerr << "valence-5 source-order proof requires the exact approved fixture\\n";
+        return false;
+    }
+
+    Far::TopologyRefiner *refiner = create_refiner(mesh);
+    if (!refiner) {
+        return false;
+    }
+    Far::PatchTableFactory::Options patchOptions(5);
+    refiner->RefineAdaptive(patchOptions.GetRefineAdaptiveOptions());
+    Far::PatchTable *patchTable =
+        Far::PatchTableFactory::Create(*refiner, patchOptions);
+    Far::StencilTableFactory::Options cvOptions;
+    cvOptions.generateControlVerts = true;
+    cvOptions.generateIntermediateLevels = true;
+    cvOptions.factorizeIntermediateLevels = true;
+    cvOptions.maxLevel = 5;
+    Far::StencilTable const *cvStencils =
+        Far::StencilTableFactory::Create(*refiner, cvOptions);
+    if (!patchTable || !cvStencils) {
+        delete cvStencils;
+        delete patchTable;
+        delete refiner;
+        return false;
+    }
+
+    std::vector<std::vector<float>> sValues(
+        kFaceCount, std::vector<float>(s, s + kSampleCount));
+    std::vector<std::vector<float>> tValues(
+        kFaceCount, std::vector<float>(t, t + kSampleCount));
+    Far::LimitStencilTableFactory::LocationArrayVec locations;
+    for (int face = 0; face < kFaceCount; ++face) {
+        Far::LimitStencilTableFactory::LocationArray location;
+        location.ptexIdx = face;
+        location.numLocations = kSampleCount;
+        location.s = sValues[face].data();
+        location.t = tValues[face].data();
+        locations.push_back(location);
+    }
+    Far::LimitStencilTableFactory::Options stencilOptions;
+    stencilOptions.generate1stDerivatives = true;
+    stencilOptions.generate2ndDerivatives = true;
+    Far::LimitStencilTable const *stencils =
+        Far::LimitStencilTableFactory::Create(
+            *refiner, locations, cvStencils, patchTable, stencilOptions);
+    if (!stencils) {
+        delete cvStencils;
+        delete patchTable;
+        delete refiner;
+        return false;
+    }
+
+    Far::PatchMap patchMap(*patchTable);
+    bool allFacesPassed =
+        patchTable->GetNumPtexFaces() == kFaceCount &&
+        stencils->GetNumStencils() == kFaceCount * kSampleCount;
+    bool allRowsFinite = true;
+    bool allRowSumsPassed = true;
+    bool allMixedRowsIdentical = true;
+    bool allFaceSourceCountsPassed = true;
+    double maxTransposeResidual = 0.0;
+    double maxRowSumResidual = 0.0;
+
+    std::cout << ",\"valence5_source_order_transpose\":{";
+    std::cout << "\"proof_only\":true";
+    std::cout << ",\"not_production_routing\":true";
+    std::cout << ",\"production_route_enabled\":false";
+    std::cout << ",\"production_force_path_executed\":false";
+    std::cout << ",\"coordinate_mapping\":\"s=v,t=w,u=1-v-w\"";
+    std::cout << ",\"row_order\":[\"position\",\"dv\",\"dw\","
+                 "\"dvv\",\"dww\",\"dvw\",\"dwv\"]";
+    std::cout << ",\"mixed_derivative_policy\":\"OpenSubdiv duv is "
+                 "duplicated into SLIMED mixed rows dvw and dwv\"";
+    std::cout << ",\"sample_count_per_face\":" << kSampleCount;
+    std::cout << ",\"quadrature_weight\":" << std::setprecision(17)
+              << kQuadratureWeight;
+    std::cout << ",\"faces\":[";
+
+    for (int face = 0; face < kFaceCount; ++face) {
+        if (face > 0) {
+            std::cout << ",";
+        }
+        std::set<int> faceSources;
+        std::vector<double> backProjection(kSourceCount * 3, 0.0);
+        double sampleDot = 0.0;
+        bool facePassed = true;
+        std::cout << "{\"fixture_face_index\":" << face;
+        std::cout << ",\"ptex_face_index\":" << face;
+        std::cout << ",\"oriented_fixture_vertex_ids\":["
+                  << mesh.vertIndices[3 * face] << ","
+                  << mesh.vertIndices[3 * face + 1] << ","
+                  << mesh.vertIndices[3 * face + 2] << "]";
+
+        for (int sample = 0; sample < kSampleCount; ++sample) {
+            int const stencilIndex = face * kSampleCount + sample;
+            Far::LimitStencil stencil = stencils->GetLimitStencil(stencilIndex);
+            std::array<std::array<double, kSourceCount>, kRowCount>
+                sampleDenseRows{};
+            float const *rows[kRowCount] = {
+                stencil.GetWeights(),
+                stencil.GetDuWeights(),
+                stencil.GetDvWeights(),
+                stencil.GetDuuWeights(),
+                stencil.GetDvvWeights(),
+                stencil.GetDuvWeights(),
+                stencil.GetDuvWeights(),
+            };
+            Far::PatchMap::Handle const *handle =
+                patchMap.FindPatch(face, s[sample], t[sample]);
+            bool const ptexIdentityPassed =
+                handle && patchTable->GetPatchParam(*handle).GetFaceId() == face;
+            facePassed = facePassed && ptexIdentityPassed;
+            for (int row = 0; row < kRowCount; ++row) {
+                bool rowFinite = rows[row] != nullptr;
+                double rowSum = 0.0;
+                std::vector<double> denseRow(kSourceCount, 0.0);
+                if (rows[row]) {
+                    for (int entry = 0; entry < stencil.GetSize(); ++entry) {
+                        int const sourceId = stencil.GetVertexIndices()[entry];
+                        double const coefficient =
+                            static_cast<double>(rows[row][entry]);
+                        rowFinite = rowFinite &&
+                            sourceId >= 0 && sourceId < kSourceCount &&
+                            std::isfinite(coefficient);
+                        if (sourceId >= 0 && sourceId < kSourceCount) {
+                            denseRow[sourceId] += coefficient;
+                            sampleDenseRows[row][sourceId] += coefficient;
+                            faceSources.insert(sourceId);
+                        }
+                    }
+                }
+                for (double coefficient : denseRow) {
+                    rowSum += coefficient;
+                }
+                double const expectedSum = row == 0 ? 1.0 : 0.0;
+                double const rowSumResidual = std::abs(rowSum - expectedSum);
+                bool const rowSumPassed =
+                    rowSumResidual <= kRowSumTolerance;
+                allRowsFinite = allRowsFinite && rowFinite;
+                allRowSumsPassed = allRowSumsPassed && rowSumPassed;
+                maxRowSumResidual =
+                    std::max(maxRowSumResidual, rowSumResidual);
+                facePassed = facePassed && rowFinite && rowSumPassed;
+                for (int axis = 0; axis < 3; ++axis) {
+                    double const gradient =
+                        valence5_proof_gradient(face, sample, row, axis);
+                    double rowValue = 0.0;
+                    for (int sourceId = 0; sourceId < kSourceCount; ++sourceId) {
+                        rowValue += denseRow[sourceId] *
+                                    valence5_point_component(
+                                        mesh.points[sourceId], axis);
+                        backProjection[3 * sourceId + axis] +=
+                            kQuadratureWeight * denseRow[sourceId] * gradient;
+                    }
+                    sampleDot += kQuadratureWeight * gradient * rowValue;
+                }
+            }
+            bool const mixedRowsIdentical =
+                sampleDenseRows[5] == sampleDenseRows[6];
+            allMixedRowsIdentical =
+                allMixedRowsIdentical && mixedRowsIdentical;
+            facePassed = facePassed && mixedRowsIdentical;
+        }
+
+        double controlDot = 0.0;
+        for (int sourceId = 0; sourceId < kSourceCount; ++sourceId) {
+            for (int axis = 0; axis < 3; ++axis) {
+                controlDot +=
+                    valence5_point_component(mesh.points[sourceId], axis) *
+                    backProjection[3 * sourceId + axis];
+            }
+        }
+        double const transposeResidual = std::abs(sampleDot - controlDot);
+        double const transposeScale =
+            std::max(1.0, std::max(std::abs(sampleDot), std::abs(controlDot)));
+        bool const transposePassed =
+            transposeResidual <= kTransposeTolerance * transposeScale;
+        bool const sourceCountPassed = faceSources.size() == 9;
+        facePassed = facePassed && transposePassed && sourceCountPassed;
+        allFaceSourceCountsPassed =
+            allFaceSourceCountsPassed && sourceCountPassed;
+        maxTransposeResidual =
+            std::max(maxTransposeResidual, transposeResidual);
+        allFacesPassed = allFacesPassed && facePassed;
+
+        std::cout << ",\"source_coverage_union\":";
+        print_int_set(faceSources);
+        std::cout << ",\"source_count\":" << faceSources.size();
+        std::cout << ",\"source_count_is_nine\":"
+                  << (sourceCountPassed ? "true" : "false");
+        std::cout << ",\"weighted_sample_dot\":" << sampleDot;
+        std::cout << ",\"weighted_control_dot\":" << controlDot;
+        std::cout << ",\"weighted_transpose_abs_residual\":"
+                  << transposeResidual;
+        std::cout << ",\"weighted_transpose_passed\":"
+                  << (transposePassed ? "true" : "false");
+        std::cout << ",\"backprojected_source_components\":[";
+        for (int component = 0;
+             component < static_cast<int>(backProjection.size());
+             ++component) {
+            if (component > 0) {
+                std::cout << ",";
+            }
+            std::cout << backProjection[component];
+        }
+        std::cout << "]";
+        std::cout << ",\"passed\":" << (facePassed ? "true" : "false")
+                  << "}";
+    }
+    std::cout << "]";
+    std::cout << ",\"all_twenty_faces_passed\":"
+              << (allFacesPassed ? "true" : "false");
+    std::cout << ",\"all_rows_finite\":"
+              << (allRowsFinite ? "true" : "false");
+    std::cout << ",\"all_row_sum_checks_passed\":"
+              << (allRowSumsPassed ? "true" : "false");
+    std::cout << ",\"all_mixed_rows_identical\":"
+              << (allMixedRowsIdentical ? "true" : "false");
+    std::cout << ",\"all_face_source_counts_are_nine\":"
+              << (allFaceSourceCountsPassed ? "true" : "false");
+    std::cout << ",\"max_weighted_transpose_abs_residual\":"
+              << maxTransposeResidual;
+    std::cout << ",\"max_row_sum_abs_residual\":"
+              << maxRowSumResidual;
+    std::cout << ",\"passed\":"
+              << (allFacesPassed && allRowsFinite &&
+                          allRowSumsPassed && allMixedRowsIdentical &&
+                          allFaceSourceCountsPassed
+                      ? "true"
+                      : "false")
+              << "}";
+
+    delete stencils;
+    delete cvStencils;
+    delete patchTable;
+    delete refiner;
+    return allFacesPassed && allRowsFinite && allRowSumsPassed &&
+           allMixedRowsIdentical && allFaceSourceCountsPassed;
+}
+#endif
+
 static int run_case(MeshCase const &mesh) {
-#if SLIMED_VALENCE5_FIXTURE_COVERAGE_REPORT
+#if SLIMED_VALENCE5_FIXTURE_COVERAGE_REPORT || SLIMED_VALENCE5_SOURCE_ORDER_TRANSPOSE_REPORT
     if (!valence5_fixture_identity_matches(mesh)) {
         std::cerr << "approved valence-5 fixture must exactly match the 12 "
                      "ordered coordinates and 20 ordered oriented triangular "
@@ -4840,7 +5122,7 @@ static int run_case(MeshCase const &mesh) {
     Far::PatchTable *patchTable = 0;
     Far::StencilTable const *cvStencils = 0;
 
-#if SLIMED_BACKPROJECTION_REPORT || SLIMED_AGGREGATE_SOURCE_COVERAGE_REPORT || SLIMED_IRREGULAR_TRANSPOSE_PROOF_MAP_REPORT || SLIMED_BROADER_VALENCE_COVERAGE_REPORT || SLIMED_VALENCE5_FIXTURE_COVERAGE_REPORT
+#if SLIMED_BACKPROJECTION_REPORT || SLIMED_AGGREGATE_SOURCE_COVERAGE_REPORT || SLIMED_IRREGULAR_TRANSPOSE_PROOF_MAP_REPORT || SLIMED_BROADER_VALENCE_COVERAGE_REPORT || SLIMED_VALENCE5_FIXTURE_COVERAGE_REPORT || SLIMED_VALENCE5_SOURCE_ORDER_TRANSPOSE_REPORT
     Far::PatchTableFactory::Options patchOptions(5);
     refiner->RefineAdaptive(patchOptions.GetRefineAdaptiveOptions());
     patchTable = Far::PatchTableFactory::Create(*refiner, patchOptions);
@@ -4925,6 +5207,9 @@ static int run_case(MeshCase const &mesh) {
 #endif
 #if SLIMED_VALENCE5_FIXTURE_COVERAGE_REPORT
     bool valence5FixtureCoveragePassed = true;
+#endif
+#if SLIMED_VALENCE5_SOURCE_ORDER_TRANSPOSE_REPORT
+    bool valence5SourceOrderTransposePassed = true;
 #endif
 
     for (int sample = 0; sample < stencils->GetNumStencils(); ++sample) {
@@ -5108,6 +5393,10 @@ static int run_case(MeshCase const &mesh) {
     std::cout << "\"OpenSubdiv-backed valence-5 production routing\"";
     std::cout << "]";
 #endif
+#if SLIMED_VALENCE5_SOURCE_ORDER_TRANSPOSE_REPORT
+    valence5SourceOrderTransposePassed =
+        print_valence5_source_order_transpose_proof(mesh);
+#endif
 #if SLIMED_IRREGULAR_TRANSPOSE_PROOF_MAP_REPORT
     irregularTransposeProofMapPassed =
         print_irregular_transpose_proof_map(mesh, *refiner, patchTable,
@@ -5151,13 +5440,18 @@ static int run_case(MeshCase const &mesh) {
         return 14;
     }
 #endif
+#if SLIMED_VALENCE5_SOURCE_ORDER_TRANSPOSE_REPORT
+    if (!valence5SourceOrderTransposePassed) {
+        return 17;
+    }
+#endif
     return 0;
 }
 
 int main(int argc, char **argv) {
-#if SLIMED_VALENCE5_FIXTURE_COVERAGE_REPORT
+#if SLIMED_VALENCE5_FIXTURE_COVERAGE_REPORT || SLIMED_VALENCE5_SOURCE_ORDER_TRANSPOSE_REPORT
     if (argc != 3) {
-        std::cerr << "valence-5 fixture coverage proof requires vertices.csv "
+        std::cerr << "valence-5 fixture proof requires vertices.csv "
                      "and faces.csv\n";
         return 15;
     }
@@ -5339,6 +5633,14 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--valence5-source-order-transpose-report",
+        action="store_true",
+        help=(
+            "Opt into the proof-only per-face valence-5 source coverage and "
+            "weighted-transpose report for the approved serialized fixture."
+        ),
+    )
+    parser.add_argument(
         "--valence5-fixture-dir",
         type=Path,
         help=(
@@ -5475,6 +5777,10 @@ def main() -> int:
             )
         if args.valence5_fixture_coverage_report:
             command.append("-DSLIMED_VALENCE5_FIXTURE_COVERAGE_REPORT=1")
+        if args.valence5_source_order_transpose_report:
+            command.append(
+                "-DSLIMED_VALENCE5_SOURCE_ORDER_TRANSPOSE_REPORT=1"
+            )
         command.extend(shlex.split(os.environ.get("OPENSUBDIV_CXXFLAGS", "")))
         command.extend(
             [
@@ -5503,7 +5809,10 @@ def main() -> int:
             return compile_result.returncode
 
         run_command_line = [str(binary_path)]
-        if args.valence5_fixture_coverage_report:
+        if (
+            args.valence5_fixture_coverage_report
+            or args.valence5_source_order_transpose_report
+        ):
             fixture_dir = (
                 args.valence5_fixture_dir
                 or Path(__file__).resolve().parents[1]
@@ -5545,6 +5854,7 @@ def main() -> int:
         deterministic_repeat_match = None
         if (
             args.valence5_fixture_coverage_report
+            or args.valence5_source_order_transpose_report
             or args.valence4_mapping_sample_transpose_report
             or args.valence4_force_formula_proof_report
         ):
@@ -5558,7 +5868,7 @@ def main() -> int:
                 payload = status_payload(
                     "run_failed",
                     {
-                        "reason": "canonical valence-4 proof JSON changed across identical runs",
+                        "reason": "canonical fixture proof JSON changed across identical runs",
                         "first_stdout": run_result.stdout,
                         "repeat_stdout": repeat_result.stdout,
                         "repeat_stderr": repeat_result.stderr,
@@ -5612,6 +5922,23 @@ def main() -> int:
                 ),
                 "deterministic_repeat_match": deterministic_repeat_match,
                 "fixture_coverage_proof_only": True,
+                "fixture_dir": str(fixture_dir),
+                "not_production_routing": True,
+                "production_route_enabled": False,
+                "production_force_path_executed": False,
+            }
+        )
+    if args.valence5_source_order_transpose_report:
+        details.update(
+            {
+                "approved_fixture": True,
+                "approved_scope": (
+                    "per-face source-order and weighted-transpose proof "
+                    "against the existing narrow positive-depth 11-control "
+                    "route boundary"
+                ),
+                "deterministic_repeat_match": deterministic_repeat_match,
+                "proof_only": True,
                 "fixture_dir": str(fixture_dir),
                 "not_production_routing": True,
                 "production_route_enabled": False,
