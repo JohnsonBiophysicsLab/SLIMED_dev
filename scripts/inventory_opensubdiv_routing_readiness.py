@@ -46,6 +46,21 @@ class LocatedAnchor:
     line: str
 
 
+@dataclass(frozen=True)
+class ForbiddenClaim:
+    name: str
+    path: Path
+    needle: str
+    detail: str
+
+
+@dataclass(frozen=True)
+class LocatedForbiddenClaim:
+    claim: ForbiddenClaim
+    line_number: int
+    line: str
+
+
 REGULAR_READINESS_CRITERIA: tuple[dict[str, str], ...] = (
     {
         "criterion": "OpenSubdiv-derived sample identity",
@@ -135,6 +150,40 @@ ROUTE_READINESS_MATRIX: tuple[dict[str, str], ...] = (
         "opensubdiv_evidence_status": "planning evidence only",
         "readiness_result": "future-only pending fixtures and scientific approval",
     },
+)
+
+
+FORBIDDEN_READINESS_CLAIMS: tuple[ForbiddenClaim, ...] = (
+    ForbiddenClaim(
+        "pre-PR141 production entry rejection claim",
+        READINESS_DOC_PATH,
+        "The real production entry point is still required to reject before mutation",
+        "The map must distinguish the unchanged default entry from the explicit guarded caller.",
+    ),
+    ForbiddenClaim(
+        "pre-PR141 force-execution denial",
+        READINESS_DOC_PATH,
+        "This is not production valence-4 force execution or route approval",
+        "The explicit guarded caller now executes the production force path, although routing remains disabled.",
+    ),
+    ForbiddenClaim(
+        "pre-PR141 missing real caller claim",
+        READINESS_DOC_PATH,
+        "but still has no real production face-loop caller",
+        "The readiness map must not describe the merged guarded caller as future work.",
+    ),
+    ForbiddenClaim(
+        "pre-PR141 no caller enabled claim",
+        READINESS_DOC_PATH,
+        "No real production face-loop caller or route is enabled",
+        "The explicit caller exists; only default route activation remains disabled.",
+    ),
+    ForbiddenClaim(
+        "pre-PR141 next-caller claim",
+        READINESS_DOC_PATH,
+        "A guarded real production face-loop caller, followed by",
+        "The guarded caller is current evidence rather than the next prerequisite.",
+    ),
 )
 
 
@@ -314,6 +363,62 @@ ANCHORS: tuple[Anchor, ...] = (
         "Aggregate all-ptex source visibility and toy transpose reports are planning",
         "observational caveat",
         "The map distinguishes aggregate visibility from a production scatter contract.",
+    ),
+    Anchor(
+        "valence-4 current state",
+        "explicit guarded production face-loop caller",
+        READINESS_DOC_PATH,
+        "evaluate_guarded_valence4_opensubdiv_production_face_loop_caller",
+        "explicit production caller",
+        "The map names the explicit guarded valence-4 production face-loop caller.",
+    ),
+    Anchor(
+        "valence-4 current state",
+        "real production force execution",
+        READINESS_DOC_PATH,
+        "real production valence-4 force execution through an explicit, default-off",
+        "explicit production execution",
+        "The map records real production-force execution without claiming default route activation.",
+    ),
+    Anchor(
+        "valence-4 current state",
+        "shared production membrane face loop",
+        READINESS_DOC_PATH,
+        "executes those rows through the shared production membrane face loop",
+        "production face-loop execution",
+        "The map records that the guarded caller enters the shared production membrane face loop.",
+    ),
+    Anchor(
+        "valence-4 current state",
+        "explicit caller execution flags",
+        READINESS_DOC_PATH,
+        "`productionFaceLoopExecuted` and `actualProductionForcePathExecuted` are",
+        "production execution flags",
+        "The map binds the explicit caller to the machine-readable production execution flags.",
+    ),
+    Anchor(
+        "valence-4 current state",
+        "route and default caller remain disabled",
+        READINESS_DOC_PATH,
+        "`productionRouteEnabled` and `defaultEvaluatorCaller` remain false",
+        "route-disabled boundary",
+        "The map keeps default route activation distinct from explicit caller execution.",
+    ),
+    Anchor(
+        "valence-4 current state",
+        "default evaluator rejection preserved",
+        READINESS_DOC_PATH,
+        "continues to reject this unsupported topology and the explicit caller remains",
+        "default fallback boundary",
+        "The unchanged default evaluator still rejects while the explicit caller remains isolated.",
+    ),
+    Anchor(
+        "valence-4 next boundary",
+        "separate guarded activation decision",
+        READINESS_DOC_PATH,
+        "separate explicit reviewer/user decision on guarded",
+        "review gate",
+        "The map identifies guarded default activation as the next separately reviewed boundary.",
     ),
     Anchor(
         "backend policy",
@@ -1008,9 +1113,34 @@ def collect_anchors(root: Path) -> tuple[list[LocatedAnchor], list[Anchor]]:
     return located, missing
 
 
-def as_dicts(located: Sequence[LocatedAnchor], missing: Sequence[Anchor]) -> dict[str, object]:
+def collect_forbidden_claims(root: Path) -> list[LocatedForbiddenClaim]:
+    located: list[LocatedForbiddenClaim] = []
+    for claim in FORBIDDEN_READINESS_CLAIMS:
+        path = root / claim.path
+        if not path.is_file():
+            continue
+        for line_number, line in enumerate(
+            path.read_text(encoding="utf-8").splitlines(), start=1
+        ):
+            if claim.needle in line:
+                located.append(
+                    LocatedForbiddenClaim(
+                        claim=claim,
+                        line_number=line_number,
+                        line=line.strip(),
+                    )
+                )
+                break
+    return located
+
+
+def as_dicts(
+    located: Sequence[LocatedAnchor],
+    missing: Sequence[Anchor],
+    forbidden: Sequence[LocatedForbiddenClaim],
+) -> dict[str, object]:
     return {
-        "status": "passed" if not missing else "failed",
+        "status": "passed" if not missing and not forbidden else "failed",
         "route_readiness_matrix": list(ROUTE_READINESS_MATRIX),
         "regular_readiness_criteria": list(REGULAR_READINESS_CRITERIA),
         "located": [
@@ -1036,10 +1166,25 @@ def as_dicts(located: Sequence[LocatedAnchor], missing: Sequence[Anchor]) -> dic
             }
             for item in missing
         ],
+        "forbidden_claims": [
+            {
+                "name": item.claim.name,
+                "path": item.claim.path.as_posix(),
+                "line": item.line_number,
+                "source": item.line,
+                "needle": item.claim.needle,
+                "detail": item.claim.detail,
+            }
+            for item in forbidden
+        ],
     }
 
 
-def print_text(located: Sequence[LocatedAnchor], missing: Sequence[Anchor]) -> None:
+def print_text(
+    located: Sequence[LocatedAnchor],
+    missing: Sequence[Anchor],
+    forbidden: Sequence[LocatedForbiddenClaim],
+) -> None:
     print("# OpenSubdiv Production-Routing Readiness Inventory")
     print()
     print("## Route readiness matrix")
@@ -1066,6 +1211,14 @@ def print_text(located: Sequence[LocatedAnchor], missing: Sequence[Anchor]) -> N
         print("## Missing anchors")
         for item in missing:
             print(f"- [{item.category}] {item.name}: {item.path} missing `{item.needle}`")
+    if forbidden:
+        print()
+        print("## Forbidden stale claims")
+        for item in forbidden:
+            print(
+                f"- {item.claim.name}: {item.claim.path}:{item.line_number} "
+                f"`{item.line}`"
+            )
 
 
 def parse_args() -> argparse.Namespace:
@@ -1086,12 +1239,21 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
-    located, missing = collect_anchors(repo_root())
+    root = repo_root()
+    located, missing = collect_anchors(root)
+    forbidden = collect_forbidden_claims(root)
     if args.json:
-        print(json.dumps(as_dicts(located, missing), indent=2, sort_keys=True))
+        print(
+            json.dumps(
+                as_dicts(located, missing, forbidden),
+                indent=2,
+                sort_keys=True,
+            )
+        )
     else:
-        print_text(located, missing)
-    return 1 if missing and (args.fail_on_missing or args.check) else 0
+        print_text(located, missing, forbidden)
+    failed = bool(missing or forbidden)
+    return 1 if failed and (args.fail_on_missing or args.check) else 0
 
 
 if __name__ == "__main__":

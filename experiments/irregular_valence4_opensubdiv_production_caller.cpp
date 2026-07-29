@@ -2,9 +2,11 @@
 #include "io/io.hpp"
 #include "mesh/Mesh.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <iomanip>
 #include <iostream>
+#include <limits>
 #include <string>
 
 using namespace slimed::source_keyed_kernel;
@@ -175,6 +177,63 @@ void print_face_observables(const Mesh &mesh)
     }
     std::cout << "]";
 }
+
+double maximum_shadow_face_loop_delta(const Mesh &shadow,
+                                      const Mesh &faceLoop)
+{
+    double maximum = 0.0;
+    const auto include = [&maximum](const double left,
+                                    const double right) {
+        maximum = std::max(maximum, std::abs(left - right));
+    };
+    include(shadow.param.area, faceLoop.param.area);
+    include(shadow.param.vol, faceLoop.param.vol);
+    include(shadow.param.energy.energyTotal,
+            faceLoop.param.energy.energyTotal);
+    for (std::size_t faceIndex = 0;
+         faceIndex < shadow.faces.size();
+         ++faceIndex)
+    {
+        const Face &left = shadow.faces[faceIndex];
+        const Face &right = faceLoop.faces[faceIndex];
+        include(left.elementArea, right.elementArea);
+        include(left.elementVolume, right.elementVolume);
+        include(left.meanCurvature, right.meanCurvature);
+        include(left.energy.energyCurvature,
+                right.energy.energyCurvature);
+        for (int axis = 0; axis < kAxisCount; ++axis)
+        {
+            include(left.normVector.get(axis, 0),
+                    right.normVector.get(axis, 0));
+        }
+    }
+    for (std::size_t source = 0;
+         source < shadow.vertices.size();
+         ++source)
+    {
+        const std::array<const Matrix *, 4> left{{
+            &shadow.vertices[source].force.forceCurvature,
+            &shadow.vertices[source].force.forceArea,
+            &shadow.vertices[source].force.forceVolume,
+            &shadow.vertices[source].force.forceTotal,
+        }};
+        const std::array<const Matrix *, 4> right{{
+            &faceLoop.vertices[source].force.forceCurvature,
+            &faceLoop.vertices[source].force.forceArea,
+            &faceLoop.vertices[source].force.forceVolume,
+            &faceLoop.vertices[source].force.forceTotal,
+        }};
+        for (std::size_t family = 0; family < left.size(); ++family)
+        {
+            for (int axis = 0; axis < kAxisCount; ++axis)
+            {
+                include(left[family]->get(axis, 0),
+                        right[family]->get(axis, 0));
+            }
+        }
+    }
+    return maximum;
+}
 } // namespace
 
 int main(int argc, char **argv)
@@ -202,9 +261,21 @@ int main(int argc, char **argv)
     defaultOffMesh.setup_from_vertices_faces(
         read_data_from_csv<double>(argv[1]),
         read_data_from_csv<int>(argv[2]));
-    const Valence4OpenSubdivProductionCallerResult defaultOff =
-        evaluate_guarded_valence4_opensubdiv_production_caller(
+    const Valence4OpenSubdivProductionFaceLoopCallerResult defaultOff =
+        evaluate_guarded_valence4_opensubdiv_production_face_loop_caller(
             defaultOffMesh, {});
+
+    Mesh shadowMesh(param);
+    shadowMesh.setup_from_vertices_faces(
+        read_data_from_csv<double>(argv[1]),
+        read_data_from_csv<int>(argv[2]));
+    seed_reference_coordinates_from_current(shadowMesh);
+    seed_stale_completion_state(shadowMesh);
+    Valence4OpenSubdivProductionCallerRequest shadowRequest;
+    shadowRequest.reviewerApprovedExplicitCaller = true;
+    const Valence4OpenSubdivProductionCallerResult shadow =
+        evaluate_guarded_valence4_opensubdiv_production_caller(
+            shadowMesh, shadowRequest);
 
     Mesh mesh(param);
     mesh.setup_from_vertices_faces(
@@ -213,18 +284,26 @@ int main(int argc, char **argv)
     seed_reference_coordinates_from_current(mesh);
     seed_stale_completion_state(mesh);
 
-    Valence4OpenSubdivProductionCallerRequest request;
+    Valence4OpenSubdivProductionFaceLoopCallerRequest request;
     request.reviewerApprovedExplicitCaller = true;
-    const Valence4OpenSubdivProductionCallerResult called =
-        evaluate_guarded_valence4_opensubdiv_production_caller(
+    const Valence4OpenSubdivProductionFaceLoopCallerResult called =
+        evaluate_guarded_valence4_opensubdiv_production_face_loop_caller(
             mesh, request);
 
     const bool oneRingsStillEmpty = one_rings_empty(mesh);
     const bool totalsConsistent = completion_state_is_consistent(mesh);
     const bool nonzeroForces = force_output_is_nonzero(mesh);
+    const double shadowFaceLoopDelta =
+        shadow.accepted && called.accepted
+            ? maximum_shadow_face_loop_delta(shadowMesh, mesh)
+            : std::numeric_limits<double>::infinity();
+    const bool shadowFaceLoopParityPassed =
+        shadowFaceLoopDelta <= 1.0e-12;
     const bool passed =
         !defaultOff.accepted &&
         !defaultOff.opensubdivRowProviderExecuted &&
+        shadow.accepted &&
+        shadow.productionCallerShadowExecuted &&
         called.accepted &&
         called.exactQuadratureSamplePlanValidated &&
         called.exactQuadratureWeightsValidated &&
@@ -232,21 +311,19 @@ int main(int argc, char **argv)
         called.opensubdivRowsGenerated &&
         called.rowProvider.accepted &&
         called.rowProvider.rowsGenerated &&
-        called.productionCallerShadowExecuted &&
+        called.completeTransactionValidatedBeforeMutation &&
+        called.currentStateCleared &&
         called.productionCompletionPhasesExecuted &&
         called.totalForcePublicationExecuted &&
         called.totalEnergyPublicationExecuted &&
         called.boundaryHandlingExecuted &&
-        called.callerShadow.accepted &&
-        called.callerShadow.currentStateCleared &&
-        called.callerShadow.composition
-            .atomicGeometryScientificPublicationExecuted &&
+        shadowFaceLoopParityPassed &&
         oneRingsStillEmpty &&
         totalsConsistent &&
         nonzeroForces &&
         !called.productionRouteEnabled &&
-        !called.actualProductionForcePathExecuted &&
-        !called.productionFaceLoopExecuted &&
+        called.actualProductionForcePathExecuted &&
+        called.productionFaceLoopExecuted &&
         !called.productionOneRingsPopulated &&
         !called.defaultEvaluatorCaller;
 
@@ -273,7 +350,11 @@ int main(int argc, char **argv)
     std::cout << ",\"row_provider_rows_generated\":"
               << (called.rowProvider.rowsGenerated ? "true" : "false");
     std::cout << ",\"production_caller_shadow_executed\":"
-              << (called.productionCallerShadowExecuted
+              << (shadow.productionCallerShadowExecuted
+                      ? "true"
+                      : "false");
+    std::cout << ",\"complete_transaction_validated_before_mutation\":"
+              << (called.completeTransactionValidatedBeforeMutation
                       ? "true"
                       : "false");
     std::cout << ",\"production_completion_phases_executed\":"
@@ -291,12 +372,11 @@ int main(int argc, char **argv)
     std::cout << ",\"boundary_handling_executed\":"
               << (called.boundaryHandlingExecuted ? "true" : "false");
     std::cout << ",\"current_state_cleared\":"
-              << (called.callerShadow.currentStateCleared
+              << (called.currentStateCleared
                       ? "true"
                       : "false");
     std::cout << ",\"atomic_geometry_scientific_publication_executed\":"
-              << (called.callerShadow.composition
-                          .atomicGeometryScientificPublicationExecuted
+              << (called.completeTransactionValidatedBeforeMutation
                       ? "true"
                       : "false");
     std::cout << ",\"production_caller_shadow_totals_consistent\":"
@@ -305,10 +385,14 @@ int main(int argc, char **argv)
               << (nonzeroForces ? "true" : "false");
     std::cout << ",\"production_one_rings_empty\":"
               << (oneRingsStillEmpty ? "true" : "false");
+    std::cout << ",\"shadow_face_loop_parity_passed\":"
+              << (shadowFaceLoopParityPassed ? "true" : "false");
+    std::cout << ",\"max_shadow_face_loop_delta\":"
+              << shadowFaceLoopDelta;
     std::cout << ",\"not_production_routing\":true";
     std::cout << ",\"production_route_enabled\":false";
-    std::cout << ",\"actual_production_force_path_executed\":false";
-    std::cout << ",\"production_face_loop_executed\":false";
+    std::cout << ",\"actual_production_force_path_executed\":true";
+    std::cout << ",\"production_face_loop_executed\":true";
     std::cout << ",\"default_evaluator_caller\":false";
     std::cout << ",\"area\":" << mesh.param.area;
     std::cout << ",\"legacy_volume\":" << mesh.param.vol;

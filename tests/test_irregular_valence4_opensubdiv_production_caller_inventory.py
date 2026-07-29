@@ -38,13 +38,18 @@ class ValenceFourOpenSubdivProductionCallerInventoryTest(
         self.assertTrue(
             report["opensubdiv_rows_feed_reviewed_caller_shadow"]
         )
+        self.assertTrue(report["real_production_face_loop_caller"])
+        self.assertTrue(
+            report["complete_transaction_validated_before_mutation"]
+        )
+        self.assertTrue(report["shadow_face_loop_parity_required"])
         self.assertTrue(
             report["serial_openmp_provider_fed_caller_parity_required"]
         )
         self.assertTrue(report["not_production_routing"])
         self.assertFalse(report["production_route_enabled"])
-        self.assertFalse(report["actual_production_force_path_executed"])
-        self.assertFalse(report["production_face_loop_executed"])
+        self.assertTrue(report["actual_production_force_path_executed"])
+        self.assertTrue(report["production_face_loop_executed"])
         self.assertFalse(report["production_one_rings_populated"])
         self.assertFalse(report["default_evaluator_route_caller"])
         self.assertFalse(report["default_dependency_changed"])
@@ -93,6 +98,10 @@ class ValenceFourOpenSubdivProductionCallerInventoryTest(
         self.assertTrue(payload["opensubdiv_row_provider_executed"])
         self.assertTrue(payload["opensubdiv_rows_generated"])
         self.assertTrue(payload["production_caller_shadow_executed"])
+        self.assertTrue(payload["real_production_face_loop_caller"])
+        self.assertTrue(
+            payload["complete_transaction_validated_before_mutation"]
+        )
         self.assertTrue(
             payload["production_completion_phases_executed"]
         )
@@ -116,8 +125,8 @@ class ValenceFourOpenSubdivProductionCallerInventoryTest(
             payload["absolute_tolerance"],
         )
         self.assertFalse(payload["production_route_enabled"])
-        self.assertFalse(payload["actual_production_force_path_executed"])
-        self.assertFalse(payload["production_face_loop_executed"])
+        self.assertTrue(payload["actual_production_force_path_executed"])
+        self.assertTrue(payload["production_face_loop_executed"])
         self.assertFalse(payload["production_one_rings_populated"])
         self.assertFalse(payload["default_dependency_changed"])
 

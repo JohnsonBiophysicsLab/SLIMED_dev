@@ -29,6 +29,12 @@ SHELL = Path(
 DOC = Path("docs/irregular_valence4_opensubdiv_production_caller.md")
 ROW_PROVIDER_DOC = Path("docs/irregular_valence4_opensubdiv_row_provider.md")
 READINESS = Path("docs/opensubdiv_routing_readiness_map.md")
+READINESS_INVENTORY = Path(
+    "scripts/inventory_opensubdiv_routing_readiness.py"
+)
+READINESS_TEST = Path(
+    "tests/test_opensubdiv_routing_readiness_inventory.py"
+)
 INVENTORY = Path(
     "scripts/inventory_irregular_valence4_opensubdiv_production_caller.py"
 )
@@ -50,6 +56,9 @@ TEST = Path(
 PRODUCTION_SOURCE = Path(
     "src/energy_force/Compute_energy_and_force_on_mesh.cpp"
 )
+PRODUCTION_LOOP_HEADER = Path(
+    "include/energy_force/Valence4_production_face_loop.hpp"
+)
 
 ALLOWED_PATHS = {
     PREFLIGHT_HEADER,
@@ -61,12 +70,16 @@ ALLOWED_PATHS = {
     DOC,
     ROW_PROVIDER_DOC,
     READINESS,
+    READINESS_INVENTORY,
+    READINESS_TEST,
     INVENTORY,
     ROW_PROVIDER_INVENTORY,
     PRODUCTION_CALLER_SHADOW_INVENTORY,
     PRODUCTION_CALL_SHADOW_PARITY_INVENTORY,
     GLOBAL_OPENSUBDIV_INVENTORY,
     TEST,
+    PRODUCTION_LOOP_HEADER,
+    PRODUCTION_SOURCE,
 }
 
 ANCHORS = {
@@ -79,25 +92,38 @@ ANCHORS = {
         "opensubdivRowProviderExecuted",
         "productionCallerShadowExecuted",
         "evaluate_guarded_valence4_opensubdiv_production_caller",
-        "does not enter the default evaluator face loop",
+        "Valence4OpenSubdivProductionFaceLoopCallerRequest",
+        "completeTransactionValidatedBeforeMutation",
+        "evaluate_guarded_valence4_opensubdiv_production_face_loop_caller",
     ),
     PREFLIGHT_SOURCE: (
         "reject_opensubdiv_production_caller_request",
+        "reject_opensubdiv_production_face_loop_caller_request",
         "OpenSubdiv production caller remains default-off",
         "ordered quadrature sample drift",
         "quadrature weight drift",
         "build_guarded_opensubdiv_valence4_rows",
         "evaluate_guarded_valence4_production_caller_shadow",
+        "prepare_geometry_aware_composition",
+        "execute_guarded_valence4_production_face_loop",
         "opensubdivRowsGenerated = true",
         "productionCallerShadowExecuted = true",
-        "actualProductionForcePathExecuted = false",
+        "completeTransactionValidatedBeforeMutation = true",
+        "actualProductionForcePathExecuted = true",
+        "productionFaceLoopExecuted = true",
+        "productionRouteEnabled = false",
     ),
     CPP_TEST: (
         "OpenSubdivProductionCallerRemainsDefaultOff",
         "OpenSubdivProductionCallerRejectsQuadratureSampleDriftAtomically",
         "OpenSubdivProductionCallerRejectsQuadratureWeightDriftAtomically",
+        "OpenSubdivProductionFaceLoopCallerRemainsDefaultOff",
+        "OpenSubdivProductionFaceLoopCallerRejectsSampleDriftAtomically",
+        "OpenSubdivProductionFaceLoopCallerRejectsWeightDriftAtomically",
         "OpenSubdivProductionCallerRejectsExplicitRequestWithoutDependency",
+        "OpenSubdivProductionFaceLoopCallerRejectsWithoutDependencyAtomically",
         "OpenSubdivProductionCallerRunsProviderFedCompletionShadow",
+        "OpenSubdivProductionFaceLoopCallerMatchesReviewedCompletionShadow",
         "opensubdivRowProviderExecuted",
         "productionCallerShadowExecuted",
     ),
@@ -109,12 +135,18 @@ ANCHORS = {
         "opensubdiv_row_provider_executed",
         "production_caller_shadow_executed",
         "production_caller_shadow_totals_consistent",
+        "complete_transaction_validated_before_mutation",
+        "shadow_face_loop_parity_passed",
+        "production_face_loop_executed",
         "not_production_routing",
     ),
     RUNNER: (
         "provider_fed_production_caller",
+        "real_production_face_loop_caller",
+        "complete_transaction_validated_before_mutation",
         "exact_quadrature_sample_plan_validated",
         "exact_quadrature_weights_validated",
+        "shadow_face_loop_parity_passed",
         "serial_openmp_provider_fed_caller_parity_passed",
         "max_serial_openmp_provider_fed_force_delta",
         "OpenSubdiv production caller is explicit opt-in only",
@@ -123,17 +155,55 @@ ANCHORS = {
         "run_irregular_valence4_opensubdiv_production_caller.py",
     ),
     DOC: (
-        "OpenSubdiv-Fed Valence-4 Production Caller Prerequisite",
+        "Guarded OpenSubdiv Valence-4 Production Face-Loop Caller",
         "provider-fed caller",
         "exact ordered `N=2`",
         "three exact `1/3` quadrature weights",
-        "does not enter `Mesh::Compute_Energy_And_Force()`",
-        "route activation remains a separate reviewer/user decision",
+        "shared production membrane face loop",
+        "is not called by `Mesh::Compute_Energy_And_Force()`",
+        "shadow_face_loop_parity_passed: true",
+        "Route activation remains",
     ),
     READINESS: (
-        "provider-fed production-caller prerequisite",
-        "evaluate_guarded_valence4_opensubdiv_production_caller",
-        "serial/OpenMP provider-fed caller parity",
+        "evaluate_guarded_valence4_opensubdiv_production_face_loop_caller",
+        "real production valence-4 force execution through an explicit, default-off",
+        "executes those rows through the shared production membrane face loop",
+        "`productionFaceLoopExecuted` and `actualProductionForcePathExecuted` are",
+        "`productionRouteEnabled` and `defaultEvaluatorCaller` remain false",
+        "continues to reject this unsupported topology and the explicit caller remains",
+        "separate explicit reviewer/user decision on guarded",
+        "default route activation",
+    ),
+    READINESS_INVENTORY: (
+        "FORBIDDEN_READINESS_CLAIMS",
+        "pre-PR141 production entry rejection claim",
+        "pre-PR141 force-execution denial",
+        "pre-PR141 missing real caller claim",
+        "pre-PR141 no caller enabled claim",
+        "pre-PR141 next-caller claim",
+        "explicit guarded production face-loop caller",
+        "route and default caller remain disabled",
+        "collect_forbidden_claims",
+    ),
+    READINESS_TEST: (
+        "test_valence4_current_state_anchors_distinguish_execution_from_routing",
+        "test_pre_pr141_readiness_claims_fail_the_inventory",
+        "collect_forbidden_claims",
+    ),
+    PRODUCTION_LOOP_HEADER: (
+        "execute_guarded_valence4_production_face_loop",
+        "Valence4FaceGeometryStagingResult",
+        "Valence4FaceLoopScientificRequestResult",
+    ),
+    PRODUCTION_SOURCE: (
+        "guardedValence4ShapeFunctions",
+        "valence4_shape_functions",
+        "source/cardinality drift",
+        "prevalidated rows",
+        "shapeFunctionsByFace",
+        "cardinality drift",
+        "execute_guarded_valence4_production_face_loop",
+        "complete_energy_force_after_membrane_accumulation",
     ),
 }
 
@@ -209,11 +279,14 @@ def collect(root: Path) -> dict[str, object]:
         "exact_base": BASE,
         "provider_fed_production_caller": True,
         "opensubdiv_rows_feed_reviewed_caller_shadow": True,
+        "real_production_face_loop_caller": True,
+        "complete_transaction_validated_before_mutation": True,
+        "shadow_face_loop_parity_required": True,
         "serial_openmp_provider_fed_caller_parity_required": True,
         "not_production_routing": True,
         "production_route_enabled": False,
-        "actual_production_force_path_executed": False,
-        "production_face_loop_executed": False,
+        "actual_production_force_path_executed": True,
+        "production_face_loop_executed": True,
         "production_one_rings_populated": False,
         "default_evaluator_route_caller": default_evaluator_route_caller,
         "default_dependency_changed": protected,

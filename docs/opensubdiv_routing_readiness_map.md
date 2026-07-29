@@ -237,97 +237,54 @@ evidence only. They are not a face-level production scatter contract.
 
 ### Valence-4 Production-Call Boundary
 
-The approved canonical octahedron now has a guarded topology/source
-representation, a production source-keyed kernel-call helper, variable-
-cardinality scientific-force proof coverage, real serial/OpenMP observable
-shadow evidence, an inert production route preflight, and an explicit
-default-off route request boundary. A guarded scientific-request successor now
-validates the complete three-sample source-keyed package, reads real approved
-mesh coordinates, invokes `Mesh::element_energy_force_regular`, and returns
-caller-owned observables and source-keyed forces without mutating mesh state.
-The proof package still supplies rows to the scientific shadows, while the
-guarded production row-provider prerequisite can now generate the same
-`8 x 3 x 7 x 6` tensor directly from OpenSubdiv and bind it to exact original
-source IDs. The provider is default-off, returns caller-owned backend-neutral
-rows only after complete validation, and does not call or install a route.
-The real production entry point is still required to reject before mutation
-because `Face::oneRingVertices` remains empty.
+The approved canonical octahedron now has a complete guarded source-to-caller
+chain. `build_guarded_opensubdiv_valence4_rows(...)` generates the frozen
+`8 x 3 x 7 x 6` OpenSubdiv row tensor with exact original source IDs, and
+`evaluate_guarded_valence4_opensubdiv_production_face_loop_caller(...)`
+executes those rows through the shared production membrane face loop. This is
+real production valence-4 force execution through an explicit, default-off
+caller; it is not default route activation.
 
-This is not production valence-4 force execution or route approval. The
-production-route preflight composes the approved topology/source mapping with
-the source-keyed adapter-facing representation and returns an owned candidate
-package. The explicit request boundary rejects by default unless a
-reviewer-approved request flag is supplied, requires exactly three samples per
-face, then prepares only caller-owned source-keyed rows and accumulated
-forces. Requests with fewer or additional samples reject atomically instead
-of being accepted as reviewed route packages.
-The variable-cardinality source-keyed kernel adapter remains the representation
-boundary for that candidate and for any future caller. The preflight and
-explicit boundaries do not call OpenSubdiv, the production face loop, or any
-default evaluator path. The scientific request calls only the existing per-face
-scientific algebra with caller-provided rows; it does not scatter or route.
-The fresh-row proof now also passes those caller-owned forces through a
-backend-neutral production-shaped `source x 9` component-buffer scatter and a
-default-off vertex-force publication boundary. The publication validates the
-complete six-source result and every destination before overwriting only
-`forceCurvature`, `forceArea`, and `forceVolume`; `forceTotal`, other force
-families, face state, and empty one-rings remain unchanged.
-The existing actual OpenMP shadow calls the same scatter, ascending reduction,
-and publication helpers while retaining independent raw-layout and named-
-matrix oracles. Neither path enters the production face loop. The reviewed
-face-observable successor publishes only mean curvature, bending energy, and
-face normal after complete validation and allocation; area, legacy volume,
-vertex state, and routing remain unchanged. A default-off atomic successor
-now validates and publishes both reviewed destination families as one
-transaction, but still has no real production face-loop caller. Real route
-activation remains a separate reviewer/user-gated decision. The guarded
-production-call shadow now compares complete atomic-publication output between
-serial and OpenMP builds and requires the independent actual OpenMP
-team/reduction proof. No real production face-loop caller or route is enabled.
-The next production C++ boundary now stages per-face area and current legacy
-visible volume plus global totals from the same canonical source-keyed rows.
-The default-off geometry-aware atomic successor now binds a temporary
-scientific evaluator to those staged global totals, so geometry-dependent
-force terms consume the same area and legacy volume that one validated
-transaction publishes with per-face geometry, membrane force families, and
-reviewed face observables. It remains caller-owned and does not enter
-`Mesh::Compute_Energy_And_Force()`. A real-caller shadow/parity lane and
-serial/OpenMP caller evidence remain required before route activation.
+Before the first mesh write, the explicit caller validates the canonical
+topology and orientation, exact source coverage, ordered `N=2` quadrature
+samples and weights, row and sample cardinality, geometry/scientific staging,
+all destinations, and every `7 x 6` shape matrix. It then publishes the staged
+area and legacy visible volume, clears current force and energy state, runs the
+current regular force formulas through the production-shaped per-thread
+scatter and ascending-thread reduction, and invokes the shared completion
+phase. Present-dependency evidence requires parity with the reviewed completion
+shadow and serial/OpenMP parity at `1e-12`.
 
-The guarded production-caller completion shadow now shares the exact
-post-membrane completion phase with `Mesh::Compute_Energy_And_Force()`. It
-validates the complete valence-4 transaction before clearing current state,
-then proves regularization, total-force publication, total-energy accounting,
-optional-scaffold ordering, and boundary handling at production caller timing.
-Serial/OpenMP total-force and total-energy parity are required. The production
-face loop remains uncalled, production one-rings remain empty, and routing
-remains disabled; activation is still a separate reviewer/user-gated change.
+The current route boundary remains deliberately narrower than that explicit
+execution:
 
-The next prerequisite resolves the remaining row-source gap:
-`build_guarded_opensubdiv_valence4_rows(...)` consumes the canonical guarded
-topology/source mapping and generates the complete frozen three-sample,
-seven-row, six-source package with OpenSubdiv's double limit-stencil factory
-behind the existing OpenSubdiv build gate and an
-explicit reviewed request. Dependency-free builds reject explicitly, malformed
-topology returns an empty package, and present-dependency evidence compares all
-provider coefficients against the separately generated reviewed float
-force-proof tensor while independently enforcing partition-of-unity and
-derivative-zero-sum invariants at `1e-12`. It leaves
-production one-rings empty and does not enter the production face loop. A
-guarded real production face-loop caller, followed by a separate activation
-decision, remains the next reviewer/user-gated boundary.
+- `Mesh::Compute_Energy_And_Force()` and the default evaluator do not call the
+  guarded valence-4 entry point;
+- production `Face::oneRingVertices` remain empty, so the unchanged default
+  production entry continues to reject the unsupported valence-4 topology
+  before mutation;
+- the guarded caller scatters only through the prevalidated original source
+  IDs and does not populate one-rings;
+- `productionFaceLoopExecuted` and `actualProductionForcePathExecuted` are
+  true only for the reviewer-approved explicit caller, while
+  `productionRouteEnabled` and `defaultEvaluatorCaller` remain false; and
+- dependency-free builds reject an explicit OpenSubdiv request, with no
+  default build or dependency-policy change.
 
-The provider-fed production-caller prerequisite now composes that row provider
-with the existing guarded production caller shadow through
-`evaluate_guarded_valence4_opensubdiv_production_caller(...)`. The caller is
-default-off, requires an explicit reviewed request, rejects dependency-free
-builds through the row-provider gate, and requires complete OpenSubdiv rows
-before running the already reviewed geometry/scientific atomic publication and
-shared production completion phase. A serial/OpenMP provider-fed caller parity
-check is required. This still does not enter
-`Mesh::Compute_Energy_And_Force()`, call the default evaluator membrane face
-loop, populate production one-rings, or enable routing. Route activation
-remains a separate reviewer/user decision.
+The earlier topology/source, scientific-force, OpenMP scatter, atomic
+publication, geometry-staging, completion-shadow, and provider-fed caller
+proofs remain prerequisite evidence for this current boundary. They are no
+longer the current implementation limit: the explicit guarded caller now
+enters the shared production face loop. They still do not authorize a hidden
+default caller, broader-valence support, changed force formulas or scatter
+semantics, altered OpenMP reductions, or checkpoint/output/propagation
+changes.
+
+The next boundary is a separate explicit reviewer/user decision on guarded
+default route activation for only the approved canonical closed valence-4
+topology. Until that decision is reviewed and approved, the default evaluator
+continues to reject this unsupported topology and the explicit caller remains
+the sole valence-4 production-force execution path.
 
 ## Inventory Check
 
