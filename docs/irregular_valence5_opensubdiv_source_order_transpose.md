@@ -53,5 +53,8 @@ or enable valence-5 routing.
 
 The successor force diagnostic now executes both force paths and finds that
 direct whole-Ptex OpenSubdiv evaluation does not reproduce the existing
-positive-depth `11 = 4+3+4` force composition. The next review-gated boundary
-is a proof-only integration-domain/composition diagnostic.
+positive-depth `11 = 4+3+4` force composition. The completed child-domain
+diagnostic confirms the six positive-depth domains and observes different
+valence-5 extraordinary smooth-vertex masks, but does not yet prove that the
+mask difference is causally sufficient for the residual. The next boundary is
+a counterfactual extraordinary-mask attribution diagnostic.

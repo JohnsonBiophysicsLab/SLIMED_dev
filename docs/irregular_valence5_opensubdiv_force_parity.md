@@ -53,7 +53,12 @@ It records both
 `opensubdiv_rows_evaluated_by_existing_force_algebra:true`, but it does not
 install OpenSubdiv rows in production or execute production scatter.
 
-The next reviewed step is a proof-only integration-domain/composition
-diagnostic. It must determine whether OpenSubdiv rows need the same
-positive-depth child-domain decomposition and quadrature mapping as the
-current `4+3+4` route. Production valence-5 routing remains disabled.
+The follow-up integration-domain/composition diagnostic is now complete. It
+confirms the six positive-depth child domains and derivative chain rule, while
+composed-row parity still fails. It also observes different extraordinary
+smooth-vertex masks: SLIMED uses neighbor/center weights `0.075`/`0.625`,
+while OpenSubdiv uses `0.08409321892578289`/`0.5795339053710855`. The current
+evidence does not prove that this mask difference is causally sufficient for
+the full residual. The next boundary is a counterfactual valence-5
+extraordinary-mask attribution diagnostic. Production valence-5 routing
+remains disabled.

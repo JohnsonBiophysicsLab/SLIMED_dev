@@ -92,6 +92,10 @@ using namespace OpenSubdiv;
 #define SLIMED_VALENCE5_SOURCE_ORDER_TRANSPOSE_REPORT 0
 #endif
 
+#ifndef SLIMED_VALENCE5_INTEGRATION_COMPOSITION_REPORT
+#define SLIMED_VALENCE5_INTEGRATION_COMPOSITION_REPORT 0
+#endif
+
 struct Point {
     float x;
     float y;
@@ -382,7 +386,7 @@ static MeshCase load_serialized_valence4_fixture(char const *verticesPath,
 }
 #endif
 
-#if SLIMED_VALENCE5_FIXTURE_COVERAGE_REPORT || SLIMED_VALENCE5_SOURCE_ORDER_TRANSPOSE_REPORT
+#if SLIMED_VALENCE5_FIXTURE_COVERAGE_REPORT || SLIMED_VALENCE5_SOURCE_ORDER_TRANSPOSE_REPORT || SLIMED_VALENCE5_INTEGRATION_COMPOSITION_REPORT
 static MeshCase load_serialized_valence5_fixture(char const *verticesPath,
                                                   char const *facesPath) {
     MeshCase mesh;
@@ -5127,8 +5131,353 @@ static bool print_valence5_source_order_transpose_proof(MeshCase const &mesh) {
 }
 #endif
 
+#if SLIMED_VALENCE5_INTEGRATION_COMPOSITION_REPORT
+struct Valence5AffineDomain {
+    char const *name;
+    int depth;
+    int child;
+    double sOffset;
+    double tOffset;
+    double dsDv;
+    double dsDw;
+    double dtDv;
+    double dtDw;
+};
+
+static bool print_valence5_integration_composition_proof(
+    MeshCase const &mesh) {
+    constexpr int kFaceCount = 20;
+    constexpr int kDomainCount = 6;
+    constexpr int kSampleCount = 3;
+    constexpr int kRowCount = 7;
+    constexpr int kSourceCount = 12;
+    constexpr double kRowSumTolerance = 5.0e-6;
+    constexpr double kDomainTolerance = 1.0e-12;
+    std::array<Valence5AffineDomain, kDomainCount> const domains{{
+        {"depth1_M1_C_corner", 1, 1, 0.0, 0.5, 0.5, 0.0, 0.0, 0.5},
+        {"depth1_M2_center", 1, 2, 0.5, 0.0, 0.0, -0.5, 0.5, 0.5},
+        {"depth1_M3_B_corner", 1, 3, 0.5, 0.0, 0.5, 0.0, 0.0, 0.5},
+        {"depth2_M1_C_corner", 2, 1, 0.0, 0.25, 0.25, 0.0, 0.0, 0.25},
+        {"depth2_M2_center", 2, 2, 0.25, 0.0, 0.0, -0.25, 0.25, 0.25},
+        {"depth2_M3_B_corner", 2, 3, 0.25, 0.0, 0.25, 0.0, 0.0, 0.25},
+    }};
+    std::array<std::array<int, 3>, 6> const orientationPermutations{{
+        {{0, 1, 2}},
+        {{0, 2, 1}},
+        {{1, 0, 2}},
+        {{1, 2, 0}},
+        {{2, 0, 1}},
+        {{2, 1, 0}},
+    }};
+    double const sampleV[kSampleCount] = {
+        1.0 / 6.0, 1.0 / 6.0, 4.0 / 6.0};
+    double const sampleW[kSampleCount] = {
+        1.0 / 6.0, 4.0 / 6.0, 1.0 / 6.0};
+
+    if (!valence5_fixture_identity_matches(mesh)) {
+        return false;
+    }
+    Far::TopologyRefiner *refiner = create_refiner(mesh);
+    if (!refiner) {
+        return false;
+    }
+    Far::PatchTableFactory::Options patchOptions(5);
+    refiner->RefineAdaptive(patchOptions.GetRefineAdaptiveOptions());
+    Far::PatchTable *patchTable =
+        Far::PatchTableFactory::Create(*refiner, patchOptions);
+    Far::StencilTableFactory::Options cvOptions;
+    cvOptions.generateControlVerts = true;
+    cvOptions.generateIntermediateLevels = true;
+    cvOptions.factorizeIntermediateLevels = true;
+    cvOptions.maxLevel = 5;
+    Far::StencilTable const *cvStencils =
+        Far::StencilTableFactory::Create(*refiner, cvOptions);
+    if (!patchTable || !cvStencils) {
+        delete cvStencils;
+        delete patchTable;
+        delete refiner;
+        return false;
+    }
+
+    constexpr int kOrientationCount = 6;
+    constexpr int kLocationsPerFace =
+        kOrientationCount * kDomainCount * kSampleCount;
+    std::vector<std::vector<float>> sValues(
+        kFaceCount, std::vector<float>(kLocationsPerFace, 0.0f));
+    std::vector<std::vector<float>> tValues(
+        kFaceCount, std::vector<float>(kLocationsPerFace, 0.0f));
+    for (int face = 0; face < kFaceCount; ++face) {
+        for (int orientation = 0;
+             orientation < kOrientationCount;
+             ++orientation) {
+            for (int domain = 0; domain < kDomainCount; ++domain) {
+                Valence5AffineDomain const &map = domains[domain];
+                std::array<std::array<double, 3>, 3> const local{{
+                    {{1.0 - map.sOffset - map.tOffset,
+                      -map.dsDv - map.dtDv,
+                      -map.dsDw - map.dtDw}},
+                    {{map.sOffset, map.dsDv, map.dsDw}},
+                    {{map.tOffset, map.dtDv, map.dtDw}},
+                }};
+                std::array<int, 3> const &permutation =
+                    orientationPermutations[orientation];
+                std::array<double, 3> const &ptexS =
+                    local[permutation[1]];
+                std::array<double, 3> const &ptexT =
+                    local[permutation[2]];
+                for (int sample = 0; sample < kSampleCount; ++sample) {
+                    int const location =
+                        (orientation * kDomainCount + domain) *
+                            kSampleCount +
+                        sample;
+                    sValues[face][location] = static_cast<float>(
+                        ptexS[0] + ptexS[1] * sampleV[sample] +
+                        ptexS[2] * sampleW[sample]);
+                    tValues[face][location] = static_cast<float>(
+                        ptexT[0] + ptexT[1] * sampleV[sample] +
+                        ptexT[2] * sampleW[sample]);
+                }
+            }
+        }
+    }
+    Far::LimitStencilTableFactory::LocationArrayVec locations;
+    for (int face = 0; face < kFaceCount; ++face) {
+        Far::LimitStencilTableFactory::LocationArray location;
+        location.ptexIdx = face;
+        location.numLocations = kLocationsPerFace;
+        location.s = sValues[face].data();
+        location.t = tValues[face].data();
+        locations.push_back(location);
+    }
+    Far::LimitStencilTableFactory::Options stencilOptions;
+    stencilOptions.generate1stDerivatives = true;
+    stencilOptions.generate2ndDerivatives = true;
+    Far::LimitStencilTable const *stencils =
+        Far::LimitStencilTableFactory::Create(
+            *refiner, locations, cvStencils, patchTable, stencilOptions);
+    if (!stencils) {
+        delete cvStencils;
+        delete patchTable;
+        delete refiner;
+        return false;
+    }
+
+    bool passed =
+        stencils->GetNumStencils() == kFaceCount * kLocationsPerFace;
+    bool allFinite = true;
+    bool allRowSumsPassed = true;
+    bool allMixedRowsIdentical = true;
+    bool allLocationsInsidePtex = true;
+    double maxRowSumResidual = 0.0;
+    double const valence5Inverse = 1.0 / 5.0;
+    double const valence5Cosine =
+        std::cos(M_PI * 2.0 * valence5Inverse);
+    double const valence5Beta =
+        0.25 * valence5Cosine + 0.375;
+    double const opensubdivValence5EdgeWeight =
+        (0.625 - valence5Beta * valence5Beta) * valence5Inverse;
+    double const opensubdivValence5CenterWeight =
+        1.0 - 5.0 * opensubdivValence5EdgeWeight;
+    std::cout << ",\"valence5_integration_composition\":{";
+    std::cout << "\"proof_only\":true";
+    std::cout << ",\"not_production_routing\":true";
+    std::cout << ",\"production_route_enabled\":false";
+    std::cout << ",\"production_scatter_executed\":false";
+    std::cout << ",\"coordinate_mapping\":\"s=v,t=w,u=1-v-w\"";
+    std::cout << ",\"composition\":\"positive-depth 11=4+3+4\"";
+    std::cout << ",\"opensubdiv_valence5_vertex_edge_weight\":"
+              << std::setprecision(17)
+              << opensubdivValence5EdgeWeight;
+    std::cout << ",\"opensubdiv_valence5_vertex_center_weight\":"
+              << opensubdivValence5CenterWeight;
+    std::cout << ",\"opensubdiv_vertex_mask_policy\":"
+                 "\"eigenvalue-derived Loop smooth-vertex mask\"";
+    std::cout << ",\"row_order\":[\"position\",\"dv\",\"dw\","
+                 "\"dvv\",\"dww\",\"dvw\",\"dwv\"]";
+    std::cout << ",\"row_shape_all_orientations\":[20,6,6,3,7,12]";
+    std::cout << ",\"orientation_permutations\":[";
+    for (int orientation = 0;
+         orientation < kOrientationCount;
+         ++orientation) {
+        if (orientation > 0) {
+            std::cout << ",";
+        }
+        std::cout << "[" << orientationPermutations[orientation][0] << ","
+                  << orientationPermutations[orientation][1] << ","
+                  << orientationPermutations[orientation][2] << "]";
+    }
+    std::cout << "]";
+    std::cout << ",\"oriented_fixture_faces\":[";
+    for (int face = 0; face < kFaceCount; ++face) {
+        for (int corner = 0; corner < 3; ++corner) {
+            if (face > 0 || corner > 0) {
+                std::cout << ",";
+            }
+            std::cout << mesh.vertIndices[3 * face + corner];
+        }
+    }
+    std::cout << "]";
+    std::cout << ",\"domains\":[";
+    for (int domain = 0; domain < kDomainCount; ++domain) {
+        if (domain > 0) {
+            std::cout << ",";
+        }
+        Valence5AffineDomain const &map = domains[domain];
+        std::cout << "{\"name\":\"" << map.name << "\"";
+        std::cout << ",\"depth\":" << map.depth;
+        std::cout << ",\"child\":" << map.child;
+        std::cout << ",\"offset\":[" << map.sOffset << ","
+                  << map.tOffset << "]";
+        std::cout << ",\"jacobian\":[" << map.dsDv << ","
+                  << map.dsDw << "," << map.dtDv << ","
+                  << map.dtDw << "]}";
+    }
+    std::cout << "]";
+    std::cout << ",\"composed_rows_all_orientations\":[";
+
+    bool firstCoefficient = true;
+    for (int face = 0; face < kFaceCount; ++face) {
+        for (int orientation = 0;
+             orientation < kOrientationCount;
+             ++orientation) {
+            for (int domain = 0; domain < kDomainCount; ++domain) {
+                Valence5AffineDomain const &map = domains[domain];
+                std::array<std::array<double, 3>, 3> const local{{
+                    {{1.0 - map.sOffset - map.tOffset,
+                      -map.dsDv - map.dtDv,
+                      -map.dsDw - map.dtDw}},
+                    {{map.sOffset, map.dsDv, map.dsDw}},
+                    {{map.tOffset, map.dtDv, map.dtDw}},
+                }};
+                std::array<int, 3> const &permutation =
+                    orientationPermutations[orientation];
+                std::array<double, 3> const &ptexS =
+                    local[permutation[1]];
+                std::array<double, 3> const &ptexT =
+                    local[permutation[2]];
+                for (int sample = 0; sample < kSampleCount; ++sample) {
+                    int const localLocation =
+                        (orientation * kDomainCount + domain) *
+                            kSampleCount +
+                        sample;
+                int const stencilIndex =
+                    face * kLocationsPerFace + localLocation;
+                Far::LimitStencil stencil =
+                    stencils->GetLimitStencil(stencilIndex);
+                float const *sourceRows[6] = {
+                    stencil.GetWeights(),
+                    stencil.GetDuWeights(),
+                    stencil.GetDvWeights(),
+                    stencil.GetDuuWeights(),
+                    stencil.GetDvvWeights(),
+                    stencil.GetDuvWeights(),
+                };
+                std::array<std::array<double, kSourceCount>, 6> parentRows{};
+                for (int row = 0; row < 6; ++row) {
+                    allFinite = allFinite && sourceRows[row] != nullptr;
+                    if (!sourceRows[row]) {
+                        continue;
+                    }
+                    for (int entry = 0; entry < stencil.GetSize(); ++entry) {
+                        int const source = stencil.GetVertexIndices()[entry];
+                        double const coefficient =
+                            static_cast<double>(sourceRows[row][entry]);
+                        bool const valid =
+                            source >= 0 && source < kSourceCount &&
+                            std::isfinite(coefficient);
+                        allFinite = allFinite && valid;
+                        if (valid) {
+                            parentRows[row][source] += coefficient;
+                        }
+                    }
+                }
+
+                std::array<std::array<double, kSourceCount>, kRowCount>
+                    childRows{};
+                for (int source = 0; source < kSourceCount; ++source) {
+                    double const value = parentRows[0][source];
+                    double const ds = parentRows[1][source];
+                    double const dt = parentRows[2][source];
+                    double const dss = parentRows[3][source];
+                    double const dtt = parentRows[4][source];
+                    double const dst = parentRows[5][source];
+                    childRows[0][source] = value;
+                    childRows[1][source] =
+                        ptexS[1] * ds + ptexT[1] * dt;
+                    childRows[2][source] =
+                        ptexS[2] * ds + ptexT[2] * dt;
+                    childRows[3][source] =
+                        ptexS[1] * ptexS[1] * dss +
+                        2.0 * ptexS[1] * ptexT[1] * dst +
+                        ptexT[1] * ptexT[1] * dtt;
+                    childRows[4][source] =
+                        ptexS[2] * ptexS[2] * dss +
+                        2.0 * ptexS[2] * ptexT[2] * dst +
+                        ptexT[2] * ptexT[2] * dtt;
+                    childRows[5][source] =
+                        ptexS[1] * ptexS[2] * dss +
+                        (ptexS[1] * ptexT[2] +
+                         ptexS[2] * ptexT[1]) * dst +
+                        ptexT[1] * ptexT[2] * dtt;
+                    childRows[6][source] = childRows[5][source];
+                }
+                allMixedRowsIdentical =
+                    allMixedRowsIdentical && childRows[5] == childRows[6];
+                for (int row = 0; row < kRowCount; ++row) {
+                    double rowSum = 0.0;
+                    for (int source = 0; source < kSourceCount; ++source) {
+                        rowSum += childRows[row][source];
+                        if (!firstCoefficient) {
+                            std::cout << ",";
+                        }
+                        firstCoefficient = false;
+                        std::cout << std::setprecision(17)
+                                  << childRows[row][source];
+                    }
+                    double const expected = row == 0 ? 1.0 : 0.0;
+                    double const residual = std::abs(rowSum - expected);
+                    maxRowSumResidual =
+                        std::max(maxRowSumResidual, residual);
+                    allRowSumsPassed =
+                        allRowSumsPassed &&
+                        residual <= kRowSumTolerance;
+                }
+                double const s = sValues[face][localLocation];
+                double const t = tValues[face][localLocation];
+                allLocationsInsidePtex =
+                    allLocationsInsidePtex &&
+                    s >= -kDomainTolerance && t >= -kDomainTolerance &&
+                    s + t <= 1.0 + kDomainTolerance;
+                }
+            }
+        }
+    }
+    std::cout << "]";
+    passed = passed && allFinite && allRowSumsPassed &&
+             allMixedRowsIdentical && allLocationsInsidePtex;
+    std::cout << ",\"all_rows_finite\":"
+              << (allFinite ? "true" : "false");
+    std::cout << ",\"all_row_sum_checks_passed\":"
+              << (allRowSumsPassed ? "true" : "false");
+    std::cout << ",\"all_mixed_rows_identical\":"
+              << (allMixedRowsIdentical ? "true" : "false");
+    std::cout << ",\"all_locations_inside_ptex\":"
+              << (allLocationsInsidePtex ? "true" : "false");
+    std::cout << ",\"max_row_sum_abs_residual\":"
+              << maxRowSumResidual;
+    std::cout << ",\"passed\":" << (passed ? "true" : "false");
+    std::cout << "}";
+
+    delete stencils;
+    delete cvStencils;
+    delete patchTable;
+    delete refiner;
+    return passed;
+}
+#endif
+
 static int run_case(MeshCase const &mesh) {
-#if SLIMED_VALENCE5_FIXTURE_COVERAGE_REPORT || SLIMED_VALENCE5_SOURCE_ORDER_TRANSPOSE_REPORT
+#if SLIMED_VALENCE5_FIXTURE_COVERAGE_REPORT || SLIMED_VALENCE5_SOURCE_ORDER_TRANSPOSE_REPORT || SLIMED_VALENCE5_INTEGRATION_COMPOSITION_REPORT
     if (!valence5_fixture_identity_matches(mesh)) {
         std::cerr << "approved valence-5 fixture must exactly match the 12 "
                      "ordered coordinates and 20 ordered oriented triangular "
@@ -5145,7 +5494,7 @@ static int run_case(MeshCase const &mesh) {
     Far::PatchTable *patchTable = 0;
     Far::StencilTable const *cvStencils = 0;
 
-#if SLIMED_BACKPROJECTION_REPORT || SLIMED_AGGREGATE_SOURCE_COVERAGE_REPORT || SLIMED_IRREGULAR_TRANSPOSE_PROOF_MAP_REPORT || SLIMED_BROADER_VALENCE_COVERAGE_REPORT || SLIMED_VALENCE5_FIXTURE_COVERAGE_REPORT || SLIMED_VALENCE5_SOURCE_ORDER_TRANSPOSE_REPORT
+#if SLIMED_BACKPROJECTION_REPORT || SLIMED_AGGREGATE_SOURCE_COVERAGE_REPORT || SLIMED_IRREGULAR_TRANSPOSE_PROOF_MAP_REPORT || SLIMED_BROADER_VALENCE_COVERAGE_REPORT || SLIMED_VALENCE5_FIXTURE_COVERAGE_REPORT || SLIMED_VALENCE5_SOURCE_ORDER_TRANSPOSE_REPORT || SLIMED_VALENCE5_INTEGRATION_COMPOSITION_REPORT
     Far::PatchTableFactory::Options patchOptions(5);
     refiner->RefineAdaptive(patchOptions.GetRefineAdaptiveOptions());
     patchTable = Far::PatchTableFactory::Create(*refiner, patchOptions);
@@ -5233,6 +5582,9 @@ static int run_case(MeshCase const &mesh) {
 #endif
 #if SLIMED_VALENCE5_SOURCE_ORDER_TRANSPOSE_REPORT
     bool valence5SourceOrderTransposePassed = true;
+#endif
+#if SLIMED_VALENCE5_INTEGRATION_COMPOSITION_REPORT
+    bool valence5IntegrationCompositionPassed = true;
 #endif
 
     for (int sample = 0; sample < stencils->GetNumStencils(); ++sample) {
@@ -5420,6 +5772,10 @@ static int run_case(MeshCase const &mesh) {
     valence5SourceOrderTransposePassed =
         print_valence5_source_order_transpose_proof(mesh);
 #endif
+#if SLIMED_VALENCE5_INTEGRATION_COMPOSITION_REPORT
+    valence5IntegrationCompositionPassed =
+        print_valence5_integration_composition_proof(mesh);
+#endif
 #if SLIMED_IRREGULAR_TRANSPOSE_PROOF_MAP_REPORT
     irregularTransposeProofMapPassed =
         print_irregular_transpose_proof_map(mesh, *refiner, patchTable,
@@ -5468,11 +5824,16 @@ static int run_case(MeshCase const &mesh) {
         return 17;
     }
 #endif
+#if SLIMED_VALENCE5_INTEGRATION_COMPOSITION_REPORT
+    if (!valence5IntegrationCompositionPassed) {
+        return 18;
+    }
+#endif
     return 0;
 }
 
 int main(int argc, char **argv) {
-#if SLIMED_VALENCE5_FIXTURE_COVERAGE_REPORT || SLIMED_VALENCE5_SOURCE_ORDER_TRANSPOSE_REPORT
+#if SLIMED_VALENCE5_FIXTURE_COVERAGE_REPORT || SLIMED_VALENCE5_SOURCE_ORDER_TRANSPOSE_REPORT || SLIMED_VALENCE5_INTEGRATION_COMPOSITION_REPORT
     if (argc != 3) {
         std::cerr << "valence-5 fixture proof requires vertices.csv "
                      "and faces.csv\n";
@@ -5664,6 +6025,14 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--valence5-integration-composition-report",
+        action="store_true",
+        help=(
+            "Opt into the proof-only valence-5 positive-depth child-domain "
+            "and derivative-chain composition report."
+        ),
+    )
+    parser.add_argument(
         "--valence5-fixture-dir",
         type=Path,
         help=(
@@ -5804,6 +6173,10 @@ def main() -> int:
             command.append(
                 "-DSLIMED_VALENCE5_SOURCE_ORDER_TRANSPOSE_REPORT=1"
             )
+        if args.valence5_integration_composition_report:
+            command.append(
+                "-DSLIMED_VALENCE5_INTEGRATION_COMPOSITION_REPORT=1"
+            )
         command.extend(shlex.split(os.environ.get("OPENSUBDIV_CXXFLAGS", "")))
         command.extend(
             [
@@ -5835,6 +6208,7 @@ def main() -> int:
         if (
             args.valence5_fixture_coverage_report
             or args.valence5_source_order_transpose_report
+            or args.valence5_integration_composition_report
         ):
             fixture_dir = (
                 args.valence5_fixture_dir
@@ -5878,6 +6252,7 @@ def main() -> int:
         if (
             args.valence5_fixture_coverage_report
             or args.valence5_source_order_transpose_report
+            or args.valence5_integration_composition_report
             or args.valence4_mapping_sample_transpose_report
             or args.valence4_force_formula_proof_report
         ):
@@ -5959,6 +6334,22 @@ def main() -> int:
                     "per-face source-order and weighted-transpose proof "
                     "against the existing narrow positive-depth 11-control "
                     "route boundary"
+                ),
+                "deterministic_repeat_match": deterministic_repeat_match,
+                "proof_only": True,
+                "fixture_dir": str(fixture_dir),
+                "not_production_routing": True,
+                "production_route_enabled": False,
+                "production_force_path_executed": False,
+            }
+        )
+    if args.valence5_integration_composition_report:
+        details.update(
+            {
+                "approved_fixture": True,
+                "approved_scope": (
+                    "proof-only positive-depth child-domain composition "
+                    "against the existing narrow 11-control route"
                 ),
                 "deterministic_repeat_match": deterministic_repeat_match,
                 "proof_only": True,
