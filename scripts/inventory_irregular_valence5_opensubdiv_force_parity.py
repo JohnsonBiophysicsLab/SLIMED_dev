@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Inventory the proof-only valence-5 source-order/transpose lane."""
+"""Inventory the proof-only valence-5 OpenSubdiv force diagnostic."""
 
 from __future__ import annotations
 
@@ -8,88 +8,78 @@ import json
 from pathlib import Path
 
 
+PRODUCTION = Path("experiments/irregular_valence5_fixture_parity.cpp")
+HARNESS = Path("experiments/irregular_valence5_opensubdiv_force_parity.cpp")
 PROBE = Path("scripts/probe_opensubdiv_feasibility.py")
-WRAPPER = Path(
-    "scripts/run_irregular_valence5_opensubdiv_source_order_transpose.sh"
-)
-COMPARATOR = Path(
-    "scripts/compare_irregular_valence5_opensubdiv_source_order_transpose.py"
-)
-DOC = Path("docs/irregular_valence5_opensubdiv_source_order_transpose.md")
+RUNNER = Path("scripts/run_irregular_valence5_opensubdiv_force_parity.py")
+WRAPPER = Path("scripts/run_irregular_valence5_opensubdiv_force_parity.sh")
+DOC = Path("docs/irregular_valence5_opensubdiv_force_parity.md")
 READINESS = Path("docs/opensubdiv_routing_readiness_map.md")
-FIXTURE_COVERAGE_INVENTORY = Path(
+FIXTURE_INVENTORY = Path(
     "scripts/inventory_irregular_valence5_opensubdiv_fixture_coverage.py"
 )
 
 ANCHORS = {
-    PROBE: (
-        "--valence5-source-order-transpose-report",
-        "SLIMED_VALENCE5_SOURCE_ORDER_TRANSPOSE_REPORT",
-        "print_valence5_source_order_transpose_proof",
-        "valence5_fixture_identity_matches",
+    PRODUCTION: (
+        "production_irregular_force_path_executed",
+        "element_energy_force_irregular_11",
+        "perFaceSourceForces",
+        "forceFormulaParameters",
+    ),
+    HARNESS: (
+        "element_energy_force_regular",
         "kFaceCount = 20",
+        "kSampleCount = 3",
+        "kRowCount = 7",
+        "kSourceCount = 12",
+        "production_scatter_executed",
+        "opensubdiv_rows_evaluated_by_existing_force_algebra",
+        "per_face_source_forces",
+    ),
+    PROBE: (
+        '\\"samples\\":[',
+        '\\"rows\\":[',
         "kSourceCount = 12",
         "kSampleCount = 3",
         "kRowCount = 7",
-        "allFaceSourceCountsPassed",
-        "backprojected_source_components",
-        "weighted_transpose_passed",
-        "return 17;",
+    ),
+    RUNNER: (
+        "20 * 12 * 9",
+        "max_abs_force_difference_by_kind",
+        "max_abs_force_difference_location",
+        "direct whole-Ptex OpenSubdiv rows do not match",
+        "production_scatter_executed",
+        "resolve the measured valence-5 force parity residuals",
     ),
     WRAPPER: (
-        "OPENSUBDIV_ROOT",
-        "experiments/irregular_valence5_fixture_parity.cpp",
-        "--valence5-source-order-transpose-report",
-        "compare_irregular_valence5_opensubdiv_source_order_transpose.py",
-    ),
-    COMPARATOR: (
-        "EXPECTED_ONE_RINGS",
-        "len(flattened) != 220",
-        "sorted(counts.values()) == [1] * 7 + [2] * 2",
-        "fraction = (1.0 / 3.0) if occurrence == 0 else (2.0 / 3.0)",
-        "per_face_opensubdiv_source_sets_match",
-        "duplicate_slot_rescatter_max_abs_difference",
-        "independent_weighted_transpose_max_abs_difference",
-        "production_scatter_executed",
-        "existing_dependency_free_production_baseline_executed",
-        "opensubdiv_production_force_path_executed",
-        "actual fBend/fArea/fVolume parity",
+        "run_irregular_valence5_opensubdiv_force_parity.py",
+        '"$@"',
     ),
     DOC: (
-        "canonical ordered `20 x 11`",
-        "exactly two duplicated source IDs",
-        "`g dot (W p) == (W^T g) dot p`",
-        "asymmetric `1/3,2/3` duplicate split",
-        "`proof_only:true`",
-        "`not_production_routing:true`",
-        "`production_route_enabled:false`",
+        "per-face source-keyed `fBend`, `fArea`, and `fVolume`",
+        "`20 x 3 x 7 x 12`",
+        "`fBend`: `7.108303140663388`",
+        "`fArea`: `0.46106761515265404`",
+        "`fVolume`: `0.062309089012307695`",
         "`production_scatter_executed:false`",
-        "proof-local scatter-shape evidence",
-        "does not invoke production scatter",
-        "`opensubdiv_production_force_path_executed:false`",
-        "`existing_dependency_free_production_baseline_executed:true`",
-        "it does not imply",
-        "integration-domain/composition diagnostic",
+        "proof-only integration-domain/composition",
     ),
     READINESS: (
-        "per-face source-order and weighted-transpose contract now passes",
         "whole-Ptex OpenSubdiv evaluation does not match",
-        "The next reviewed step is a proof-only",
-        "integration-domain/composition diagnostic",
-        "does not execute production scatter",
-        "Broader-valence production routing remains unsupported",
+        "Maximum per-face source-component differences",
+        "valence-5 routing",
     ),
-    FIXTURE_COVERAGE_INVENTORY: (
+    FIXTURE_INVENTORY: (
         '"next_gate": "valence-5 integration-domain/composition diagnostic"',
     ),
 }
 
 FORBIDDEN_STALE_CLAIMS = {
     READINESS: (
-        "The next reviewed step is a per-face source-order and weighted-transpose",
+        "The next reviewed step is actual valence-5",
     ),
-    FIXTURE_COVERAGE_INVENTORY: (
-        '"next_gate": "per-face source-order and weighted-transpose contract"',
+    FIXTURE_INVENTORY: (
+        '"next_gate": "actual valence-5 fBend/fArea/fVolume parity"',
     ),
 }
 
@@ -110,6 +100,7 @@ def collect(root: Path) -> dict[str, object]:
                 located += 1
             else:
                 errors.append(f"{relative} missing {needle!r}")
+
     forbidden_located = 0
     forbidden_expected = 0
     for relative, needles in FORBIDDEN_STALE_CLAIMS.items():
@@ -119,14 +110,14 @@ def collect(root: Path) -> dict[str, object]:
             if needle in source:
                 forbidden_located += 1
                 errors.append(f"{relative} contains stale claim {needle!r}")
+
     return {
         "status": "passed" if not errors else "failed",
         "proof_only": True,
         "not_production_routing": True,
         "production_route_enabled": False,
         "production_scatter_executed": False,
-        "existing_dependency_free_production_baseline_executed": True,
-        "opensubdiv_production_force_path_executed": False,
+        "force_parity_passed": False,
         "next_gate": "valence-5 integration-domain/composition diagnostic",
         "anchors": {"located": located, "expected": expected},
         "forbidden_stale_claims": {

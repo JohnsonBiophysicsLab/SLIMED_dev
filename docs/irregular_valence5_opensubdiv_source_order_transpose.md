@@ -51,9 +51,7 @@ that an OpenSubdiv production route ran. This proof does not compare actual
 matrix route, change production formulas or scatter, alter OpenMP reductions,
 or enable valence-5 routing.
 
-The next review-gated evidence boundary is actual bending, area, and volume
-force/back-projection parity against the existing positive-depth `11 = 4+3+4`
-route on this approved fixture.
-
-In short: actual bending, area, and volume force/back-projection parity is the
-remaining gate.
+The successor force diagnostic now executes both force paths and finds that
+direct whole-Ptex OpenSubdiv evaluation does not reproduce the existing
+positive-depth `11 = 4+3+4` force composition. The next review-gated boundary
+is a proof-only integration-domain/composition diagnostic.

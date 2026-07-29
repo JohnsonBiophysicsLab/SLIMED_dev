@@ -212,7 +212,7 @@ FORBIDDEN_READINESS_CLAIMS: tuple[ForbiddenClaim, ...] = (
         "completed valence-5 source-order contract listed as next",
         READINESS_DOC_PATH,
         "The next reviewed step is a per-face source-order and weighted-transpose",
-        "The per-face contract now passes; actual valence-5 fBend/fArea/fVolume parity is next.",
+        "The per-face contract and force diagnostic now pass their evidence gates; integration composition is next.",
     ),
 )
 
@@ -483,12 +483,12 @@ ANCHORS: tuple[Anchor, ...] = (
         "The map records the completed valence-5 per-face source-order and transpose proof.",
     ),
     Anchor(
-        "valence-5 next boundary",
-        "force parity is next",
+        "valence-5 force diagnostic boundary",
+        "integration composition is next",
         READINESS_DOC_PATH,
-        "actual valence-5 `fBend`, `fArea`, and `fVolume` parity",
+        "integration-domain/composition diagnostic",
         "future review boundary",
-        "The map advances the valence-5 boundary to actual force parity.",
+        "The map records the measured force mismatch and advances to integration composition.",
     ),
     Anchor(
         "backend policy",
