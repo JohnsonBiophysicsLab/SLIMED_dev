@@ -395,7 +395,8 @@ static MeshCase load_serialized_valence5_fixture(char const *verticesPath,
         std::replace(line.begin(), line.end(), ',', ' ');
         std::istringstream row(line);
         Point point;
-        if (!(row >> point.x >> point.y >> point.z)) {
+        std::string trailing;
+        if (!(row >> point.x >> point.y >> point.z) || row >> trailing) {
             mesh.numVertices = -1;
             return mesh;
         }
@@ -412,7 +413,8 @@ static MeshCase load_serialized_valence5_fixture(char const *verticesPath,
         int a = -1;
         int b = -1;
         int c = -1;
-        if (!(row >> a >> b >> c)) {
+        std::string trailing;
+        if (!(row >> a >> b >> c) || row >> trailing) {
             mesh.numVertices = -1;
             return mesh;
         }
@@ -424,6 +426,48 @@ static MeshCase load_serialized_valence5_fixture(char const *verticesPath,
         mesh.expectedLocalControlIds.push_back(id);
     }
     return mesh;
+}
+
+static bool valence5_fixture_identity_matches(MeshCase const &mesh) {
+    static std::array<Point, 12> const expectedPoints = {{
+        {-1.0f, 1.6180339887498948482f, 0.0f},
+        {1.0f, 1.6180339887498948482f, 0.0f},
+        {-1.0f, -1.6180339887498948482f, 0.0f},
+        {1.0f, -1.6180339887498948482f, 0.0f},
+        {0.0f, -1.0f, 1.6180339887498948482f},
+        {0.0f, 1.0f, 1.6180339887498948482f},
+        {0.0f, -1.0f, -1.6180339887498948482f},
+        {0.0f, 1.0f, -1.6180339887498948482f},
+        {1.6180339887498948482f, 0.0f, -1.0f},
+        {1.6180339887498948482f, 0.0f, 1.0f},
+        {-1.6180339887498948482f, 0.0f, -1.0f},
+        {-1.6180339887498948482f, 0.0f, 1.0f},
+    }};
+    static std::array<int, 60> const expectedIndices = {{
+        0, 11, 5, 0, 5, 1, 0, 1, 7, 0, 7, 10, 0, 10, 11,
+        1, 5, 9, 5, 11, 4, 11, 10, 2, 10, 7, 6, 7, 1, 8,
+        3, 9, 4, 3, 4, 2, 3, 2, 6, 3, 6, 8, 3, 8, 9,
+        4, 9, 5, 2, 4, 11, 6, 2, 10, 8, 6, 7, 9, 8, 1,
+    }};
+
+    if (mesh.numVertices != static_cast<int>(expectedPoints.size()) ||
+        mesh.points.size() != expectedPoints.size() ||
+        mesh.vertsPerFace != std::vector<int>(20, 3) ||
+        mesh.vertIndices.size() != expectedIndices.size()) {
+        return false;
+    }
+    for (int index = 0; index < static_cast<int>(expectedPoints.size());
+         ++index) {
+        Point const &actual = mesh.points[index];
+        Point const &expected = expectedPoints[index];
+        if (actual.x != expected.x || actual.y != expected.y ||
+            actual.z != expected.z) {
+            return false;
+        }
+    }
+    return std::equal(expectedIndices.begin(),
+                      expectedIndices.end(),
+                      mesh.vertIndices.begin());
 }
 #endif
 
@@ -697,10 +741,70 @@ static bool print_aggregate_source_coverage(
     std::set<int> duvIds;
     std::set<int> dvvIds;
     std::set<int> secondIds;
+    int finiteEvaluatedSamples = 0;
+    bool allStencilEntriesValid = true;
 
     for (int stencilIndex = 0; stencilIndex < stencils->GetNumStencils();
          ++stencilIndex) {
         Far::LimitStencil stencil = stencils->GetLimitStencil(stencilIndex);
+        std::array<float const *, 6> const rowWeights = {{
+            stencil.GetWeights(),
+            stencil.GetDuWeights(),
+            stencil.GetDvWeights(),
+            stencil.GetDuuWeights(),
+            stencil.GetDuvWeights(),
+            stencil.GetDvvWeights(),
+        }};
+        Far::Index const *indices = stencil.GetVertexIndices();
+        bool sampleFinite =
+            stencil.GetSize() > 0 && indices != 0 &&
+            std::all_of(rowWeights.begin(),
+                        rowWeights.end(),
+                        [](float const *weights) { return weights != 0; });
+        double evaluatedRows[6][3] = {};
+        if (sampleFinite) {
+            for (int entry = 0; entry < stencil.GetSize(); ++entry) {
+                int const sourceId = indices[entry];
+                if (sourceId < 0 ||
+                    sourceId >= static_cast<int>(mesh.points.size())) {
+                    sampleFinite = false;
+                    break;
+                }
+                Point const &point = mesh.points[sourceId];
+                if (!std::isfinite(point.x) || !std::isfinite(point.y) ||
+                    !std::isfinite(point.z)) {
+                    sampleFinite = false;
+                    break;
+                }
+                for (int row = 0; row < static_cast<int>(rowWeights.size());
+                     ++row) {
+                    double const weight =
+                        static_cast<double>(rowWeights[row][entry]);
+                    if (!std::isfinite(weight)) {
+                        sampleFinite = false;
+                        break;
+                    }
+                    evaluatedRows[row][0] += weight * point.x;
+                    evaluatedRows[row][1] += weight * point.y;
+                    evaluatedRows[row][2] += weight * point.z;
+                }
+                if (!sampleFinite) {
+                    break;
+                }
+            }
+        }
+        for (int row = 0; row < 6 && sampleFinite; ++row) {
+            for (int component = 0; component < 3; ++component) {
+                sampleFinite =
+                    sampleFinite &&
+                    std::isfinite(evaluatedRows[row][component]);
+            }
+        }
+        if (sampleFinite) {
+            ++finiteEvaluatedSamples;
+        } else {
+            allStencilEntriesValid = false;
+        }
         merge_ids(valueIds, limit_weight_source_ids(stencil, stencil.GetWeights()));
         merge_ids(duIds, limit_weight_source_ids(stencil, stencil.GetDuWeights()));
         merge_ids(dvIds, limit_weight_source_ids(stencil, stencil.GetDvWeights()));
@@ -726,7 +830,9 @@ static bool print_aggregate_source_coverage(
         ptexFaceCount == static_cast<int>(mesh.vertsPerFace.size()) &&
         stencils->GetNumStencils() == requestedSamples &&
         foundPatchLookups == requestedSamples &&
-        sampledPatchTypes == std::set<std::string>{"LOOP"};
+        sampledPatchTypes == std::set<std::string>{"LOOP"} &&
+        allStencilEntriesValid &&
+        finiteEvaluatedSamples == requestedSamples;
     bool const passed = completeCoverage && sampleCoverage;
 
     std::cout << "\"available\":true";
@@ -736,8 +842,14 @@ static bool print_aggregate_source_coverage(
     std::cout << ",\"sample_location_count_per_face\":"
               << sampleLocations.size();
     std::cout << ",\"requested_sample_count\":" << requestedSamples;
-    std::cout << ",\"evaluated_sample_count\":"
+    std::cout << ",\"generated_stencil_count\":"
               << stencils->GetNumStencils();
+    std::cout << ",\"evaluated_sample_count\":"
+              << finiteEvaluatedSamples;
+    std::cout << ",\"finite_evaluated_sample_count\":"
+              << finiteEvaluatedSamples;
+    std::cout << ",\"all_stencil_weights_source_ids_and_results_finite\":"
+              << (allStencilEntriesValid ? "true" : "false");
     std::cout << ",\"found_patch_lookup_count\":" << foundPatchLookups;
     std::cout << ",\"unique_patch_count_sampled\":"
               << sampledPatchIndices.size();
@@ -4712,10 +4824,10 @@ static bool print_valence4_force_formula_proof(MeshCase const &mesh) {
 
 static int run_case(MeshCase const &mesh) {
 #if SLIMED_VALENCE5_FIXTURE_COVERAGE_REPORT
-    if (mesh.numVertices != 12 || mesh.points.size() != 12 ||
-        mesh.vertsPerFace.size() != 20 || mesh.vertIndices.size() != 60) {
-        std::cerr << "approved valence-5 fixture must retain 12 vertices and "
-                     "20 oriented triangular faces\n";
+    if (!valence5_fixture_identity_matches(mesh)) {
+        std::cerr << "approved valence-5 fixture must exactly match the 12 "
+                     "ordered coordinates and 20 ordered oriented triangular "
+                     "faces\n";
         return 16;
     }
 #endif
@@ -4983,6 +5095,7 @@ static int run_case(MeshCase const &mesh) {
     std::cout << ",\"approved_fixture\":true";
     std::cout << ",\"approved_scope\":\"existing narrow positive-depth "
                  "11-control scientific stand-in\"";
+    std::cout << ",\"approved_fixture_identity_matches\":true";
     std::cout << ",\"fixture_loaded_from_serialized_csv\":true";
     std::cout << ",\"proof_only\":true";
     std::cout << ",\"not_production_routing\":true";

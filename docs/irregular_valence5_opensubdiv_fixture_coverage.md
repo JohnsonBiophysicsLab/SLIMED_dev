@@ -16,11 +16,15 @@ OPENSUBDIV_ROOT=/path/to/opensubdiv \
 
 Without `OPENSUBDIV_ROOT`, the wrapper exits successfully with a machine-readable
 skip. With the dependency present, the probe loads the 12 serialized vertices
-and 20 oriented faces, uses `s=v,t=w`, evaluates nine documented sample
-locations on every Ptex face, and requires:
+and 20 oriented faces, rejects any coordinate, face-order, or winding drift,
+uses `s=v,t=w`, evaluates nine documented sample locations on every Ptex face,
+and requires:
 
 - all 180 requested samples to resolve and produce limit stencils;
-- finite value, first-derivative, and second-derivative rows;
+- every source index and value/first/second-derivative coefficient to be valid
+  and finite;
+- all six value/derivative vectors evaluated from fixture coordinates to be
+  finite for every one of the 180 samples;
 - aggregate value, first-derivative, and second-derivative coverage of all
   original source IDs `0..11`; and
 - byte-for-byte deterministic JSON across identical runs.
