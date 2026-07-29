@@ -107,8 +107,11 @@ struct Snapshot
     std::vector<double> faceMeanCurvature;
     std::vector<int> activeFaceIds;
     std::vector<int> oneRingSourceIds;
+    std::vector<int> adjacentFaceSourceIds;
     std::vector<double> scientificCoordinates;
     std::vector<double> perFaceSourceForces;
+    std::vector<double> positiveDepthComposedRows;
+    std::vector<double> positiveDepthExtraordinaryVertexMask;
     std::vector<double> forceFormulaParameters;
     int vertexCount = 0;
     int faceCount = 0;
@@ -119,6 +122,48 @@ struct Snapshot
     bool finite = true;
     bool nonzeroForce = false;
 };
+
+void append_positive_depth_composed_rows(Snapshot &snapshot,
+                                         const Mesh &mesh,
+                                         const Face &face)
+{
+    Matrix carriedToOriginal(11, 11, true);
+    carriedToOriginal.set_identity();
+    const std::array<const Matrix *, 3> regularChildSelectors = {
+        &mesh.param.subMatrix.irregM1,
+        &mesh.param.subMatrix.irregM2,
+        &mesh.param.subMatrix.irregM3,
+    };
+
+    for (int depth = 0; depth < mesh.param.subDivideTimes; ++depth)
+    {
+        Matrix subdividedToOriginal =
+            mesh.param.subMatrix.irregM * carriedToOriginal;
+        for (const Matrix *selector : regularChildSelectors)
+        {
+            Matrix childToOriginal = (*selector) * subdividedToOriginal;
+            for (const Matrix &shapeFunction : mesh.param.shapeFunctions)
+            {
+                Matrix effectiveRows = shapeFunction * childToOriginal;
+                for (int row = 0; row < effectiveRows.nrow(); ++row)
+                {
+                    std::array<double, 12> sourceRow{};
+                    for (int slot = 0; slot < effectiveRows.ncol(); ++slot)
+                    {
+                        sourceRow[face.oneRingVertices[slot]] +=
+                            effectiveRows.get(row, slot);
+                    }
+                    snapshot.positiveDepthComposedRows.insert(
+                        snapshot.positiveDepthComposedRows.end(),
+                        sourceRow.begin(),
+                        sourceRow.end());
+                }
+            }
+        }
+        carriedToOriginal =
+            mesh.param.subMatrix.irregM4 * subdividedToOriginal;
+    }
+}
 
 Snapshot run_snapshot()
 {
@@ -170,6 +215,11 @@ Snapshot run_snapshot()
         mesh.param.area,
         mesh.param.vol,
     };
+    for (int sourceSlot = 0; sourceSlot < 11; ++sourceSlot)
+    {
+        snapshot.positiveDepthExtraordinaryVertexMask.push_back(
+            mesh.param.subMatrix.irregM.get(2, sourceSlot));
+    }
     snapshot.vertexCount = static_cast<int>(mesh.vertices.size());
     snapshot.faceCount = static_cast<int>(mesh.faces.size());
     for (const Vertex &vertex : mesh.vertices)
@@ -194,6 +244,11 @@ Snapshot run_snapshot()
         snapshot.oneRingSourceIds.insert(snapshot.oneRingSourceIds.end(),
                                          face.oneRingVertices.begin(),
                                          face.oneRingVertices.end());
+        snapshot.adjacentFaceSourceIds.insert(
+            snapshot.adjacentFaceSourceIds.end(),
+            face.adjacentVertices.begin(),
+            face.adjacentVertices.end());
+        append_positive_depth_composed_rows(snapshot, mesh, face);
 
         std::vector<Matrix> coordinates;
         coordinates.reserve(face.oneRingVertices.size());
@@ -317,12 +372,19 @@ int main()
     print_int_array(snapshot.activeFaceIds);
     std::cout << ",\"one_ring_source_ids\":";
     print_int_array(snapshot.oneRingSourceIds);
+    std::cout << ",\"adjacent_face_source_ids\":";
+    print_int_array(snapshot.adjacentFaceSourceIds);
     std::cout << ",\"force_formula_parameters\":";
     print_double_array(snapshot.forceFormulaParameters);
     std::cout << ",\"scientific_coordinates\":";
     print_double_array(snapshot.scientificCoordinates);
     std::cout << ",\"per_face_source_forces\":";
     print_double_array(snapshot.perFaceSourceForces);
+    std::cout << ",\"positive_depth_composed_rows\":";
+    print_double_array(snapshot.positiveDepthComposedRows);
+    std::cout << ",\"positive_depth_composed_row_shape\":[20,6,3,7,12]";
+    std::cout << ",\"positive_depth_extraordinary_vertex_mask\":";
+    print_double_array(snapshot.positiveDepthExtraordinaryVertexMask);
     std::cout << ",\"production_irregular_force_path_executed\":true";
     std::cout << ",\"global_energy\":";
     print_double_array(snapshot.globalEnergy);

@@ -64,15 +64,16 @@ ANCHORS = {
         "`fArea`: `0.46106761515265404`",
         "`fVolume`: `0.062309089012307695`",
         "`production_scatter_executed:false`",
-        "proof-only integration-domain/composition",
+        "follow-up integration-domain/composition diagnostic is now complete",
+        "scientific decision on valence-5 extraordinary vertex mask semantics",
     ),
     READINESS: (
-        "whole-Ptex OpenSubdiv evaluation does not match",
-        "Maximum per-face source-component differences",
-        "valence-5 routing",
+        "completed integration-domain/composition diagnostic",
+        "extraordinary smooth-vertex mask",
+        "scientific decision on valence-5 extraordinary vertex mask semantics",
     ),
     FIXTURE_INVENTORY: (
-        '"next_gate": "valence-5 integration-domain/composition diagnostic"',
+        '"scientific decision on valence-5 extraordinary vertex mask "',
     ),
 }
 
@@ -124,7 +125,10 @@ def collect(root: Path) -> dict[str, object]:
         "production_route_enabled": False,
         "production_scatter_executed": False,
         "force_parity_passed": False,
-        "next_gate": "valence-5 integration-domain/composition diagnostic",
+        "next_gate": (
+            "scientific decision on valence-5 extraordinary vertex mask "
+            "semantics"
+        ),
         "anchors": {"located": located, "expected": expected},
         "forbidden_stale_claims": {
             "located": forbidden_located,

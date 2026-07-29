@@ -44,7 +44,7 @@ class ValenceFiveSourceOrderTransposeInventoryTest(unittest.TestCase):
         )
         self.assertFalse(report["opensubdiv_production_force_path_executed"])
         self.assertEqual(report["forbidden_stale_claims"]["located"], 0)
-        self.assertEqual(report["forbidden_stale_claims"]["expected"], 2)
+        self.assertEqual(report["forbidden_stale_claims"]["expected"], 3)
 
     def test_stale_readiness_claims_are_rejected(self):
         inventory = load_module(INVENTORY, "val5_stale_inventory")

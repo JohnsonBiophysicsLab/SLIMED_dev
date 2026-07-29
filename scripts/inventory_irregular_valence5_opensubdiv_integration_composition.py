@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Inventory the proof-only valence-5 source-order/transpose lane."""
+"""Inventory the valence-5 OpenSubdiv integration-composition diagnostic."""
 
 from __future__ import annotations
 
@@ -8,88 +8,97 @@ import json
 from pathlib import Path
 
 
+PRODUCTION = Path("experiments/irregular_valence5_fixture_parity.cpp")
 PROBE = Path("scripts/probe_opensubdiv_feasibility.py")
+RUNNER = Path(
+    "scripts/run_irregular_valence5_opensubdiv_integration_composition.py"
+)
 WRAPPER = Path(
-    "scripts/run_irregular_valence5_opensubdiv_source_order_transpose.sh"
+    "scripts/run_irregular_valence5_opensubdiv_integration_composition.sh"
 )
-COMPARATOR = Path(
-    "scripts/compare_irregular_valence5_opensubdiv_source_order_transpose.py"
-)
-DOC = Path("docs/irregular_valence5_opensubdiv_source_order_transpose.md")
+DOC = Path("docs/irregular_valence5_opensubdiv_integration_composition.md")
 READINESS = Path("docs/opensubdiv_routing_readiness_map.md")
-FIXTURE_COVERAGE_INVENTORY = Path(
-    "scripts/inventory_irregular_valence5_opensubdiv_fixture_coverage.py"
+PREDECESSOR = Path(
+    "scripts/inventory_irregular_valence5_opensubdiv_force_parity.py"
 )
 
 ANCHORS = {
+    PRODUCTION: (
+        "append_positive_depth_composed_rows",
+        "param.subMatrix.irregM1",
+        "param.subMatrix.irregM2",
+        "param.subMatrix.irregM3",
+        "param.subMatrix.irregM4",
+        "shapeFunction * childToOriginal",
+        "positive_depth_composed_rows",
+        "positive_depth_composed_row_shape",
+        "positive_depth_extraordinary_vertex_mask",
+        "adjacent_face_source_ids",
+    ),
     PROBE: (
-        "--valence5-source-order-transpose-report",
-        "SLIMED_VALENCE5_SOURCE_ORDER_TRANSPOSE_REPORT",
-        "print_valence5_source_order_transpose_proof",
-        "valence5_fixture_identity_matches",
-        "kFaceCount = 20",
-        "kSourceCount = 12",
-        "kSampleCount = 3",
-        "kRowCount = 7",
-        "allFaceSourceCountsPassed",
-        "backprojected_source_components",
-        "weighted_transpose_passed",
-        "return 17;",
+        "SLIMED_VALENCE5_INTEGRATION_COMPOSITION_REPORT",
+        "--valence5-integration-composition-report",
+        "print_valence5_integration_composition_proof",
+        "depth1_M1_C_corner",
+        "depth1_M2_center",
+        "depth1_M3_B_corner",
+        "depth2_M1_C_corner",
+        "depth2_M2_center",
+        "depth2_M3_B_corner",
+        "orientationPermutations",
+        "composed_rows_all_orientations",
+        "opensubdivValence5EdgeWeight",
+        "opensubdivValence5CenterWeight",
+        "production_scatter_executed",
+    ),
+    RUNNER: (
+        "REVIEWED_ROW_TOLERANCE = 5.0e-6",
+        "ROW_SHAPE = [20, 6, 3, 7, 12]",
+        "ALL_ORIENTATION_ROW_SHAPE = [20, 6, 6, 3, 7, 12]",
+        "local_ids.index(source_id)",
+        "value_row_domain_residual_matrix",
+        "extraordinary_vertex_mask_policy_mismatch",
+        "SLIMED and OpenSubdiv use different valence-5",
+        "scientific decision on valence-5 extraordinary vertex",
+        "production_scatter_executed",
     ),
     WRAPPER: (
-        "OPENSUBDIV_ROOT",
-        "experiments/irregular_valence5_fixture_parity.cpp",
-        "--valence5-source-order-transpose-report",
-        "compare_irregular_valence5_opensubdiv_source_order_transpose.py",
-    ),
-    COMPARATOR: (
-        "EXPECTED_ONE_RINGS",
-        "len(flattened) != 220",
-        "sorted(counts.values()) == [1] * 7 + [2] * 2",
-        "fraction = (1.0 / 3.0) if occurrence == 0 else (2.0 / 3.0)",
-        "per_face_opensubdiv_source_sets_match",
-        "duplicate_slot_rescatter_max_abs_difference",
-        "independent_weighted_transpose_max_abs_difference",
-        "production_scatter_executed",
-        "existing_dependency_free_production_baseline_executed",
-        "opensubdiv_production_force_path_executed",
-        "actual fBend/fArea/fVolume parity",
+        "run_irregular_valence5_opensubdiv_integration_composition.py",
+        '"$@"',
     ),
     DOC: (
-        "canonical ordered `20 x 11`",
-        "exactly two duplicated source IDs",
-        "`g dot (W p) == (W^T g) dot p`",
-        "asymmetric `1/3,2/3` duplicate split",
-        "`proof_only:true`",
-        "`not_production_routing:true`",
+        "`20 x 6 x 3 x 7 x 12`",
+        "`shapeFunction * childToOriginal`",
+        "All six orientation permutations",
+        "`0.7357563654581705`",
+        "`0.02817109760678843`",
+        "`0.075`",
+        "`0.625`",
+        "`0.08409321892578289`",
+        "`0.5795339053710855`",
+        "scientific decision on valence-5 extraordinary vertex mask",
         "`production_route_enabled:false`",
-        "`production_scatter_executed:false`",
-        "proof-local scatter-shape evidence",
-        "does not invoke production scatter",
-        "`opensubdiv_production_force_path_executed:false`",
-        "`existing_dependency_free_production_baseline_executed:true`",
-        "it does not imply",
-        "scientific decision on which",
     ),
     READINESS: (
-        "per-face source-order and weighted-transpose contract now passes",
-        "whole-Ptex OpenSubdiv evaluation does not match",
         "completed integration-domain/composition diagnostic",
+        "maximum position-row residual of `0.02817109760678843`",
+        "extraordinary smooth-vertex mask",
         "scientific decision on valence-5 extraordinary vertex mask semantics",
-        "does not execute production scatter",
-        "Broader-valence production routing remains unsupported",
     ),
-    FIXTURE_COVERAGE_INVENTORY: (
+    PREDECESSOR: (
         '"scientific decision on valence-5 extraordinary vertex mask "',
     ),
 }
 
 FORBIDDEN_STALE_CLAIMS = {
-    READINESS: (
-        "The next reviewed step is a per-face source-order and weighted-transpose",
+    RUNNER: (
+        'add_argument("--tolerance"',
+        "args.tolerance",
     ),
-    FIXTURE_COVERAGE_INVENTORY: (
-        '"next_gate": "per-face source-order and weighted-transpose contract"',
+    READINESS: (
+        "The next reviewed step is a proof-only\nintegration-domain/composition",
+    ),
+    PREDECESSOR: (
         '"next_gate": "valence-5 integration-domain/composition diagnostic"',
     ),
 }
@@ -111,6 +120,7 @@ def collect(root: Path) -> dict[str, object]:
                 located += 1
             else:
                 errors.append(f"{relative} missing {needle!r}")
+
     forbidden_located = 0
     forbidden_expected = 0
     for relative, needles in FORBIDDEN_STALE_CLAIMS.items():
@@ -120,14 +130,15 @@ def collect(root: Path) -> dict[str, object]:
             if needle in source:
                 forbidden_located += 1
                 errors.append(f"{relative} contains stale claim {needle!r}")
+
     return {
         "status": "passed" if not errors else "failed",
         "proof_only": True,
         "not_production_routing": True,
         "production_route_enabled": False,
         "production_scatter_executed": False,
-        "existing_dependency_free_production_baseline_executed": True,
-        "opensubdiv_production_force_path_executed": False,
+        "composed_row_parity_passed": False,
+        "exact_blocker": "valence-5 extraordinary vertex mask policy mismatch",
         "next_gate": (
             "scientific decision on valence-5 extraordinary vertex mask "
             "semantics"

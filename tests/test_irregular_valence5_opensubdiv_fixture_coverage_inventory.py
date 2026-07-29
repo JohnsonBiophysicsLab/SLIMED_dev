@@ -37,7 +37,8 @@ class ValenceFiveOpenSubdivFixtureCoverageInventoryTest(unittest.TestCase):
         self.assertFalse(report["production_route_enabled"])
         self.assertFalse(report["production_force_path_executed"])
         self.assertEqual(
-            report["next_gate"], "actual valence-5 fBend/fArea/fVolume parity"
+            report["next_gate"],
+            "scientific decision on valence-5 extraordinary vertex mask semantics",
         )
         self.assertEqual(report["anchors"]["located"], report["anchors"]["expected"])
 

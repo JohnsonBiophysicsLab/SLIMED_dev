@@ -135,8 +135,8 @@ ROUTE_READINESS_MATRIX: tuple[dict[str, str], ...] = (
     {
         "route": "positive-depth 11 = 4+3+4 membrane force",
         "current_production_status": "supported narrowly by subdivision matrices",
-        "opensubdiv_evidence_status": "observational aggregate reports only",
-        "readiness_result": "keep current route; do not replace in regular lane",
+        "opensubdiv_evidence_status": "source-order, force, and child-domain diagnostics isolate a valence-5 extraordinary vertex mask mismatch",
+        "readiness_result": "scientific mask-semantics decision required; keep production route disabled",
     },
     {
         "route": "zero-depth 11-control and unsupported irregular topologies",
@@ -484,11 +484,11 @@ ANCHORS: tuple[Anchor, ...] = (
     ),
     Anchor(
         "valence-5 force diagnostic boundary",
-        "integration composition is next",
+        "integration composition mask blocker",
         READINESS_DOC_PATH,
-        "integration-domain/composition diagnostic",
-        "future review boundary",
-        "The map records the measured force mismatch and advances to integration composition.",
+        "scientific decision on valence-5 extraordinary vertex mask semantics",
+        "scientific review boundary",
+        "The map records the completed child-domain diagnostic and exact mask-policy blocker.",
     ),
     Anchor(
         "backend policy",
