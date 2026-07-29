@@ -16,6 +16,8 @@ PREDECESSOR = (
     ROOT / "scripts/run_irregular_valence5_opensubdiv_mask_counterfactual.sh"
 )
 REVIEWED_ROW_TOLERANCE = 5.0e-6
+EXPECTED_OPENSUBDIV_VERSION_NUMBER = 30700
+EXPECTED_OPENSUBDIV_VERSION = "3.7.0"
 EXPECTED_SCHEME_TYPES = ["SCHEME_BILINEAR", "SCHEME_CATMARK", "SCHEME_LOOP"]
 PUBLIC_EXTENSION_BLOCKER = (
     "OpenSubdiv 3.7.0 public Far/Sdc pipeline closes scheme selection over "
@@ -59,7 +61,17 @@ def _scheme_types(types_source: str) -> list[str]:
     return re.findall(r"\bSCHEME_[A-Z0-9_]+\b", match.group(1))
 
 
+def _version_number(version_source: str) -> int | None:
+    match = re.search(
+        r"^\s*#\s*define\s+OPENSUBDIV_VERSION_NUMBER\s+(\d+)\s*$",
+        version_source,
+        re.MULTILINE,
+    )
+    return int(match.group(1)) if match is not None else None
+
+
 def public_extension_evidence(
+    version_source: str,
     types_source: str,
     options_source: str,
     scheme_source: str,
@@ -78,6 +90,7 @@ def public_extension_evidence(
         )
     )
     scheme_types = _scheme_types(types_source)
+    version_number = _version_number(version_source)
     registration_tokens = sorted(
         set(
             re.findall(
@@ -86,15 +99,26 @@ def public_extension_evidence(
             )
         )
     )
-    mask_setters = sorted(
-        set(
-            re.findall(
-                r"\bSet[A-Za-z0-9_]*(?:Mask|Weight|Smooth)[A-Za-z0-9_]*\b",
-                options_source,
-            )
-        )
-    )
+    mask_setters: set[str] = set()
+    for pattern in (
+        r"\bSet[A-Za-z0-9_]*(?:Mask|Smooth)[A-Za-z0-9_]*\b",
+        r"\bSet[A-Za-z0-9_]*(?:Custom|Extraordinary|Loop)"
+        r"[A-Za-z0-9_]*Weight[A-Za-z0-9_]*\b",
+        r"\b(?:Register|Install|Add|Create)[A-Za-z0-9_]*"
+        r"(?:Mask|Weight|Smooth)[A-Za-z0-9_]*\b",
+    ):
+        mask_setters.update(re.findall(pattern, combined))
+    sorted_mask_setters = sorted(mask_setters)
     return {
+        "detected_opensubdiv_version_number": version_number,
+        "detected_opensubdiv_version": (
+            EXPECTED_OPENSUBDIV_VERSION
+            if version_number == EXPECTED_OPENSUBDIV_VERSION_NUMBER
+            else None
+        ),
+        "version_number_matches_reviewed_api": (
+            version_number == EXPECTED_OPENSUBDIV_VERSION_NUMBER
+        ),
         "scheme_type_values": scheme_types,
         "scheme_type_set_matches_reviewed_api": scheme_types == EXPECTED_SCHEME_TYPES,
         "scheme_template_parameter_is_scheme_type": (
@@ -111,8 +135,8 @@ def public_extension_evidence(
         ),
         "public_scheme_registration_tokens": registration_tokens,
         "public_scheme_registration_hook_available": bool(registration_tokens),
-        "public_custom_mask_setters": mask_setters,
-        "public_custom_mask_injection_available": bool(mask_setters),
+        "public_custom_mask_setters": sorted_mask_setters,
+        "public_custom_mask_injection_available": bool(sorted_mask_setters),
     }
 
 
@@ -147,6 +171,7 @@ def _build_report(
         errors.append("predecessor counterfactual row cardinality drift")
 
     required_api_truths = (
+        "version_number_matches_reviewed_api",
         "scheme_type_set_matches_reviewed_api",
         "scheme_template_parameter_is_scheme_type",
         "loop_scheme_is_fixed_specialization",
@@ -275,6 +300,7 @@ def main() -> int:
     else:
         include = Path(root_value) / "include/opensubdiv"
         paths = {
+            "version": include / "version.h",
             "types": include / "sdc/types.h",
             "options": include / "sdc/options.h",
             "scheme": include / "sdc/scheme.h",
@@ -296,6 +322,7 @@ def main() -> int:
             report = evaluate(
                 predecessor,
                 public_extension_evidence(
+                    sources["version"],
                     sources["types"],
                     sources["options"],
                     sources["scheme"],

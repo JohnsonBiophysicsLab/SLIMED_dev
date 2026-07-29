@@ -46,6 +46,11 @@ def predecessor_payload(runner):
 
 def api_payload(runner):
     return {
+        "detected_opensubdiv_version_number": (
+            runner.EXPECTED_OPENSUBDIV_VERSION_NUMBER
+        ),
+        "detected_opensubdiv_version": runner.EXPECTED_OPENSUBDIV_VERSION,
+        "version_number_matches_reviewed_api": True,
         "scheme_type_values": runner.EXPECTED_SCHEME_TYPES,
         "scheme_type_set_matches_reviewed_api": True,
         "scheme_template_parameter_is_scheme_type": True,
@@ -56,6 +61,32 @@ def api_payload(runner):
         "public_scheme_registration_hook_available": False,
         "public_custom_mask_setters": [],
         "public_custom_mask_injection_available": False,
+    }
+
+
+def api_sources(runner):
+    return {
+        "version_source": (
+            "#define OPENSUBDIV_VERSION_NUMBER "
+            f"{runner.EXPECTED_OPENSUBDIV_VERSION_NUMBER}\n"
+        ),
+        "types_source": (
+            "enum SchemeType { SCHEME_BILINEAR, SCHEME_CATMARK, SCHEME_LOOP };\n"
+        ),
+        "options_source": "class Options { public: void SetCreasingMethod(); };\n",
+        "scheme_source": "template <SchemeType SCHEME_TYPE>\nclass Scheme {};\n",
+        "loop_source": (
+            "void Scheme<SCHEME_LOOP>::assignSmoothMaskForVertex() {}\n"
+        ),
+        "topology_refiner_source": (
+            "class TopologyRefiner {\n"
+            " public:\n"
+            "  TopologyRefiner(Sdc::SchemeType type);\n"
+            "};\n"
+        ),
+        "topology_factory_source": (
+            "struct Options { Sdc::SchemeType schemeType; };\n"
+        ),
     }
 
 
@@ -110,6 +141,46 @@ class ValenceFiveCustomSchemeFeasibilityInventoryTest(unittest.TestCase):
         report = runner._build_report(predecessor_payload(runner), api)
         self.assertEqual(report["status"], "failed")
         self.assertTrue(report["errors"])
+
+    def test_public_mask_hooks_outside_options_are_binding(self):
+        runner = load_module(RUNNER, "val5_custom_cross_surface_hooks")
+        for surface in (
+            "scheme_source",
+            "topology_refiner_source",
+            "topology_factory_source",
+        ):
+            with self.subTest(surface=surface):
+                sources = api_sources(runner)
+                sources[surface] += "\npublic: void SetSmoothMaskWeights();\n"
+                api = runner.public_extension_evidence(**sources)
+                self.assertTrue(api["public_custom_mask_injection_available"])
+                self.assertIn(
+                    "SetSmoothMaskWeights",
+                    api["public_custom_mask_setters"],
+                )
+                report = runner._build_report(predecessor_payload(runner), api)
+                self.assertEqual(report["status"], "failed")
+                self.assertIn(
+                    "OpenSubdiv public mask-injection surface changed",
+                    report["errors"],
+                )
+
+    def test_version_drift_and_missing_version_are_binding(self):
+        runner = load_module(RUNNER, "val5_custom_version_drift")
+        for version_source in (
+            "#define OPENSUBDIV_VERSION_NUMBER 30701\n",
+            "#define OPENSUBDIV_VERSION_MAJOR 3\n",
+        ):
+            with self.subTest(version_source=version_source):
+                sources = api_sources(runner)
+                sources["version_source"] = version_source
+                api = runner.public_extension_evidence(**sources)
+                self.assertFalse(api["version_number_matches_reviewed_api"])
+                report = runner._build_report(predecessor_payload(runner), api)
+                self.assertEqual(report["status"], "failed")
+                self.assertTrue(
+                    any("version_number_matches_reviewed_api" in error for error in report["errors"])
+                )
 
     def test_predecessor_contract_drift_is_binding(self):
         runner = load_module(RUNNER, "val5_custom_predecessor_drift")
@@ -176,6 +247,19 @@ class ValenceFiveCustomSchemeFeasibilityInventoryTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         report = json.loads(result.stdout)
         self.assertEqual(report["status"], "passed", report["errors"])
+        self.assertEqual(
+            report["public_api_evidence"][
+                "detected_opensubdiv_version_number"
+            ],
+            runner.EXPECTED_OPENSUBDIV_VERSION_NUMBER,
+        )
+        self.assertEqual(
+            report["public_api_evidence"]["detected_opensubdiv_version"],
+            runner.EXPECTED_OPENSUBDIV_VERSION,
+        )
+        self.assertTrue(
+            report["public_api_evidence"]["version_number_matches_reviewed_api"]
+        )
         self.assertEqual(
             report["public_api_evidence"]["scheme_type_values"],
             runner.EXPECTED_SCHEME_TYPES,

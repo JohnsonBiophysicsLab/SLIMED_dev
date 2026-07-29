@@ -19,7 +19,10 @@ OPENSUBDIV_CXXFLAGS='-arch arm64' \
 Without `OPENSUBDIV_ROOT`, the wrapper emits a successful machine-readable
 skip. With the dependency present, it reruns the evaluator-bound predecessor,
 keeps the fixed non-overrideable `5e-6` policy, and inspects only the installed
-public Far/Sdc headers.
+public Far/Sdc headers. The diagnostic reads `opensubdiv/version.h`, requires
+`OPENSUBDIV_VERSION_NUMBER == 30700`, and emits the detected version. Missing
+or changed version metadata fails closed rather than inheriting the 3.7.0
+conclusion.
 
 ## Result
 
@@ -29,7 +32,9 @@ No valid standalone public-extension path exists in the reviewed API.
 `TopologyRefiner` and `TopologyRefinerFactory` accept the fixed scheme type and
 `Sdc::Options`; and the public surface exposes neither custom scheme
 registration nor custom smooth-mask injection. Loop's smooth mask remains a
-fixed `Scheme<SCHEME_LOOP>` specialization.
+fixed `Scheme<SCHEME_LOOP>` specialization. Hook detection spans every header
+used to make that claim, including `Sdc::Scheme`, `TopologyRefiner`, and
+`TopologyRefinerFactory`; adversarial non-Options hook mutations must fail.
 
 The exact blocker is:
 

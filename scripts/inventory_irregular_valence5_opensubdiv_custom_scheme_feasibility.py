@@ -36,6 +36,10 @@ NEXT_BOUNDARY = (
 ANCHORS = {
     RUNNER: (
         "REVIEWED_ROW_TOLERANCE = 5.0e-6",
+        "EXPECTED_OPENSUBDIV_VERSION_NUMBER = 30700",
+        'EXPECTED_OPENSUBDIV_VERSION = "3.7.0"',
+        "detected_opensubdiv_version_number",
+        "version_number_matches_reviewed_api",
         'EXPECTED_SCHEME_TYPES = ["SCHEME_BILINEAR", "SCHEME_CATMARK", "SCHEME_LOOP"]',
         "scheme_type_set_matches_reviewed_api",
         "scheme_template_parameter_is_scheme_type",
@@ -61,6 +65,9 @@ ANCHORS = {
     DOC: (
         "approved closed valence-5 icosahedron",
         "fixed non-overrideable `5e-6` policy",
+        "`OPENSUBDIV_VERSION_NUMBER == 30700`",
+        "Missing\nor changed version metadata fails closed",
+        "Hook detection spans every header",
         "`SCHEME_BILINEAR`, `SCHEME_CATMARK`, and",
         "`valid_standalone_public_extension_path_exists:false`",
         "`evaluator_bound_slimed_mask_rows_generated:false`",
@@ -83,6 +90,8 @@ ANCHORS = {
         "test_false_extension_and_post_hoc_claims_are_binding",
         "test_scientific_choice_and_vendoring_claims_are_binding",
         "test_public_scheme_set_drift_is_binding",
+        "test_public_mask_hooks_outside_options_are_binding",
+        "test_version_drift_and_missing_version_are_binding",
         "test_present_dependency_reports_exact_architecture_blocker",
         "test_wider_tolerance_override_is_rejected",
     ),
