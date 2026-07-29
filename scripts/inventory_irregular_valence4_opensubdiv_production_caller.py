@@ -53,6 +53,15 @@ GLOBAL_OPENSUBDIV_INVENTORY = Path(
 TEST = Path(
     "tests/test_irregular_valence4_opensubdiv_production_caller_inventory.py"
 )
+ROUTE_ACTIVATION_DOC = Path(
+    "docs/irregular_valence4_opensubdiv_route_activation.md"
+)
+ROUTE_ACTIVATION_INVENTORY = Path(
+    "scripts/inventory_irregular_valence4_opensubdiv_route_activation.py"
+)
+ROUTE_ACTIVATION_TEST = Path(
+    "tests/test_irregular_valence4_opensubdiv_route_activation_inventory.py"
+)
 PRODUCTION_SOURCE = Path(
     "src/energy_force/Compute_energy_and_force_on_mesh.cpp"
 )
@@ -78,6 +87,9 @@ ALLOWED_PATHS = {
     PRODUCTION_CALL_SHADOW_PARITY_INVENTORY,
     GLOBAL_OPENSUBDIV_INVENTORY,
     TEST,
+    ROUTE_ACTIVATION_DOC,
+    ROUTE_ACTIVATION_INVENTORY,
+    ROUTE_ACTIVATION_TEST,
     PRODUCTION_LOOP_HEADER,
     PRODUCTION_SOURCE,
 }
@@ -160,34 +172,34 @@ ANCHORS = {
         "exact ordered `N=2`",
         "three exact `1/3` quadrature weights",
         "shared production membrane face loop",
-        "is not called by `Mesh::Compute_Energy_And_Force()`",
+        "is called by `Mesh::Compute_Energy_And_Force()` only when both the",
+        "`SLIMED_USE_OPENSUBDIV_VALENCE4=1` runtime gate",
         "shadow_face_loop_parity_passed: true",
-        "Route activation remains",
+        "Broader valence remains",
     ),
     READINESS: (
         "evaluate_guarded_valence4_opensubdiv_production_face_loop_caller",
-        "real production valence-4 force execution through an explicit, default-off",
+        "`Mesh::Compute_Energy_And_Force()` can now select this reviewed transaction",
         "executes those rows through the shared production membrane face loop",
-        "`productionFaceLoopExecuted` and `actualProductionForcePathExecuted` are",
-        "`productionRouteEnabled` and `defaultEvaluatorCaller` remain false",
-        "continues to reject this unsupported topology and the explicit caller remains",
-        "separate explicit reviewer/user decision on guarded",
-        "default route activation",
+        "`SLIMED_USE_OPENSUBDIV_VALENCE4=1`",
+        "successful runtime-gated execution sets `productionRouteEnabled` and",
+        "dependency-free builds stay OpenSubdiv-free",
+        "Broader-valence",
     ),
     READINESS_INVENTORY: (
         "FORBIDDEN_READINESS_CLAIMS",
-        "pre-PR141 production entry rejection claim",
-        "pre-PR141 force-execution denial",
-        "pre-PR141 missing real caller claim",
-        "pre-PR141 no caller enabled claim",
-        "pre-PR141 next-caller claim",
+        "pre-activation default evaluator denial",
+        "pre-activation route-disabled flags",
+        "pre-activation next boundary",
+        "pre-activation default rejection",
         "explicit guarded production face-loop caller",
-        "route and default caller remain disabled",
+        "dedicated runtime route gate",
+        "successful route flag promotion",
         "collect_forbidden_claims",
     ),
     READINESS_TEST: (
-        "test_valence4_current_state_anchors_distinguish_execution_from_routing",
-        "test_pre_pr141_readiness_claims_fail_the_inventory",
+        "test_valence4_current_state_anchors_bind_guarded_activation",
+        "test_stale_valence4_readiness_claims_fail_the_inventory",
         "collect_forbidden_claims",
     ),
     PRODUCTION_LOOP_HEADER: (
@@ -196,6 +208,9 @@ ANCHORS = {
         "Valence4FaceLoopScientificRequestResult",
     ),
     PRODUCTION_SOURCE: (
+        "opensubdiv_valence4_production_routing_requested",
+        "evaluate_guarded_valence4_opensubdiv_production_route",
+        "SLIMED_USE_OPENSUBDIV_VALENCE4 requested",
         "guardedValence4ShapeFunctions",
         "valence4_shape_functions",
         "source/cardinality drift",
@@ -268,11 +283,11 @@ def collect(root: Path) -> dict[str, object]:
 
     production_text = (root / PRODUCTION_SOURCE).read_text(encoding="utf-8")
     default_evaluator_route_caller = (
-        "evaluate_guarded_valence4_opensubdiv_production_caller"
+        "evaluate_guarded_valence4_opensubdiv_production_route"
         in production_text
     )
-    if default_evaluator_route_caller:
-        errors.append("default evaluator calls guarded valence-4 caller")
+    if not default_evaluator_route_caller:
+        errors.append("guarded canonical route activation is missing")
 
     return {
         "status": "passed" if not errors else "failed",
@@ -283,8 +298,8 @@ def collect(root: Path) -> dict[str, object]:
         "complete_transaction_validated_before_mutation": True,
         "shadow_face_loop_parity_required": True,
         "serial_openmp_provider_fed_caller_parity_required": True,
-        "not_production_routing": True,
-        "production_route_enabled": False,
+        "not_production_routing": False,
+        "production_route_enabled": default_evaluator_route_caller,
         "actual_production_force_path_executed": True,
         "production_face_loop_executed": True,
         "production_one_rings_populated": False,

@@ -1,9 +1,9 @@
 # Guarded OpenSubdiv Valence-4 Production Face-Loop Caller
 
 This lane closes the real face-loop evidence gap left after the guarded
-OpenSubdiv row provider and production-caller completion shadow. It remains an
-explicit reviewer-gated caller and does not activate a default production
-route.
+OpenSubdiv row provider and production-caller completion shadow. The caller is
+also the reviewed transaction used by the later canonical-only route
+activation; it is never selected from ambient dependency availability alone.
 
 ## Provider-Fed Caller
 
@@ -39,14 +39,17 @@ The provider-fed caller:
   guarded caller;
 - exercises current regular force formulas, per-thread scatter, reduction,
   completion, total force/energy publication, and boundary handling;
-- is not called by `Mesh::Compute_Energy_And_Force()` or any default
-  evaluator path;
-- does not enable a production route; and
+- is called by `Mesh::Compute_Energy_And_Force()` only when both the
+  OpenSubdiv-enabled build and dedicated
+  `SLIMED_USE_OPENSUBDIV_VALENCE4=1` runtime gate are present;
+- leaves the ordinary evaluator path unchanged when the runtime gate is
+  absent; and
 - preserves the existing default dependency and build-target behavior.
 
-This is still not route activation. The default production evaluator remains
-unchanged and cannot silently route valence-4 faces based on ambient
-OpenSubdiv availability.
+The route accepts only the approved canonical closed valence-4 octahedron.
+Dependency absence or any topology, orientation, quadrature, row, or
+destination drift rejects before mutation. Broader valence remains
+unsupported.
 
 ## Evidence
 
@@ -78,7 +81,8 @@ production_one_rings_populated: false
 ```
 
 The measured serial/OpenMP force delta is required to remain within `1e-12`,
-as is the real-loop versus reviewed-shadow delta. Route activation remains a
-separate reviewer/user decision. Default dependency behavior,
+as is the real-loop versus reviewed-shadow delta. The later route-activation
+tests bind this same transaction to the real evaluator entry and require
+atomic dependency/topology rejection. Default dependency behavior,
 broader-valence routing, production formulas, scatter semantics, OpenMP
 reduction policy, checkpoint/output, and propagation remain unchanged.

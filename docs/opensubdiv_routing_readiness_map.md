@@ -235,17 +235,20 @@ Future irregular or broader-valence production work must establish:
 Aggregate all-ptex source visibility and toy transpose reports are planning
 evidence only. They are not a face-level production scatter contract.
 
-### Valence-4 Production-Call Boundary
+### Valence-4 Guarded Route Boundary
 
 The approved canonical octahedron now has a complete guarded source-to-caller
 chain. `build_guarded_opensubdiv_valence4_rows(...)` generates the frozen
 `8 x 3 x 7 x 6` OpenSubdiv row tensor with exact original source IDs, and
 `evaluate_guarded_valence4_opensubdiv_production_face_loop_caller(...)`
-executes those rows through the shared production membrane face loop. This is
-real production valence-4 force execution through an explicit, default-off
-caller; it is not default route activation.
+executes those rows through the shared production membrane face loop.
+`Mesh::Compute_Energy_And_Force()` can now select this reviewed transaction,
+but only when the binary was built with
+`USE_OPENSUBDIV_REGULAR=1 OPENSUBDIV_ROOT=...` and the process explicitly sets
+`SLIMED_USE_OPENSUBDIV_VALENCE4=1`. This is real production valence-4 force
+execution through the guarded runtime-selected caller.
 
-Before the first mesh write, the explicit caller validates the canonical
+Before the first mesh write, the guarded route validates the canonical
 topology and orientation, exact source coverage, ordered `N=2` quadrature
 samples and weights, row and sample cardinality, geometry/scientific staging,
 all destinations, and every `7 x 6` shape matrix. It then publishes the staged
@@ -255,36 +258,40 @@ scatter and ascending-thread reduction, and invokes the shared completion
 phase. Present-dependency evidence requires parity with the reviewed completion
 shadow and serial/OpenMP parity at `1e-12`.
 
-The current route boundary remains deliberately narrower than that explicit
-execution:
+The activation boundary remains deliberately narrow:
 
-- `Mesh::Compute_Energy_And_Force()` and the default evaluator do not call the
-  guarded valence-4 entry point;
+- without `SLIMED_USE_OPENSUBDIV_VALENCE4=1`,
+  `Mesh::Compute_Energy_And_Force()` follows its unchanged pre-activation path;
+- dependency-free builds stay OpenSubdiv-free and reject an explicit runtime
+  request before mutation;
+- the runtime request accepts only the approved canonical closed valence-4
+  octahedron and rejects topology, orientation, quadrature, row, or destination
+  drift before mutation;
 - production `Face::oneRingVertices` remain empty, so the unchanged default
-  production entry continues to reject the unsupported valence-4 topology
-  before mutation;
+  one-ring route is not broadened;
 - the guarded caller scatters only through the prevalidated original source
   IDs and does not populate one-rings;
+- successful runtime-gated execution sets `productionRouteEnabled` and
+  `defaultEvaluatorCaller` only after the complete transaction succeeds; and
 - `productionFaceLoopExecuted` and `actualProductionForcePathExecuted` are
-  true only for the reviewer-approved explicit caller, while
-  `productionRouteEnabled` and `defaultEvaluatorCaller` remain false; and
-- dependency-free builds reject an explicit OpenSubdiv request, with no
-  default build or dependency-policy change.
+  true for that successful transaction; and
+- no default build, dependency policy, force formula, scatter layout, OpenMP
+  reduction, checkpoint/output, or propagation behavior changes.
 
 The earlier topology/source, scientific-force, OpenMP scatter, atomic
 publication, geometry-staging, completion-shadow, and provider-fed caller
 proofs remain prerequisite evidence for this current boundary. They are no
 longer the current implementation limit: the explicit guarded caller now
-enters the shared production face loop. They still do not authorize a hidden
-default caller, broader-valence support, changed force formulas or scatter
-semantics, altered OpenMP reductions, or checkpoint/output/propagation
+enters the shared production face loop and the dedicated runtime gate can
+select it from the production evaluator. They still do not authorize ambient
+dependency-based routing, broader-valence support, changed force formulas or
+scatter semantics, altered OpenMP reductions, or checkpoint/output/propagation
 changes.
 
-The next boundary is a separate explicit reviewer/user decision on guarded
-default route activation for only the approved canonical closed valence-4
-topology. Until that decision is reviewed and approved, the default evaluator
-continues to reject this unsupported topology and the explicit caller remains
-the sole valence-4 production-force execution path.
+This is the complete approved canonical valence-4 route boundary. The next
+implementation-plan decision is separate scientific fixture approval and
+reviewed evidence for another extraordinary valence. Broader-valence
+production routing remains unsupported and must not inherit this gate.
 
 ## Inventory Check
 

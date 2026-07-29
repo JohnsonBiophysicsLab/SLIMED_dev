@@ -8,6 +8,7 @@
 #include <array>
 #include <cmath>
 #include <cstddef>
+#include <cstdlib>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -26,6 +27,8 @@ namespace
 constexpr std::size_t kReviewedSampleCountPerFace = 3;
 constexpr double kLegacyVolumeQuadratureFactor = 0.16666666666;
 constexpr int kReviewedGaussQuadratureOrder = 2;
+constexpr const char *kOpenSubdivValence4RouteEnv =
+    "SLIMED_USE_OPENSUBDIV_VALENCE4";
 constexpr std::array<std::array<double, 3>, 3>
     kReviewedValence4QuadratureSamples{{
         {{1.0 / 6.0, 1.0 / 6.0, 4.0 / 6.0}},
@@ -37,6 +40,17 @@ constexpr std::array<double, 3> kReviewedValence4QuadratureWeights{{
     1.0 / 3.0,
     1.0 / 3.0,
 }};
+
+bool env_value_is_enabled(const char *value)
+{
+    if (value == nullptr || value[0] == '\0')
+    {
+        return false;
+    }
+    const std::string text(value);
+    return text != "0" && text != "false" && text != "FALSE" &&
+           text != "off" && text != "OFF";
+}
 
 Valence4FaceLoopRoutePreflightResult reject(std::string reason)
 {
@@ -652,6 +666,12 @@ void validate_production_caller_shadow_destinations(const Mesh &mesh)
     }
 }
 } // namespace
+
+bool opensubdiv_valence4_production_routing_requested()
+{
+    return env_value_is_enabled(
+        std::getenv(kOpenSubdivValence4RouteEnv));
+}
 
 Valence4FaceLoopRoutePreflightResult
 build_guarded_valence4_face_loop_route_preflight(const Mesh &mesh)
@@ -1835,6 +1855,32 @@ evaluate_guarded_valence4_opensubdiv_production_face_loop_caller(
     result.productionOneRingsPopulated = false;
     result.defaultEvaluatorCaller = false;
     result.rejectionReason.clear();
+    return result;
+}
+
+Valence4OpenSubdivProductionFaceLoopCallerResult
+evaluate_guarded_valence4_opensubdiv_production_route(Mesh &mesh)
+{
+    if (!opensubdiv_valence4_production_routing_requested())
+    {
+        return reject_opensubdiv_production_face_loop_caller_request(
+            "valence-4 OpenSubdiv production route remains default-off "
+            "without SLIMED_USE_OPENSUBDIV_VALENCE4=1",
+            false);
+    }
+
+    Valence4OpenSubdivProductionFaceLoopCallerRequest request;
+    request.reviewerApprovedExplicitCaller = true;
+    Valence4OpenSubdivProductionFaceLoopCallerResult result =
+        evaluate_guarded_valence4_opensubdiv_production_face_loop_caller(
+            mesh, request);
+    if (!result.accepted)
+    {
+        return result;
+    }
+
+    result.productionRouteEnabled = true;
+    result.defaultEvaluatorCaller = true;
     return result;
 }
 } // namespace slimed::valence4_route_preflight
