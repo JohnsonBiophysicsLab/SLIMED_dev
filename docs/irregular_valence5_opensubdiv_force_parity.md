@@ -30,8 +30,10 @@ rows and back-projection before the Python comparator sees either result.
 
 ## Result
 
-The diagnostic runs successfully, but force parity does not pass. Against the
-reviewed relative tolerance `5e-6` and production force scale
+The diagnostic runs successfully, but force parity does not pass. The
+authoritative comparator pins the reviewed relative tolerance at `5e-6`; it is
+not a command-line input and cannot be widened by a caller. Against the
+production force scale
 `25.07039362582162`, the scaled absolute tolerance is
 `0.0001253519681291081`. The measured maximum absolute differences are:
 

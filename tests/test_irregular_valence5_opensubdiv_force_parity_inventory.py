@@ -43,12 +43,16 @@ class ValenceFiveOpenSubdivForceParityInventoryTest(unittest.TestCase):
             "opensubdiv_rows_evaluated_by_existing_force_algebra": True,
             "per_face_source_forces": [0.0] * (20 * 12 * 9),
         }
-        passing = runner.compare(production, candidate, 5.0e-6)
+        passing = runner.compare(production, candidate)
         self.assertTrue(passing["force_parity_passed"])
+        self.assertEqual(
+            passing["relative_tolerance"],
+            runner.REVIEWED_RELATIVE_TOLERANCE,
+        )
 
         component = 7 * 108 + 4 * 9 + 2 * 3 + 1
         candidate["per_face_source_forces"][component] = 1.0
-        rejected = runner.compare(production, candidate, 5.0e-6)
+        rejected = runner.compare(production, candidate)
         self.assertFalse(rejected["force_parity_passed"])
         self.assertEqual(
             rejected["max_abs_force_difference_location"],
@@ -60,6 +64,20 @@ class ValenceFiveOpenSubdivForceParityInventoryTest(unittest.TestCase):
             },
         )
         self.assertTrue(rejected["route_blockers"])
+
+    def test_wider_tolerance_override_is_rejected(self):
+        result = subprocess.run(
+            [str(WRAPPER), "--json", "--tolerance", "1"],
+            cwd=ROOT,
+            env=os.environ.copy(),
+            check=False,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertNotIn("force_parity_passed", result.stdout)
+        self.assertIn("unrecognized arguments: --tolerance 1", result.stderr)
 
     def test_dependency_absent_wrapper_skips(self):
         env = os.environ.copy()

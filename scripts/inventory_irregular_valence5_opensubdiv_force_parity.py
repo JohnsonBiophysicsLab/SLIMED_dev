@@ -45,6 +45,8 @@ ANCHORS = {
     ),
     RUNNER: (
         "20 * 12 * 9",
+        "REVIEWED_RELATIVE_TOLERANCE = 5.0e-6",
+        "scaled_tolerance = REVIEWED_RELATIVE_TOLERANCE * reference_scale",
         "max_abs_force_difference_by_kind",
         "max_abs_force_difference_location",
         "direct whole-Ptex OpenSubdiv rows do not match",
@@ -75,6 +77,10 @@ ANCHORS = {
 }
 
 FORBIDDEN_STALE_CLAIMS = {
+    RUNNER: (
+        'add_argument("--tolerance"',
+        "args.tolerance",
+    ),
     READINESS: (
         "The next reviewed step is actual valence-5",
     ),

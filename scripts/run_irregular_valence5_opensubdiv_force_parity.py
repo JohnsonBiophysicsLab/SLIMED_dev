@@ -22,6 +22,7 @@ FORCE_HARNESS = (
     ROOT / "experiments/irregular_valence5_opensubdiv_force_parity.cpp"
 )
 PROBE = ROOT / "scripts/run_opensubdiv_probe.sh"
+REVIEWED_RELATIVE_TOLERANCE = 5.0e-6
 
 
 def run(
@@ -183,7 +184,6 @@ def write_package(
 def compare(
     production: dict[str, object],
     candidate: dict[str, object],
-    tolerance: float,
 ) -> dict[str, object]:
     reference = finite_values(
         production.get("per_face_source_forces"),
@@ -217,7 +217,7 @@ def compare(
         )
     max_delta = max(component_deltas)
     reference_scale = max(1.0, max(abs(value) for value in reference))
-    scaled_tolerance = tolerance * reference_scale
+    scaled_tolerance = REVIEWED_RELATIVE_TOLERANCE * reference_scale
     parity = max_delta <= scaled_tolerance
     errors = []
     if production.get("production_irregular_force_path_executed") is not True:
@@ -249,7 +249,7 @@ def compare(
             "fArea": kind_maxima[1],
             "fVolume": kind_maxima[2],
         },
-        "relative_tolerance": tolerance,
+        "relative_tolerance": REVIEWED_RELATIVE_TOLERANCE,
         "reference_force_scale": reference_scale,
         "scaled_absolute_tolerance": scaled_tolerance,
         "remaining_boundary": (
@@ -288,7 +288,6 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--json", action="store_true")
     parser.add_argument("--require-opensubdiv", action="store_true")
-    parser.add_argument("--tolerance", type=float, default=5.0e-6)
     args = parser.parse_args()
     env = os.environ.copy()
     if not env.get("OPENSUBDIV_ROOT"):
@@ -334,7 +333,7 @@ def main() -> int:
                 run([str(candidate_binary), str(package_path)], env),
                 "OpenSubdiv force harness",
             )
-            payload = compare(production, candidate, args.tolerance)
+            payload = compare(production, candidate)
     except (RuntimeError, json.JSONDecodeError, OSError) as error:
         payload = {"status": "failed", "reason": str(error)}
         emit(payload, args.json)
