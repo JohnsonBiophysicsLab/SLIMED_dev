@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstdlib>
 #include <limits>
 #include <memory>
 #include <stdexcept>
@@ -20,6 +21,46 @@ namespace
 {
 using namespace slimed::source_keyed_kernel;
 using namespace slimed::valence4_route_preflight;
+
+class ScopedEnvVar
+{
+public:
+    ScopedEnvVar(const char *name, const char *value)
+        : name_(name)
+    {
+        const char *previous = std::getenv(name_);
+        if (previous != nullptr)
+        {
+            hadPrevious_ = true;
+            previous_ = previous;
+        }
+        if (value == nullptr)
+        {
+            unsetenv(name_);
+        }
+        else
+        {
+            setenv(name_, value, 1);
+        }
+    }
+
+    ~ScopedEnvVar()
+    {
+        if (hadPrevious_)
+        {
+            setenv(name_, previous_.c_str(), 1);
+        }
+        else
+        {
+            unsetenv(name_);
+        }
+    }
+
+private:
+    const char *name_;
+    bool hadPrevious_ = false;
+    std::string previous_;
+};
 
 struct ApprovedValence4MeshFixture
 {
@@ -2853,6 +2894,41 @@ TEST(ValenceFourFaceLoopRoutePreflight,
     EXPECT_DOUBLE_EQ(mesh.param.area, beforeArea);
     EXPECT_DOUBLE_EQ(mesh.param.vol, beforeVolume);
 }
+
+TEST(ValenceFourFaceLoopRoutePreflight,
+     OpenSubdivProductionRouteRequiresEnabledBuildAtomically)
+{
+    ScopedEnvVar routeEnv("SLIMED_USE_OPENSUBDIV_VALENCE4", "1");
+    ApprovedValence4MeshFixture fixture;
+    Mesh &mesh = *fixture.mesh;
+    seed_reference_coordinates_from_current(mesh);
+    seed_face_observable_publication_state(mesh);
+    seed_all_vertex_forces(mesh);
+    const std::vector<Face> beforeFaces = mesh.faces;
+    const auto beforeForces = capture_all_vertex_forces(mesh);
+    const auto beforeCoordinates = capture_vertex_coordinates(mesh);
+    const double beforeArea = mesh.param.area;
+    const double beforeVolume = mesh.param.vol;
+
+    try
+    {
+        mesh.Compute_Energy_And_Force();
+        FAIL() << "Expected valence-4 route dependency rejection";
+    }
+    catch (const std::runtime_error &error)
+    {
+        EXPECT_NE(
+            std::string(error.what()).find("OpenSubdiv-enabled build"),
+            std::string::npos);
+    }
+
+    expect_face_observable_publication_state_unchanged(
+        mesh, beforeFaces);
+    EXPECT_EQ(capture_all_vertex_forces(mesh), beforeForces);
+    EXPECT_EQ(capture_vertex_coordinates(mesh), beforeCoordinates);
+    EXPECT_DOUBLE_EQ(mesh.param.area, beforeArea);
+    EXPECT_DOUBLE_EQ(mesh.param.vol, beforeVolume);
+}
 #else
 TEST(ValenceFourFaceLoopRoutePreflight,
      OpenSubdivProductionCallerRunsProviderFedCompletionShadow)
@@ -3016,7 +3092,193 @@ TEST(ValenceFourFaceLoopRoutePreflight,
         }
     }
 }
+
+TEST(ValenceFourFaceLoopRoutePreflight,
+     OpenSubdivProductionRouteRunsThroughDefaultEvaluator)
+{
+    ApprovedValence4MeshFixture expectedFixture;
+    ApprovedValence4MeshFixture routedFixture;
+    ApprovedValence4MeshFixture flagFixture;
+    Mesh &expectedMesh = *expectedFixture.mesh;
+    Mesh &routedMesh = *routedFixture.mesh;
+    Mesh &flagMesh = *flagFixture.mesh;
+    seed_reference_coordinates_from_current(expectedMesh);
+    seed_reference_coordinates_from_current(routedMesh);
+    seed_reference_coordinates_from_current(flagMesh);
+
+    Valence4OpenSubdivProductionFaceLoopCallerRequest request;
+    request.reviewerApprovedExplicitCaller = true;
+    const Valence4OpenSubdivProductionFaceLoopCallerResult expectedResult =
+        evaluate_guarded_valence4_opensubdiv_production_face_loop_caller(
+            expectedMesh, request);
+    ASSERT_TRUE(expectedResult.accepted)
+        << expectedResult.rejectionReason;
+
+    {
+        ScopedEnvVar routeEnv(
+            "SLIMED_USE_OPENSUBDIV_VALENCE4", "1");
+        ASSERT_TRUE(
+            opensubdiv_valence4_production_routing_requested());
+        EXPECT_NO_THROW(routedMesh.Compute_Energy_And_Force());
+        const Valence4OpenSubdivProductionFaceLoopCallerResult flagResult =
+            evaluate_guarded_valence4_opensubdiv_production_route(
+                flagMesh);
+        ASSERT_TRUE(flagResult.accepted)
+            << flagResult.rejectionReason;
+        EXPECT_TRUE(flagResult.productionRouteEnabled);
+        EXPECT_TRUE(flagResult.defaultEvaluatorCaller);
+        EXPECT_TRUE(flagResult.actualProductionForcePathExecuted);
+        EXPECT_TRUE(flagResult.productionFaceLoopExecuted);
+        EXPECT_FALSE(flagResult.productionOneRingsPopulated);
+    }
+
+    EXPECT_NEAR(routedMesh.param.area, expectedMesh.param.area, 1.0e-12);
+    EXPECT_NEAR(routedMesh.param.vol, expectedMesh.param.vol, 1.0e-12);
+    expect_energy_equal(
+        routedMesh.param.energy, expectedMesh.param.energy, false);
+    ASSERT_EQ(routedMesh.faces.size(), expectedMesh.faces.size());
+    for (std::size_t faceIndex = 0;
+         faceIndex < routedMesh.faces.size();
+         ++faceIndex)
+    {
+        const Face &actual = routedMesh.faces[faceIndex];
+        const Face &expected = expectedMesh.faces[faceIndex];
+        EXPECT_NEAR(actual.elementArea, expected.elementArea, 1.0e-12);
+        EXPECT_NEAR(actual.elementVolume, expected.elementVolume, 1.0e-12);
+        EXPECT_NEAR(actual.meanCurvature, expected.meanCurvature, 1.0e-12);
+        expect_energy_equal(actual.energy, expected.energy, false);
+        ASSERT_EQ(actual.normVector.nrow(), kAxisCount);
+        ASSERT_EQ(actual.normVector.ncol(), 1);
+        for (int axis = 0; axis < kAxisCount; ++axis)
+        {
+            EXPECT_NEAR(actual.normVector.get(axis, 0),
+                        expected.normVector.get(axis, 0),
+                        1.0e-12);
+        }
+        EXPECT_TRUE(actual.oneRingVertices.empty());
+    }
+
+    ASSERT_EQ(routedMesh.vertices.size(), expectedMesh.vertices.size());
+    for (std::size_t source = 0;
+         source < routedMesh.vertices.size();
+         ++source)
+    {
+        const auto actualForces =
+            force_matrices(routedMesh.vertices[source]);
+        const auto expectedForces =
+            force_matrices(expectedMesh.vertices[source]);
+        for (int family = 0; family < 8; ++family)
+        {
+            for (int axis = 0; axis < kAxisCount; ++axis)
+            {
+                EXPECT_NEAR(actualForces[family]->get(axis, 0),
+                            expectedForces[family]->get(axis, 0),
+                            1.0e-12);
+            }
+        }
+    }
+}
+
+TEST(ValenceFourFaceLoopRoutePreflight,
+     OpenSubdivProductionRouteRejectsTopologyDriftAtomically)
+{
+    ScopedEnvVar routeEnv("SLIMED_USE_OPENSUBDIV_VALENCE4", "1");
+    ApprovedValence4MeshFixture fixture;
+    Mesh &mesh = *fixture.mesh;
+    std::swap(mesh.faces[0].adjacentVertices[1],
+              mesh.faces[0].adjacentVertices[2]);
+    seed_reference_coordinates_from_current(mesh);
+    seed_face_observable_publication_state(mesh);
+    seed_all_vertex_forces(mesh);
+    const std::vector<Face> beforeFaces = mesh.faces;
+    const auto beforeForces = capture_all_vertex_forces(mesh);
+    const auto beforeCoordinates = capture_vertex_coordinates(mesh);
+    const double beforeArea = mesh.param.area;
+    const double beforeVolume = mesh.param.vol;
+
+    try
+    {
+        mesh.Compute_Energy_And_Force();
+        FAIL() << "Expected valence-4 route topology rejection";
+    }
+    catch (const std::runtime_error &error)
+    {
+        EXPECT_NE(
+            std::string(error.what()).find(
+                "canonical face orientation"),
+            std::string::npos);
+    }
+
+    expect_face_observable_publication_state_unchanged(
+        mesh, beforeFaces);
+    EXPECT_EQ(capture_all_vertex_forces(mesh), beforeForces);
+    EXPECT_EQ(capture_vertex_coordinates(mesh), beforeCoordinates);
+    EXPECT_DOUBLE_EQ(mesh.param.area, beforeArea);
+    EXPECT_DOUBLE_EQ(mesh.param.vol, beforeVolume);
+}
 #endif
+
+TEST(ValenceFourFaceLoopRoutePreflight,
+     OpenSubdivProductionRouteRequiresExactRuntimeToken)
+{
+    for (const char *disabledValue :
+         {"",
+          "0",
+          "false",
+          "FALSE",
+          "False",
+          "FaLsE",
+          "off",
+          "OFF",
+          "Off",
+          "oFf",
+          "true",
+          "TRUE",
+          "True",
+          "yes",
+          "2",
+          "garbage",
+          " ",
+          "\t",
+          " 1",
+          "1 ",
+          "01",
+          "+1"})
+    {
+        ScopedEnvVar disabledRouteEnv(
+            "SLIMED_USE_OPENSUBDIV_VALENCE4", disabledValue);
+        EXPECT_FALSE(
+            opensubdiv_valence4_production_routing_requested())
+            << disabledValue;
+    }
+
+    {
+        ScopedEnvVar enabledRouteEnv(
+            "SLIMED_USE_OPENSUBDIV_VALENCE4", "1");
+        EXPECT_TRUE(
+            opensubdiv_valence4_production_routing_requested());
+    }
+
+    ScopedEnvVar routeEnv("SLIMED_USE_OPENSUBDIV_VALENCE4", nullptr);
+    ApprovedValence4MeshFixture fixture;
+    Mesh &mesh = *fixture.mesh;
+    const auto beforeCoordinates = capture_vertex_coordinates(mesh);
+
+    const Valence4OpenSubdivProductionFaceLoopCallerResult result =
+        evaluate_guarded_valence4_opensubdiv_production_route(mesh);
+
+    EXPECT_FALSE(opensubdiv_valence4_production_routing_requested());
+    EXPECT_FALSE(result.accepted);
+    EXPECT_FALSE(result.explicitCallerRequested);
+    EXPECT_FALSE(result.productionRouteEnabled);
+    EXPECT_FALSE(result.actualProductionForcePathExecuted);
+    EXPECT_FALSE(result.productionFaceLoopExecuted);
+    EXPECT_FALSE(result.productionOneRingsPopulated);
+    EXPECT_FALSE(result.defaultEvaluatorCaller);
+    EXPECT_NE(result.rejectionReason.find("remains default-off"),
+              std::string::npos);
+    EXPECT_EQ(capture_vertex_coordinates(mesh), beforeCoordinates);
+}
 
 TEST(ValenceFourFaceLoopRoutePreflight,
      OpenSubdivRowProviderRemainsDefaultOff)

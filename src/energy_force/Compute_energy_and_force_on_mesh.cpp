@@ -1,6 +1,7 @@
 #include "mesh/Mesh.hpp"
 
 #include "energy_force/Source_keyed_kernel_call.hpp"
+#include "energy_force/Valence4_face_loop_route_preflight.hpp"
 #include "energy_force/Valence4_production_face_loop.hpp"
 #include "mesh/Limit_surface_evaluator.hpp"
 #include "mesh/OpenSubdiv_regular_evaluator.hpp"
@@ -479,6 +480,21 @@ void Mesh::clear_force_on_vertices_and_energy_on_faces()
  */
 void Mesh::Compute_Energy_And_Force()
 {
+    using namespace slimed::valence4_route_preflight;
+    if (opensubdiv_valence4_production_routing_requested())
+    {
+        const Valence4OpenSubdivProductionFaceLoopCallerResult routed =
+            evaluate_guarded_valence4_opensubdiv_production_route(*this);
+        if (!routed.accepted)
+        {
+            throw std::runtime_error(
+                "SLIMED_USE_OPENSUBDIV_VALENCE4 requested a guarded "
+                "production route, but preflight rejected it before "
+                "mutation: " +
+                routed.rejectionReason);
+        }
+        return;
+    }
 
     // Step 1. Refresh per-face and global geometry from current coordinates.
     refresh_energy_force_geometry(*this);

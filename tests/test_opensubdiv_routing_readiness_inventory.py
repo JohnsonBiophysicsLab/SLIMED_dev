@@ -92,33 +92,43 @@ class OpenSubdivRoutingReadinessInventoryTest(unittest.TestCase):
         self.assertIn("scatter residual force kind", anchor_names)
         self.assertIn("scatter residual axis", anchor_names)
 
-    def test_valence4_current_state_anchors_distinguish_execution_from_routing(self):
+    def test_valence4_current_state_anchors_bind_guarded_activation(self):
         anchor_names = {anchor.name for anchor in inventory.ANCHORS}
 
         self.assertIn("explicit guarded production face-loop caller", anchor_names)
         self.assertIn("real production force execution", anchor_names)
         self.assertIn("shared production membrane face loop", anchor_names)
         self.assertIn("explicit caller execution flags", anchor_names)
-        self.assertIn("route and default caller remain disabled", anchor_names)
-        self.assertIn("default evaluator rejection preserved", anchor_names)
-        self.assertIn("separate guarded activation decision", anchor_names)
+        self.assertIn("dedicated runtime route gate", anchor_names)
+        self.assertIn("build and runtime gates required", anchor_names)
+        self.assertIn("default path remains unchanged", anchor_names)
+        self.assertIn("atomic dependency rejection", anchor_names)
+        self.assertIn("successful route flag promotion", anchor_names)
+        self.assertIn("broader valence remains separate", anchor_names)
 
         self.assertFalse(
             inventory.collect_forbidden_claims(inventory.repo_root())
         )
 
-    def test_pre_pr141_readiness_claims_fail_the_inventory(self):
-        stale_claim = inventory.FORBIDDEN_READINESS_CLAIMS[0]
-        with tempfile.TemporaryDirectory() as temp_dir:
-            root = Path(temp_dir)
-            path = root / stale_claim.path
-            path.parent.mkdir(parents=True)
-            path.write_text(f"{stale_claim.needle}\n", encoding="utf-8")
+    def test_stale_valence4_readiness_claims_fail_the_inventory(self):
+        for stale_claim in inventory.FORBIDDEN_READINESS_CLAIMS:
+            with self.subTest(claim=stale_claim.name):
+                with tempfile.TemporaryDirectory() as temp_dir:
+                    root = Path(temp_dir)
+                    path = root / stale_claim.path
+                    path.parent.mkdir(parents=True)
+                    path.write_text(
+                        f"{stale_claim.needle}\n",
+                        encoding="utf-8",
+                    )
 
-            located = inventory.collect_forbidden_claims(root)
+                    located = inventory.collect_forbidden_claims(root)
 
-        self.assertEqual(len(located), 1)
-        self.assertEqual(located[0].claim.name, stale_claim.name)
+                self.assertEqual(len(located), 1)
+                self.assertEqual(
+                    located[0].claim.name,
+                    stale_claim.name,
+                )
 
 
 if __name__ == "__main__":

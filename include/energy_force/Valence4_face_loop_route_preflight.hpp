@@ -15,6 +15,9 @@ class Mesh;
 
 namespace slimed::valence4_route_preflight
 {
+/** Return whether the valence-4 production route runtime opt-in is enabled. */
+bool opensubdiv_valence4_production_routing_requested();
+
 struct Valence4FaceLoopRoutePreflightResult
 {
     bool supported = false;
@@ -472,4 +475,15 @@ Valence4OpenSubdivProductionFaceLoopCallerResult
 evaluate_guarded_valence4_opensubdiv_production_face_loop_caller(
     Mesh &mesh,
     const Valence4OpenSubdivProductionFaceLoopCallerRequest &request);
+
+/**
+ * Execute the reviewed OpenSubdiv valence-4 face-loop caller as the default
+ * evaluator route when the dedicated runtime opt-in is present.
+ *
+ * The complete canonical topology, dependency, quadrature, row, and
+ * destination contract is validated before mutation. Rejected requests return
+ * a diagnostic result so Mesh::Compute_Energy_And_Force can fail loudly.
+ */
+Valence4OpenSubdivProductionFaceLoopCallerResult
+evaluate_guarded_valence4_opensubdiv_production_route(Mesh &mesh);
 } // namespace slimed::valence4_route_preflight

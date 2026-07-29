@@ -31,7 +31,7 @@ def load_inventory_module():
 class ValenceFourOpenSubdivProductionCallerInventoryTest(
     unittest.TestCase
 ):
-    def test_inventory_passes_without_route_activation(self):
+    def test_inventory_passes_with_guarded_successor_route(self):
         report = load_inventory_module().collect(ROOT)
         self.assertEqual(report["status"], "passed", report["errors"])
         self.assertTrue(report["provider_fed_production_caller"])
@@ -46,12 +46,12 @@ class ValenceFourOpenSubdivProductionCallerInventoryTest(
         self.assertTrue(
             report["serial_openmp_provider_fed_caller_parity_required"]
         )
-        self.assertTrue(report["not_production_routing"])
-        self.assertFalse(report["production_route_enabled"])
+        self.assertFalse(report["not_production_routing"])
+        self.assertTrue(report["production_route_enabled"])
         self.assertTrue(report["actual_production_force_path_executed"])
         self.assertTrue(report["production_face_loop_executed"])
         self.assertFalse(report["production_one_rings_populated"])
-        self.assertFalse(report["default_evaluator_route_caller"])
+        self.assertTrue(report["default_evaluator_route_caller"])
         self.assertFalse(report["default_dependency_changed"])
         self.assertEqual(
             report["anchors"]["located"],
