@@ -84,6 +84,10 @@ using namespace OpenSubdiv;
 #define SLIMED_VALENCE4_FORCE_FORMULA_PROOF_REPORT 0
 #endif
 
+#ifndef SLIMED_VALENCE5_FIXTURE_COVERAGE_REPORT
+#define SLIMED_VALENCE5_FIXTURE_COVERAGE_REPORT 0
+#endif
+
 struct Point {
     float x;
     float y;
@@ -374,6 +378,99 @@ static MeshCase load_serialized_valence4_fixture(char const *verticesPath,
 }
 #endif
 
+#if SLIMED_VALENCE5_FIXTURE_COVERAGE_REPORT
+static MeshCase load_serialized_valence5_fixture(char const *verticesPath,
+                                                 char const *facesPath) {
+    MeshCase mesh;
+    mesh.name = "approved_closed_valence5_icosahedron";
+    mesh.sampleFace = 0;
+    mesh.extraordinaryValence = 5;
+
+    std::ifstream vertices(verticesPath);
+    std::string line;
+    while (std::getline(vertices, line)) {
+        if (line.empty()) {
+            continue;
+        }
+        std::replace(line.begin(), line.end(), ',', ' ');
+        std::istringstream row(line);
+        Point point;
+        std::string trailing;
+        if (!(row >> point.x >> point.y >> point.z) || row >> trailing) {
+            mesh.numVertices = -1;
+            return mesh;
+        }
+        mesh.points.push_back(point);
+    }
+
+    std::ifstream faces(facesPath);
+    while (std::getline(faces, line)) {
+        if (line.empty()) {
+            continue;
+        }
+        std::replace(line.begin(), line.end(), ',', ' ');
+        std::istringstream row(line);
+        int a = -1;
+        int b = -1;
+        int c = -1;
+        std::string trailing;
+        if (!(row >> a >> b >> c) || row >> trailing) {
+            mesh.numVertices = -1;
+            return mesh;
+        }
+        append_face(mesh, a, b, c);
+    }
+
+    mesh.numVertices = static_cast<int>(mesh.points.size());
+    for (int id = 0; id < mesh.numVertices; ++id) {
+        mesh.expectedLocalControlIds.push_back(id);
+    }
+    return mesh;
+}
+
+static bool valence5_fixture_identity_matches(MeshCase const &mesh) {
+    static std::array<Point, 12> const expectedPoints = {{
+        {-1.0f, 1.6180339887498948482f, 0.0f},
+        {1.0f, 1.6180339887498948482f, 0.0f},
+        {-1.0f, -1.6180339887498948482f, 0.0f},
+        {1.0f, -1.6180339887498948482f, 0.0f},
+        {0.0f, -1.0f, 1.6180339887498948482f},
+        {0.0f, 1.0f, 1.6180339887498948482f},
+        {0.0f, -1.0f, -1.6180339887498948482f},
+        {0.0f, 1.0f, -1.6180339887498948482f},
+        {1.6180339887498948482f, 0.0f, -1.0f},
+        {1.6180339887498948482f, 0.0f, 1.0f},
+        {-1.6180339887498948482f, 0.0f, -1.0f},
+        {-1.6180339887498948482f, 0.0f, 1.0f},
+    }};
+    static std::array<int, 60> const expectedIndices = {{
+        0, 11, 5, 0, 5, 1, 0, 1, 7, 0, 7, 10, 0, 10, 11,
+        1, 5, 9, 5, 11, 4, 11, 10, 2, 10, 7, 6, 7, 1, 8,
+        3, 9, 4, 3, 4, 2, 3, 2, 6, 3, 6, 8, 3, 8, 9,
+        4, 9, 5, 2, 4, 11, 6, 2, 10, 8, 6, 7, 9, 8, 1,
+    }};
+
+    if (mesh.numVertices != static_cast<int>(expectedPoints.size()) ||
+        mesh.points.size() != expectedPoints.size() ||
+        mesh.vertsPerFace != std::vector<int>(20, 3) ||
+        mesh.vertIndices.size() != expectedIndices.size()) {
+        return false;
+    }
+    for (int index = 0; index < static_cast<int>(expectedPoints.size());
+         ++index) {
+        Point const &actual = mesh.points[index];
+        Point const &expected = expectedPoints[index];
+        if (actual.x != expected.x || actual.y != expected.y ||
+            actual.z != expected.z) {
+            return false;
+        }
+    }
+    return std::equal(expectedIndices.begin(),
+                      expectedIndices.end(),
+                      mesh.vertIndices.begin());
+}
+#endif
+
 static char const *patch_type_name(Far::PatchDescriptor::Type type) {
     switch (type) {
         case Far::PatchDescriptor::NON_PATCH:
@@ -570,7 +667,7 @@ static void print_string_set(std::set<std::string> const &values) {
     std::cout << "]";
 }
 
-static void print_aggregate_source_coverage(
+static bool print_aggregate_source_coverage(
     MeshCase const &mesh,
     Far::TopologyRefiner const &refiner,
     Far::PatchTable const *patchTable,
@@ -578,7 +675,7 @@ static void print_aggregate_source_coverage(
     std::cout << ",\"aggregate_source_coverage\":{";
     if (!patchTable || !cvStencils) {
         std::cout << "\"available\":false}";
-        return;
+        return false;
     }
 
     std::vector<AggregateSampleLocation> sampleLocations =
@@ -613,7 +710,7 @@ static void print_aggregate_source_coverage(
             refiner, locations, cvStencils, patchTable, stencilOptions);
     if (!stencils) {
         std::cout << "\"available\":false,\"reason\":\"limit_stencil_creation_failed\"}";
-        return;
+        return false;
     }
 
     Far::PatchMap patchMap(*patchTable);
@@ -644,10 +741,70 @@ static void print_aggregate_source_coverage(
     std::set<int> duvIds;
     std::set<int> dvvIds;
     std::set<int> secondIds;
+    int finiteEvaluatedSamples = 0;
+    bool allStencilEntriesValid = true;
 
     for (int stencilIndex = 0; stencilIndex < stencils->GetNumStencils();
          ++stencilIndex) {
         Far::LimitStencil stencil = stencils->GetLimitStencil(stencilIndex);
+        std::array<float const *, 6> const rowWeights = {{
+            stencil.GetWeights(),
+            stencil.GetDuWeights(),
+            stencil.GetDvWeights(),
+            stencil.GetDuuWeights(),
+            stencil.GetDuvWeights(),
+            stencil.GetDvvWeights(),
+        }};
+        Far::Index const *indices = stencil.GetVertexIndices();
+        bool sampleFinite =
+            stencil.GetSize() > 0 && indices != 0 &&
+            std::all_of(rowWeights.begin(),
+                        rowWeights.end(),
+                        [](float const *weights) { return weights != 0; });
+        double evaluatedRows[6][3] = {};
+        if (sampleFinite) {
+            for (int entry = 0; entry < stencil.GetSize(); ++entry) {
+                int const sourceId = indices[entry];
+                if (sourceId < 0 ||
+                    sourceId >= static_cast<int>(mesh.points.size())) {
+                    sampleFinite = false;
+                    break;
+                }
+                Point const &point = mesh.points[sourceId];
+                if (!std::isfinite(point.x) || !std::isfinite(point.y) ||
+                    !std::isfinite(point.z)) {
+                    sampleFinite = false;
+                    break;
+                }
+                for (int row = 0; row < static_cast<int>(rowWeights.size());
+                     ++row) {
+                    double const weight =
+                        static_cast<double>(rowWeights[row][entry]);
+                    if (!std::isfinite(weight)) {
+                        sampleFinite = false;
+                        break;
+                    }
+                    evaluatedRows[row][0] += weight * point.x;
+                    evaluatedRows[row][1] += weight * point.y;
+                    evaluatedRows[row][2] += weight * point.z;
+                }
+                if (!sampleFinite) {
+                    break;
+                }
+            }
+        }
+        for (int row = 0; row < 6 && sampleFinite; ++row) {
+            for (int component = 0; component < 3; ++component) {
+                sampleFinite =
+                    sampleFinite &&
+                    std::isfinite(evaluatedRows[row][component]);
+            }
+        }
+        if (sampleFinite) {
+            ++finiteEvaluatedSamples;
+        } else {
+            allStencilEntriesValid = false;
+        }
         merge_ids(valueIds, limit_weight_source_ids(stencil, stencil.GetWeights()));
         merge_ids(duIds, limit_weight_source_ids(stencil, stencil.GetDuWeights()));
         merge_ids(dvIds, limit_weight_source_ids(stencil, stencil.GetDvWeights()));
@@ -661,6 +818,23 @@ static void print_aggregate_source_coverage(
     merge_ids(secondIds, duvIds);
     merge_ids(secondIds, dvvIds);
 
+    bool const completeCoverage =
+        mesh.expectedLocalControlIds.empty() ||
+        (missing_expected_ids(valueIds, mesh.expectedLocalControlIds).empty() &&
+         valueIds.size() == mesh.expectedLocalControlIds.size() &&
+         missing_expected_ids(firstIds, mesh.expectedLocalControlIds).empty() &&
+         firstIds.size() == mesh.expectedLocalControlIds.size() &&
+         missing_expected_ids(secondIds, mesh.expectedLocalControlIds).empty() &&
+         secondIds.size() == mesh.expectedLocalControlIds.size());
+    bool const sampleCoverage =
+        ptexFaceCount == static_cast<int>(mesh.vertsPerFace.size()) &&
+        stencils->GetNumStencils() == requestedSamples &&
+        foundPatchLookups == requestedSamples &&
+        sampledPatchTypes == std::set<std::string>{"LOOP"} &&
+        allStencilEntriesValid &&
+        finiteEvaluatedSamples == requestedSamples;
+    bool const passed = completeCoverage && sampleCoverage;
+
     std::cout << "\"available\":true";
     std::cout << ",\"strategy\":\"all_ptex_faces_x_sample_grid\"";
     std::cout << ",\"ptex_face_count\":" << ptexFaceCount;
@@ -668,8 +842,14 @@ static void print_aggregate_source_coverage(
     std::cout << ",\"sample_location_count_per_face\":"
               << sampleLocations.size();
     std::cout << ",\"requested_sample_count\":" << requestedSamples;
-    std::cout << ",\"evaluated_sample_count\":"
+    std::cout << ",\"generated_stencil_count\":"
               << stencils->GetNumStencils();
+    std::cout << ",\"evaluated_sample_count\":"
+              << finiteEvaluatedSamples;
+    std::cout << ",\"finite_evaluated_sample_count\":"
+              << finiteEvaluatedSamples;
+    std::cout << ",\"all_stencil_weights_source_ids_and_results_finite\":"
+              << (allStencilEntriesValid ? "true" : "false");
     std::cout << ",\"found_patch_lookup_count\":" << foundPatchLookups;
     std::cout << ",\"unique_patch_count_sampled\":"
               << sampledPatchIndices.size();
@@ -702,9 +882,15 @@ static void print_aggregate_source_coverage(
                            secondIds,
                            mesh.expectedLocalControlIds);
     print_highlighted_id_coverage(valueIds, firstIds, secondIds);
+    std::cout << ",\"complete_value_first_second_coverage\":"
+              << (completeCoverage ? "true" : "false");
+    std::cout << ",\"all_requested_samples_evaluated\":"
+              << (sampleCoverage ? "true" : "false");
+    std::cout << ",\"passed\":" << (passed ? "true" : "false");
     std::cout << "}";
 
     delete stencils;
+    return passed;
 }
 
 static void print_patch_table_report(Far::PatchTable const *patchTable,
@@ -4637,6 +4823,14 @@ static bool print_valence4_force_formula_proof(MeshCase const &mesh) {
 #endif
 
 static int run_case(MeshCase const &mesh) {
+#if SLIMED_VALENCE5_FIXTURE_COVERAGE_REPORT
+    if (!valence5_fixture_identity_matches(mesh)) {
+        std::cerr << "approved valence-5 fixture must exactly match the 12 "
+                     "ordered coordinates and 20 ordered oriented triangular "
+                     "faces\n";
+        return 16;
+    }
+#endif
     Far::TopologyRefiner *refiner = create_refiner(mesh);
     if (!refiner) {
         std::cerr << "failed to create refiner for " << mesh.name << "\n";
@@ -4646,7 +4840,7 @@ static int run_case(MeshCase const &mesh) {
     Far::PatchTable *patchTable = 0;
     Far::StencilTable const *cvStencils = 0;
 
-#if SLIMED_BACKPROJECTION_REPORT || SLIMED_AGGREGATE_SOURCE_COVERAGE_REPORT || SLIMED_IRREGULAR_TRANSPOSE_PROOF_MAP_REPORT || SLIMED_BROADER_VALENCE_COVERAGE_REPORT
+#if SLIMED_BACKPROJECTION_REPORT || SLIMED_AGGREGATE_SOURCE_COVERAGE_REPORT || SLIMED_IRREGULAR_TRANSPOSE_PROOF_MAP_REPORT || SLIMED_BROADER_VALENCE_COVERAGE_REPORT || SLIMED_VALENCE5_FIXTURE_COVERAGE_REPORT
     Far::PatchTableFactory::Options patchOptions(5);
     refiner->RefineAdaptive(patchOptions.GetRefineAdaptiveOptions());
     patchTable = Far::PatchTableFactory::Create(*refiner, patchOptions);
@@ -4728,6 +4922,9 @@ static int run_case(MeshCase const &mesh) {
 #endif
 #if SLIMED_IRREGULAR_TRANSPOSE_PROOF_MAP_REPORT
     bool irregularTransposeProofMapPassed = true;
+#endif
+#if SLIMED_VALENCE5_FIXTURE_COVERAGE_REPORT
+    bool valence5FixtureCoveragePassed = true;
 #endif
 
     for (int sample = 0; sample < stencils->GetNumStencils(); ++sample) {
@@ -4892,6 +5089,25 @@ static int run_case(MeshCase const &mesh) {
         print_aggregate_source_coverage(mesh, *refiner, patchTable, cvStencils);
     }
 #endif
+#if SLIMED_VALENCE5_FIXTURE_COVERAGE_REPORT
+    valence5FixtureCoveragePassed =
+        print_aggregate_source_coverage(mesh, *refiner, patchTable, cvStencils);
+    std::cout << ",\"approved_fixture\":true";
+    std::cout << ",\"approved_scope\":\"existing narrow positive-depth "
+                 "11-control scientific stand-in\"";
+    std::cout << ",\"approved_fixture_identity_matches\":true";
+    std::cout << ",\"fixture_loaded_from_serialized_csv\":true";
+    std::cout << ",\"proof_only\":true";
+    std::cout << ",\"not_production_routing\":true";
+    std::cout << ",\"production_route_enabled\":false";
+    std::cout << ",\"production_force_path_executed\":false";
+    std::cout << ",\"claims_not_proven\":[";
+    std::cout << "\"per-face 11-control source ordering\",";
+    std::cout << "\"OpenSubdiv force-formula parity\",";
+    std::cout << "\"OpenSubdiv scatter/OpenMP parity\",";
+    std::cout << "\"OpenSubdiv-backed valence-5 production routing\"";
+    std::cout << "]";
+#endif
 #if SLIMED_IRREGULAR_TRANSPOSE_PROOF_MAP_REPORT
     irregularTransposeProofMapPassed =
         print_irregular_transpose_proof_map(mesh, *refiner, patchTable,
@@ -4930,11 +5146,23 @@ static int run_case(MeshCase const &mesh) {
         return 8;
     }
 #endif
+#if SLIMED_VALENCE5_FIXTURE_COVERAGE_REPORT
+    if (!valence5FixtureCoveragePassed) {
+        return 14;
+    }
+#endif
     return 0;
 }
 
 int main(int argc, char **argv) {
-#if SLIMED_VALENCE4_MAPPING_PROOF_REPORT || SLIMED_VALENCE4_FORCE_FORMULA_PROOF_REPORT
+#if SLIMED_VALENCE5_FIXTURE_COVERAGE_REPORT
+    if (argc != 3) {
+        std::cerr << "valence-5 fixture coverage proof requires vertices.csv "
+                     "and faces.csv\n";
+        return 15;
+    }
+    return run_case(load_serialized_valence5_fixture(argv[1], argv[2]));
+#elif SLIMED_VALENCE4_MAPPING_PROOF_REPORT || SLIMED_VALENCE4_FORCE_FORMULA_PROOF_REPORT
     if (argc != 3) {
         std::cerr << "valence-4 proof requires vertices.csv and faces.csv\n";
         return 11;
@@ -5103,6 +5331,22 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--valence5-fixture-coverage-report",
+        action="store_true",
+        help=(
+            "Opt into proof-only aggregate OpenSubdiv value/derivative source "
+            "coverage for the approved serialized closed valence-5 fixture."
+        ),
+    )
+    parser.add_argument(
+        "--valence5-fixture-dir",
+        type=Path,
+        help=(
+            "Override the serialized valence-5 fixture directory for "
+            "adversarial proof tests."
+        ),
+    )
+    parser.add_argument(
         "--mode",
         choices=["check"],
         help=(
@@ -5229,6 +5473,8 @@ def main() -> int:
             command.append(
                 "-DSLIMED_VALENCE4_FORCE_FORMULA_PROOF_REPORT=1"
             )
+        if args.valence5_fixture_coverage_report:
+            command.append("-DSLIMED_VALENCE5_FIXTURE_COVERAGE_REPORT=1")
         command.extend(shlex.split(os.environ.get("OPENSUBDIV_CXXFLAGS", "")))
         command.extend(
             [
@@ -5257,7 +5503,19 @@ def main() -> int:
             return compile_result.returncode
 
         run_command_line = [str(binary_path)]
-        if (
+        if args.valence5_fixture_coverage_report:
+            fixture_dir = (
+                args.valence5_fixture_dir
+                or Path(__file__).resolve().parents[1]
+                / "data/fixtures/closed_valence5"
+            )
+            run_command_line.extend(
+                [
+                    str(fixture_dir / "vertices.csv"),
+                    str(fixture_dir / "faces.csv"),
+                ]
+            )
+        elif (
             args.valence4_mapping_sample_transpose_report
             or args.valence4_force_formula_proof_report
         ):
@@ -5286,7 +5544,8 @@ def main() -> int:
 
         deterministic_repeat_match = None
         if (
-            args.valence4_mapping_sample_transpose_report
+            args.valence5_fixture_coverage_report
+            or args.valence4_mapping_sample_transpose_report
             or args.valence4_force_formula_proof_report
         ):
             repeat_result = run_command(run_command_line)
@@ -5341,6 +5600,22 @@ def main() -> int:
                 "not_production_routing": True,
                 "production_route_enabled": False,
                 "scientifically_approved": False,
+            }
+        )
+    if args.valence5_fixture_coverage_report:
+        details.update(
+            {
+                "approved_fixture": True,
+                "approved_scope": (
+                    "existing narrow positive-depth 11-control scientific "
+                    "stand-in"
+                ),
+                "deterministic_repeat_match": deterministic_repeat_match,
+                "fixture_coverage_proof_only": True,
+                "fixture_dir": str(fixture_dir),
+                "not_production_routing": True,
+                "production_route_enabled": False,
+                "production_force_path_executed": False,
             }
         )
     payload = status_payload("passed", details)
