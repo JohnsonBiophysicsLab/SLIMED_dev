@@ -65,15 +65,16 @@ ANCHORS = {
         "`fVolume`: `0.062309089012307695`",
         "`production_scatter_executed:false`",
         "follow-up integration-domain/composition diagnostic is now complete",
-        "scientific decision on valence-5 extraordinary vertex mask semantics",
+        "counterfactual valence-5",
+        "extraordinary-mask attribution diagnostic",
     ),
     READINESS: (
         "completed integration-domain/composition diagnostic",
         "extraordinary smooth-vertex mask",
-        "scientific decision on valence-5 extraordinary vertex mask semantics",
+        "counterfactual valence-5 extraordinary-mask attribution diagnostic",
     ),
     FIXTURE_INVENTORY: (
-        '"scientific decision on valence-5 extraordinary vertex mask "',
+        '"counterfactual valence-5 extraordinary mask attribution "',
     ),
 }
 
@@ -126,8 +127,8 @@ def collect(root: Path) -> dict[str, object]:
         "production_scatter_executed": False,
         "force_parity_passed": False,
         "next_gate": (
-            "scientific decision on valence-5 extraordinary vertex mask "
-            "semantics"
+            "counterfactual valence-5 extraordinary mask attribution "
+            "diagnostic"
         ),
         "anchors": {"located": located, "expected": expected},
         "forbidden_stale_claims": {

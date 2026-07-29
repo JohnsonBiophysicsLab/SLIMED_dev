@@ -69,18 +69,18 @@ ANCHORS = {
         "`opensubdiv_production_force_path_executed:false`",
         "`existing_dependency_free_production_baseline_executed:true`",
         "it does not imply",
-        "scientific decision on which",
+        "counterfactual extraordinary-mask attribution diagnostic",
     ),
     READINESS: (
         "per-face source-order and weighted-transpose contract now passes",
         "whole-Ptex OpenSubdiv evaluation does not match",
         "completed integration-domain/composition diagnostic",
-        "scientific decision on valence-5 extraordinary vertex mask semantics",
+        "counterfactual valence-5 extraordinary-mask attribution diagnostic",
         "does not execute production scatter",
         "Broader-valence production routing remains unsupported",
     ),
     FIXTURE_COVERAGE_INVENTORY: (
-        '"scientific decision on valence-5 extraordinary vertex mask "',
+        '"counterfactual valence-5 extraordinary mask attribution "',
     ),
 }
 
@@ -129,8 +129,8 @@ def collect(root: Path) -> dict[str, object]:
         "existing_dependency_free_production_baseline_executed": True,
         "opensubdiv_production_force_path_executed": False,
         "next_gate": (
-            "scientific decision on valence-5 extraordinary vertex mask "
-            "semantics"
+            "counterfactual valence-5 extraordinary mask attribution "
+            "diagnostic"
         ),
         "anchors": {"located": located, "expected": expected},
         "forbidden_stale_claims": {

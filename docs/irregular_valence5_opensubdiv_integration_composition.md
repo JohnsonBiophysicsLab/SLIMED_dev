@@ -1,9 +1,8 @@
 # Valence-5 OpenSubdiv Integration-Composition Diagnostic
 
 This opt-in proof follows the valence-5 force diagnostic from PR #145. It
-tests whether the force residual came only from evaluating OpenSubdiv over the
-whole Ptex face instead of using SLIMED's positive-depth `11 = 4+3+4`
-composition.
+tests whether evaluating OpenSubdiv over SLIMED's positive-depth child domains
+is sufficient to reproduce the existing `11 = 4+3+4` composition.
 
 Run it with:
 
@@ -42,7 +41,8 @@ absolute tolerance `5e-6`. Even the position row differs by
 `0.02817109760678843`, so this is not a derivative scaling or force-formula
 artifact.
 
-The exact blocker is the extraordinary smooth-vertex mask:
+The proof also observes a potentially relevant extraordinary smooth-vertex
+mask-policy difference:
 
 - SLIMED uses `3/(8n)` for valence five, giving neighbor weight `0.075` and
   center weight `0.625`;
@@ -51,14 +51,19 @@ The exact blocker is the extraordinary smooth-vertex mask:
 
 The report binds those values to the current production matrix and the
 OpenSubdiv probe. It also records the full residual location, per-row and
-per-domain maxima, and the value-row domain residual matrix.
+per-domain maxima, and the value-row domain residual matrix. This evidence
+does not prove that aligning only this mask would eliminate every composed-row
+residual. The report therefore emits
+`mask_policy_causal_sufficiency_proven:false`, keeps the failed composed rows
+as the route blocker, and records the mask difference only as an observed
+diagnostic clue.
 
 This is proof-only diagnostic evidence. It emits `not_production_routing:true`,
 `production_route_enabled:false`, and `production_scatter_executed:false`.
 Production valence-5 routing remains disabled.
 
-The next step is a scientific decision on valence-5 extraordinary vertex mask
-semantics: preserve the current SLIMED surface with a custom compatible row
-provider, or approve a deliberate change to OpenSubdiv's surface definition.
-That decision must precede any composed force-parity or production-routing
-lane.
+The next step is a counterfactual valence-5 extraordinary-mask attribution
+diagnostic. It must determine whether an otherwise identical evaluation with
+the mask aligned reproduces the production-composed rows. Only a passing,
+independently bound counterfactual could justify advancing to a scientific
+mask-semantics decision. Production routing remains disabled.

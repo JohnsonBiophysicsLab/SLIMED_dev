@@ -38,7 +38,7 @@ class ValenceFiveOpenSubdivFixtureCoverageInventoryTest(unittest.TestCase):
         self.assertFalse(report["production_force_path_executed"])
         self.assertEqual(
             report["next_gate"],
-            "scientific decision on valence-5 extraordinary vertex mask semantics",
+            "counterfactual valence-5 extraordinary mask attribution diagnostic",
         )
         self.assertEqual(report["anchors"]["located"], report["anchors"]["expected"])
 

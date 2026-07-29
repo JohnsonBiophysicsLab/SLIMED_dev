@@ -58,8 +58,11 @@ ANCHORS = {
         "local_ids.index(source_id)",
         "value_row_domain_residual_matrix",
         "extraordinary_vertex_mask_policy_mismatch",
+        "mask_policy_causal_sufficiency_proven",
+        "observed_diagnostic_clues",
+        "composed OpenSubdiv rows do not reproduce the",
         "SLIMED and OpenSubdiv use different valence-5",
-        "scientific decision on valence-5 extraordinary vertex",
+        "counterfactual valence-5 extraordinary mask attribution",
         "production_scatter_executed",
     ),
     WRAPPER: (
@@ -76,17 +79,20 @@ ANCHORS = {
         "`0.625`",
         "`0.08409321892578289`",
         "`0.5795339053710855`",
-        "scientific decision on valence-5 extraordinary vertex mask",
+        "`mask_policy_causal_sufficiency_proven:false`",
+        "does not prove that aligning only this mask",
+        "counterfactual valence-5 extraordinary-mask attribution",
         "`production_route_enabled:false`",
     ),
     READINESS: (
         "completed integration-domain/composition diagnostic",
         "maximum position-row residual of `0.02817109760678843`",
         "extraordinary smooth-vertex mask",
-        "scientific decision on valence-5 extraordinary vertex mask semantics",
+        "does not prove that aligning",
+        "counterfactual valence-5 extraordinary-mask attribution diagnostic",
     ),
     PREDECESSOR: (
-        '"scientific decision on valence-5 extraordinary vertex mask "',
+        '"counterfactual valence-5 extraordinary mask attribution "',
     ),
 }
 
@@ -97,6 +103,8 @@ FORBIDDEN_STALE_CLAIMS = {
     ),
     READINESS: (
         "The next reviewed step is a proof-only\nintegration-domain/composition",
+        "The exact blocker is\nthe valence-5 extraordinary smooth-vertex mask",
+        "scientific decision on valence-5 extraordinary vertex mask semantics",
     ),
     PREDECESSOR: (
         '"next_gate": "valence-5 integration-domain/composition diagnostic"',
@@ -138,10 +146,15 @@ def collect(root: Path) -> dict[str, object]:
         "production_route_enabled": False,
         "production_scatter_executed": False,
         "composed_row_parity_passed": False,
-        "exact_blocker": "valence-5 extraordinary vertex mask policy mismatch",
+        "current_route_blocker": (
+            "composed OpenSubdiv rows do not reproduce the positive-depth "
+            "SLIMED rows"
+        ),
+        "extraordinary_vertex_mask_policy_mismatch_observed": True,
+        "mask_policy_causal_sufficiency_proven": False,
         "next_gate": (
-            "scientific decision on valence-5 extraordinary vertex mask "
-            "semantics"
+            "counterfactual valence-5 extraordinary mask attribution "
+            "diagnostic"
         ),
         "anchors": {"located": located, "expected": expected},
         "forbidden_stale_claims": {

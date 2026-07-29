@@ -93,8 +93,8 @@ def collect(root: Path) -> dict[str, object]:
         "production_route_enabled": False,
         "production_force_path_executed": False,
         "next_gate": (
-            "scientific decision on valence-5 extraordinary vertex mask "
-            "semantics"
+            "counterfactual valence-5 extraordinary mask attribution "
+            "diagnostic"
         ),
         "anchors": {"located": located, "expected": expected},
         "errors": errors,

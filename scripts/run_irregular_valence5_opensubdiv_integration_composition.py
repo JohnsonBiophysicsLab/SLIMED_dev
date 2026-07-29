@@ -383,20 +383,31 @@ def compare(
             opensubdiv_center_weight
         ),
         "extraordinary_vertex_mask_policy_mismatch": mask_policy_mismatch,
+        "mask_policy_causal_sufficiency_proven": False,
+        "observed_diagnostic_clues": (
+            [
+                "SLIMED and OpenSubdiv use different valence-5 "
+                "extraordinary smooth-vertex masks"
+            ]
+            if mask_policy_mismatch
+            else []
+        ),
         "route_blockers": (
             []
             if parity
             else [
-                "SLIMED and OpenSubdiv use different valence-5 "
-                "extraordinary smooth-vertex masks"
+                "composed OpenSubdiv rows do not reproduce the "
+                "positive-depth SLIMED rows"
             ]
         ),
         "remaining_boundary": (
             "composed OpenSubdiv fBend/fArea/fVolume parity"
             if parity
             else (
-                "scientific decision on valence-5 extraordinary vertex "
-                "mask semantics"
+                "counterfactual valence-5 extraordinary mask attribution "
+                "diagnostic"
+                if mask_policy_mismatch
+                else "composed row residual attribution diagnostic"
             )
         ),
         "errors": errors,
