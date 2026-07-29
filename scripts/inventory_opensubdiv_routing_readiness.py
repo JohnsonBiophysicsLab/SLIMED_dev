@@ -135,8 +135,8 @@ ROUTE_READINESS_MATRIX: tuple[dict[str, str], ...] = (
     {
         "route": "positive-depth 11 = 4+3+4 membrane force",
         "current_production_status": "supported narrowly by subdivision matrices",
-        "opensubdiv_evidence_status": "source-order, force, and child-domain diagnostics observe a valence-5 extraordinary vertex mask mismatch; the public Loop API cannot construct an evaluator-bound mask-only counterfactual",
-        "readiness_result": "explicit custom-scheme or library decision required; keep production route disabled",
+        "opensubdiv_evidence_status": "source-order, force, and child-domain diagnostics observe a valence-5 extraordinary vertex mask mismatch; counterfactual and custom-scheme feasibility diagnostics find no public mask injection or scheme registration path",
+        "readiness_result": "separately reviewed custom-scheme or library architecture decision required; keep production route disabled",
     },
     {
         "route": "zero-depth 11-control and unsupported irregular topologies",
@@ -492,11 +492,27 @@ ANCHORS: tuple[Anchor, ...] = (
     ),
     Anchor(
         "valence-5 force diagnostic boundary",
-        "custom Loop scheme decision",
+        "custom-scheme feasibility result",
         READINESS_DOC_PATH,
-        "explicitly reviewed custom OpenSubdiv Loop scheme or library decision",
+        "completed custom-scheme feasibility diagnostic",
         "required",
-        "The map keeps production routing disabled pending a separately reviewed library or custom-scheme decision.",
+        "The map records the completed public-extension feasibility check.",
+    ),
+    Anchor(
+        "valence-5 force diagnostic boundary",
+        "custom Loop architecture blocker",
+        READINESS_DOC_PATH,
+        "OpenSubdiv 3.7.0 public Far/Sdc pipeline closes scheme selection over the fixed SchemeType set and exposes no custom Loop smooth-mask injection or scheme registration hook",
+        "required",
+        "The map states the exact public architecture blocker.",
+    ),
+    Anchor(
+        "valence-5 force diagnostic boundary",
+        "custom Loop architecture decision",
+        READINESS_DOC_PATH,
+        "separately reviewed custom-scheme or library architecture decision; production valence-5 routing remains disabled",
+        "required",
+        "The map keeps production routing disabled pending a separately reviewed architecture decision.",
     ),
     Anchor(
         "backend policy",

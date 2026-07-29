@@ -318,9 +318,23 @@ The completed counterfactual capability diagnostic reruns the evaluator-bound
 embedded Loop formula. Its exact blocker is
 `OpenSubdiv public Loop scheme does not expose a custom extraordinary smooth-mask override`.
 No evaluator-bound mask-only counterfactual was constructed, no completed rows
-were edited, and causal sufficiency remains unproven. The next boundary is an
+were edited, and causal sufficiency remains unproven.
+That predecessor recorded an
 `explicitly reviewed custom OpenSubdiv Loop scheme or library decision`.
-Production valence-5 routing remains disabled.
+
+The completed custom-scheme feasibility diagnostic then checks the installed
+OpenSubdiv 3.7.0 public Far/Sdc extension surface. No standalone
+public-extension adapter produced evaluator-bound SLIMED-mask rows:
+`Sdc::SchemeType` is closed over the three built-in schemes, and the public
+pipeline exposes neither custom scheme registration nor custom Loop
+smooth-mask injection. The exact architecture blocker is
+`OpenSubdiv 3.7.0 public Far/Sdc pipeline closes scheme selection over the fixed SchemeType set and exposes no custom Loop smooth-mask injection or scheme registration hook`.
+
+The remaining boundary is a
+`separately reviewed custom-scheme or library architecture decision; production valence-5 routing remains disabled`.
+This evidence does not select a custom evaluator, library fork/patch/vendor
+policy, or scientific mask semantics; prove mask causality; or authorize
+valence-5 routing.
 Broader-valence production routing remains unsupported and must not inherit the
 valence-4 gate.
 
