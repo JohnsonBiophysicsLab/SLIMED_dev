@@ -81,7 +81,8 @@ ANCHORS = {
         "`0.5795339053710855`",
         "`mask_policy_causal_sufficiency_proven:false`",
         "does not prove that aligning only this mask",
-        "counterfactual valence-5 extraordinary-mask attribution",
+        "counterfactual capability diagnostic is now complete",
+        "public Loop scheme API does not expose a custom extraordinary",
         "`production_route_enabled:false`",
     ),
     READINESS: (
@@ -89,10 +90,12 @@ ANCHORS = {
         "maximum position-row residual of `0.02817109760678843`",
         "extraordinary smooth-vertex mask",
         "does not prove that aligning",
-        "counterfactual valence-5 extraordinary-mask attribution diagnostic",
+        "completed counterfactual capability diagnostic",
+        "custom extraordinary smooth-mask override",
+        "explicitly reviewed custom OpenSubdiv Loop scheme or library decision",
     ),
     PREDECESSOR: (
-        '"counterfactual valence-5 extraordinary mask attribution "',
+        '"explicitly reviewed custom OpenSubdiv Loop scheme or library decision"',
     ),
 }
 
@@ -153,8 +156,7 @@ def collect(root: Path) -> dict[str, object]:
         "extraordinary_vertex_mask_policy_mismatch_observed": True,
         "mask_policy_causal_sufficiency_proven": False,
         "next_gate": (
-            "counterfactual valence-5 extraordinary mask attribution "
-            "diagnostic"
+            "explicitly reviewed custom OpenSubdiv Loop scheme or library decision"
         ),
         "anchors": {"located": located, "expected": expected},
         "forbidden_stale_claims": {

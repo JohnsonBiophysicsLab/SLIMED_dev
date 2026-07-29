@@ -93,8 +93,7 @@ def collect(root: Path) -> dict[str, object]:
         "production_route_enabled": False,
         "production_force_path_executed": False,
         "next_gate": (
-            "counterfactual valence-5 extraordinary mask attribution "
-            "diagnostic"
+            "explicitly reviewed custom OpenSubdiv Loop scheme or library decision"
         ),
         "anchors": {"located": located, "expected": expected},
         "errors": errors,

@@ -69,18 +69,20 @@ ANCHORS = {
         "`opensubdiv_production_force_path_executed:false`",
         "`existing_dependency_free_production_baseline_executed:true`",
         "it does not imply",
-        "counterfactual extraordinary-mask attribution diagnostic",
+        "counterfactual capability diagnostic confirms",
+        "custom OpenSubdiv Loop scheme or library decision",
     ),
     READINESS: (
         "per-face source-order and weighted-transpose contract now passes",
         "whole-Ptex OpenSubdiv evaluation does not match",
         "completed integration-domain/composition diagnostic",
-        "counterfactual valence-5 extraordinary-mask attribution diagnostic",
+        "completed counterfactual capability diagnostic",
+        "custom extraordinary smooth-mask override",
         "does not execute production scatter",
         "Broader-valence production routing remains unsupported",
     ),
     FIXTURE_COVERAGE_INVENTORY: (
-        '"counterfactual valence-5 extraordinary mask attribution "',
+        '"explicitly reviewed custom OpenSubdiv Loop scheme or library decision"',
     ),
 }
 
@@ -129,8 +131,7 @@ def collect(root: Path) -> dict[str, object]:
         "existing_dependency_free_production_baseline_executed": True,
         "opensubdiv_production_force_path_executed": False,
         "next_gate": (
-            "counterfactual valence-5 extraordinary mask attribution "
-            "diagnostic"
+            "explicitly reviewed custom OpenSubdiv Loop scheme or library decision"
         ),
         "anchors": {"located": located, "expected": expected},
         "forbidden_stale_claims": {

@@ -62,8 +62,9 @@ This is proof-only diagnostic evidence. It emits `not_production_routing:true`,
 `production_route_enabled:false`, and `production_scatter_executed:false`.
 Production valence-5 routing remains disabled.
 
-The next step is a counterfactual valence-5 extraordinary-mask attribution
-diagnostic. It must determine whether an otherwise identical evaluation with
-the mask aligned reproduces the production-composed rows. Only a passing,
-independently bound counterfactual could justify advancing to a scientific
-mask-semantics decision. Production routing remains disabled.
+The follow-up counterfactual capability diagnostic is now complete. It confirms
+that OpenSubdiv's public Loop scheme API does not expose a custom extraordinary
+smooth-mask override, so an otherwise identical evaluator-bound counterfactual
+cannot be constructed without an explicitly reviewed custom-scheme or library
+decision. No rows were edited after evaluation and no numerical equivalence was
+claimed. Production routing remains disabled.

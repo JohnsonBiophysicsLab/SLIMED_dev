@@ -65,16 +65,17 @@ ANCHORS = {
         "`fVolume`: `0.062309089012307695`",
         "`production_scatter_executed:false`",
         "follow-up integration-domain/composition diagnostic is now complete",
-        "counterfactual valence-5",
-        "extraordinary-mask attribution diagnostic",
+        "completed counterfactual capability diagnostic",
+        "custom OpenSubdiv Loop scheme or library decision",
     ),
     READINESS: (
         "completed integration-domain/composition diagnostic",
         "extraordinary smooth-vertex mask",
-        "counterfactual valence-5 extraordinary-mask attribution diagnostic",
+        "completed counterfactual capability diagnostic",
+        "custom extraordinary smooth-mask override",
     ),
     FIXTURE_INVENTORY: (
-        '"counterfactual valence-5 extraordinary mask attribution "',
+        '"explicitly reviewed custom OpenSubdiv Loop scheme or library decision"',
     ),
 }
 
@@ -127,8 +128,7 @@ def collect(root: Path) -> dict[str, object]:
         "production_scatter_executed": False,
         "force_parity_passed": False,
         "next_gate": (
-            "counterfactual valence-5 extraordinary mask attribution "
-            "diagnostic"
+            "explicitly reviewed custom OpenSubdiv Loop scheme or library decision"
         ),
         "anchors": {"located": located, "expected": expected},
         "forbidden_stale_claims": {
