@@ -43,13 +43,7 @@ constexpr std::array<double, 3> kReviewedValence4QuadratureWeights{{
 
 bool env_value_is_enabled(const char *value)
 {
-    if (value == nullptr || value[0] == '\0')
-    {
-        return false;
-    }
-    const std::string text(value);
-    return text != "0" && text != "false" && text != "FALSE" &&
-           text != "off" && text != "OFF";
+    return value != nullptr && std::string(value) == "1";
 }
 
 Valence4FaceLoopRoutePreflightResult reject(std::string reason)

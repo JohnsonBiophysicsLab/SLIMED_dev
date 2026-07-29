@@ -56,6 +56,7 @@ ANCHORS = {
     SOURCE: (
         "SLIMED_USE_OPENSUBDIV_VALENCE4",
         "env_value_is_enabled",
+        'return value != nullptr && std::string(value) == "1";',
         "reviewerApprovedExplicitCaller = true",
         "evaluate_guarded_valence4_opensubdiv_production_face_loop_caller",
         "productionRouteEnabled = true",
@@ -71,8 +72,16 @@ ANCHORS = {
         "OpenSubdivProductionRouteRequiresEnabledBuildAtomically",
         "OpenSubdivProductionRouteRunsThroughDefaultEvaluator",
         "OpenSubdivProductionRouteRejectsTopologyDriftAtomically",
-        "OpenSubdivProductionRouteRemainsDefaultOff",
+        "OpenSubdivProductionRouteRequiresExactRuntimeToken",
         "SLIMED_USE_OPENSUBDIV_VALENCE4",
+        '"true"',
+        '"yes"',
+        '"2"',
+        '"garbage"',
+        '"False"',
+        '"Off"',
+        '" "',
+        '"\\t"',
         "expect_face_observable_publication_state_unchanged",
         "capture_all_vertex_forces",
     ),
@@ -124,6 +133,17 @@ FORBIDDEN_SOURCE_NEEDLES = (
     "Face::oneRingVertices",
     "omp_set_num_threads",
     "omp_set_schedule",
+)
+EXACT_TOKEN_PARSER = 'return value != nullptr && std::string(value) == "1";'
+NEGATIVE_RUNTIME_TOKENS = (
+    '"true"',
+    '"yes"',
+    '"2"',
+    '"garbage"',
+    '"False"',
+    '"Off"',
+    '" "',
+    '"\\t"',
 )
 
 
@@ -187,9 +207,23 @@ def collect(root: Path) -> dict[str, object]:
 
     route_source = (root / SOURCE).read_text(encoding="utf-8")
     entry_source = (root / ENTRY).read_text(encoding="utf-8")
+    route_test = (root / CPP_TEST).read_text(encoding="utf-8")
     for needle in FORBIDDEN_SOURCE_NEEDLES:
         if needle in route_source or needle in entry_source:
             errors.append(f"route activation owns forbidden behavior: {needle}")
+
+    exact_runtime_gate_token = EXACT_TOKEN_PARSER in route_source
+    if not exact_runtime_gate_token:
+        errors.append("runtime route gate does not require exact token 1")
+    missing_negative_tokens = [
+        token for token in NEGATIVE_RUNTIME_TOKENS if token not in route_test
+    ]
+    negative_runtime_tokens_tested = not missing_negative_tokens
+    if missing_negative_tokens:
+        errors.append(
+            "runtime route gate negative coverage missing: "
+            + ", ".join(missing_negative_tokens)
+        )
 
     build_gate_unchanged = "Makefile" not in paths
     runtime_gate_present = "SLIMED_USE_OPENSUBDIV_VALENCE4" in route_source
@@ -204,6 +238,8 @@ def collect(root: Path) -> dict[str, object]:
         "canonical_closed_valence4_only": True,
         "build_gate_unchanged": build_gate_unchanged,
         "runtime_gate_present": runtime_gate_present,
+        "exact_runtime_gate_token": exact_runtime_gate_token,
+        "negative_runtime_tokens_tested": negative_runtime_tokens_tested,
         "ambient_dependency_routing": False,
         "default_entry_calls_guarded_route": default_entry_calls_route,
         "atomic_dependency_rejection_tested": True,

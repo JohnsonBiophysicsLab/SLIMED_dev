@@ -31,6 +31,8 @@ class ValenceFourOpenSubdivRouteActivationInventoryTest(
         self.assertTrue(report["canonical_closed_valence4_only"])
         self.assertTrue(report["build_gate_unchanged"])
         self.assertTrue(report["runtime_gate_present"])
+        self.assertTrue(report["exact_runtime_gate_token"])
+        self.assertTrue(report["negative_runtime_tokens_tested"])
         self.assertFalse(report["ambient_dependency_routing"])
         self.assertTrue(report["default_entry_calls_guarded_route"])
         self.assertTrue(report["atomic_dependency_rejection_tested"])

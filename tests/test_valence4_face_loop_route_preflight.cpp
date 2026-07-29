@@ -3219,15 +3219,44 @@ TEST(ValenceFourFaceLoopRoutePreflight,
 #endif
 
 TEST(ValenceFourFaceLoopRoutePreflight,
-     OpenSubdivProductionRouteRemainsDefaultOff)
+     OpenSubdivProductionRouteRequiresExactRuntimeToken)
 {
-    for (const char *disabledValue : {"0", "false", "FALSE", "off", "OFF"})
+    for (const char *disabledValue :
+         {"",
+          "0",
+          "false",
+          "FALSE",
+          "False",
+          "FaLsE",
+          "off",
+          "OFF",
+          "Off",
+          "oFf",
+          "true",
+          "TRUE",
+          "True",
+          "yes",
+          "2",
+          "garbage",
+          " ",
+          "\t",
+          " 1",
+          "1 ",
+          "01",
+          "+1"})
     {
         ScopedEnvVar disabledRouteEnv(
             "SLIMED_USE_OPENSUBDIV_VALENCE4", disabledValue);
         EXPECT_FALSE(
             opensubdiv_valence4_production_routing_requested())
             << disabledValue;
+    }
+
+    {
+        ScopedEnvVar enabledRouteEnv(
+            "SLIMED_USE_OPENSUBDIV_VALENCE4", "1");
+        EXPECT_TRUE(
+            opensubdiv_valence4_production_routing_requested());
     }
 
     ScopedEnvVar routeEnv("SLIMED_USE_OPENSUBDIV_VALENCE4", nullptr);

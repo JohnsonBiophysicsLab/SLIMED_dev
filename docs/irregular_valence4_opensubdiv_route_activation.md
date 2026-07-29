@@ -12,9 +12,9 @@ The route is available only when both conditions are true:
    `USE_OPENSUBDIV_REGULAR=1 OPENSUBDIV_ROOT=/path/to/opensubdiv`; and
 2. the process sets `SLIMED_USE_OPENSUBDIV_VALENCE4=1`.
 
-The runtime gate is false when unset or set to `0`, `false`, or `off`, using
-either lowercase or uppercase spellings. Ambient OpenSubdiv installation
-never selects the route.
+The runtime gate accepts only the exact token `1`. It is false when unset and
+for every other value, including boolean-like strings, numbers, typos, and
+whitespace. Ambient OpenSubdiv installation never selects the route.
 The default dependency-free build remains OpenSubdiv-free.
 
 ## Atomic Canonical Route
