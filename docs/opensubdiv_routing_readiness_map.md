@@ -373,6 +373,22 @@ next. Production valence-5 OpenSubdiv routing remains disabled.
 Broader-valence production routing remains unsupported and must not inherit the
 valence-4 gate.
 
+The proof-only Option B assessment is complete under an
+`observational scientific re-baselining planning only` scope. It reruns the
+reviewed stock OpenSubdiv row and force evidence and records that Option B
+would change current valence-5 scientific semantics: composed-row parity
+fails with maximum residual `0.7357563654581705`, while the maximum `fBend`,
+`fArea`, and `fVolume` residuals are `7.108303140663388`,
+`0.46106761515265404`, and `0.062309089012307695`.
+
+Option B remains unselected and scientifically unapproved. The assessment
+proposes, but does not authorize, a physical re-baselining plan. Force is
+characterized as non-parity.
+Stock energy, geometry, output, and serial/OpenMP evidence remains pending.
+The next evidence boundary is a separately reviewed
+proof-only stock OpenSubdiv valence-5 energy and geometry observable
+re-baselining lane. It must not install a production route.
+
 ## Inventory Check
 
 Run the readiness-anchor inventory with:
