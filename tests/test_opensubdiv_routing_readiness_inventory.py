@@ -49,7 +49,7 @@ class OpenSubdivRoutingReadinessInventoryTest(unittest.TestCase):
 
         irregular_11 = matrix["positive-depth 11 = 4+3+4 membrane force"]
         self.assertIn("subdivision matrices", irregular_11["current_production_status"])
-        self.assertIn("do not replace", irregular_11["readiness_result"])
+        self.assertIn("selects no architecture or library", irregular_11["readiness_result"])
 
         broader = matrix["broader extraordinary valence"]
         self.assertIn("future-only", broader["readiness_result"])
@@ -108,8 +108,12 @@ class OpenSubdivRoutingReadinessInventoryTest(unittest.TestCase):
         self.assertIn("source-order transpose contract complete", anchor_names)
         self.assertIn("four options remain unselected", anchor_names)
         self.assertIn("current SLIMED behavior preserved", anchor_names)
-        self.assertIn("no option automatically next", anchor_names)
+        self.assertIn("PR149 historical no-selection boundary", anchor_names)
         self.assertIn("scientific and dependency gates", anchor_names)
+        self.assertIn("Option D observational feasibility authorized", anchor_names)
+        self.assertIn("alternate-library finite-set result", anchor_names)
+        self.assertIn("alternate-library selection remains false", anchor_names)
+        self.assertIn("alternate-library fallback preserved", anchor_names)
 
         self.assertFalse(
             inventory.collect_forbidden_claims(inventory.repo_root())

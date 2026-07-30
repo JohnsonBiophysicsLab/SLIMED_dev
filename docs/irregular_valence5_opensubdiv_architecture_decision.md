@@ -71,5 +71,8 @@ The package stops at:
 `explicit reviewer/user architecture selection; scientific approval and output re-baselining for changed semantics; dependency, maintenance, and license review for changed library policy`.
 
 Dependency absence skips cleanly. Dependency presence reproduces the exact
-four-option, no-selection decision. No option is approved or automatically
-next, and valence-5 OpenSubdiv routing remains disabled.
+four-option, no-selection decision. At the PR #149 merge boundary, no option
+was approved or automatically next, and valence-5 OpenSubdiv routing remained
+disabled. A later explicit user authorization may open one bounded
+investigation without rewriting this historical decision or selecting an
+architecture, library, dependency policy, or scientific semantics.

@@ -135,8 +135,8 @@ ROUTE_READINESS_MATRIX: tuple[dict[str, str], ...] = (
     {
         "route": "positive-depth 11 = 4+3+4 membrane force",
         "current_production_status": "supported narrowly by subdivision matrices",
-        "opensubdiv_evidence_status": "source-order, force, child-domain, counterfactual, custom-scheme feasibility, and architecture-decision diagnostics bind the residual and public API boundary",
-        "readiness_result": "preserve the current SLIMED route; do not replace it while all four architecture options remain unselected",
+        "opensubdiv_evidence_status": "source-order, force, child-domain, counterfactual, custom-scheme, architecture-decision, and alternate-library feasibility diagnostics bind the residual and API boundaries",
+        "readiness_result": "preserve the current SLIMED route; Option D authorizes observation only and selects no architecture or library",
     },
     {
         "route": "zero-depth 11-control and unsupported irregular topologies",
@@ -243,6 +243,18 @@ FORBIDDEN_READINESS_CLAIMS: tuple[ForbiddenClaim, ...] = (
         READINESS_DOC_PATH,
         "valence-5 OpenSubdiv route activation is automatically next",
         "No route may proceed without an explicit selected architecture and required approvals.",
+    ),
+    ForbiddenClaim(
+        "post-PR149 stale nothing-next wording",
+        READINESS_DOC_PATH,
+        "No option is approved or automatically next",
+        "Option D is now authorized for observation only, without architecture or library selection.",
+    ),
+    ForbiddenClaim(
+        "post-PR149 Option D treated as selected architecture",
+        READINESS_DOC_PATH,
+        "Option D is the selected architecture",
+        "The user authorized only a bounded observational feasibility lane.",
     ),
 )
 
@@ -562,11 +574,11 @@ ANCHORS: tuple[Anchor, ...] = (
     ),
     Anchor(
         "valence-5 architecture decision",
-        "no option automatically next",
+        "PR149 historical no-selection boundary",
         READINESS_DOC_PATH,
-        "No option is approved or automatically next",
-        "selection gate",
-        "The map forbids an implicit architecture selection.",
+        "After that historical no-selection decision",
+        "historical selection boundary",
+        "The map preserves PR149 history while time-scoping its original boundary.",
     ),
     Anchor(
         "valence-5 architecture decision",
@@ -575,6 +587,38 @@ ANCHORS: tuple[Anchor, ...] = (
         "complete output re-baselining",
         "review boundary",
         "The map binds changed semantics and dependency policy to separate approvals.",
+    ),
+    Anchor(
+        "valence-5 alternate-library feasibility",
+        "Option D observational feasibility authorized",
+        READINESS_DOC_PATH,
+        "Option D only as an observational feasibility investigation",
+        "observational authorization",
+        "The authorization starts a bounded survey without selecting an architecture.",
+    ),
+    Anchor(
+        "valence-5 alternate-library feasibility",
+        "alternate-library finite-set result",
+        READINESS_DOC_PATH,
+        "no viable candidate in the reviewed finite non-exhaustive set",
+        "finite-set result",
+        "The map scopes the negative result to the exact reviewed set.",
+    ),
+    Anchor(
+        "valence-5 alternate-library feasibility",
+        "alternate-library selection remains false",
+        READINESS_DOC_PATH,
+        "Architecture and library selection remain false",
+        "selection boundary",
+        "The survey does not select or prefer a library.",
+    ),
+    Anchor(
+        "valence-5 alternate-library feasibility",
+        "alternate-library fallback preserved",
+        READINESS_DOC_PATH,
+        "valence-5 fallback remains preserved",
+        "fallback boundary",
+        "The current dependency-free behavior remains installed.",
     ),
     Anchor(
         "backend policy",
