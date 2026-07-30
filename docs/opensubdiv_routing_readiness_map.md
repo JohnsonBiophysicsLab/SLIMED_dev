@@ -52,7 +52,7 @@ regular route through separately reviewed production changes.
 | Route | Current production status | OpenSubdiv evidence status | Readiness result |
 | --- | --- | --- | --- |
 | Regular 12-control membrane force | Supported through the direct evaluator by default. OpenSubdiv-enabled binaries may route supported non-boundary, non-ghost regular faces only when runtime opt-in is explicit. | The guarded double-row route passes regular row, production-call force/scatter, geometry, output-visible, and serial/OpenMP executable parity under the current tolerance. | Guarded regular route active; preserve parity gates and direct fallback. |
-| Positive-depth `11 = 4+3+4` membrane force | Supported narrowly through dependency-free subdivision matrices and child-force back-projection. | OpenSubdiv diagnostics bind the force residual, mask-causality boundary, and absence of a public custom-scheme seam. The architecture decision records four ordered options without selecting one. | Preserve the current SLIMED route; all OpenSubdiv/library architecture options remain unselected behind explicit review gates. |
+| Positive-depth `11 = 4+3+4` membrane force | Supported narrowly through dependency-free subdivision matrices and child-force back-projection. | OpenSubdiv diagnostics bind the force residual, mask-causality boundary, and absence of a public custom-scheme seam. The architecture decision records four ordered options without selecting one; Option D is now authorized only for this observational feasibility lane. | Preserve the current SLIMED route; architecture and library selection remain false behind explicit review gates. |
 | Zero-depth 11-control and unsupported irregular topologies | Guarded unsupported cases. | No production approval. | Must continue to fail loudly or use only reviewed diagnostics. |
 | Broader extraordinary valence | Only the explicitly gated canonical valence-4 octahedron is production routed. Every other extraordinary topology remains unsupported by OpenSubdiv production routing. | For the approved valence-5 icosahedron, aggregate Ptex derivative coverage and the proof-only per-face source-order and weighted-transpose contract now passes against the canonical production `20 x 11` one-ring order and duplicate scatter boundary. | Actual valence-5 bending/area/volume force parity remains unproven. Broader-valence production routing remains unsupported. |
 
@@ -336,16 +336,27 @@ This evidence does not select a custom evaluator, library fork/patch/vendor
 policy, or scientific mask semantics; prove mask causality; or authorize
 valence-5 routing.
 
-The completed valence-5 architecture decision package closes that planning
-question without selecting an implementation. It records exactly four ordered
+The completed valence-5 architecture decision package records exactly four ordered
 options: hybrid preservation of the existing SLIMED valence-5 evaluator,
 adoption of stock OpenSubdiv extraordinary semantics, a patched/forked/vendored
 OpenSubdiv dependency, and evaluation of an alternate library. All four
 architecture options remain explicitly unselected. The current SLIMED
 positive-depth valence-5 route remains preserved behavior, not a selected
-OpenSubdiv architecture. No option is approved or automatically next.
+OpenSubdiv architecture.
 
-Selection remains behind an explicit reviewer/user decision. Any
+After that historical no-selection decision, the user explicitly authorized
+Option D only as an observational feasibility investigation. This successor
+authorization does not select Option D as an architecture and does not select
+or prefer a library. The frozen finite non-exhaustive set is CGAL 6.2, libigl
+2.6.0, OpenMesh 11.0, and pmp-library 3.0.0. The result is
+`no viable candidate in the reviewed finite non-exhaustive set`: none exposes
+the required conjunction of exact extraordinary Loop limit evaluation,
+first/second parametric derivatives, and an evaluator-bound custom-mask seam
+preserving source and chain-rule semantics. The current SLIMED positive-depth
+valence-5 fallback remains preserved.
+
+Architecture and library selection remain false and behind an explicit
+reviewer/user decision. Any
 semantics-changing selection additionally requires scientific approval and
 complete output re-baselining; any dependency-changing selection additionally
 requires dependency-policy, maintenance, and license review. Production

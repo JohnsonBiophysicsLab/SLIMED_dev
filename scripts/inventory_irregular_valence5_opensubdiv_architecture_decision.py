@@ -78,13 +78,15 @@ ANCHORS = {
         "Adopt stock OpenSubdiv extraordinary semantics",
         "Patch, fork, or vendor OpenSubdiv",
         "Evaluate an alternate subdivision library",
-        "No option is approved or automatically\nnext",
+        "At the PR #149 merge boundary, no option\nwas approved or automatically next",
+        "A later explicit user authorization may open one bounded\ninvestigation",
     ),
     READINESS: (
         "completed valence-5 architecture decision package",
         "architecture options remain explicitly unselected",
         "positive-depth valence-5 route remains preserved behavior",
-        "No option is approved or automatically next",
+        "After that historical no-selection decision",
+        "Option D only as an observational feasibility investigation",
     ),
     PREDECESSOR: (
         "EXPECTED_OPENSUBDIV_VERSION_NUMBER = 30700",
