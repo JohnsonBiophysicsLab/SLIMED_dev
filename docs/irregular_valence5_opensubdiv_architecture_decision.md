@@ -73,6 +73,9 @@ The package stops at:
 Dependency absence skips cleanly. Dependency presence reproduces the exact
 four-option, no-selection decision. At the PR #149 merge boundary, no option
 was approved or automatically next, and valence-5 OpenSubdiv routing remained
-disabled. A later explicit user authorization may open one bounded
-investigation without rewriting this historical decision or selecting an
-architecture, library, dependency policy, or scientific semantics.
+disabled. PR #150 subsequently completed the bounded Option D observational
+survey without rewriting this historical decision and found no viable
+candidate in its reviewed finite non-exhaustive set. The post-Option-D gate
+preserves A as current behavior and leaves B and C behind explicit user
+decision and approval boundaries. No architecture option is selected,
+recommended, preferred, or automatically next.

@@ -88,27 +88,28 @@ ANCHORS = {
         "pmp-library 3.0.0",
         "finite non-exhaustive set",
         "`installability_not_executed:true`",
-        "current dependency-free SLIMED",
+        "current dependency-free",
     ),
     ARCHITECTURE_DOC: (
         "At the PR #149 merge boundary, no option",
-        "A later explicit user authorization may open one bounded",
+        "PR #150 subsequently completed the bounded Option D observational",
     ),
     READINESS: (
-        "Option D is now authorized only for this observational feasibility lane",
-        "architecture and library selection remain false",
+        "Option D observational survey is complete",
         "no viable candidate in the reviewed finite non-exhaustive set",
         "valence-5 fallback remains preserved",
+        "post-Option-D gate records the remaining neutral boundary",
     ),
     PREDECESSOR: (
         "architecture options must be exactly ordered A, B, C, D",
         "architecture options must remain unselected and unpreferred",
     ),
     GLOBAL_INVENTORY: (
-        "Option D observational feasibility authorized",
+        "Option D observational feasibility completed",
         "alternate-library finite-set result",
         "alternate-library selection remains false",
         "alternate-library fallback preserved",
+        "post-Option-D neutral gate",
     ),
     TEST: (
         "test_canonical_report_passes_without_selection",
@@ -143,6 +144,7 @@ FORBIDDEN = {
         "an alternate subdivision library is selected",
         "Option D selects an alternate library",
         "alternate-library production routing is enabled",
+        "Option D is now authorized only for this observational feasibility lane",
     ),
 }
 
