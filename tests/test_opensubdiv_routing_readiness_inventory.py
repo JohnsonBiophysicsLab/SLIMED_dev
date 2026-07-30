@@ -106,7 +106,10 @@ class OpenSubdivRoutingReadinessInventoryTest(unittest.TestCase):
         self.assertIn("successful route flag promotion", anchor_names)
         self.assertIn("broader valence remains separate", anchor_names)
         self.assertIn("source-order transpose contract complete", anchor_names)
-        self.assertIn("force parity is next", anchor_names)
+        self.assertIn("four options remain unselected", anchor_names)
+        self.assertIn("current SLIMED behavior preserved", anchor_names)
+        self.assertIn("no option automatically next", anchor_names)
+        self.assertIn("scientific and dependency gates", anchor_names)
 
         self.assertFalse(
             inventory.collect_forbidden_claims(inventory.repo_root())

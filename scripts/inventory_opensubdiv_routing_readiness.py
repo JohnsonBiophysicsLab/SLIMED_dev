@@ -135,8 +135,8 @@ ROUTE_READINESS_MATRIX: tuple[dict[str, str], ...] = (
     {
         "route": "positive-depth 11 = 4+3+4 membrane force",
         "current_production_status": "supported narrowly by subdivision matrices",
-        "opensubdiv_evidence_status": "source-order, force, and child-domain diagnostics observe a valence-5 extraordinary vertex mask mismatch; counterfactual and custom-scheme feasibility diagnostics find no public mask injection or scheme registration path",
-        "readiness_result": "separately reviewed custom-scheme or library architecture decision required; keep production route disabled",
+        "opensubdiv_evidence_status": "source-order, force, child-domain, counterfactual, custom-scheme feasibility, and architecture-decision diagnostics bind the residual and public API boundary",
+        "readiness_result": "preserve the current SLIMED route; do not replace it while all four architecture options remain unselected",
     },
     {
         "route": "zero-depth 11-control and unsupported irregular topologies",
@@ -213,6 +213,36 @@ FORBIDDEN_READINESS_CLAIMS: tuple[ForbiddenClaim, ...] = (
         READINESS_DOC_PATH,
         "The next reviewed step is a per-face source-order and weighted-transpose",
         "The per-face contract and force diagnostic now pass their evidence gates; integration composition is next.",
+    ),
+    ForbiddenClaim(
+        "valence-5 architecture hybrid approved",
+        READINESS_DOC_PATH,
+        "hybrid valence-5 architecture is approved",
+        "Hybrid preservation is an unselected option; current fallback is preserved behavior.",
+    ),
+    ForbiddenClaim(
+        "valence-5 architecture stock semantics approved",
+        READINESS_DOC_PATH,
+        "stock OpenSubdiv valence-5 semantics are approved",
+        "Stock extraordinary semantics require a separate scientific decision and re-baselining.",
+    ),
+    ForbiddenClaim(
+        "valence-5 architecture patch approved",
+        READINESS_DOC_PATH,
+        "patching OpenSubdiv is approved",
+        "A fork, patch, or vendored dependency requires separate policy and license review.",
+    ),
+    ForbiddenClaim(
+        "valence-5 architecture alternate library approved",
+        READINESS_DOC_PATH,
+        "an alternate subdivision library is approved",
+        "An alternate library requires a separate feasibility lane.",
+    ),
+    ForbiddenClaim(
+        "valence-5 architecture route automatically next",
+        READINESS_DOC_PATH,
+        "valence-5 OpenSubdiv route activation is automatically next",
+        "No route may proceed without an explicit selected architecture and required approvals.",
     ),
 )
 
@@ -513,6 +543,38 @@ ANCHORS: tuple[Anchor, ...] = (
         "separately reviewed custom-scheme or library architecture decision; production valence-5 routing remains disabled",
         "required",
         "The map keeps production routing disabled pending a separately reviewed architecture decision.",
+    ),
+    Anchor(
+        "valence-5 architecture decision",
+        "four options remain unselected",
+        READINESS_DOC_PATH,
+        "architecture options remain explicitly unselected",
+        "decision boundary",
+        "The map records exactly four options without approving one.",
+    ),
+    Anchor(
+        "valence-5 architecture decision",
+        "current SLIMED behavior preserved",
+        READINESS_DOC_PATH,
+        "positive-depth valence-5 route remains preserved behavior",
+        "preserved fallback",
+        "The current route is preserved behavior rather than a selected OpenSubdiv architecture.",
+    ),
+    Anchor(
+        "valence-5 architecture decision",
+        "no option automatically next",
+        READINESS_DOC_PATH,
+        "No option is approved or automatically next",
+        "selection gate",
+        "The map forbids an implicit architecture selection.",
+    ),
+    Anchor(
+        "valence-5 architecture decision",
+        "scientific and dependency gates",
+        READINESS_DOC_PATH,
+        "complete output re-baselining",
+        "review boundary",
+        "The map binds changed semantics and dependency policy to separate approvals.",
     ),
     Anchor(
         "backend policy",

@@ -52,7 +52,7 @@ regular route through separately reviewed production changes.
 | Route | Current production status | OpenSubdiv evidence status | Readiness result |
 | --- | --- | --- | --- |
 | Regular 12-control membrane force | Supported through the direct evaluator by default. OpenSubdiv-enabled binaries may route supported non-boundary, non-ghost regular faces only when runtime opt-in is explicit. | The guarded double-row route passes regular row, production-call force/scatter, geometry, output-visible, and serial/OpenMP executable parity under the current tolerance. | Guarded regular route active; preserve parity gates and direct fallback. |
-| Positive-depth `11 = 4+3+4` membrane force | Supported narrowly through dependency-free subdivision matrices and child-force back-projection. | OpenSubdiv aggregate source/transpose reports are observational only. | Keep current route; do not replace with OpenSubdiv in the regular readiness lane. |
+| Positive-depth `11 = 4+3+4` membrane force | Supported narrowly through dependency-free subdivision matrices and child-force back-projection. | OpenSubdiv diagnostics bind the force residual, mask-causality boundary, and absence of a public custom-scheme seam. The architecture decision records four ordered options without selecting one. | Preserve the current SLIMED route; all OpenSubdiv/library architecture options remain unselected behind explicit review gates. |
 | Zero-depth 11-control and unsupported irregular topologies | Guarded unsupported cases. | No production approval. | Must continue to fail loudly or use only reviewed diagnostics. |
 | Broader extraordinary valence | Only the explicitly gated canonical valence-4 octahedron is production routed. Every other extraordinary topology remains unsupported by OpenSubdiv production routing. | For the approved valence-5 icosahedron, aggregate Ptex derivative coverage and the proof-only per-face source-order and weighted-transpose contract now passes against the canonical production `20 x 11` one-ring order and duplicate scatter boundary. | Actual valence-5 bending/area/volume force parity remains unproven. Broader-valence production routing remains unsupported. |
 
@@ -335,6 +335,21 @@ The remaining boundary is a
 This evidence does not select a custom evaluator, library fork/patch/vendor
 policy, or scientific mask semantics; prove mask causality; or authorize
 valence-5 routing.
+
+The completed valence-5 architecture decision package closes that planning
+question without selecting an implementation. It records exactly four ordered
+options: hybrid preservation of the existing SLIMED valence-5 evaluator,
+adoption of stock OpenSubdiv extraordinary semantics, a patched/forked/vendored
+OpenSubdiv dependency, and evaluation of an alternate library. All four
+architecture options remain explicitly unselected. The current SLIMED
+positive-depth valence-5 route remains preserved behavior, not a selected
+OpenSubdiv architecture. No option is approved or automatically next.
+
+Selection remains behind an explicit reviewer/user decision. Any
+semantics-changing selection additionally requires scientific approval and
+complete output re-baselining; any dependency-changing selection additionally
+requires dependency-policy, maintenance, and license review. Production
+valence-5 OpenSubdiv routing remains disabled.
 Broader-valence production routing remains unsupported and must not inherit the
 valence-4 gate.
 
