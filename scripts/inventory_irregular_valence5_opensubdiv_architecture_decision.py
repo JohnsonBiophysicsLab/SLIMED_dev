@@ -79,14 +79,15 @@ ANCHORS = {
         "Patch, fork, or vendor OpenSubdiv",
         "Evaluate an alternate subdivision library",
         "At the PR #149 merge boundary, no option\nwas approved or automatically next",
-        "A later explicit user authorization may open one bounded\ninvestigation",
+        "PR #150 subsequently completed the bounded Option D observational\nsurvey",
+        "No architecture option is selected,\nrecommended, preferred, or automatically next",
     ),
     READINESS: (
         "completed valence-5 architecture decision package",
         "architecture options remain explicitly unselected",
         "positive-depth valence-5 route remains preserved behavior",
         "After that historical no-selection decision",
-        "Option D only as an observational feasibility investigation",
+        "PR #150 completed\nthat authorization",
     ),
     PREDECESSOR: (
         "EXPECTED_OPENSUBDIV_VERSION_NUMBER = 30700",

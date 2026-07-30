@@ -139,8 +139,10 @@ blocker is:
 
 `no viable candidate in the reviewed finite non-exhaustive set provides exact extraordinary Loop limit-surface evaluation with first and second parametric derivatives and a public evaluator-bound custom-mask seam that preserves the SLIMED valence-5 source and chain-rule contract`.
 
-This is not a recommendation for or against future library work. It freezes
-the reviewed evidence and preserves the current dependency-free SLIMED
-positive-depth valence-5 fallback. New upstream evidence, or a separate
-explicit architecture/scientific/dependency-policy decision, is required
-before an alternate-library adapter or production route.
+PR #150 completed this observational survey without selecting or recommending
+a library. The reviewed evidence remains frozen and the current dependency-free
+SLIMED positive-depth valence-5 fallback remains preserved. The successor
+post-Option-D decision gate records that Option D may be reopened only with
+separate explicit authorization and materially new upstream or candidate
+evidence. Any architecture, scientific, dependency-policy, implementation, or
+production-routing decision remains separate.
