@@ -22,6 +22,10 @@ INVENTORY = (
     / "scripts/inventory_irregular_valence5_option_b_scientific_rebaseline_assessment.py"
 )
 GLOBAL_INVENTORY = ROOT / "scripts/inventory_opensubdiv_routing_readiness.py"
+POST_GATE_INVENTORY = (
+    ROOT
+    / "scripts/inventory_irregular_valence5_post_option_d_architecture_gate.py"
+)
 
 
 def load_module(path: Path, name: str):
@@ -78,9 +82,17 @@ def canonical_inputs(runner):
     }
     serial_openmp = {
         "status": "passed",
+        "proof_kind": "approved_closed_valence5_11_control_serial_openmp_parity",
+        "identity_matches": True,
         "within_tolerance": True,
         "scientific_stand_in": True,
-        "channels": dict(runner.EXPECTED_CURRENT_SERIAL_OMP_CHANNELS),
+        "scientific_stand_in_scope": "narrow_positive_depth_11_control",
+        "not_broader_valence_routing": True,
+        "tolerance": runner.CURRENT_SERIAL_OMP_TOLERANCE,
+        "channels": {
+            key: 0.0 for key in runner.EXPECTED_CURRENT_SERIAL_OMP_CHANNELS
+        },
+        "max_abs_difference": 0.0,
     }
     return post_gate, force, composition, serial_openmp
 
@@ -132,6 +144,9 @@ class IrregularValence5OptionBScientificRebaselineAssessmentTest(
             ("composition", "max_abs_row_difference", 0.0),
             ("composition", "mask_policy_causal_sufficiency_proven", True),
             ("serial", "within_tolerance", False),
+            ("serial", "proof_kind", "fabricated"),
+            ("serial", "tolerance", 1.0),
+            ("serial", "scientific_stand_in_scope", "broader"),
         )
         for target, key, value in mutations:
             with self.subTest(target=target, key=key):
@@ -145,6 +160,25 @@ class IrregularValence5OptionBScientificRebaselineAssessmentTest(
                     post_gate=post_gate,
                     force_report=test_force,
                     composition_report=test_composition,
+                    current_serial_openmp_report=test_serial,
+                )
+                self.assertEqual(report["status"], "failed")
+
+        for mutation in ("missing_channel", "oversized_delta", "wrong_maximum"):
+            with self.subTest(mutation=mutation):
+                test_serial = copy.deepcopy(serial_openmp)
+                if mutation == "missing_channel":
+                    test_serial["channels"].pop("face_area")
+                elif mutation == "oversized_delta":
+                    test_serial["channels"]["face_area"] = 2.0e-10
+                    test_serial["max_abs_difference"] = 2.0e-10
+                else:
+                    test_serial["channels"]["face_area"] = 1.0e-14
+                    test_serial["max_abs_difference"] = 0.0
+                report = runner.evaluate(
+                    post_gate=post_gate,
+                    force_report=force,
+                    composition_report=composition,
                     current_serial_openmp_report=test_serial,
                 )
                 self.assertEqual(report["status"], "failed")
@@ -207,7 +241,7 @@ class IrregularValence5OptionBScientificRebaselineAssessmentTest(
         self.assertFalse(report["decision_ready"])
 
     def test_inventory_and_global_readiness_pass(self):
-        for script in (INVENTORY, GLOBAL_INVENTORY):
+        for script in (INVENTORY, GLOBAL_INVENTORY, POST_GATE_INVENTORY):
             with self.subTest(script=script.name):
                 result = subprocess.run(
                     [sys.executable, str(script), "--check"],

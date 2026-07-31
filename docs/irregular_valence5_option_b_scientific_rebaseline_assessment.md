@@ -39,8 +39,11 @@ At the reviewed fixed tolerance `5e-6`:
 
 The current dependency-free SLIMED serial/OpenMP baseline remains green on
 global/per-face energy, vertex forces, normals, mean curvature, area, and
-legacy volume. That current baseline is not evidence that stock OpenSubdiv
-semantics preserve those channels.
+legacy volume under its reviewed `1e-10` tolerance. The assessment binds the
+fixture identity, scope, exact channel set, finite nonnegative deltas, reported
+maximum, and tolerance rather than pinning nondeterministic reduction
+roundoff. That current baseline is not evidence that stock OpenSubdiv semantics
+preserve those channels.
 
 ## Proposed Re-baselining Plan
 

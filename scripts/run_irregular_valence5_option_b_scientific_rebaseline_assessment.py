@@ -23,15 +23,16 @@ EXPECTED_FORCE_MAXIMA = {
     "fVolume": 0.062309089012307695,
 }
 EXPECTED_ROW_MAXIMUM = 0.7357563654581705
-EXPECTED_CURRENT_SERIAL_OMP_CHANNELS = {
-    "global_energy": 1.7763568394002505e-15,
-    "face_energy": 0.0,
-    "vertex_forces": 1.4210854715202004e-14,
-    "face_normals": 0.0,
-    "face_area": 6.661338147750939e-16,
-    "face_legacy_volume": 1.1102230246251565e-16,
-    "face_mean_curvature": 0.0,
-}
+CURRENT_SERIAL_OMP_TOLERANCE = 1.0e-10
+EXPECTED_CURRENT_SERIAL_OMP_CHANNELS = (
+    "global_energy",
+    "face_energy",
+    "vertex_forces",
+    "face_normals",
+    "face_area",
+    "face_legacy_volume",
+    "face_mean_curvature",
+)
 FORCE_BLOCKER = (
     "direct whole-Ptex OpenSubdiv rows do not match the existing "
     "positive-depth 11=4+3+4 force composition"
@@ -169,19 +170,54 @@ def evaluate(
     ):
         errors.append("stock OpenSubdiv valence-5 mask drift")
 
-    if current_serial_openmp_report.get("status") != "passed":
-        errors.append("current SLIMED serial/OpenMP baseline did not pass")
-    if current_serial_openmp_report.get("within_tolerance") is not True:
-        errors.append("current SLIMED serial/OpenMP baseline tolerance drift")
-    if current_serial_openmp_report.get("scientific_stand_in") is not True:
-        errors.append("approved scientific stand-in identity drift")
+    expected_serial_openmp_fields = {
+        "status": "passed",
+        "proof_kind": "approved_closed_valence5_11_control_serial_openmp_parity",
+        "identity_matches": True,
+        "within_tolerance": True,
+        "scientific_stand_in": True,
+        "scientific_stand_in_scope": "narrow_positive_depth_11_control",
+        "not_broader_valence_routing": True,
+        "tolerance": CURRENT_SERIAL_OMP_TOLERANCE,
+    }
+    for key, expected in expected_serial_openmp_fields.items():
+        if current_serial_openmp_report.get(key) != expected:
+            errors.append(f"current SLIMED serial/OpenMP {key} drift")
     channels = current_serial_openmp_report.get("channels")
-    if not isinstance(channels, dict):
+    if (
+        not isinstance(channels, dict)
+        or set(channels) != set(EXPECTED_CURRENT_SERIAL_OMP_CHANNELS)
+    ):
         errors.append("current SLIMED serial/OpenMP channels missing")
     else:
-        for key, expected in EXPECTED_CURRENT_SERIAL_OMP_CHANNELS.items():
-            if not _close(channels.get(key), expected):
-                errors.append(f"current SLIMED {key} baseline drift")
+        channel_values = []
+        for key in EXPECTED_CURRENT_SERIAL_OMP_CHANNELS:
+            value = channels.get(key)
+            if (
+                not isinstance(value, (int, float))
+                or not math.isfinite(float(value))
+                or float(value) < 0.0
+                or float(value) > CURRENT_SERIAL_OMP_TOLERANCE
+            ):
+                errors.append(
+                    f"current SLIMED {key} baseline exceeds reviewed tolerance"
+                )
+            else:
+                channel_values.append(float(value))
+        maximum = current_serial_openmp_report.get("max_abs_difference")
+        if (
+            not isinstance(maximum, (int, float))
+            or not math.isfinite(float(maximum))
+            or float(maximum) < 0.0
+            or float(maximum) > CURRENT_SERIAL_OMP_TOLERANCE
+        ):
+            errors.append(
+                "current SLIMED serial/OpenMP maximum exceeds reviewed tolerance"
+            )
+        elif channel_values and float(maximum) != max(channel_values):
+            errors.append(
+                "current SLIMED serial/OpenMP maximum does not bind channel deltas"
+            )
 
     if option_b_selected:
         errors.append("this assessment cannot select Option B")
@@ -263,6 +299,9 @@ def evaluate(
         "known_force_residuals": dict(EXPECTED_FORCE_MAXIMA),
         "mask_policy_causal_sufficiency_proven": False,
         "current_serial_openmp_baseline_preserved": True,
+        "current_serial_openmp_baseline_tolerance": (
+            CURRENT_SERIAL_OMP_TOLERANCE
+        ),
         "rebaseline_channels": channels_plan,
         "completed_evidence": [
             "topology_and_source_mapping",

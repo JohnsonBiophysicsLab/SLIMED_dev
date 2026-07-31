@@ -25,6 +25,9 @@ TEST = Path(
     "tests/test_irregular_valence5_option_b_scientific_rebaseline_assessment_inventory.py"
 )
 GLOBAL_TEST = Path("tests/test_opensubdiv_routing_readiness_inventory.py")
+POST_GATE_INVENTORY = Path(
+    "scripts/inventory_irregular_valence5_post_option_d_architecture_gate.py"
+)
 SELF = Path(
     "scripts/inventory_irregular_valence5_option_b_scientific_rebaseline_assessment.py"
 )
@@ -37,6 +40,7 @@ ALLOWED_PATHS = {
     GLOBAL_INVENTORY,
     TEST,
     GLOBAL_TEST,
+    POST_GATE_INVENTORY,
     SELF,
 }
 
@@ -44,6 +48,12 @@ ANCHORS = {
     RUNNER: (
         'PR151_MERGE_COMMIT = "38a745d74880da05f1c50e80798e6bbddcc42c41"',
         "REVIEWED_TOLERANCE = 5.0e-6",
+        "CURRENT_SERIAL_OMP_TOLERANCE = 1.0e-10",
+        '"proof_kind": "approved_closed_valence5_11_control_serial_openmp_parity"',
+        '"scientific_stand_in_scope": "narrow_positive_depth_11_control"',
+        '"not_broader_valence_routing": True',
+        "current SLIMED serial/OpenMP maximum exceeds reviewed tolerance",
+        "current SLIMED serial/OpenMP maximum does not bind channel deltas",
         '"fBend": 7.108303140663388',
         '"fArea": 0.46106761515265404',
         '"fVolume": 0.062309089012307695',
@@ -104,6 +114,13 @@ ANCHORS = {
         "Option B assessment completed",
         "Option B remains unselected after assessment",
         "Option B pending re-baselining channels",
+    ),
+    POST_GATE_INVENTORY: (
+        "docs/irregular_valence5_option_b_scientific_rebaseline_assessment.md",
+        "scripts/inventory_irregular_valence5_option_b_scientific_rebaseline_assessment.py",
+        "scripts/run_irregular_valence5_option_b_scientific_rebaseline_assessment.py",
+        "scripts/run_irregular_valence5_option_b_scientific_rebaseline_assessment.sh",
+        "tests/test_irregular_valence5_option_b_scientific_rebaseline_assessment_inventory.py",
     ),
 }
 
