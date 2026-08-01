@@ -31,9 +31,23 @@ Stock candidate observables are checked by an independent executable that
 parses the emitted rows and coordinates and recomputes them in separate
 `long double` algebra. The oracle does not call
 `element_energy_force_regular` or share candidate aggregation helpers.
-Candidate/oracle agreement is required at `1e-10`; the authoritative
+It also emits its own curvature, regularization, area-constraint,
+volume-constraint, and total global energies. Those totals are compared
+directly with the candidate executable's independently emitted totals rather
+than being reconstructed through shared Python aggregation. Candidate/oracle
+agreement is required at `1e-10`; the authoritative
 stock-versus-current policy remains the fixed reviewed relative tolerance
 `5e-6`. There is no CLI tolerance capable of clearing a blocker.
+
+The complete canonical stock vector contains all 10 global-energy components,
+all 200 ordered per-face energy components, and all 120 ordered per-face
+geometry components. A stable nine-decimal scientific-notation SHA-256 binding covers
+all 330 components:
+`982d0be8559491842125cf5b56d35d06c4e90441c7f8e85214585a140f76622d`.
+Candidate-only global aggregation corruption and candidate/oracle co-mutation
+of non-maximum energy and geometry components are binding failures. Both
+numeric package readers also require whitespace followed by true EOF and
+reject trailing nonnumeric tokens.
 
 ## Energy Semantics
 

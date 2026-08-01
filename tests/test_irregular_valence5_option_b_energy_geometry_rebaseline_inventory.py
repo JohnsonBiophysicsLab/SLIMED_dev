@@ -8,6 +8,7 @@ import shutil
 import subprocess
 import tempfile
 import unittest
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -133,23 +134,48 @@ class OptionBEnergyGeometryInventoryTest(unittest.TestCase):
         self.assertEqual(location["channel"], "normal_x")
         self.assertEqual(location["current"], 1.0)
         self.assertEqual(location["stock"], -1.0)
-        global_energy, face_energy = self.runner.build_global_energy(
-            [1.0, 2.0], [0.25, 0.5], [3.0, 4.0], [0.1, 0.2],
-            [1.0, 0.0, 2.0, 6.0, 3.0, 0.25, 0.0, 0.0],
+        face_energy = self.runner.build_face_energy(
+            [1.0, 2.0], [0.25, 0.5]
         )
         self.assertEqual(face_energy[1], 0.0)
         self.assertEqual(face_energy[2], 0.0)
-        self.assertEqual(global_energy[0], 3.0)
-        self.assertEqual(global_energy[5], 0.75)
 
-    def test_candidate_oracle_co_mutation_fails_fixed_fingerprint(self):
-        expected = self.runner.EXPECTED_MEASUREMENT_FINGERPRINT
-        global_location = {"channel": expected["global_energy"][0], "delta": expected["global_energy"][1]}
-        face_location = {"face": expected["per_face_energy"][0], "channel": expected["per_face_energy"][1], "delta": expected["per_face_energy"][2]}
-        geometry_location = {"face": expected["per_face_geometry"][0], "channel": expected["per_face_geometry"][1], "delta": expected["per_face_geometry"][2]}
-        self.assertTrue(self.runner.measurement_fingerprint_matches(global_location, face_location, geometry_location))
-        global_location["delta"] += 1.0
-        self.assertFalse(self.runner.measurement_fingerprint_matches(global_location, face_location, geometry_location))
+    def test_complete_observable_digest_and_oracle_comparison_are_binding(self):
+        baseline = {
+            "global_energy": [0.125 * index for index in range(10)],
+            "face_energy": [0.025 * index for index in range(200)],
+            "geometry": [0.05 * index for index in range(120)],
+        }
+        expected = self.runner.canonical_observable_digest(baseline)
+        with mock.patch.object(
+            self.runner, "EXPECTED_CANONICAL_OBSERVABLE_DIGEST", expected
+        ):
+            self.runner.validate_candidate_oracle_observables(
+                copy.deepcopy(baseline), copy.deepcopy(baseline)
+            )
+
+            candidate = copy.deepcopy(baseline)
+            candidate["global_energy"][1] += 1.0
+            with self.assertRaisesRegex(RuntimeError, "independent long-double"):
+                self.runner.validate_candidate_oracle_observables(
+                    candidate, copy.deepcopy(baseline)
+                )
+
+            for key, index in (
+                ("geometry", 0),       # face 0 normal_x
+                ("face_energy", 5),    # face 0 regularization
+                ("geometry", 4),       # face 0 area
+            ):
+                candidate = copy.deepcopy(baseline)
+                oracle = copy.deepcopy(baseline)
+                candidate[key][index] += 1.0
+                oracle[key][index] += 1.0
+                with self.subTest(key=key, index=index), self.assertRaisesRegex(
+                    RuntimeError, "complete canonical observable digest"
+                ):
+                    self.runner.validate_candidate_oracle_observables(
+                        candidate, oracle
+                    )
 
     def test_stale_readiness_claim_is_binding(self):
         inventory = load(INVENTORY, "option_b_stale_readiness")
@@ -193,6 +219,17 @@ class OptionBEnergyGeometryInventoryTest(unittest.TestCase):
         self.assertFalse(report["energy_geometry_parity_passed"])
         self.assertTrue(report["independent_long_double_oracle_passed"])
         self.assertLessEqual(report["candidate_oracle_max_abs_difference"], 1.0e-10)
+        self.assertLessEqual(
+            report["candidate_oracle_global_energy_max_abs_difference"],
+            1.0e-10,
+        )
+        self.assertEqual(report["canonical_observable_component_count"], 330)
+        self.assertEqual(
+            report["canonical_observable_digest"],
+            self.runner.EXPECTED_CANONICAL_OBSERVABLE_DIGEST,
+        )
+        self.assertTrue(report["candidate_trailing_token_rejected"])
+        self.assertTrue(report["oracle_trailing_token_rejected"])
         self.assertFalse(report["output_visible_evidence_complete"])
         self.assertFalse(report["option_b_selected"])
         self.assertFalse(report["stock_semantics_scientifically_approved"])

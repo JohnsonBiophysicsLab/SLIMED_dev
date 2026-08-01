@@ -4,6 +4,7 @@
 #include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <numeric>
 #include <string>
 #include <vector>
 
@@ -70,8 +71,8 @@ bool read(const std::string &path, Package &p)
             }
         }
     }
-    long double trailing = 0.0L;
-    return !(in >> trailing);
+    in >> std::ws;
+    return in.peek() == std::char_traits<char>::eof();
 }
 
 Vec add(Vec a, const Vec &b) { for (int i=0;i<A;++i) a[i]+=b[i]; return a; }
@@ -137,10 +138,35 @@ int main(int argc,char**argv)
         normals.insert(normals.end(),unitNormal.begin(),unitNormal.end());
         ok=ok&&finite(e)&&finite(hmean)&&finite(a)&&finite(v)&&finite(unitNormal[0])&&finite(unitNormal[1])&&finite(unitNormal[2]);
     }
+    const long double totalArea =
+        std::accumulate(area.begin(), area.end(), 0.0L);
+    const long double totalVolume =
+        std::accumulate(volume.begin(), volume.end(), 0.0L);
+    const long double curvatureEnergy =
+        std::accumulate(curvature.begin(), curvature.end(), 0.0L);
+    const long double regularizationEnergy =
+        std::accumulate(regularization.begin(), regularization.end(), 0.0L);
+    const long double areaEnergy = p.parameters[3] == 0.0L
+        ? 0.0L
+        : 0.5L * p.parameters[2] / p.parameters[3] *
+              std::pow(totalArea - p.parameters[3], 2);
+    const long double volumeEnergy = p.parameters[5] == 0.0L
+        ? 0.0L
+        : 0.5L * p.parameters[4] / p.parameters[5] *
+              std::pow(totalVolume - p.parameters[5], 2);
+    std::vector<long double> globalEnergy{
+        curvatureEnergy, areaEnergy, volumeEnergy, 0.0L, 0.0L,
+        regularizationEnergy, 0.0L, 0.0L, 0.0L, 0.0L,
+    };
+    globalEnergy[9] = std::accumulate(
+        globalEnergy.begin(), globalEnergy.begin() + 9, 0.0L);
+    ok=ok&&std::all_of(globalEnergy.begin(),globalEnergy.end(),finite);
     std::cout<<std::setprecision(21)<<'{';
     std::cout<<"\"status\":\""<<(ok?"passed":"failed")<<"\",";
     std::cout<<"\"independent_long_double_oracle\":true,";
     std::cout<<"\"calls_element_energy_force_regular\":false,";
+    std::cout<<"\"global_energy\":";print(globalEnergy);
+    std::cout<<',';
     std::cout<<"\"face_curvature_energy\":";print(curvature);
     std::cout<<",\"face_regularization_energy\":";print(regularization);
     std::cout<<",\"face_normals\":";print(normals);

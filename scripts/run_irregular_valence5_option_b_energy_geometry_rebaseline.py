@@ -30,12 +30,10 @@ VERTICES_SHA256 = "d0dae733433503f9e2aba4f8eda80fa2d6842d0f5a7b922d7ffce158f505c
 FACES_SHA256 = "561b3ec0c4aa6b1e684ef87c2738d8c20a474225bd4960a4a672d306a3e70327"
 REVIEWED_RELATIVE_TOLERANCE = 5.0e-6
 ORACLE_ABSOLUTE_TOLERANCE = 1.0e-10
-MEASUREMENT_FINGERPRINT_TOLERANCE = 1.0e-12
-EXPECTED_MEASUREMENT_FINGERPRINT = {
-    "global_energy": ("curvature", 83.84946348746075),
-    "per_face_energy": (11, "curvature", 4.386320459494776),
-    "per_face_geometry": (11, "mean_curvature", 2.5747867579624395),
-}
+CANONICAL_OBSERVABLE_DIGEST_DECIMAL_PLACES = 9
+EXPECTED_CANONICAL_OBSERVABLE_DIGEST = (
+    "982d0be8559491842125cf5b56d35d06c4e90441c7f8e85214585a140f76622d"
+)
 SAMPLE_PLAN = ((1.0 / 6.0, 1.0 / 6.0, 1.0 / 3.0),
                (1.0 / 6.0, 4.0 / 6.0, 1.0 / 3.0),
                (4.0 / 6.0, 1.0 / 6.0, 1.0 / 3.0))
@@ -90,6 +88,20 @@ def parse_process(result: subprocess.CompletedProcess[str], label: str) -> dict[
             + (result.stderr.strip() or result.stdout.strip())
         )
     return strict_json(result.stdout, label)
+
+
+def require_trailing_token_rejection(
+    binary: Path, package: Path, env: dict[str, str], label: str,
+    run_process,
+) -> None:
+    mutated = package.with_name(f"{package.stem}-{label}-trailing.txt")
+    mutated.write_text(
+        package.read_text(encoding="utf-8") + "TRAILING_NONNUMERIC_TOKEN\n",
+        encoding="utf-8",
+    )
+    result = run_process([str(binary), str(mutated)], env)
+    if result.returncode == 0:
+        raise RuntimeError(f"{label} accepted trailing nonnumeric package data")
 
 
 def finite_list(value: object, count: int, label: str) -> list[float]:
@@ -244,39 +256,82 @@ def write_package(
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
-def build_global_energy(
-    curvature: list[float], regularization: list[float], area: list[float],
-    volume: list[float], parameters: list[float],
-) -> tuple[list[float], list[float]]:
+def build_face_energy(
+    curvature: list[float], regularization: list[float],
+) -> list[float]:
     face_energy: list[float] = []
     for bend, reg in zip(curvature, regularization):
         values = [bend, 0.0, 0.0, 0.0, 0.0, reg, 0.0, 0.0, 0.0, bend + reg]
         face_energy.extend(values)
-    total_area = sum(area)
-    total_volume = sum(volume)
-    area_energy = 0.0 if parameters[3] == 0.0 else 0.5 * parameters[2] / parameters[3] * (total_area - parameters[3]) ** 2
-    volume_energy = 0.0 if parameters[5] == 0.0 else 0.5 * parameters[4] / parameters[5] * (total_volume - parameters[5]) ** 2
-    global_energy = [sum(curvature), area_energy, volume_energy, 0.0, 0.0,
-                     sum(regularization), 0.0, 0.0, 0.0, 0.0]
-    global_energy[9] = sum(global_energy[:9])
-    return global_energy, face_energy
+    return face_energy
 
 
-def expand(report: dict[str, object], parameters: list[float], label: str) -> dict[str, list[float]]:
+def expand(report: dict[str, object], label: str) -> dict[str, list[float]]:
     if report.get("status") != "passed":
         raise RuntimeError(f"{label} did not pass")
+    global_energy = finite_list(
+        report.get("global_energy"), 10, f"{label} independently emitted global energy"
+    )
     curvature = finite_list(report.get("face_curvature_energy"), 20, f"{label} curvature")
     regularization = finite_list(report.get("face_regularization_energy"), 20, f"{label} regularization")
     normals = finite_list(report.get("face_normals"), 60, f"{label} normals")
     mean = finite_list(report.get("face_mean_curvature"), 20, f"{label} mean curvature")
     area = finite_list(report.get("face_area"), 20, f"{label} area")
     volume = finite_list(report.get("face_legacy_volume"), 20, f"{label} legacy volume")
-    global_energy, face_energy = build_global_energy(curvature, regularization, area, volume, parameters)
+    face_energy = build_face_energy(curvature, regularization)
     geometry = []
     for face in range(20):
         geometry.extend(normals[3 * face:3 * face + 3])
         geometry.extend((mean[face], area[face], volume[face]))
     return {"global_energy": global_energy, "face_energy": face_energy, "geometry": geometry}
+
+
+def canonical_observable_vector(values: dict[str, list[float]]) -> list[float]:
+    expected_lengths = {"global_energy": 10, "face_energy": 200, "geometry": 120}
+    vector: list[float] = []
+    for key in ("global_energy", "face_energy", "geometry"):
+        current = values.get(key)
+        if not isinstance(current, list) or len(current) != expected_lengths[key]:
+            raise RuntimeError(f"canonical {key} cardinality drift")
+        vector.extend(finite_list(current, expected_lengths[key], f"canonical {key}"))
+    return vector
+
+
+def canonical_observable_digest(values: dict[str, list[float]]) -> str:
+    vector = canonical_observable_vector(values)
+    encoded = "|".join(
+        format(value, f".{CANONICAL_OBSERVABLE_DIGEST_DECIMAL_PLACES}e")
+        for value in vector
+    )
+    return hashlib.sha256(encoded.encode("ascii")).hexdigest()
+
+
+def validate_candidate_oracle_observables(
+    candidate_values: dict[str, list[float]],
+    oracle_values: dict[str, list[float]],
+) -> tuple[float, float, str]:
+    per_key_deltas = {
+        key: max(
+            abs(left - right)
+            for left, right in zip(candidate_values[key], oracle_values[key])
+        )
+        for key in ("global_energy", "face_energy", "geometry")
+    }
+    oracle_delta = max(per_key_deltas.values())
+    if oracle_delta > ORACLE_ABSOLUTE_TOLERANCE:
+        raise RuntimeError("candidate disagrees with independent long-double oracle")
+    candidate_digest = canonical_observable_digest(candidate_values)
+    oracle_digest = canonical_observable_digest(oracle_values)
+    if (
+        candidate_digest != EXPECTED_CANONICAL_OBSERVABLE_DIGEST
+        or oracle_digest != EXPECTED_CANONICAL_OBSERVABLE_DIGEST
+    ):
+        raise RuntimeError(
+            "complete canonical observable digest drift; candidate/oracle "
+            "co-mutation or scientific evidence change: "
+            f"candidate={candidate_digest}, oracle={oracle_digest}"
+        )
+    return oracle_delta, per_key_deltas["global_energy"], candidate_digest
 
 
 def differences(current: list[float], stock: list[float], channels: tuple[str, ...], per_face: bool) -> tuple[list[float], dict[str, object], bool]:
@@ -299,55 +354,17 @@ def differences(current: list[float], stock: list[float], channels: tuple[str, .
     return deltas, location, parity
 
 
-def measurement_fingerprint_matches(
-    global_location: dict[str, object], face_location: dict[str, object],
-    geometry_location: dict[str, object],
-) -> bool:
-    expected_global = EXPECTED_MEASUREMENT_FINGERPRINT["global_energy"]
-    expected_face = EXPECTED_MEASUREMENT_FINGERPRINT["per_face_energy"]
-    expected_geometry = EXPECTED_MEASUREMENT_FINGERPRINT["per_face_geometry"]
-    checks = (
-        global_location.get("channel") == expected_global[0],
-        face_location.get("face") == expected_face[0],
-        face_location.get("channel") == expected_face[1],
-        geometry_location.get("face") == expected_geometry[0],
-        geometry_location.get("channel") == expected_geometry[1],
-    )
-    if not all(checks):
-        return False
-    for location, expected in (
-        (global_location, expected_global[-1]),
-        (face_location, expected_face[-1]),
-        (geometry_location, expected_geometry[-1]),
-    ):
-        delta = location.get("delta")
-        if (
-            isinstance(delta, bool)
-            or not isinstance(delta, (int, float))
-            or not math.isclose(
-                float(delta), float(expected), rel_tol=0.0,
-                abs_tol=MEASUREMENT_FINGERPRINT_TOLERANCE,
-            )
-        ):
-            return False
-    return True
-
-
 def compare_reports(
     production: dict[str, object], candidate: dict[str, object],
     oracle: dict[str, object], proof: dict[str, object],
 ) -> dict[str, object]:
     validate_identity(production, proof)
-    parameters = finite_list(production.get("force_formula_parameters"), 8, "formula parameters")
-    candidate_values = expand(candidate, parameters, "candidate")
-    oracle_values = expand(oracle, parameters, "oracle")
-    oracle_delta = max(
-        abs(left - right)
-        for key in candidate_values
-        for left, right in zip(candidate_values[key], oracle_values[key])
+    finite_list(production.get("force_formula_parameters"), 8, "formula parameters")
+    candidate_values = expand(candidate, "candidate")
+    oracle_values = expand(oracle, "oracle")
+    oracle_delta, oracle_global_delta, observable_digest = (
+        validate_candidate_oracle_observables(candidate_values, oracle_values)
     )
-    if oracle_delta > ORACLE_ABSOLUTE_TOLERANCE:
-        raise RuntimeError("candidate disagrees with independent long-double oracle")
     if oracle.get("independent_long_double_oracle") is not True or oracle.get("calls_element_energy_force_regular") is not False:
         raise RuntimeError("independent oracle boundary drift")
     if candidate.get("existing_slimed_regular_evaluator_executed") is not True:
@@ -370,13 +387,6 @@ def compare_reports(
         current_faces, candidate_values["face_energy"], ENERGY_CHANNELS, True)
     geometry_deltas, geometry_location, geometry_parity = differences(
         current_geometry, candidate_values["geometry"], GEOMETRY_CHANNELS, True)
-    if not measurement_fingerprint_matches(
-        global_location, face_location, geometry_location
-    ):
-        raise RuntimeError(
-            "measured energy/geometry fingerprint drift; candidate/oracle "
-            "co-mutation or scientific evidence change"
-        )
     parity = global_parity and face_parity and geometry_parity
     blockers = [
         "stock OpenSubdiv valence-5 energy and geometry observables differ from current SLIMED semantics"
@@ -412,11 +422,16 @@ def compare_reports(
         "mixed_rows_duplicated": True,
         "reviewed_relative_tolerance": REVIEWED_RELATIVE_TOLERANCE,
         "oracle_absolute_tolerance": ORACLE_ABSOLUTE_TOLERANCE,
-        "measurement_fingerprint_tolerance": (
-            MEASUREMENT_FINGERPRINT_TOLERANCE
+        "canonical_observable_digest_decimal_places": (
+            CANONICAL_OBSERVABLE_DIGEST_DECIMAL_PLACES
         ),
+        "canonical_observable_component_count": 330,
+        "canonical_observable_digest": observable_digest,
         "independent_long_double_oracle_passed": True,
         "candidate_oracle_max_abs_difference": oracle_delta,
+        "candidate_oracle_global_energy_max_abs_difference": (
+            oracle_global_delta
+        ),
         "energy_geometry_parity_passed": parity,
         "global_energy_channels": list(ENERGY_CHANNELS),
         "per_face_energy_channels": list(ENERGY_CHANNELS),
@@ -489,9 +504,17 @@ def main() -> int:
             if not isinstance(proof, dict):
                 raise RuntimeError("OpenSubdiv source-order proof missing")
             write_package(package, production, proof)
+            require_trailing_token_rejection(
+                candidate_binary, package, env, "candidate", force_runner.run
+            )
+            require_trailing_token_rejection(
+                oracle_binary, package, env, "oracle", force_runner.run
+            )
             candidate = parse_process(force_runner.run([str(candidate_binary), str(package)], env), "candidate evaluator")
             oracle = parse_process(force_runner.run([str(oracle_binary), str(package)], env), "independent oracle")
             payload = compare_reports(production, candidate, oracle, proof)
+            payload["candidate_trailing_token_rejected"] = True
+            payload["oracle_trailing_token_rejected"] = True
     except (RuntimeError, OSError) as error:
         payload = {"status": "failed", "reason": str(error)}
         emit(payload, args.json)

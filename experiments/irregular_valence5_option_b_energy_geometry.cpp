@@ -8,6 +8,7 @@
 #include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <numeric>
 #include <string>
 #include <vector>
 
@@ -106,8 +107,8 @@ bool read_package(const std::string &path, Package &package)
             }
         }
     }
-    double trailing = 0.0;
-    return !(input >> trailing);
+    input >> std::ws;
+    return input.peek() == std::char_traits<char>::eof();
 }
 
 void print_values(const std::vector<double> &values)
@@ -246,10 +247,36 @@ int main(int argc, char **argv)
              all_finite(normals) && all_finite(meanCurvature) &&
              all_finite(area) && all_finite(legacyVolume);
 
+    const double totalArea =
+        std::accumulate(area.begin(), area.end(), 0.0);
+    const double totalVolume =
+        std::accumulate(legacyVolume.begin(), legacyVolume.end(), 0.0);
+    const double curvatureEnergy =
+        std::accumulate(curvature.begin(), curvature.end(), 0.0);
+    const double regularizationEnergy =
+        std::accumulate(regularization.begin(), regularization.end(), 0.0);
+    const double areaEnergy = package.parameters[3] == 0.0
+        ? 0.0
+        : 0.5 * package.parameters[2] / package.parameters[3] *
+              std::pow(totalArea - package.parameters[3], 2);
+    const double volumeEnergy = package.parameters[5] == 0.0
+        ? 0.0
+        : 0.5 * package.parameters[4] / package.parameters[5] *
+              std::pow(totalVolume - package.parameters[5], 2);
+    std::vector<double> globalEnergy{
+        curvatureEnergy, areaEnergy, volumeEnergy, 0.0, 0.0,
+        regularizationEnergy, 0.0, 0.0, 0.0, 0.0,
+    };
+    globalEnergy[9] = std::accumulate(
+        globalEnergy.begin(), globalEnergy.begin() + 9, 0.0);
+    finite = finite && all_finite(globalEnergy);
+
     std::cout << std::setprecision(17) << '{';
     std::cout << "\"status\":\"" << (finite ? "passed" : "failed") << "\",";
     std::cout << "\"proof_only\":true,\"not_production_routing\":true,";
     std::cout << "\"existing_slimed_regular_evaluator_executed\":true,";
+    std::cout << "\"global_energy\":"; print_values(globalEnergy);
+    std::cout << ',';
     std::cout << "\"face_curvature_energy\":"; print_values(curvature);
     std::cout << ",\"face_regularization_energy\":"; print_values(regularization);
     std::cout << ",\"face_normals\":"; print_values(normals);
