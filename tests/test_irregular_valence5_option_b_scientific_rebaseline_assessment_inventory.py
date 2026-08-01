@@ -183,6 +183,28 @@ class IrregularValence5OptionBScientificRebaselineAssessmentTest(
                 )
                 self.assertEqual(report["status"], "failed")
 
+        for channel in runner.EXPECTED_CURRENT_SERIAL_OMP_CHANNELS:
+            with self.subTest(boolean_channel=channel):
+                test_serial = copy.deepcopy(serial_openmp)
+                test_serial["channels"][channel] = False
+                report = runner.evaluate(
+                    post_gate=post_gate,
+                    force_report=force,
+                    composition_report=composition,
+                    current_serial_openmp_report=test_serial,
+                )
+                self.assertEqual(report["status"], "failed")
+
+        test_serial = copy.deepcopy(serial_openmp)
+        test_serial["max_abs_difference"] = False
+        report = runner.evaluate(
+            post_gate=post_gate,
+            force_report=force,
+            composition_report=composition,
+            current_serial_openmp_report=test_serial,
+        )
+        self.assertEqual(report["status"], "failed")
+
     def test_selection_approval_implementation_and_route_false_greens_fail(self):
         runner = load_module(RUNNER, "option_b_false_green")
         post_gate, force, composition, serial_openmp = canonical_inputs(runner)

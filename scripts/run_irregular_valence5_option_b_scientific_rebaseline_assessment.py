@@ -194,7 +194,8 @@ def evaluate(
         for key in EXPECTED_CURRENT_SERIAL_OMP_CHANNELS:
             value = channels.get(key)
             if (
-                not isinstance(value, (int, float))
+                isinstance(value, bool)
+                or not isinstance(value, (int, float))
                 or not math.isfinite(float(value))
                 or float(value) < 0.0
                 or float(value) > CURRENT_SERIAL_OMP_TOLERANCE
@@ -206,7 +207,8 @@ def evaluate(
                 channel_values.append(float(value))
         maximum = current_serial_openmp_report.get("max_abs_difference")
         if (
-            not isinstance(maximum, (int, float))
+            isinstance(maximum, bool)
+            or not isinstance(maximum, (int, float))
             or not math.isfinite(float(maximum))
             or float(maximum) < 0.0
             or float(maximum) > CURRENT_SERIAL_OMP_TOLERANCE

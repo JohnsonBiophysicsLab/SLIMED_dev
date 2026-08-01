@@ -52,6 +52,8 @@ ANCHORS = {
         '"proof_kind": "approved_closed_valence5_11_control_serial_openmp_parity"',
         '"scientific_stand_in_scope": "narrow_positive_depth_11_control"',
         '"not_broader_valence_routing": True',
+        "isinstance(value, bool)",
+        "isinstance(maximum, bool)",
         "current SLIMED serial/OpenMP maximum exceeds reviewed tolerance",
         "current SLIMED serial/OpenMP maximum does not bind channel deltas",
         '"fBend": 7.108303140663388',
@@ -105,6 +107,8 @@ ANCHORS = {
     TEST: (
         "test_canonical_assessment_binds_known_deltas_and_selects_nothing",
         "test_predecessor_residual_and_tolerance_drift_fail",
+        "boolean_channel=channel",
+        'test_serial["max_abs_difference"] = False',
         "test_selection_approval_implementation_and_route_false_greens_fail",
         "test_absent_wrapper_skips_cleanly",
         "test_present_wrapper_reproduces_assessment",
