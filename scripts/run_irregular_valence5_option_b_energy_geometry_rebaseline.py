@@ -30,9 +30,81 @@ VERTICES_SHA256 = "d0dae733433503f9e2aba4f8eda80fa2d6842d0f5a7b922d7ffce158f505c
 FACES_SHA256 = "561b3ec0c4aa6b1e684ef87c2738d8c20a474225bd4960a4a672d306a3e70327"
 REVIEWED_RELATIVE_TOLERANCE = 5.0e-6
 ORACLE_ABSOLUTE_TOLERANCE = 1.0e-10
+CANONICAL_OBSERVABLE_ABSOLUTE_TOLERANCE = 1.0e-12
 CANONICAL_OBSERVABLE_DIGEST_DECIMAL_PLACES = 9
 EXPECTED_CANONICAL_OBSERVABLE_DIGEST = (
     "982d0be8559491842125cf5b56d35d06c4e90441c7f8e85214585a140f76622d"
+)
+EXPECTED_CANONICAL_OBSERVABLE_VECTOR = (
+    1195.287406069441, 3.612219054282459, 0.04807107901254862, 0.0,
+    0.0, 0.0, 0.0, 0.0, 0.0, 1198.9476962027359,
+    59.470929543608904, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+    59.470929543608904, 59.05703474041156, 0.0, 0.0, 0.0, 0.0, 0.0,
+    0.0, 0.0, 0.0, 59.05703474041156, 58.20588492885429, 0.0, 0.0,
+    0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 58.20588492885429,
+    60.33520200347365, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+    60.33520200347365, 61.07814318557361, 0.0, 0.0, 0.0, 0.0, 0.0,
+    0.0, 0.0, 0.0, 61.07814318557361, 60.022585919146366, 0.0, 0.0,
+    0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 60.022585919146366,
+    59.49989757988647, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+    59.49989757988647, 60.27834771556096, 0.0, 0.0, 0.0, 0.0, 0.0,
+    0.0, 0.0, 0.0, 60.27834771556096, 60.49325584264206, 0.0, 0.0,
+    0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 60.49325584264206,
+    60.01064739690943, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+    60.01064739690943, 59.99961322005167, 0.0, 0.0, 0.0, 0.0, 0.0,
+    0.0, 0.0, 0.0, 59.99961322005167, 61.34348053740901, 0.0, 0.0,
+    0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 61.34348053740901,
+    59.493268352802986, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+    59.493268352802986, 59.55320659369242, 0.0, 0.0, 0.0, 0.0, 0.0,
+    0.0, 0.0, 0.0, 59.55320659369242, 58.840383028375165, 0.0, 0.0,
+    0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 58.840383028375165,
+    59.78265894582053, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+    59.78265894582053, 59.41118920311885, 0.0, 0.0, 0.0, 0.0, 0.0,
+    0.0, 0.0, 0.0, 59.41118920311885, 59.15405534022174, 0.0, 0.0,
+    0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 59.15405534022174,
+    60.06427779148267, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+    60.06427779148267, 59.19334420039859, 0.0, 0.0, 0.0, 0.0, 0.0,
+    0.0, 0.0, 0.0, 59.19334420039859,
+    -0.5754263785576933, 0.5802618252033538, 0.576351192478727,
+    -0.37383661739334767, 1.1198236368692893, 0.1657638383852225,
+    -0.00021812729339885703, 0.9351426893448945, 0.35427122799527755,
+    -0.3733922368226007, 1.1146736973211073, 0.027421483123508762,
+    0.0014553869321248076, 0.9370378238228935, -0.34922485388948743,
+    -0.36984434262820054, 1.1197854579863553, 0.027388274841248242,
+    -0.5708355016977724, 0.586332633301022, -0.5747702785702667,
+    -0.37728741333014104, 1.1153310046883438, 0.16403561511331677,
+    -0.9319552363407263, 0.3625723931392343, 0.0008349792749937022,
+    -0.3797287639867605, 1.1146219174899525, 0.38886011281828725,
+    0.5808171494260145, 0.5764334914312305, 0.5747833234263502,
+    -0.3779947040221421, 1.105431869973826, 0.16621688170886156,
+    -0.35939493958234403, 0.0022126181456991615, 0.9331829304715902,
+    -0.3732604667109776, 1.1238703246384174, 0.08134691968832666,
+    -0.9319004697321506, -0.36271399961125744, -0.0002626766113501409,
+    -0.37547569750036514, 1.1251556416985833, 0.39192503120921884,
+    -0.3520869418362842, -0.003082314869570092, -0.9359622239831146,
+    -0.3772587990699683, 1.1185119763005762, 0.0796141040121134,
+    0.5764889694454233, 0.5816674982515315, -0.5738670487016644,
+    -0.3772759011560625, 1.1094901799694603, 0.1650890443709176,
+    0.5865379504820287, -0.5676388975378905, 0.5777190620416721,
+    -0.37657441148816584, 1.1132723720404014, 0.1693584116136978,
+    0.0013696449016835737, -0.933156489143269, 0.3594677883241438,
+    -0.3803014288778475, 1.1161822958834144, 0.028033098531610064,
+    0.0019777746332040767, -0.9335942254655769, -0.35832654183695295,
+    -0.3728807976035492, 1.1260172713262921, 0.027947064263425078,
+    0.5785839176403179, -0.5758320266967925, -0.5776314805117934,
+    -0.3742057633477088, 1.1191874427043667, 0.167610098316236,
+    0.9368494984322451, -0.34973250792290184, -0.0004361068770576653,
+    -0.37263553200073624, 1.115050316399254, 0.3915169919332412,
+    0.36154916970493306, 0.0031442765582062465, 0.932347741677213,
+    -0.375918740516172, 1.113206379155256, 0.08194548480217517,
+    -0.5791650345018016, -0.5743698214410552, 0.5785042532499629,
+    -0.37211198070788065, 1.1291120167140503, 0.16753754131824505,
+    -0.5710667126074156, -0.5837388269745908, -0.5771757025673274,
+    -0.37111715141823004, 1.1302352551281447, 0.16555375821543752,
+    0.3577355755925578, -0.0009862000142759105, -0.9338224056880373,
+    -0.3764418371600378, 1.1154312128393082, 0.0805231061967143,
+    0.9343873537536469, 0.35625871224190503, -5.565066438747544e-05,
+    -0.37492994655637873, 1.108096962921183, 0.3875479089417413,
 )
 SAMPLE_PLAN = ((1.0 / 6.0, 1.0 / 6.0, 1.0 / 3.0),
                (1.0 / 6.0, 4.0 / 6.0, 1.0 / 3.0),
@@ -306,10 +378,58 @@ def canonical_observable_digest(values: dict[str, list[float]]) -> str:
     return hashlib.sha256(encoded.encode("ascii")).hexdigest()
 
 
+def canonical_observable_location(index: int) -> dict[str, object]:
+    if index < len(ENERGY_CHANNELS):
+        return {"scope": "global_energy", "channel": ENERGY_CHANNELS[index]}
+    index -= len(ENERGY_CHANNELS)
+    face_energy_count = 20 * len(ENERGY_CHANNELS)
+    if index < face_energy_count:
+        return {
+            "scope": "per_face_energy",
+            "face": index // len(ENERGY_CHANNELS),
+            "channel": ENERGY_CHANNELS[index % len(ENERGY_CHANNELS)],
+        }
+    index -= face_energy_count
+    return {
+        "scope": "per_face_geometry",
+        "face": index // len(GEOMETRY_CHANNELS),
+        "channel": GEOMETRY_CHANNELS[index % len(GEOMETRY_CHANNELS)],
+    }
+
+
+def validate_expected_canonical_observables(
+    values: dict[str, list[float]], label: str,
+) -> tuple[float, dict[str, object]]:
+    actual = canonical_observable_vector(values)
+    expected = finite_list(
+        list(EXPECTED_CANONICAL_OBSERVABLE_VECTOR), 330,
+        "reviewed expected canonical observable vector",
+    )
+    deltas = [abs(left - right) for left, right in zip(actual, expected)]
+    index = max(range(len(deltas)), key=deltas.__getitem__)
+    location = canonical_observable_location(index)
+    location.update({
+        "expected": expected[index],
+        "actual": actual[index],
+        "delta": deltas[index],
+    })
+    if deltas[index] > CANONICAL_OBSERVABLE_ABSOLUTE_TOLERANCE:
+        raise RuntimeError(
+            f"{label} canonical observable drift at "
+            f"{location['scope']}"
+            + (f" face {location['face']}" if "face" in location else "")
+            + f" channel {location['channel']}: expected={expected[index]}, "
+            f"actual={actual[index]}, delta={deltas[index]}, "
+            f"fixed_absolute_tolerance="
+            f"{CANONICAL_OBSERVABLE_ABSOLUTE_TOLERANCE}"
+        )
+    return deltas[index], location
+
+
 def validate_candidate_oracle_observables(
     candidate_values: dict[str, list[float]],
     oracle_values: dict[str, list[float]],
-) -> tuple[float, float, str]:
+) -> dict[str, object]:
     per_key_deltas = {
         key: max(
             abs(left - right)
@@ -322,16 +442,24 @@ def validate_candidate_oracle_observables(
         raise RuntimeError("candidate disagrees with independent long-double oracle")
     candidate_digest = canonical_observable_digest(candidate_values)
     oracle_digest = canonical_observable_digest(oracle_values)
-    if (
-        candidate_digest != EXPECTED_CANONICAL_OBSERVABLE_DIGEST
-        or oracle_digest != EXPECTED_CANONICAL_OBSERVABLE_DIGEST
-    ):
-        raise RuntimeError(
-            "complete canonical observable digest drift; candidate/oracle "
-            "co-mutation or scientific evidence change: "
-            f"candidate={candidate_digest}, oracle={oracle_digest}"
-        )
-    return oracle_delta, per_key_deltas["global_energy"], candidate_digest
+    candidate_expected_delta, candidate_expected_location = (
+        validate_expected_canonical_observables(candidate_values, "candidate")
+    )
+    oracle_expected_delta, oracle_expected_location = (
+        validate_expected_canonical_observables(oracle_values, "oracle")
+    )
+    return {
+        "candidate_oracle_max_abs_difference": oracle_delta,
+        "candidate_oracle_global_energy_max_abs_difference": (
+            per_key_deltas["global_energy"]
+        ),
+        "candidate_digest": candidate_digest,
+        "oracle_digest": oracle_digest,
+        "candidate_expected_max_abs_difference": candidate_expected_delta,
+        "oracle_expected_max_abs_difference": oracle_expected_delta,
+        "candidate_expected_maximum": candidate_expected_location,
+        "oracle_expected_maximum": oracle_expected_location,
+    }
 
 
 def differences(current: list[float], stock: list[float], channels: tuple[str, ...], per_face: bool) -> tuple[list[float], dict[str, object], bool]:
@@ -362,8 +490,8 @@ def compare_reports(
     finite_list(production.get("force_formula_parameters"), 8, "formula parameters")
     candidate_values = expand(candidate, "candidate")
     oracle_values = expand(oracle, "oracle")
-    oracle_delta, oracle_global_delta, observable_digest = (
-        validate_candidate_oracle_observables(candidate_values, oracle_values)
+    oracle_validation = validate_candidate_oracle_observables(
+        candidate_values, oracle_values
     )
     if oracle.get("independent_long_double_oracle") is not True or oracle.get("calls_element_energy_force_regular") is not False:
         raise RuntimeError("independent oracle boundary drift")
@@ -422,15 +550,39 @@ def compare_reports(
         "mixed_rows_duplicated": True,
         "reviewed_relative_tolerance": REVIEWED_RELATIVE_TOLERANCE,
         "oracle_absolute_tolerance": ORACLE_ABSOLUTE_TOLERANCE,
+        "canonical_observable_absolute_tolerance": (
+            CANONICAL_OBSERVABLE_ABSOLUTE_TOLERANCE
+        ),
         "canonical_observable_digest_decimal_places": (
             CANONICAL_OBSERVABLE_DIGEST_DECIMAL_PLACES
         ),
         "canonical_observable_component_count": 330,
-        "canonical_observable_digest": observable_digest,
+        "canonical_observable_digest": oracle_validation["candidate_digest"],
+        "oracle_canonical_observable_digest": (
+            oracle_validation["oracle_digest"]
+        ),
+        "canonical_observable_digest_reporting_only": True,
+        "canonical_observable_vector_tolerance_passed": True,
+        "candidate_expected_canonical_max_abs_difference": (
+            oracle_validation["candidate_expected_max_abs_difference"]
+        ),
+        "oracle_expected_canonical_max_abs_difference": (
+            oracle_validation["oracle_expected_max_abs_difference"]
+        ),
+        "candidate_expected_canonical_maximum": (
+            oracle_validation["candidate_expected_maximum"]
+        ),
+        "oracle_expected_canonical_maximum": (
+            oracle_validation["oracle_expected_maximum"]
+        ),
         "independent_long_double_oracle_passed": True,
-        "candidate_oracle_max_abs_difference": oracle_delta,
+        "candidate_oracle_max_abs_difference": (
+            oracle_validation["candidate_oracle_max_abs_difference"]
+        ),
         "candidate_oracle_global_energy_max_abs_difference": (
-            oracle_global_delta
+            oracle_validation[
+                "candidate_oracle_global_energy_max_abs_difference"
+            ]
         ),
         "energy_geometry_parity_passed": parity,
         "global_energy_channels": list(ENERGY_CHANNELS),

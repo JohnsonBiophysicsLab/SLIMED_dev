@@ -39,15 +39,22 @@ agreement is required at `1e-10`; the authoritative
 stock-versus-current policy remains the fixed reviewed relative tolerance
 `5e-6`. There is no CLI tolerance capable of clearing a blocker.
 
-The complete canonical stock vector contains all 10 global-energy components,
-all 200 ordered per-face energy components, and all 120 ordered per-face
-geometry components. A stable nine-decimal scientific-notation SHA-256 binding covers
-all 330 components:
+The authoritative stock evidence binds reviewed expected values for all 10
+global-energy components, all 200 ordered per-face energy components, and all
+120 ordered per-face geometry components. Candidate and oracle vectors are
+checked component-by-component with the fixed absolute tolerance `1e-12`, and
+any failure reports scope, face where applicable, channel, expected, actual,
+delta, and tolerance. This policy cannot be changed from the CLI.
+
+A stable nine-decimal scientific-notation SHA-256 digest remains reporting-only:
 `982d0be8559491842125cf5b56d35d06c4e90441c7f8e85214585a140f76622d`.
+It does not authorize readiness. In particular, a real candidate/oracle
+co-mutation of global curvature by `1e-7` retains that rounded digest but fails
+the authoritative vector gate, while a sub-`1e-12` sanity mutation passes.
 Candidate-only global aggregation corruption and candidate/oracle co-mutation
-of non-maximum energy and geometry components are binding failures. Both
-numeric package readers also require whitespace followed by true EOF and
-reject trailing nonnumeric tokens.
+of non-maximum energy and geometry components are also binding failures. Both
+numeric package readers require whitespace followed by true EOF and reject
+trailing nonnumeric tokens.
 
 ## Energy Semantics
 
