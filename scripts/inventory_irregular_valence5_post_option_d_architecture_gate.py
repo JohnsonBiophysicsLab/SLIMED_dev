@@ -62,6 +62,13 @@ ALLOWED_PATHS = {
     Path(
         "tests/test_irregular_valence5_option_b_scientific_rebaseline_assessment_inventory.py"
     ),
+    Path("experiments/irregular_valence5_option_b_energy_geometry.cpp"),
+    Path("experiments/irregular_valence5_option_b_energy_geometry_oracle.cpp"),
+    Path("scripts/run_irregular_valence5_option_b_energy_geometry_rebaseline.py"),
+    Path("scripts/run_irregular_valence5_option_b_energy_geometry_rebaseline.sh"),
+    Path("scripts/inventory_irregular_valence5_option_b_energy_geometry_rebaseline.py"),
+    Path("tests/test_irregular_valence5_option_b_energy_geometry_rebaseline_inventory.py"),
+    Path("docs/irregular_valence5_option_b_energy_geometry_rebaseline.md"),
 }
 
 ANCHORS = {

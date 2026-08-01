@@ -42,6 +42,13 @@ ALLOWED_PATHS = {
     GLOBAL_TEST,
     POST_GATE_INVENTORY,
     SELF,
+    Path("experiments/irregular_valence5_option_b_energy_geometry.cpp"),
+    Path("experiments/irregular_valence5_option_b_energy_geometry_oracle.cpp"),
+    Path("scripts/run_irregular_valence5_option_b_energy_geometry_rebaseline.py"),
+    Path("scripts/run_irregular_valence5_option_b_energy_geometry_rebaseline.sh"),
+    Path("scripts/inventory_irregular_valence5_option_b_energy_geometry_rebaseline.py"),
+    Path("tests/test_irregular_valence5_option_b_energy_geometry_rebaseline_inventory.py"),
+    Path("docs/irregular_valence5_option_b_energy_geometry_rebaseline.md"),
 }
 
 ANCHORS = {
@@ -97,7 +104,7 @@ ANCHORS = {
         "Option B assessment is complete",
         "observational scientific re-baselining planning only",
         "Option B remains unselected and scientifically unapproved",
-        "Stock energy, geometry, output, and serial/OpenMP evidence remains pending",
+        "output-visible evidence remains",
     ),
     GLOBAL_INVENTORY: (
         "Option B assessment completed",
