@@ -49,6 +49,19 @@ ALLOWED_PATHS = {
     TEST,
     GLOBAL_TEST,
     Path("scripts/inventory_irregular_valence5_post_option_d_architecture_gate.py"),
+    Path("docs/irregular_valence5_option_b_scientific_rebaseline_assessment.md"),
+    Path(
+        "scripts/inventory_irregular_valence5_option_b_scientific_rebaseline_assessment.py"
+    ),
+    Path(
+        "scripts/run_irregular_valence5_option_b_scientific_rebaseline_assessment.py"
+    ),
+    Path(
+        "scripts/run_irregular_valence5_option_b_scientific_rebaseline_assessment.sh"
+    ),
+    Path(
+        "tests/test_irregular_valence5_option_b_scientific_rebaseline_assessment_inventory.py"
+    ),
 }
 
 ANCHORS = {

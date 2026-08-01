@@ -118,6 +118,11 @@ class OpenSubdivRoutingReadinessInventoryTest(unittest.TestCase):
         self.assertIn("B explicit user decision boundary", anchor_names)
         self.assertIn("C explicit user decision boundary", anchor_names)
         self.assertIn("Option D reopen boundary", anchor_names)
+        self.assertIn("Option B assessment completed", anchor_names)
+        self.assertIn(
+            "Option B remains unselected after assessment", anchor_names
+        )
+        self.assertIn("Option B pending re-baselining channels", anchor_names)
 
         self.assertFalse(
             inventory.collect_forbidden_claims(inventory.repo_root())
