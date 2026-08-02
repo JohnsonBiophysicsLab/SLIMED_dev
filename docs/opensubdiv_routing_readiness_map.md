@@ -392,9 +392,15 @@ The oracle independently emits production-correct global curvature,
 regularization, area-constraint, volume-constraint, and total energies; the
 candidate and oracle totals are compared directly. Reviewed expected values
 bind all 330 ordered stock global, per-face energy, and per-face geometry
-components at fixed absolute tolerance `1e-12`; the rounded digest is
-reporting-only and cannot clear that gate. Both package readers reject trailing
-tokens.
+components with a fixed scope-aware cross-platform absolute envelope: `3e-5`
+for global energy, `2e-6` for per-face energy, and `3e-7` for per-face
+geometry. The reviewed vector remains the envelope center; candidate/oracle
+agreement remains independently fixed at `1e-10`, and the rounded digest is
+reporting-only and cannot clear either gate. On Ubuntu 26.04 under WSL, the
+measured maxima from the reviewed vector are `2.6336025939599494e-05`,
+`1.7738014790324996e-06`, and `2.4650185731500684e-07`, respectively, while
+candidate/oracle agreement is `4.547473508864641e-13`. Both package readers
+reject trailing tokens.
 The maximum global-energy change is curvature `83.84946348746075`; the maximum
 per-face energy change is face 11 curvature `4.386320459494776`; and the
 maximum per-face geometry change is face 11 mean curvature

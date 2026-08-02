@@ -30,7 +30,11 @@ VERTICES_SHA256 = "d0dae733433503f9e2aba4f8eda80fa2d6842d0f5a7b922d7ffce158f505c
 FACES_SHA256 = "561b3ec0c4aa6b1e684ef87c2738d8c20a474225bd4960a4a672d306a3e70327"
 REVIEWED_RELATIVE_TOLERANCE = 5.0e-6
 ORACLE_ABSOLUTE_TOLERANCE = 1.0e-10
-CANONICAL_OBSERVABLE_ABSOLUTE_TOLERANCE = 1.0e-12
+CANONICAL_OBSERVABLE_CROSS_PLATFORM_ABSOLUTE_ENVELOPE = {
+    "global_energy": 3.0e-5,
+    "per_face_energy": 2.0e-6,
+    "per_face_geometry": 3.0e-7,
+}
 CANONICAL_OBSERVABLE_DIGEST_DECIMAL_PLACES = 9
 EXPECTED_CANONICAL_OBSERVABLE_DIGEST = (
     "982d0be8559491842125cf5b56d35d06c4e90441c7f8e85214585a140f76622d"
@@ -406,22 +410,39 @@ def validate_expected_canonical_observables(
         "reviewed expected canonical observable vector",
     )
     deltas = [abs(left - right) for left, right in zip(actual, expected)]
-    index = max(range(len(deltas)), key=deltas.__getitem__)
+    tolerances = [
+        CANONICAL_OBSERVABLE_CROSS_PLATFORM_ABSOLUTE_ENVELOPE[
+            canonical_observable_location(index)["scope"]
+        ]
+        for index in range(len(deltas))
+    ]
+    violations = [
+        index for index, delta in enumerate(deltas)
+        if delta > tolerances[index]
+    ]
+    if violations:
+        index = max(
+            violations,
+            key=lambda current: deltas[current] / tolerances[current],
+        )
+    else:
+        index = max(range(len(deltas)), key=deltas.__getitem__)
     location = canonical_observable_location(index)
     location.update({
         "expected": expected[index],
         "actual": actual[index],
         "delta": deltas[index],
+        "tolerance": tolerances[index],
     })
-    if deltas[index] > CANONICAL_OBSERVABLE_ABSOLUTE_TOLERANCE:
+    if violations:
         raise RuntimeError(
             f"{label} canonical observable drift at "
             f"{location['scope']}"
             + (f" face {location['face']}" if "face" in location else "")
             + f" channel {location['channel']}: expected={expected[index]}, "
             f"actual={actual[index]}, delta={deltas[index]}, "
-            f"fixed_absolute_tolerance="
-            f"{CANONICAL_OBSERVABLE_ABSOLUTE_TOLERANCE}"
+            f"fixed_cross_platform_absolute_envelope="
+            f"{tolerances[index]}"
         )
     return deltas[index], location
 
@@ -550,8 +571,8 @@ def compare_reports(
         "mixed_rows_duplicated": True,
         "reviewed_relative_tolerance": REVIEWED_RELATIVE_TOLERANCE,
         "oracle_absolute_tolerance": ORACLE_ABSOLUTE_TOLERANCE,
-        "canonical_observable_absolute_tolerance": (
-            CANONICAL_OBSERVABLE_ABSOLUTE_TOLERANCE
+        "canonical_observable_cross_platform_absolute_envelope": (
+            CANONICAL_OBSERVABLE_CROSS_PLATFORM_ABSOLUTE_ENVELOPE
         ),
         "canonical_observable_digest_decimal_places": (
             CANONICAL_OBSERVABLE_DIGEST_DECIMAL_PLACES

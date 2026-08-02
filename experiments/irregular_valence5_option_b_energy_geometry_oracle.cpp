@@ -32,7 +32,7 @@ struct Package
         rows{};
 };
 
-bool finite(long double value) { return std::isfinite(value); }
+bool finite_value(long double value) { return std::isfinite(value); }
 bool read(const std::string &path, Package &p)
 {
     std::ifstream in(path);
@@ -41,16 +41,16 @@ bool read(const std::string &path, Package &p)
         return false;
     std::string tag;
     if (!(in >> tag) || tag != "PARAMETERS") return false;
-    for (auto &x : p.parameters) if (!(in >> x) || !finite(x)) return false;
+    for (auto &x : p.parameters) if (!(in >> x) || !finite_value(x)) return false;
     if (!(in >> tag) || tag != "REGULARIZATION") return false;
-    for (auto &x : p.regularization) if (!(in >> x) || !finite(x)) return false;
+    for (auto &x : p.regularization) if (!(in >> x) || !finite_value(x)) return false;
     int count = 0;
     if (!(in >> tag >> count) || tag != "COORDINATES" || count != S) return false;
     for (int source = 0; source < S; ++source)
     {
         int id = -1;
         if (!(in >> id) || id != source) return false;
-        for (auto &x : p.coordinates[source]) if (!(in >> x) || !finite(x)) return false;
+        for (auto &x : p.coordinates[source]) if (!(in >> x) || !finite_value(x)) return false;
     }
     for (int face = 0; face < F; ++face)
     {
@@ -61,13 +61,13 @@ bool read(const std::string &path, Package &p)
         {
             int sampleId = -1;
             if (!(in >> tag >> sampleId) || tag != "SAMPLE" || sampleId != sample) return false;
-            for (auto &x : p.samples[face][sample]) if (!(in >> x) || !finite(x)) return false;
+            for (auto &x : p.samples[face][sample]) if (!(in >> x) || !finite_value(x)) return false;
             if (p.samples[face][sample] != SamplePlan[sample]) return false;
             for (int row = 0; row < R; ++row)
             {
                 int rowId = -1;
                 if (!(in >> tag >> rowId) || tag != "ROW" || rowId != row) return false;
-                for (auto &x : p.rows[face][sample][row]) if (!(in >> x) || !finite(x)) return false;
+                for (auto &x : p.rows[face][sample][row]) if (!(in >> x) || !finite_value(x)) return false;
             }
         }
     }
@@ -112,7 +112,7 @@ int main(int argc,char**argv)
             for(int row=0;row<R;++row)d[row]=row_value(p.rows[face][sample][row],p.coordinates);
             const Vec xa=cross(d[1],d[2]);
             const long double sqa=norm(xa);
-            if(!(sqa>0.0L)||!finite(sqa)){ok=false;continue;}
+            if(!(sqa>0.0L)||!finite_value(sqa)){ok=false;continue;}
             const Vec xa1=add(cross(d[3],d[2]),cross(d[1],d[6]));
             const Vec xa2=add(cross(d[5],d[2]),cross(d[1],d[4]));
             const long double sqa1=dot(xa,xa1)/sqa;
@@ -131,12 +131,12 @@ int main(int argc,char**argv)
             v+=LegacyVolumeFactor*weight*d[0][0]*xa[0];
         }
         const long double normalLength=norm(weightedNormal);
-        if(!(normalLength>0.0L)||!finite(normalLength)) ok=false;
+        if(!(normalLength>0.0L)||!finite_value(normalLength)) ok=false;
         const Vec unitNormal=normalLength>0.0L?scale(weightedNormal,1.0L/normalLength):Vec{};
         curvature.push_back(e);regularization.push_back(p.regularization[face]);
         mean.push_back(hmean);area.push_back(a);volume.push_back(v);
         normals.insert(normals.end(),unitNormal.begin(),unitNormal.end());
-        ok=ok&&finite(e)&&finite(hmean)&&finite(a)&&finite(v)&&finite(unitNormal[0])&&finite(unitNormal[1])&&finite(unitNormal[2]);
+        ok=ok&&finite_value(e)&&finite_value(hmean)&&finite_value(a)&&finite_value(v)&&finite_value(unitNormal[0])&&finite_value(unitNormal[1])&&finite_value(unitNormal[2]);
     }
     const long double totalArea =
         std::accumulate(area.begin(), area.end(), 0.0L);
@@ -160,7 +160,7 @@ int main(int argc,char**argv)
     };
     globalEnergy[9] = std::accumulate(
         globalEnergy.begin(), globalEnergy.begin() + 9, 0.0L);
-    ok=ok&&std::all_of(globalEnergy.begin(),globalEnergy.end(),finite);
+    ok=ok&&std::all_of(globalEnergy.begin(),globalEnergy.end(),finite_value);
     std::cout<<std::setprecision(21)<<'{';
     std::cout<<"\"status\":\""<<(ok?"passed":"failed")<<"\",";
     std::cout<<"\"independent_long_double_oracle\":true,";

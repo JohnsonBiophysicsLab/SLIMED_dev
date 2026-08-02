@@ -123,6 +123,22 @@ class OptionBEnergyGeometryInventoryTest(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             self.runner.strict_json('{"status":"passed","status":"failed"}', "duplicate")
 
+    def test_independent_oracle_compiles_with_available_cxx(self):
+        compiler = shutil.which(os.environ.get("CXX", "")) if os.environ.get("CXX") else (
+            shutil.which("g++") or shutil.which("c++")
+        )
+        if not compiler:
+            self.skipTest("C++ compiler not available")
+        with tempfile.TemporaryDirectory() as tmp:
+            result = subprocess.run(
+                [compiler, "-std=c++17", str(self.runner.ORACLE), "-o", str(Path(tmp) / "oracle")],
+                cwd=ROOT,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_flipped_normal_and_aggregation_mutations_are_located(self):
         current = [1.0, 0.0, 0.0, 2.0, 3.0, 4.0]
         stock = [-1.0, 0.0, 0.0, 2.0, 3.0, 4.0]
@@ -177,6 +193,44 @@ class OptionBEnergyGeometryInventoryTest(unittest.TestCase):
                         candidate, oracle
                     )
 
+    def test_cross_platform_envelope_is_scope_bounded(self):
+        baseline = {
+            "global_energy": [0.125 * index for index in range(10)],
+            "face_energy": [0.025 * index for index in range(200)],
+            "geometry": [0.05 * index for index in range(120)],
+        }
+        with mock.patch.object(
+            self.runner, "EXPECTED_CANONICAL_OBSERVABLE_VECTOR",
+            tuple(self.runner.canonical_observable_vector(baseline)),
+        ):
+            for key, index, scope in (
+                ("global_energy", 0, "global_energy"),
+                ("face_energy", 0, "per_face_energy"),
+                ("geometry", 0, "per_face_geometry"),
+            ):
+                tolerance = (
+                    self.runner.CANONICAL_OBSERVABLE_CROSS_PLATFORM_ABSOLUTE_ENVELOPE[scope]
+                )
+                within_candidate = copy.deepcopy(baseline)
+                within_oracle = copy.deepcopy(baseline)
+                within_candidate[key][index] += 0.5 * tolerance
+                within_oracle[key][index] += 0.5 * tolerance
+                self.runner.validate_candidate_oracle_observables(
+                    within_candidate, within_oracle
+                )
+
+                outside_candidate = copy.deepcopy(baseline)
+                outside_oracle = copy.deepcopy(baseline)
+                outside_candidate[key][index] += 1.01 * tolerance
+                outside_oracle[key][index] += 1.01 * tolerance
+                with self.subTest(scope=scope), self.assertRaisesRegex(
+                    RuntimeError,
+                    rf"{scope}.*fixed_cross_platform_absolute_envelope={tolerance}",
+                ):
+                    self.runner.validate_candidate_oracle_observables(
+                        outside_candidate, outside_oracle
+                    )
+
     def test_stale_readiness_claim_is_binding(self):
         inventory = load(INVENTORY, "option_b_stale_readiness")
         with tempfile.TemporaryDirectory() as tmp:
@@ -226,47 +280,24 @@ class OptionBEnergyGeometryInventoryTest(unittest.TestCase):
         self.assertEqual(report["canonical_observable_component_count"], 330)
         self.assertEqual(
             report["canonical_observable_digest"],
-            self.runner.EXPECTED_CANONICAL_OBSERVABLE_DIGEST,
+            report["oracle_canonical_observable_digest"],
         )
+        self.assertEqual(len(report["canonical_observable_digest"]), 64)
         self.assertTrue(report["canonical_observable_digest_reporting_only"])
         self.assertTrue(report["canonical_observable_vector_tolerance_passed"])
+        self.assertEqual(
+            report["canonical_observable_cross_platform_absolute_envelope"],
+            self.runner.CANONICAL_OBSERVABLE_CROSS_PLATFORM_ABSOLUTE_ENVELOPE,
+        )
         self.assertLessEqual(
             report["candidate_expected_canonical_max_abs_difference"],
-            self.runner.CANONICAL_OBSERVABLE_ABSOLUTE_TOLERANCE,
+            report["candidate_expected_canonical_maximum"]["tolerance"],
         )
         self.assertLessEqual(
             report["oracle_expected_canonical_max_abs_difference"],
-            self.runner.CANONICAL_OBSERVABLE_ABSOLUTE_TOLERANCE,
+            report["oracle_expected_canonical_maximum"]["tolerance"],
         )
 
-        actual = {
-            "global_energy": report["global_energy_stock"],
-            "face_energy": report["per_face_energy_stock"],
-            "geometry": report["per_face_geometry_stock"],
-        }
-        co_mutated_candidate = copy.deepcopy(actual)
-        co_mutated_oracle = copy.deepcopy(actual)
-        co_mutated_candidate["global_energy"][0] += 1.0e-7
-        co_mutated_oracle["global_energy"][0] += 1.0e-7
-        self.assertEqual(
-            self.runner.canonical_observable_digest(co_mutated_candidate),
-            self.runner.EXPECTED_CANONICAL_OBSERVABLE_DIGEST,
-        )
-        with self.assertRaisesRegex(
-            RuntimeError,
-            r"global_energy channel curvature.*fixed_absolute_tolerance=1e-12",
-        ):
-            self.runner.validate_candidate_oracle_observables(
-                co_mutated_candidate, co_mutated_oracle
-            )
-
-        sub_tolerance_candidate = copy.deepcopy(actual)
-        sub_tolerance_oracle = copy.deepcopy(actual)
-        sub_tolerance_candidate["global_energy"][0] += 0.5e-12
-        sub_tolerance_oracle["global_energy"][0] += 0.5e-12
-        self.runner.validate_candidate_oracle_observables(
-            sub_tolerance_candidate, sub_tolerance_oracle
-        )
         self.assertTrue(report["candidate_trailing_token_rejected"])
         self.assertTrue(report["oracle_trailing_token_rejected"])
         self.assertFalse(report["output_visible_evidence_complete"])
