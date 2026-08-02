@@ -131,8 +131,9 @@ cross-platform policy therefore retains the reviewed vector as its center and
 uses fixed bounds of `3e-5`, `2e-6`, and `3e-7`, respectively. It does not add
 a WSL-specific vector or weaken candidate/oracle consistency or scientific
 stock/current parity. The exact dependency-present WSL proof passes this
-contract. The digest remains reporting-only. Output-visible and stock
-serial/OpenMP evidence remain pending.
+contract. The digest remains reporting-only. Output-visible evidence remains
+incomplete. The follow-on stock serial/OpenMP accumulation and fixed-thread
+repeatability evidence is complete under its separate proof-only lane.
 
 ## Output Follow-up Boundary
 
@@ -143,10 +144,10 @@ formats omit force families and face geometry, use insufficient default CSV
 precision, and expose a malformed per-face energy schema. Consequently,
 output-visible evidence remains incomplete and
 `output_visible_evidence_complete:false` remains binding even though the
-output characterization is complete. Output-contract repair is not authorized,
-and stock serial/OpenMP evidence remains pending. The exact boundary is:
+output characterization is complete. Output-contract repair is not authorized.
+The exact boundary is:
 
-`review and explicitly authorize an output-contract repair lane; Option B remains unselected and stock serial/OpenMP evidence remains pending`.
+`review and explicitly authorize an output-contract repair lane; Option B remains unselected`.
 
 Run the proof with:
 

@@ -415,9 +415,14 @@ checkpoint total force plus record energy round-trip exactly. Output-visible
 evidence remains incomplete because the global CSV omits channels and loses
 precision, the face CSV declares five columns but emits four, force families
 and face geometry are not serialized, and output-contract repair remains
-unauthorized. Stock-semantics serial/OpenMP accumulation evidence remains
-pending. The next boundary is explicit review of an output-contract repair
-lane, not route activation.
+unauthorized. The proof-only stock-semantics serial/OpenMP lane is complete:
+real OpenMP replay at 1, 2, and 4 threads across five repeats has a maximum
+serial/OpenMP accumulation difference of `2.2737367544323206e-13` under the
+fixed `1e-10` policy, fixed-thread repeatability remains within `1e-10`, face
+publication is exact, and independently recomputed aggregate-force drift is
+`0.0`. The next
+boundary is explicit review of an output-contract repair lane, not route
+activation.
 
 ## Inventory Check
 

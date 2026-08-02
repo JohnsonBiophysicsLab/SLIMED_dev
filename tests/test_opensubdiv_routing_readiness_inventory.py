@@ -131,6 +131,9 @@ class OpenSubdivRoutingReadinessInventoryTest(unittest.TestCase):
             "Option B output writer characterization completed", anchor_names
         )
         self.assertIn("Option B output repair remains gated", anchor_names)
+        self.assertIn(
+            "Option B stock serial/OpenMP evidence completed", anchor_names
+        )
 
         self.assertFalse(
             inventory.collect_forbidden_claims(inventory.repo_root())

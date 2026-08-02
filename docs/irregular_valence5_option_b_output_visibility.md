@@ -64,7 +64,12 @@ schema is malformed. Output-contract repair is not authorized by this lane.
 
 The exact next boundary is:
 
-`review and explicitly authorize an output-contract repair lane; Option B remains unselected and stock serial/OpenMP evidence remains pending`.
+`review and explicitly authorize an output-contract repair lane; Option B remains unselected`.
+
+The separate stock serial/OpenMP lane is now complete: real OpenMP replay at
+1, 2, and 4 threads remains within `1e-10`, and fixed-thread repeats are
+tolerance-bound within `1e-10`. That result does not repair or authorize the
+output contract.
 
 Run the proof with:
 
