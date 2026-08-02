@@ -8,6 +8,26 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 RUNNER = ROOT / "scripts/run_irregular_valence5_option_b_selection_record.py"
 INVENTORY = ROOT / "scripts/inventory_irregular_valence5_option_b_selection_record.py"
+EXPECTED_IMPLEMENTATION_PLAN = [
+    {
+        "phase": 1,
+        "name": "guarded_stock_valence5_row_provider",
+        "authorization": "requires_separate_implementation_approval",
+        "production_mutation": False,
+    },
+    {
+        "phase": 2,
+        "name": "guarded_face_loop_integration_and_rebaseline",
+        "authorization": "requires_separate_reviewed_pr",
+        "production_mutation": True,
+    },
+    {
+        "phase": 3,
+        "name": "explicit_route_activation",
+        "authorization": "requires_separate_reviewer_and_user_approval",
+        "production_mutation": True,
+    },
+]
 
 
 def load(path: Path, name: str):
@@ -98,11 +118,12 @@ class OptionBSelectionRecordTest(unittest.TestCase):
 
     def test_plan_has_three_separately_gated_phases(self):
         phases = self.runner.evaluate()["implementation_plan"]
-        self.assertEqual(phases, list(self.runner.CANONICAL_IMPLEMENTATION_PLAN))
+        self.assertEqual(list(self.runner.CANONICAL_IMPLEMENTATION_PLAN), EXPECTED_IMPLEMENTATION_PLAN)
+        self.assertEqual(phases, EXPECTED_IMPLEMENTATION_PLAN)
 
-        for phase_index, phase in enumerate(self.runner.CANONICAL_IMPLEMENTATION_PLAN):
+        for phase_index, phase in enumerate(EXPECTED_IMPLEMENTATION_PLAN):
             for field, value in phase.items():
-                mutated = copy.deepcopy(list(self.runner.CANONICAL_IMPLEMENTATION_PLAN))
+                mutated = copy.deepcopy(EXPECTED_IMPLEMENTATION_PLAN)
                 if isinstance(value, bool):
                     mutated[phase_index][field] = not value
                 elif isinstance(value, int):

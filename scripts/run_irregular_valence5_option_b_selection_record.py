@@ -20,25 +20,19 @@ DECISION = "accept"
 DECISION_DATE = "2026-08-02"
 DECISION_SOURCE = "explicit_user_instruction"
 DECISION_TEXT = "Accept Option B."
-CANONICAL_IMPLEMENTATION_PLAN = (
+CANONICAL_PHASE_BINDINGS = (
+    (1, "guarded_stock_valence5_row_provider", "requires_separate_implementation_approval", False),
+    (2, "guarded_face_loop_integration_and_rebaseline", "requires_separate_reviewed_pr", True),
+    (3, "explicit_route_activation", "requires_separate_reviewer_and_user_approval", True),
+)
+CANONICAL_IMPLEMENTATION_PLAN = tuple(
     {
-        "phase": 1,
-        "name": "guarded_stock_valence5_row_provider",
-        "authorization": "requires_separate_implementation_approval",
-        "production_mutation": False,
-    },
-    {
-        "phase": 2,
-        "name": "guarded_face_loop_integration_and_rebaseline",
-        "authorization": "requires_separate_reviewed_pr",
-        "production_mutation": True,
-    },
-    {
-        "phase": 3,
-        "name": "explicit_route_activation",
-        "authorization": "requires_separate_reviewer_and_user_approval",
-        "production_mutation": True,
-    },
+        "phase": phase,
+        "name": name,
+        "authorization": authorization,
+        "production_mutation": production_mutation,
+    }
+    for phase, name, authorization, production_mutation in CANONICAL_PHASE_BINDINGS
 )
 
 
