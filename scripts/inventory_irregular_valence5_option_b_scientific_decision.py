@@ -21,9 +21,27 @@ GLOBAL_TEST = Path("tests/test_opensubdiv_routing_readiness_inventory.py")
 OUTPUT_INVENTORY = Path(
     "scripts/inventory_irregular_valence5_option_b_output_visibility.py"
 )
+SELECTION_RUNNER = Path(
+    "scripts/run_irregular_valence5_option_b_selection_record.py"
+)
+SELECTION_WRAPPER = Path(
+    "scripts/run_irregular_valence5_option_b_selection_record.sh"
+)
+SELECTION_INVENTORY = Path(
+    "scripts/inventory_irregular_valence5_option_b_selection_record.py"
+)
+SELECTION_DOC = Path("docs/irregular_valence5_option_b_selection_record.md")
+SELECTION_TEST = Path(
+    "tests/test_irregular_valence5_option_b_selection_record_inventory.py"
+)
+CUDA_PLAN_DOC = Path("docs/cuda_end_to_end_residency_force_scatter_implementation_plan.md")
+CUDA_PLAN_INVENTORY = Path("scripts/inventory_cuda_end_to_end_plan.py")
+CUDA_PLAN_TEST = Path("tests/test_cuda_end_to_end_plan_inventory.py")
 ALLOWED_PATHS = {
     RUNNER, WRAPPER, DOC, TEST, SELF, READINESS, GLOBAL, GLOBAL_TEST,
-    OUTPUT_INVENTORY,
+    OUTPUT_INVENTORY, SELECTION_RUNNER, SELECTION_WRAPPER, SELECTION_INVENTORY,
+    SELECTION_DOC, SELECTION_TEST, CUDA_PLAN_DOC, CUDA_PLAN_INVENTORY,
+    CUDA_PLAN_TEST,
 }
 ANCHORS = {
     RUNNER: (
@@ -77,6 +95,22 @@ ANCHORS = {
         "DECISION_DOC",
         "DECISION_TEST",
     ),
+    SELECTION_RUNNER: (
+        'DECISION = "accept"',
+        '"option_b_selected": option_b_selected',
+        '"production_route_enabled": production_route_enabled',
+    ),
+    SELECTION_DOC: (
+        "Option B scientific selection record",
+        "Implementation and production routing remain disabled",
+    ),
+    SELECTION_TEST: (
+        "test_canonical_record_selects_and_approves_but_does_not_route",
+        "test_recommendation_implementation_and_route_false_greens_fail",
+    ),
+    CUDA_PLAN_DOC: ("CUDA",),
+    CUDA_PLAN_INVENTORY: ("CUDA",),
+    CUDA_PLAN_TEST: ("CudaEndToEndPlanInventoryTest",),
 }
 FORBIDDEN = {
     RUNNER: (
