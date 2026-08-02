@@ -33,6 +33,8 @@ not a failure of this output characterization.
 It exposes seven of ten global energy fields plus mean force, omitting volume,
 thickness, and tilt. The writer uses default stream precision, producing a
 maximum stock serialization difference of `0.002616418819570754` in WSL.
+Every emitted value is bound by a fixed absolute serialization envelope of
+`3e-3`; the proof exposes no command-line override for that reviewed limit.
 
 `ElementFaceEnergy.csv` executes and parses, but its header declares five
 columns while each data row contains four values. The face regularization term
@@ -40,12 +42,18 @@ is not written; total energy occupies the fourth value under the
 `E_Regularization` header, and no fifth value exists for `E_Total`. Default
 precision produces a maximum serialization difference of
 `4.713969291714193e-05` against the value actually written.
+Every emitted face value is bound by a fixed `5e-5` absolute envelope, while
+the row order, widths, and mislabelled fourth-column behavior are binding.
 
 The restart checkpoint preserves its record energy and total vertex force at
 the existing 17-digit precision: both round-trip maxima are exactly zero. It
 does not serialize the separate bending, area, and volume force families.
 It also does not preserve face energy, normals, mean curvature, area, or legacy
 volume. No other production output writer exposes those face observables.
+The proof measures each missing force family and face observable separately;
+each must change by a finite positive amount across restart. It also
+independently re-aggregates all 2,160 per-face force components into the 108
+source-force components before any output claim is accepted.
 
 ## Decision Boundary
 

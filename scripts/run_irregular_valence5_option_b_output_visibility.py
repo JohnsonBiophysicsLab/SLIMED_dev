@@ -21,6 +21,11 @@ OUTPUT_HARNESS = ROOT / "experiments/irregular_valence5_option_b_output_visibili
 FORCE_HARNESS = ROOT / "experiments/irregular_valence5_opensubdiv_force_parity.cpp"
 OUTPUT_FORCE_ROUNDTRIP_ABSOLUTE_TOLERANCE = 0.0
 OUTPUT_RECORD_ENERGY_ROUNDTRIP_ABSOLUTE_TOLERANCE = 0.0
+ENERGY_FORCE_CSV_SERIALIZATION_ABSOLUTE_ENVELOPE = 3.0e-3
+ELEMENT_FACE_ENERGY_CSV_SERIALIZATION_ABSOLUTE_ENVELOPE = 5.0e-5
+AGGREGATE_FORCE_ABSOLUTE_TOLERANCE = 1.0e-12
+REVIEWED_WSL_ENERGY_FORCE_CSV_MAX_ABS_DIFFERENCE = 0.002616418819570754
+REVIEWED_WSL_ELEMENT_FACE_CSV_MAX_ABS_DIFFERENCE = 4.713969291714193e-05
 
 
 def load_module(path: Path, name: str):
@@ -46,6 +51,17 @@ def finite_list(values: object, count: int, label: str) -> list[float]:
     ):
         raise RuntimeError(f"{label} must contain {count} finite numbers")
     return [float(value) for value in values]
+
+
+def finite_nonnegative_number(value: object, label: str) -> float:
+    if (
+        not isinstance(value, (int, float))
+        or isinstance(value, bool)
+        or not math.isfinite(float(value))
+        or float(value) < 0.0
+    ):
+        raise RuntimeError(f"{label} must be a finite nonnegative number")
+    return float(value)
 
 
 def strict_json(text: str, label: str) -> dict[str, object]:
@@ -171,8 +187,40 @@ def compare_output_artifacts(
 ) -> dict[str, object]:
     if energy_report.get("status") != "passed":
         raise RuntimeError("energy/geometry input proof did not pass")
-    if force_report.get("status") != "passed":
+    if (
+        energy_report.get("independent_long_double_oracle_passed") is not True
+        or energy_report.get("canonical_observable_vector_tolerance_passed") is not True
+        or energy_report.get("energy_geometry_parity_passed") is not False
+    ):
+        raise RuntimeError("energy/geometry scientific gate drift")
+    if (
+        force_report.get("status") != "passed"
+        or force_report.get("force_parity_passed") is not False
+    ):
         raise RuntimeError("force input proof did not pass")
+    if (
+        force_candidate.get("status") != "passed"
+        or force_candidate.get("opensubdiv_rows_evaluated_by_existing_force_algebra") is not True
+    ):
+        raise RuntimeError("stock force candidate gate drift")
+    per_face_forces = finite_list(
+        force_candidate.get("per_face_source_forces"), 20 * 12 * 9,
+        "stock per-face source forces",
+    )
+    aggregate_forces = finite_list(
+        force_candidate.get("aggregate_source_forces"), 12 * 9,
+        "stock aggregate source forces",
+    )
+    recomputed_aggregate = [0.0] * (12 * 9)
+    for face in range(20):
+        for component in range(12 * 9):
+            recomputed_aggregate[component] += per_face_forces[face * 12 * 9 + component]
+    aggregate_delta = max(
+        abs(left - right)
+        for left, right in zip(aggregate_forces, recomputed_aggregate)
+    )
+    if aggregate_delta > AGGREGATE_FORCE_ABSOLUTE_TOLERANCE:
+        raise RuntimeError("stock aggregate source force drift")
     required_harness_flags = (
         "energy_force_writer_executed",
         "element_face_energy_writer_executed",
@@ -183,25 +231,42 @@ def compare_output_artifacts(
         harness.get(key) is not True for key in required_harness_flags
     ):
         raise RuntimeError("real output writer harness did not pass")
-    force_roundtrip = float(
-        harness.get("checkpoint_total_force_roundtrip_max_abs_difference", math.inf)
+    force_roundtrip = finite_nonnegative_number(
+        harness.get("checkpoint_total_force_roundtrip_max_abs_difference"),
+        "checkpoint total-force roundtrip difference",
     )
-    energy_roundtrip = float(
-        harness.get("checkpoint_record_energy_roundtrip_max_abs_difference", math.inf)
+    energy_roundtrip = finite_nonnegative_number(
+        harness.get("checkpoint_record_energy_roundtrip_max_abs_difference"),
+        "checkpoint energy-record roundtrip difference",
     )
-    if force_roundtrip > OUTPUT_FORCE_ROUNDTRIP_ABSOLUTE_TOLERANCE:
+    if force_roundtrip != OUTPUT_FORCE_ROUNDTRIP_ABSOLUTE_TOLERANCE:
         raise RuntimeError("checkpoint total-force roundtrip drift")
-    if energy_roundtrip > OUTPUT_RECORD_ENERGY_ROUNDTRIP_ABSOLUTE_TOLERANCE:
+    if energy_roundtrip != OUTPUT_RECORD_ENERGY_ROUNDTRIP_ABSOLUTE_TOLERANCE:
         raise RuntimeError("checkpoint energy-record roundtrip drift")
-    if harness.get("checkpoint_face_observables_preserved") is not False:
-        raise RuntimeError("checkpoint face-observable coverage claim drift")
+    absence_fields = (
+        ("checkpoint_curvature_force", "curvature force"),
+        ("checkpoint_area_force", "area force"),
+        ("checkpoint_volume_force", "volume force"),
+        ("checkpoint_face_normals", "face normals"),
+        ("checkpoint_face_mean_curvature", "face mean curvature"),
+        ("checkpoint_face_area", "face area"),
+        ("checkpoint_face_legacy_volume", "face legacy volume"),
+        ("checkpoint_face_energy", "face energy"),
+    )
+    absence_differences: dict[str, float] = {}
+    for prefix, label in absence_fields:
+        if harness.get(f"{prefix}_preserved") is not False:
+            raise RuntimeError(f"checkpoint {label} coverage claim drift")
+        difference = finite_nonnegative_number(
+            harness.get(f"{prefix}_max_abs_difference"),
+            f"checkpoint {label} maximum difference",
+        )
+        if difference <= 0.0:
+            raise RuntimeError(f"checkpoint {label} absence is not demonstrated")
+        absence_differences[prefix] = difference
 
     global_stock = finite_list(
         energy_report.get("global_energy_stock"), 10, "stock global energy"
-    )
-    aggregate = finite_list(
-        force_candidate.get("aggregate_source_forces"), 108,
-        "stock aggregate source forces",
     )
     expected_energy_header = [
         "E_Curvature", "E_Area", "E_Regularization", "E_HarmonicBond",
@@ -216,12 +281,14 @@ def compare_output_artifacts(
     expected_energy_values = [
         global_stock[0], global_stock[1], global_stock[5], global_stock[6],
         global_stock[7], global_stock[8], global_stock[9],
-        expected_mean_force(aggregate),
+        expected_mean_force(aggregate_forces),
     ]
     energy_csv_delta = max(
         abs(left - right)
         for left, right in zip(energy_values, expected_energy_values)
     )
+    if energy_csv_delta > ENERGY_FORCE_CSV_SERIALIZATION_ABSOLUTE_ENVELOPE:
+        raise RuntimeError("EnergyForce.csv serialization envelope exceeded")
 
     expected_face_header = [
         "Face_index", "E_Curvature", "E_Area", "E_Regularization", "E_Total"
@@ -247,10 +314,13 @@ def compare_output_artifacts(
             max(abs(left - right) for left, right in zip(values, expected)),
         )
         total_written_in_fourth_column = total_written_in_fourth_column and (
-            abs(values[3] - expected[3]) <= 1.0e-3
+            abs(values[3] - expected[3])
+            <= ELEMENT_FACE_ENERGY_CSV_SERIALIZATION_ABSOLUTE_ENVELOPE
         )
     if not total_written_in_fourth_column:
         raise RuntimeError("ElementFaceEnergy.csv fourth-column behavior drift")
+    if face_csv_delta > ELEMENT_FACE_ENERGY_CSV_SERIALIZATION_ABSOLUTE_ENVELOPE:
+        raise RuntimeError("ElementFaceEnergy.csv serialization envelope exceeded")
 
     blockers = [
         "EnergyForce.csv omits global volume, thickness, and tilt channels and rounds stock values at default stream precision",
@@ -276,6 +346,9 @@ def compare_output_artifacts(
         "energy_force_csv_header": energy_rows[0],
         "energy_force_csv_energy_channel_count": 7,
         "energy_force_csv_max_abs_serialization_difference": energy_csv_delta,
+        "energy_force_csv_serialization_absolute_envelope": (
+            ENERGY_FORCE_CSV_SERIALIZATION_ABSOLUTE_ENVELOPE
+        ),
         "energy_force_csv_default_precision_loss_observed": energy_csv_delta > 1.0e-12,
         "energy_force_csv_omitted_global_channels": ["volume", "thickness", "tilt"],
         "element_face_energy_csv_header": face_rows[0],
@@ -285,19 +358,24 @@ def compare_output_artifacts(
         "element_face_energy_csv_regularization_serialized": False,
         "element_face_energy_csv_total_in_unlabelled_fourth_value": True,
         "element_face_energy_csv_max_abs_serialization_difference": face_csv_delta,
+        "element_face_energy_csv_serialization_absolute_envelope": (
+            ELEMENT_FACE_ENERGY_CSV_SERIALIZATION_ABSOLUTE_ENVELOPE
+        ),
         "checkpoint_total_force_roundtrip_passed": True,
         "checkpoint_total_force_roundtrip_max_abs_difference": force_roundtrip,
         "checkpoint_record_energy_roundtrip_passed": True,
         "checkpoint_record_energy_roundtrip_max_abs_difference": energy_roundtrip,
         "checkpoint_force_family_components_serialized": False,
-        "checkpoint_face_observables_preserved": False,
+        "checkpoint_absence_max_abs_differences": absence_differences,
         "face_normals_output_visible": False,
         "face_mean_curvature_output_visible": False,
         "face_area_output_visible": False,
         "face_legacy_volume_output_visible": False,
         "input_energy_geometry_proof_passed": True,
         "input_force_characterization_passed": True,
-        "input_force_parity_passed": force_report.get("force_parity_passed"),
+        "input_force_parity_passed": False,
+        "aggregate_source_force_recomputed": True,
+        "aggregate_source_force_max_abs_difference": aggregate_delta,
         "writer_blockers": blockers,
         "remaining_boundary": (
             "review and explicitly authorize an output-contract repair lane; "

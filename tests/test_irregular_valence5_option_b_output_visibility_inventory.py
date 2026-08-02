@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -56,10 +57,18 @@ class OptionBOutputVisibilityInventoryTest(unittest.TestCase):
         ], ["12.5", "0", "0.75", "0", "0", "0", "13.25", "0"]]
         energy_report = {
             "status": "passed",
+            "independent_long_double_oracle_passed": True,
+            "canonical_observable_vector_tolerance_passed": True,
+            "energy_geometry_parity_passed": False,
             "global_energy_stock": global_energy,
             "per_face_energy_stock": face_energy,
         }
-        force_candidate = {"aggregate_source_forces": aggregate}
+        force_candidate = {
+            "status": "passed",
+            "opensubdiv_rows_evaluated_by_existing_force_algebra": True,
+            "per_face_source_forces": [0.0] * (20 * 108),
+            "aggregate_source_forces": aggregate,
+        }
         force_report = {"status": "passed", "force_parity_passed": False}
         harness = {
             "status": "passed",
@@ -69,8 +78,15 @@ class OptionBOutputVisibilityInventoryTest(unittest.TestCase):
             "checkpoint_loader_executed": True,
             "checkpoint_total_force_roundtrip_max_abs_difference": 0.0,
             "checkpoint_record_energy_roundtrip_max_abs_difference": 0.0,
-            "checkpoint_face_observables_preserved": False,
         }
+        for prefix in (
+            "checkpoint_curvature_force", "checkpoint_area_force",
+            "checkpoint_volume_force", "checkpoint_face_normals",
+            "checkpoint_face_mean_curvature", "checkpoint_face_area",
+            "checkpoint_face_legacy_volume", "checkpoint_face_energy",
+        ):
+            harness[f"{prefix}_preserved"] = False
+            harness[f"{prefix}_max_abs_difference"] = 1.0
         return energy_report, force_candidate, force_report, harness, energy_rows, face_rows
 
     def compare(self, values):
@@ -110,12 +126,26 @@ class OptionBOutputVisibilityInventoryTest(unittest.TestCase):
             with self.subTest(key=key), self.assertRaisesRegex(RuntimeError, message):
                 self.compare(mutated)
 
-    def test_face_schema_and_checkpoint_coverage_claims_are_binding(self):
+    def test_face_schema_and_each_checkpoint_coverage_claim_are_binding(self):
         baseline = self.canonical_inputs()
-        preserved = copy.deepcopy(baseline)
-        preserved[3]["checkpoint_face_observables_preserved"] = True
-        with self.assertRaisesRegex(RuntimeError, "coverage claim drift"):
-            self.compare(preserved)
+        for prefix in (
+            "checkpoint_curvature_force", "checkpoint_area_force",
+            "checkpoint_volume_force", "checkpoint_face_normals",
+            "checkpoint_face_mean_curvature", "checkpoint_face_area",
+            "checkpoint_face_legacy_volume", "checkpoint_face_energy",
+        ):
+            preserved = copy.deepcopy(baseline)
+            preserved[3][f"{prefix}_preserved"] = True
+            with self.subTest(prefix=prefix), self.assertRaisesRegex(
+                RuntimeError, "coverage claim drift"
+            ):
+                self.compare(preserved)
+            undemonstrated = copy.deepcopy(baseline)
+            undemonstrated[3][f"{prefix}_max_abs_difference"] = 0.0
+            with self.subTest(prefix=prefix), self.assertRaisesRegex(
+                RuntimeError, "absence is not demonstrated"
+            ):
+                self.compare(undemonstrated)
 
         widened = copy.deepcopy(baseline)
         widened[5][1].append("unexpected")
@@ -126,6 +156,50 @@ class OptionBOutputVisibilityInventoryTest(unittest.TestCase):
         reordered[5][1][0] = "7"
         with self.assertRaisesRegex(RuntimeError, "face order drift"):
             self.compare(reordered)
+
+    def test_every_serialized_csv_field_family_is_envelope_bound(self):
+        baseline = self.canonical_inputs()
+        for column in range(8):
+            mutated = copy.deepcopy(baseline)
+            mutated[4][1][column] = str(float(mutated[4][1][column]) + 1.0)
+            with self.subTest(csv="energy", column=column), self.assertRaisesRegex(
+                RuntimeError, "EnergyForce.csv serialization envelope exceeded"
+            ):
+                self.compare(mutated)
+        for column in (1, 2, 3):
+            mutated = copy.deepcopy(baseline)
+            mutated[5][1][column] = str(float(mutated[5][1][column]) + 9.0e-4)
+            with self.subTest(csv="face", column=column), self.assertRaises(RuntimeError):
+                self.compare(mutated)
+
+    def test_scientific_gates_and_aggregate_recomputation_are_binding(self):
+        baseline = self.canonical_inputs()
+        parity = copy.deepcopy(baseline)
+        parity[2]["force_parity_passed"] = True
+        with self.assertRaisesRegex(RuntimeError, "force input proof did not pass"):
+            self.compare(parity)
+        energy_parity = copy.deepcopy(baseline)
+        energy_parity[0]["energy_geometry_parity_passed"] = True
+        with self.assertRaisesRegex(RuntimeError, "scientific gate drift"):
+            self.compare(energy_parity)
+        aggregate = copy.deepcopy(baseline)
+        aggregate[1]["aggregate_source_forces"][0] = 1.0
+        with self.assertRaisesRegex(RuntimeError, "aggregate source force drift"):
+            self.compare(aggregate)
+
+    def test_checkpoint_differences_reject_nonfinite_negative_and_boolean_values(self):
+        baseline = self.canonical_inputs()
+        for key in (
+            "checkpoint_total_force_roundtrip_max_abs_difference",
+            "checkpoint_record_energy_roundtrip_max_abs_difference",
+        ):
+            for value in (float("nan"), float("inf"), -1.0, False):
+                mutated = copy.deepcopy(baseline)
+                mutated[3][key] = value
+                with self.subTest(key=key, value=value), self.assertRaisesRegex(
+                    RuntimeError, "finite nonnegative number"
+                ):
+                    self.compare(mutated)
 
     def test_numeric_type_and_shape_guards_reject_false_greens(self):
         baseline = self.canonical_inputs()
@@ -144,6 +218,9 @@ class OptionBOutputVisibilityInventoryTest(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(json.loads(result.stdout)["status"], "skipped")
+
+    def test_wrapper_is_executable_in_git_checkout(self):
+        self.assertTrue(WRAPPER.stat().st_mode & stat.S_IXUSR)
 
     def test_output_harness_compiles_with_available_cxx(self):
         compiler = shutil.which(os.environ.get("CXX", "")) if os.environ.get("CXX") else (
@@ -186,6 +263,14 @@ class OptionBOutputVisibilityInventoryTest(unittest.TestCase):
         self.assertEqual(report["element_face_energy_csv_data_row_width"], 4)
         self.assertEqual(report["checkpoint_total_force_roundtrip_max_abs_difference"], 0.0)
         self.assertEqual(report["checkpoint_record_energy_roundtrip_max_abs_difference"], 0.0)
+        self.assertEqual(
+            report["energy_force_csv_max_abs_serialization_difference"],
+            self.runner.REVIEWED_WSL_ENERGY_FORCE_CSV_MAX_ABS_DIFFERENCE,
+        )
+        self.assertEqual(
+            report["element_face_energy_csv_max_abs_serialization_difference"],
+            self.runner.REVIEWED_WSL_ELEMENT_FACE_CSV_MAX_ABS_DIFFERENCE,
+        )
 
 
 if __name__ == "__main__":

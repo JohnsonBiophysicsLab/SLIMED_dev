@@ -226,18 +226,50 @@ int main(int argc, char **argv)
             ? energy_delta(record.energyVec[0], restartRecord.energyVec[0])
             : -1.0;
 
-    bool faceObservablesPreserved = checkpointLoadPassed;
+    double forceFamilyMaximum[kForceKinds] = {0.0, 0.0, 0.0};
+    double faceNormalMaximum = 0.0;
+    double faceMeanCurvatureMaximum = 0.0;
+    double faceAreaMaximum = 0.0;
+    double faceLegacyVolumeMaximum = 0.0;
+    double faceEnergyMaximum = 0.0;
     if (checkpointLoadPassed)
     {
+        for (int vertex = 0; vertex < kVertexCount; ++vertex)
+        {
+            const Force &before = mesh.vertices[vertex].force;
+            const Force &after = restartMesh.vertices[vertex].force;
+            const Matrix *beforeKinds[] = {
+                &before.forceCurvature, &before.forceArea, &before.forceVolume};
+            const Matrix *afterKinds[] = {
+                &after.forceCurvature, &after.forceArea, &after.forceVolume};
+            for (int kind = 0; kind < kForceKinds; ++kind)
+                for (int axis = 0; axis < kAxes; ++axis)
+                    forceFamilyMaximum[kind] = std::max(
+                        forceFamilyMaximum[kind],
+                        std::abs(beforeKinds[kind]->get(axis, 0) -
+                                 afterKinds[kind]->get(axis, 0)));
+        }
         for (int face = 0; face < kFaceCount; ++face)
         {
             const Face &before = mesh.faces[face];
-            const Face &after = restartMesh.faces[face];
-            faceObservablesPreserved = faceObservablesPreserved &&
-                before.meanCurvature == after.meanCurvature &&
-                before.elementArea == after.elementArea &&
-                before.elementVolume == after.elementVolume &&
-                energy_delta(before.energy, after.energy) == 0.0;
+            Face &after = restartMesh.faces[face];
+            after.normVector = mat_calloc(kAxes, 1);
+            for (int axis = 0; axis < kAxes; ++axis)
+                faceNormalMaximum = std::max(
+                    faceNormalMaximum,
+                    std::abs(before.normVector.get(axis, 0) -
+                             after.normVector.get(axis, 0)));
+            faceMeanCurvatureMaximum = std::max(
+                faceMeanCurvatureMaximum,
+                std::abs(before.meanCurvature - after.meanCurvature));
+            faceAreaMaximum = std::max(
+                faceAreaMaximum,
+                std::abs(before.elementArea - after.elementArea));
+            faceLegacyVolumeMaximum = std::max(
+                faceLegacyVolumeMaximum,
+                std::abs(before.elementVolume - after.elementVolume));
+            faceEnergyMaximum = std::max(
+                faceEnergyMaximum, energy_delta(before.energy, after.energy));
         }
     }
 
@@ -260,8 +292,38 @@ int main(int argc, char **argv)
               << forceRoundtripMaximum << ','
               << "\"checkpoint_record_energy_roundtrip_max_abs_difference\":"
               << recordEnergyMaximum << ','
-              << "\"checkpoint_face_observables_preserved\":"
-              << (faceObservablesPreserved ? "true" : "false")
+              << "\"checkpoint_curvature_force_preserved\":"
+              << (forceFamilyMaximum[0] == 0.0 ? "true" : "false") << ','
+              << "\"checkpoint_curvature_force_max_abs_difference\":"
+              << forceFamilyMaximum[0] << ','
+              << "\"checkpoint_area_force_preserved\":"
+              << (forceFamilyMaximum[1] == 0.0 ? "true" : "false") << ','
+              << "\"checkpoint_area_force_max_abs_difference\":"
+              << forceFamilyMaximum[1] << ','
+              << "\"checkpoint_volume_force_preserved\":"
+              << (forceFamilyMaximum[2] == 0.0 ? "true" : "false") << ','
+              << "\"checkpoint_volume_force_max_abs_difference\":"
+              << forceFamilyMaximum[2] << ','
+              << "\"checkpoint_face_normals_preserved\":"
+              << (faceNormalMaximum == 0.0 ? "true" : "false") << ','
+              << "\"checkpoint_face_normals_max_abs_difference\":"
+              << faceNormalMaximum << ','
+              << "\"checkpoint_face_mean_curvature_preserved\":"
+              << (faceMeanCurvatureMaximum == 0.0 ? "true" : "false") << ','
+              << "\"checkpoint_face_mean_curvature_max_abs_difference\":"
+              << faceMeanCurvatureMaximum << ','
+              << "\"checkpoint_face_area_preserved\":"
+              << (faceAreaMaximum == 0.0 ? "true" : "false") << ','
+              << "\"checkpoint_face_area_max_abs_difference\":"
+              << faceAreaMaximum << ','
+              << "\"checkpoint_face_legacy_volume_preserved\":"
+              << (faceLegacyVolumeMaximum == 0.0 ? "true" : "false") << ','
+              << "\"checkpoint_face_legacy_volume_max_abs_difference\":"
+              << faceLegacyVolumeMaximum << ','
+              << "\"checkpoint_face_energy_preserved\":"
+              << (faceEnergyMaximum == 0.0 ? "true" : "false") << ','
+              << "\"checkpoint_face_energy_max_abs_difference\":"
+              << faceEnergyMaximum
               << "}\n";
     return passed ? 0 : 4;
 }

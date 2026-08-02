@@ -127,7 +127,10 @@ class OpenSubdivRoutingReadinessInventoryTest(unittest.TestCase):
             "Option B energy/geometry characterization completed", anchor_names
         )
         self.assertIn("Option B observable changes measured", anchor_names)
-        self.assertIn("Option B output evidence remains pending", anchor_names)
+        self.assertIn(
+            "Option B output writer characterization completed", anchor_names
+        )
+        self.assertIn("Option B output repair remains gated", anchor_names)
 
         self.assertFalse(
             inventory.collect_forbidden_claims(inventory.repo_root())
