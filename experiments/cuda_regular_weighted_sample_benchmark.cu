@@ -24,12 +24,67 @@ constexpr int kAxes = 3;
 constexpr int kBlockSize = 256;
 constexpr double kAbsoluteTolerance = 1.0e-12;
 constexpr int kNoCudaDeviceExitCode = 77;
+constexpr std::size_t kRowComponentsPerBatch = kSamples * kRows * kAxes;
+constexpr std::size_t kControlComponentsPerBatch = kControls * kAxes;
 constexpr std::size_t kDeviceBytesPerBatch =
-    (kControls * kAxes + kSamples * kRows * kAxes +
-     kSamples * kRows * kAxes + kControls * kAxes) *
+    (kControlComponentsPerBatch + kRowComponentsPerBatch +
+     kRowComponentsPerBatch + kControlComponentsPerBatch) *
     sizeof(double);
 
 using Clock = std::chrono::steady_clock;
+
+std::size_t checked_multiply(
+    const std::size_t left,
+    const std::size_t right,
+    const char *label)
+{
+    if (right != 0 && left > std::numeric_limits<std::size_t>::max() / right)
+        throw std::invalid_argument(std::string(label) + " multiplication overflows");
+    return left * right;
+}
+
+std::size_t checked_add(
+    const std::size_t left,
+    const std::size_t right,
+    const char *label)
+{
+    if (left > std::numeric_limits<std::size_t>::max() - right)
+        throw std::invalid_argument(std::string(label) + " addition overflows");
+    return left + right;
+}
+
+std::size_t checked_double_count(
+    const std::size_t batchSize,
+    const std::size_t componentsPerBatch,
+    const char *label)
+{
+    const std::size_t count =
+        checked_multiply(batchSize, componentsPerBatch, label);
+    checked_multiply(count, sizeof(double), label);
+    return count;
+}
+
+std::size_t checked_device_bytes(
+    const std::size_t batchSize, const std::size_t weightBytes)
+{
+    const std::size_t dynamicBytes =
+        checked_multiply(batchSize, kDeviceBytesPerBatch, "device bytes");
+    return checked_add(weightBytes, dynamicBytes, "device bytes");
+}
+
+void validate_batch_cardinality(const std::size_t batchSize)
+{
+    if (batchSize == 0)
+        throw std::invalid_argument("batch size must be positive");
+    if (batchSize > static_cast<std::size_t>(
+                        std::numeric_limits<long long>::max()))
+        throw std::invalid_argument("batch size exceeds OpenMP loop range");
+    checked_double_count(
+        batchSize, kRowComponentsPerBatch, "row-buffer cardinality");
+    checked_double_count(
+        batchSize, kControlComponentsPerBatch, "control-buffer cardinality");
+    checked_device_bytes(batchSize, kSamples * kRows * kControls * sizeof(double));
+}
 
 __host__ __device__ std::size_t weight_index(
     const int sample, const int row, const int control)
@@ -161,7 +216,8 @@ std::vector<double> production_regular_weights()
 
 std::vector<double> deterministic_controls(const std::size_t batchSize)
 {
-    std::vector<double> controls(batchSize * kControls * kAxes);
+    std::vector<double> controls(checked_double_count(
+        batchSize, kControlComponentsPerBatch, "control fixture cardinality"));
     for (std::size_t batch = 0; batch < batchSize; ++batch)
         for (int control = 0; control < kControls; ++control)
             for (int axis = 0; axis < kAxes; ++axis)
@@ -177,7 +233,8 @@ std::vector<double> deterministic_controls(const std::size_t batchSize)
 
 std::vector<double> deterministic_row_gradients(const std::size_t batchSize)
 {
-    std::vector<double> gradients(batchSize * kSamples * kRows * kAxes);
+    std::vector<double> gradients(checked_double_count(
+        batchSize, kRowComponentsPerBatch, "row-gradient fixture cardinality"));
     for (std::size_t batch = 0; batch < batchSize; ++batch)
         for (int sample = 0; sample < kSamples; ++sample)
             for (int row = 0; row < kRows; ++row)
@@ -312,7 +369,8 @@ __global__ void transpose_weighted_samples(
 
 unsigned int block_count(const std::size_t outputCount)
 {
-    const std::size_t count = (outputCount + kBlockSize - 1) / kBlockSize;
+    const std::size_t count =
+        outputCount / kBlockSize + (outputCount % kBlockSize != 0 ? 1 : 0);
     if (count > std::numeric_limits<unsigned int>::max())
         throw std::invalid_argument("batch size exceeds one-dimensional grid limit");
     return static_cast<unsigned int>(count);
@@ -421,8 +479,13 @@ BenchmarkCase benchmark_case(
     const std::vector<double> controls = deterministic_controls(batchSize);
     const std::vector<double> rowGradients =
         deterministic_row_gradients(batchSize);
-    std::vector<double> serialForward(batchSize * kSamples * kRows * kAxes);
-    std::vector<double> serialTranspose(batchSize * kControls * kAxes);
+    validate_batch_cardinality(batchSize);
+    const std::size_t rowCount = checked_double_count(
+        batchSize, kRowComponentsPerBatch, "benchmark row cardinality");
+    const std::size_t controlCount = checked_double_count(
+        batchSize, kControlComponentsPerBatch, "benchmark control cardinality");
+    std::vector<double> serialForward(rowCount);
+    std::vector<double> serialTranspose(controlCount);
     std::vector<double> openmpForward(serialForward.size());
     std::vector<double> openmpTranspose(serialTranspose.size());
     std::vector<double> cudaForward(serialForward.size());
@@ -465,8 +528,8 @@ BenchmarkCase benchmark_case(
 
     BenchmarkCase result;
     result.batchSize = batchSize;
-    result.deviceBytes = weights.size() * sizeof(double) +
-                         batchSize * kDeviceBytesPerBatch;
+    result.deviceBytes =
+        checked_device_bytes(batchSize, weights.size() * sizeof(double));
     result.correctnessForwardMaximum = std::max(
         maximum_absolute_delta(openmpForward, serialForward),
         maximum_absolute_delta(cudaForward, serialForward));
@@ -571,7 +634,11 @@ std::vector<std::size_t> parse_batch_sizes(const std::string &text)
         const unsigned long long value = std::stoull(token, &consumed);
         if (consumed != token.size() || value == 0)
             throw std::invalid_argument("batch sizes must be positive integers");
-        values.push_back(static_cast<std::size_t>(value));
+        if (value > std::numeric_limits<std::size_t>::max())
+            throw std::invalid_argument("batch size exceeds size_t range");
+        const std::size_t batchSize = static_cast<std::size_t>(value);
+        validate_batch_cardinality(batchSize);
+        values.push_back(batchSize);
         if (comma == std::string::npos)
             break;
         start = comma + 1;
@@ -660,7 +727,7 @@ int main(int argc, char **argv)
         for (const std::size_t batchSize : batchSizes)
         {
             const std::size_t requiredBytes =
-                weights.size() * sizeof(double) + batchSize * kDeviceBytesPerBatch;
+                checked_device_bytes(batchSize, weights.size() * sizeof(double));
             if (requiredBytes > freeDeviceBytes / 2)
                 throw std::invalid_argument(
                     "batch exceeds the 50% free-device-memory safety budget");

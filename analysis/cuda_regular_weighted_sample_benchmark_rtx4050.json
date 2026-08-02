@@ -4,6 +4,12 @@
   "baseline": "12ebc9669c815bd117551194cf4fc1c99144654a",
   "status": "passed",
   "benchmark": "regular_weighted_sample_forward_transpose",
+  "provenance": {
+    "runner": "scripts/run_cuda_regular_weighted_sample_benchmark.py",
+    "initial_sweep_command": "--require-cuda --warmups 5 --repetitions 30 --omp-threads 8",
+    "upper_bound_extension_command": "--require-cuda --batch-sizes 1048576 --warmups 5 --repetitions 30 --omp-threads 8",
+    "normalization": "runner JSON transcribed into the stable evidence schema; tests validate timing fields, ordering, limits, and conclusions"
+  },
   "workload": {
     "samples": 3,
     "rows": 7,

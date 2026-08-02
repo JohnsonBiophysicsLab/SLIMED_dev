@@ -41,6 +41,10 @@ class CudaRegularWeightedSampleBenchmarkTest(unittest.TestCase):
         self.assertIn("benchmark correctness prerequisite failed", source)
         self.assertIn('parse_positive_int(argv[3], "repetitions", 30)', source)
         self.assertIn("requiredBytes > freeDeviceBytes / 2", source)
+        self.assertIn("std::size_t checked_multiply", source)
+        self.assertIn("std::size_t checked_add", source)
+        self.assertIn("validate_batch_cardinality(batchSize)", source)
+        self.assertIn("batch size exceeds OpenMP loop range", source)
         self.assertIn("break_even_vs_serial_batch", source)
         self.assertIn("break_even_vs_openmp_batch", source)
 
@@ -84,6 +88,15 @@ class CudaRegularWeightedSampleBenchmarkTest(unittest.TestCase):
                 with self.assertRaises(Exception):
                     runner.parse_batch_sizes(value)
 
+    def test_oversized_batch_is_rejected_before_allocation_or_build(self):
+        exploit = "10248191152060862009"
+
+        with self.assertRaisesRegex(Exception, "exceeds checked maximum"):
+            runner.parse_batch_sizes(exploit)
+        with contextlib.redirect_stderr(io.StringIO()):
+            with self.assertRaises(SystemExit):
+                runner.main(["--batch-sizes", exploit])
+
     def test_runner_rejects_underpowered_measurement_counts(self):
         for arguments in (
             ["--warmups", "0"],
@@ -121,6 +134,10 @@ class CudaRegularWeightedSampleBenchmarkTest(unittest.TestCase):
         evidence = json.loads(EVIDENCE_PATH.read_text(encoding="utf-8"))
 
         self.assertEqual(evidence["status"], "passed")
+        self.assertEqual(
+            evidence["provenance"]["runner"],
+            "scripts/run_cuda_regular_weighted_sample_benchmark.py",
+        )
         self.assertEqual(evidence["method"]["warmups"], 5)
         self.assertEqual(evidence["method"]["repetitions"], 30)
         self.assertEqual(evidence["method"]["openmp_threads_observed"], 8)

@@ -123,3 +123,18 @@ python3 scripts/run_cuda_regular_weighted_sample_benchmark.py \
 Without `nvcc` or a usable CUDA device, the default runner emits an explicit
 machine-readable successful skip. CUDA is not discovered or invoked by any
 default Make target.
+
+## Validation record
+
+- The focused CUDA/plan suite passed 38/38 tests.
+- Python byte-compilation and committed JSON parsing passed.
+- The native correctness and timing sweep passed at every recorded batch.
+- `make test` completed without invoking CUDA, and all 144 unaffected C++
+  tests passed; the established baseline-only uninitialized expected-vector
+  test remains unrelated.
+- The complete staged diff passed `git diff --check`.
+- The reviewer-supplied oversized batch `10248191152060862009` is rejected by
+  the Python runner before build and independently by the compiled C++ parser
+  before allocation (`batch size exceeds OpenMP loop range`). Checked
+  multiplication/addition protects buffer cardinalities, byte counts, grid
+  rounding, and the device-memory safety calculation.

@@ -26,6 +26,15 @@ LINALG_SOURCE = Path("src/linear_algebra/Linear_algebra.cpp")
 NO_CUDA_DEVICE_EXIT_CODE = 77
 DEFAULT_BATCH_SIZES = "1,16,256,4096,32768,131072,524288,1048576"
 OPENMP_HOST_FLAG = "-fopenmp"
+ROW_COMPONENTS_PER_BATCH = 3 * 7 * 3
+CONTROL_COMPONENTS_PER_BATCH = 12 * 3
+DEVICE_BYTES_PER_BATCH = 1584
+WEIGHT_BYTES = 3 * 7 * 12 * 8
+MAX_BATCH_SIZE = min(
+    sys.maxsize // (ROW_COMPONENTS_PER_BATCH * 8),
+    sys.maxsize // (CONTROL_COMPONENTS_PER_BATCH * 8),
+    (sys.maxsize - WEIGHT_BYTES) // DEVICE_BYTES_PER_BATCH,
+)
 
 
 def repo_root() -> Path:
@@ -69,6 +78,10 @@ def parse_batch_sizes(text: str) -> list[int]:
         raise argparse.ArgumentTypeError("batch sizes must be positive")
     if values != sorted(set(values)):
         raise argparse.ArgumentTypeError("batch sizes must be strictly increasing")
+    if values[-1] > MAX_BATCH_SIZE:
+        raise argparse.ArgumentTypeError(
+            f"batch size {values[-1]} exceeds checked maximum {MAX_BATCH_SIZE}"
+        )
     return values
 
 
