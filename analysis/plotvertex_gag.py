@@ -303,8 +303,14 @@ mesh.show()
 # In[27]:
 
 
-df_ef = pd.read_csv("EnergyForce.csv", index_col = False, header = None, skiprows = 1)
-df_ef.columns = ["E_curv", "E_area", "E_reg", "E_tot", "F_mean"]
+df_ef = pd.read_csv("EnergyForce.csv", index_col = False)
+df_ef = df_ef.rename(columns={
+    "E_Curvature": "E_curv",
+    "E_Area": "E_area",
+    "E_Regularization": "E_reg",
+    "E_Total ((pN.nm))": "E_tot",
+    "Mean Force (pN)": "F_mean",
+})
 df_ef
 
 
@@ -385,7 +391,6 @@ gags_r
 
 
 # In[ ]:
-
 
 
 

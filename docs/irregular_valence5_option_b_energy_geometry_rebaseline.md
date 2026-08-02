@@ -11,7 +11,8 @@ stand-in. It is observational evidence only. In particular:
 - `stock_semantics_scientifically_approved:false`;
 - `implementation_work_authorized:false`;
 - `production_route_enabled:false`;
-- `output_visible_evidence_complete:false`; and
+- `output_visible_evidence_complete:true` after the separately reviewed output
+  contract repair; and
 - `decision_ready:false`.
 
 The wrapper requires `OPENSUBDIV_ROOT`. It does not alter production or public
@@ -131,23 +132,24 @@ cross-platform policy therefore retains the reviewed vector as its center and
 uses fixed bounds of `3e-5`, `2e-6`, and `3e-7`, respectively. It does not add
 a WSL-specific vector or weaken candidate/oracle consistency or scientific
 stock/current parity. The exact dependency-present WSL proof passes this
-contract. The digest remains reporting-only. Output-visible evidence remains
-incomplete. The follow-on stock serial/OpenMP accumulation and fixed-thread
-repeatability evidence is complete under its separate proof-only lane.
+contract. The digest remains reporting-only. The follow-on stock serial/OpenMP
+accumulation and fixed-thread repeatability evidence is complete under its
+separate proof-only lane. The later output-contract repair also closes the
+output-visible evidence gap without changing this scientific comparison.
 
 ## Output Follow-up Boundary
 
-The follow-on output writer characterization now executes and parses the real
-global-energy, per-face-energy, and restart-checkpoint writers. It confirms
-that total vertex force and record energy round-trip exactly, but the current
-formats omit force families and face geometry, use insufficient default CSV
-precision, and expose a malformed per-face energy schema. Consequently,
-output-visible evidence remains incomplete and
-`output_visible_evidence_complete:false` remains binding even though the
-output characterization is complete. Output-contract repair is not authorized.
-The exact boundary is:
+PR #157's output writer characterization exposed incomplete CSV schemas,
+insufficient CSV precision, and missing checkpoint force/face state. The
+subsequently authorized repair writes every energy channel at 17-digit
+precision and introduces `SLIMED_RESTART_V2` for all current, previous, and
+NCG force families plus face normals, geometry, and energy. The loader remains
+compatible with V1. The real-writer proof now requires exact round-trip for all
+of those fields, so `output_visible_evidence_complete:true` is binding.
 
-`review and explicitly authorize an output-contract repair lane; Option B remains unselected`.
+The exact remaining boundary is:
+
+`scientific review and explicit Option B selection; production routing remains disabled`.
 
 Run the proof with:
 

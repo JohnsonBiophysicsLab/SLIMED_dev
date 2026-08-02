@@ -1,6 +1,7 @@
 #include "io/io.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <filesystem>
 #include <fstream>
@@ -16,7 +17,15 @@ constexpr int kFaceCount = 20;
 constexpr int kEnergyChannels = 10;
 constexpr int kGeometryChannels = 6;
 constexpr int kForceKinds = 3;
+constexpr int kCheckpointForceStates = 3;
+constexpr int kCheckpointForceTerms = 8;
 constexpr int kAxes = 3;
+
+constexpr const char *kCheckpointForceStateNames[kCheckpointForceStates] = {
+    "current", "previous", "ncg"};
+constexpr const char *kCheckpointForceTermNames[kCheckpointForceTerms] = {
+    "curvature", "area", "volume", "thickness", "tilt", "regularization",
+    "harmonic_bond", "total"};
 
 bool finite_value(const double value)
 {
@@ -75,6 +84,42 @@ double energy_delta(const Energy &left, const Energy &right)
     for (const auto &pair : values)
         maximum = std::max(maximum, std::abs(pair[0] - pair[1]));
     return maximum;
+}
+
+std::array<Matrix *, kCheckpointForceTerms> force_terms(Force &force)
+{
+    return {{
+        &force.forceCurvature,
+        &force.forceArea,
+        &force.forceVolume,
+        &force.forceThickness,
+        &force.forceTilt,
+        &force.forceRegularization,
+        &force.forceHarmonicBond,
+        &force.forceTotal,
+    }};
+}
+
+std::array<const Matrix *, kCheckpointForceTerms> force_terms(const Force &force)
+{
+    return {{
+        &force.forceCurvature,
+        &force.forceArea,
+        &force.forceVolume,
+        &force.forceThickness,
+        &force.forceTilt,
+        &force.forceRegularization,
+        &force.forceHarmonicBond,
+        &force.forceTotal,
+    }};
+}
+
+void seed_checkpoint_force(Force &force, const double base)
+{
+    const auto terms = force_terms(force);
+    for (int term = 0; term < kCheckpointForceTerms; ++term)
+        for (int axis = 0; axis < kAxes; ++axis)
+            terms[term]->set(axis, 0, base + 100.0 * term + axis + 1.0);
 }
 } // namespace
 
@@ -191,6 +236,15 @@ int main(int argc, char **argv)
     Record record(1);
     record.add(totalArea, mesh.param.energy, mesh.calculate_mean_force());
     Model model(mesh, record);
+    for (int vertex = 0; vertex < kVertexCount; ++vertex)
+    {
+        seed_checkpoint_force(model.mesh.vertices[vertex].force,
+                              10000.0 + 1000.0 * vertex);
+        seed_checkpoint_force(model.mesh.vertices[vertex].forcePrev,
+                              20000.0 + 1000.0 * vertex);
+        seed_checkpoint_force(model.ncgDirection0[vertex],
+                              30000.0 + 1000.0 * vertex);
+    }
 
     const bool energyWriterPassed =
         write_energy_force_data_to_csv(model, argv[2]);
@@ -226,7 +280,7 @@ int main(int argc, char **argv)
             ? energy_delta(record.energyVec[0], restartRecord.energyVec[0])
             : -1.0;
 
-    double forceFamilyMaximum[kForceKinds] = {0.0, 0.0, 0.0};
+    double forceStateMaximum[kCheckpointForceStates][kCheckpointForceTerms] = {};
     double faceNormalMaximum = 0.0;
     double faceMeanCurvatureMaximum = 0.0;
     double faceAreaMaximum = 0.0;
@@ -236,24 +290,32 @@ int main(int argc, char **argv)
     {
         for (int vertex = 0; vertex < kVertexCount; ++vertex)
         {
-            const Force &before = mesh.vertices[vertex].force;
-            const Force &after = restartMesh.vertices[vertex].force;
-            const Matrix *beforeKinds[] = {
-                &before.forceCurvature, &before.forceArea, &before.forceVolume};
-            const Matrix *afterKinds[] = {
-                &after.forceCurvature, &after.forceArea, &after.forceVolume};
-            for (int kind = 0; kind < kForceKinds; ++kind)
-                for (int axis = 0; axis < kAxes; ++axis)
-                    forceFamilyMaximum[kind] = std::max(
-                        forceFamilyMaximum[kind],
-                        std::abs(beforeKinds[kind]->get(axis, 0) -
-                                 afterKinds[kind]->get(axis, 0)));
+            const Force *beforeStates[kCheckpointForceStates] = {
+                &mesh.vertices[vertex].force,
+                &mesh.vertices[vertex].forcePrev,
+                &model.ncgDirection0[vertex],
+            };
+            const Force *afterStates[kCheckpointForceStates] = {
+                &restartMesh.vertices[vertex].force,
+                &restartMesh.vertices[vertex].forcePrev,
+                &restartModel.ncgDirection0[vertex],
+            };
+            for (int state = 0; state < kCheckpointForceStates; ++state)
+            {
+                const auto beforeTerms = force_terms(*beforeStates[state]);
+                const auto afterTerms = force_terms(*afterStates[state]);
+                for (int term = 0; term < kCheckpointForceTerms; ++term)
+                    for (int axis = 0; axis < kAxes; ++axis)
+                        forceStateMaximum[state][term] = std::max(
+                            forceStateMaximum[state][term],
+                            std::abs(beforeTerms[term]->get(axis, 0) -
+                                     afterTerms[term]->get(axis, 0)));
+            }
         }
         for (int face = 0; face < kFaceCount; ++face)
         {
             const Face &before = mesh.faces[face];
-            Face &after = restartMesh.faces[face];
-            after.normVector = mat_calloc(kAxes, 1);
+            const Face &after = restartMesh.faces[face];
             for (int axis = 0; axis < kAxes; ++axis)
                 faceNormalMaximum = std::max(
                     faceNormalMaximum,
@@ -273,9 +335,17 @@ int main(int argc, char **argv)
         }
     }
 
+    bool forceStatesPassed = true;
+    for (const auto &state : forceStateMaximum)
+        for (const double difference : state)
+            forceStatesPassed = forceStatesPassed && difference == 0.0;
+    const bool faceStatePassed = faceNormalMaximum == 0.0 &&
+        faceMeanCurvatureMaximum == 0.0 && faceAreaMaximum == 0.0 &&
+        faceLegacyVolumeMaximum == 0.0 && faceEnergyMaximum == 0.0;
     const bool passed = energyWriterPassed && faceFileExists &&
         checkpointWriterPassed && checkpointLoadPassed &&
-        forceRoundtripMaximum == 0.0 && recordEnergyMaximum == 0.0;
+        forceRoundtripMaximum == 0.0 && recordEnergyMaximum == 0.0 &&
+        forceStatesPassed && faceStatePassed;
     std::cout << std::setprecision(17) << '{'
               << "\"status\":\"" << (passed ? "passed" : "failed") << "\","
               << "\"proof_only\":true,"
@@ -291,20 +361,18 @@ int main(int argc, char **argv)
               << "\"checkpoint_total_force_roundtrip_max_abs_difference\":"
               << forceRoundtripMaximum << ','
               << "\"checkpoint_record_energy_roundtrip_max_abs_difference\":"
-              << recordEnergyMaximum << ','
-              << "\"checkpoint_curvature_force_preserved\":"
-              << (forceFamilyMaximum[0] == 0.0 ? "true" : "false") << ','
-              << "\"checkpoint_curvature_force_max_abs_difference\":"
-              << forceFamilyMaximum[0] << ','
-              << "\"checkpoint_area_force_preserved\":"
-              << (forceFamilyMaximum[1] == 0.0 ? "true" : "false") << ','
-              << "\"checkpoint_area_force_max_abs_difference\":"
-              << forceFamilyMaximum[1] << ','
-              << "\"checkpoint_volume_force_preserved\":"
-              << (forceFamilyMaximum[2] == 0.0 ? "true" : "false") << ','
-              << "\"checkpoint_volume_force_max_abs_difference\":"
-              << forceFamilyMaximum[2] << ','
-              << "\"checkpoint_face_normals_preserved\":"
+              << recordEnergyMaximum << ',';
+    for (int state = 0; state < kCheckpointForceStates; ++state)
+        for (int term = 0; term < kCheckpointForceTerms; ++term)
+            std::cout << "\"checkpoint_" << kCheckpointForceStateNames[state]
+                      << '_' << kCheckpointForceTermNames[term]
+                      << "_force_preserved\":"
+                      << (forceStateMaximum[state][term] == 0.0 ? "true" : "false")
+                      << ",\"checkpoint_" << kCheckpointForceStateNames[state]
+                      << '_' << kCheckpointForceTermNames[term]
+                      << "_force_max_abs_difference\":"
+                      << forceStateMaximum[state][term] << ',';
+    std::cout << "\"checkpoint_face_normals_preserved\":"
               << (faceNormalMaximum == 0.0 ? "true" : "false") << ','
               << "\"checkpoint_face_normals_max_abs_difference\":"
               << faceNormalMaximum << ','

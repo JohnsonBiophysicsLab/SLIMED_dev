@@ -183,9 +183,8 @@ bool should_write_restart_checkpoint(const Param &param, const int nextIteration
 /**
  * @brief Writes the energy force data to a CSV file.
  *
- * This function writes the energy and force data for each iteration in the following format:
- * 
- * "E_Curvature, E_Area, E_Regularization, E_Total ((pN.nm)), Mean Force (pN)"
+ * Each row contains all ten Energy channels followed by mean force. Numeric
+ * values use round-trip-safe double precision.
  * 
  * @note File name is left in definition in case customization is needed.
  *
@@ -198,34 +197,33 @@ bool write_energy_force_data_to_csv(const Model &model, const std::string &filep
 /**
  * @brief Write a restart checkpoint for a minimization model.
  *
- * The checkpoint stores the iteration to run next, optimization state, mesh
- * coordinates, scaffold state, and record history needed to continue a Slurm
- * job after a walltime stop.
+ * V2 checkpoints store the iteration to run next, optimization state, mesh
+ * coordinates, every current/previous/NCG force family, face observables and
+ * energies, scaffold state, and record history needed to continue a Slurm job
+ * after a walltime stop.
  */
 bool write_model_restart_checkpoint(const Model &model,
                                     const std::string &filepath,
                                     const int nextIteration);
 
 /**
- * @brief Load a restart checkpoint into an initialized minimization model.
+ * @brief Load a V1 or V2 restart checkpoint into an initialized model.
  */
 bool load_model_restart_checkpoint(Model &model, const std::string &filepath);
 
 /**
  * @brief Writes the current iteration element face energy data to a CSV file.
  *
- * This function writes the energy data for each element face of
- *  the current iteration in the following format:
- *
- * "E_Curvature, E_Area, E_Regularization, E_Total"
- *
- * @note @note File name is left in definition in case customization is needed.
+ * Each row contains the face index and all ten Energy channels with a header
+ * of matching width and round-trip-safe double precision.
  *
  * @param model The model that cotains a mesh whose vertex data should be written to a CSV file.
  *
  * 
  */
 void write_element_face_energy_to_csv(const Model &model);
+bool write_element_face_energy_to_csv(const Model &model,
+                                      const std::string &filepath);
 
 /**
  * @brief Writes the last vertex data for the mesh to a CSV file.

@@ -122,15 +122,17 @@ class OpenSubdivRoutingReadinessInventoryTest(unittest.TestCase):
         self.assertIn(
             "Option B remains unselected after assessment", anchor_names
         )
-        self.assertIn("Option B pending re-baselining channels", anchor_names)
+        self.assertIn("Option B output evidence completed", anchor_names)
         self.assertIn(
             "Option B energy/geometry characterization completed", anchor_names
         )
         self.assertIn("Option B observable changes measured", anchor_names)
         self.assertIn(
-            "Option B output writer characterization completed", anchor_names
+            "Option B output contract repair completed", anchor_names
         )
-        self.assertIn("Option B output repair remains gated", anchor_names)
+        self.assertIn(
+            "Option B selection remains gated after output repair", anchor_names
+        )
         self.assertIn(
             "Option B stock serial/OpenMP evidence completed", anchor_names
         )
