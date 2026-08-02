@@ -421,8 +421,11 @@ real OpenMP replay at 1, 2, and 4 threads across five repeats has a maximum
 serial/OpenMP accumulation difference of `2.2737367544323206e-13` under the
 fixed `1e-10` policy, fixed-thread repeatability remains within `1e-10`, face
 publication is exact, and independently recomputed aggregate-force drift is
-`0.0`. The next boundary is scientific review and explicit Option B selection;
-production valence-5 routing remains disabled.
+`0.0`. The lightweight scientific decision packet now consolidates the merged
+evidence as `evidence_complete:true` and `decision_ready_for_user:true`, while
+keeping `decision_recorded:false`. The next boundary is scientific review and
+an explicit accept, reject, or defer decision for Option B; production
+valence-5 routing remains disabled and the current fallback remains preserved.
 
 ## Inventory Check
 

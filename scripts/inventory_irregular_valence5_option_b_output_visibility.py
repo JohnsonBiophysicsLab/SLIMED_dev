@@ -24,6 +24,19 @@ SERIAL_DOC = Path("docs/irregular_valence5_option_b_serial_openmp_evidence.md")
 READINESS = Path("docs/opensubdiv_routing_readiness_map.md")
 GLOBAL = Path("scripts/inventory_opensubdiv_routing_readiness.py")
 GLOBAL_TEST = Path("tests/test_opensubdiv_routing_readiness_inventory.py")
+DECISION_RUNNER = Path(
+    "scripts/run_irregular_valence5_option_b_scientific_decision.py"
+)
+DECISION_WRAPPER = Path(
+    "scripts/run_irregular_valence5_option_b_scientific_decision.sh"
+)
+DECISION_INVENTORY = Path(
+    "scripts/inventory_irregular_valence5_option_b_scientific_decision.py"
+)
+DECISION_DOC = Path("docs/irregular_valence5_option_b_scientific_decision.md")
+DECISION_TEST = Path(
+    "tests/test_irregular_valence5_option_b_scientific_decision_inventory.py"
+)
 ANALYSIS_CONSUMERS = (
     Path("analysis/plotvertex.py"),
     Path("analysis/plotvertex_gag.py"),
@@ -33,9 +46,11 @@ ANALYSIS_CONSUMERS = (
 ALLOWED_PATHS = {
     RUNNER, WRAPPER, HARNESS, DOC, TEST, SELF, OUTPUT, IO_HEADER, IO_TEST,
     ENERGY_DOC, SERIAL_DOC, READINESS, GLOBAL, GLOBAL_TEST,
+    DECISION_RUNNER, DECISION_WRAPPER, DECISION_INVENTORY, DECISION_DOC,
+    DECISION_TEST,
     *ANALYSIS_CONSUMERS,
 }
-REQUIRED_CHANGED_PATHS = ALLOWED_PATHS - {WRAPPER}
+REQUIRED_CHANGED_PATHS = ALLOWED_PATHS - {WRAPPER, DECISION_WRAPPER}
 PROTECTED_PREFIXES = (
     "include/", "src/", "EXEs/", "Makefile", ".github/", "data/fixtures/",
     "scripts/verify_pr_ready.sh",
@@ -108,7 +123,9 @@ ANCHORS = {
     ),
     READINESS: (
         "authorized output-contract repair is complete",
-        "next boundary is scientific review and explicit Option B selection",
+        "`evidence_complete:true` and `decision_ready_for_user:true`",
+        "explicit accept, reject, or defer decision for Option B",
+        "production valence-5 routing remains disabled",
     ),
     GLOBAL: (
         "Option B output contract repair completed",
@@ -117,6 +134,24 @@ ANCHORS = {
     GLOBAL_TEST: (
         "Option B output contract repair completed",
         "Option B selection remains gated after output repair",
+        "Option B evidence is decision ready",
+        "Option B decision remains unrecorded",
+        "Option B explicit three-way decision",
+    ),
+    DECISION_RUNNER: (
+        '"proof_kind": "valence5_option_b_scientific_decision_packet"',
+        '"decision_ready_for_user": True',
+        '"decision_recorded": False',
+        '"production_route_enabled": production_route_enabled',
+    ),
+    DECISION_DOC: (
+        "evidence program is complete",
+        "does not select or recommend Option B",
+        "explicitly accept, reject, or defer Option B",
+    ),
+    DECISION_TEST: (
+        "test_canonical_packet_is_decision_ready_but_authorizes_nothing",
+        "test_selection_approval_implementation_and_route_false_greens_fail",
     ),
     **{
         path: (
@@ -149,12 +184,13 @@ def repo_root() -> Path:
 
 
 def changed_paths(root: Path) -> tuple[list[str], str | None]:
+    safe = f"safe.directory={root}"
     result = subprocess.run(
-        ["git", "diff", "--name-only", BASE], cwd=root, check=False,
+        ["git", "-c", safe, "diff", "--name-only", BASE], cwd=root, check=False,
         text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
     )
     untracked = subprocess.run(
-        ["git", "ls-files", "--others", "--exclude-standard"], cwd=root,
+        ["git", "-c", safe, "ls-files", "--others", "--exclude-standard"], cwd=root,
         check=False, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
     )
     if result.returncode or untracked.returncode:
@@ -185,7 +221,8 @@ def collect(root: Path) -> dict[str, object]:
     errors.extend(f"contains forbidden claim {item}" for item in forbidden)
 
     mode_result = subprocess.run(
-        ["git", "ls-files", "--stage", str(WRAPPER)], cwd=root, check=False,
+        ["git", "-c", f"safe.directory={root}", "ls-files", "--stage", str(WRAPPER)],
+        cwd=root, check=False,
         text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
     )
     wrapper_mode = (
