@@ -10,6 +10,18 @@ import subprocess
 
 
 BASE = "a9d63e10903aa6a7308acef14bdfe037b43c6ec5"
+PHASE1_MAKEFILE_BASE = "0b2b6dd425cb47e703c02dce0d32f89e23721b0d"
+PHASE1_MAKEFILE_BLOCK = """USE_OPENSUBDIV_VALENCE5 ?= 0
+ifeq ($(USE_OPENSUBDIV_VALENCE5),1)
+\tifeq ($(OPENSUBDIV_ROOT),)
+\t\t$(error "USE_OPENSUBDIV_VALENCE5=1 requires OPENSUBDIV_ROOT=/path/to/opensubdiv")
+\tendif
+\tDEFS += -DUSE_OPENSUBDIV_VALENCE5
+\tINCS += -I$(OPENSUBDIV_ROOT)/include
+\tLIBS += -L$(OPENSUBDIV_ROOT)/lib -L$(OPENSUBDIV_ROOT)/lib64 -Wl,-rpath,$(OPENSUBDIV_ROOT)/lib -Wl,-rpath,$(OPENSUBDIV_ROOT)/lib64 -losdCPU
+endif
+
+"""
 SCIENTIFIC_FORCE_ALGEBRA_SUCCESSOR_PATHS = {
     Path("include/mesh/Mesh.hpp"),
     Path("src/energy_force/Compute_energy_and_force_on_mesh.cpp"),
@@ -154,6 +166,24 @@ def changed_paths(root: Path) -> tuple[list[str], str | None]:
     return sorted({line for line in outputs if line}), None
 
 
+def phase1_makefile_change_is_exact_and_guarded(root: Path) -> bool:
+    current = (root / "Makefile").read_text(encoding="utf-8")
+    if current.count(PHASE1_MAKEFILE_BLOCK) != 1:
+        return False
+    baseline = subprocess.run(
+        [
+            "git", "-c", f"safe.directory={root}", "show",
+            f"{PHASE1_MAKEFILE_BASE}:Makefile",
+        ],
+        cwd=root, check=False, text=True,
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+    )
+    return (
+        baseline.returncode == 0
+        and current.replace(PHASE1_MAKEFILE_BLOCK, "") == baseline.stdout
+    )
+
+
 def collect(root: Path) -> dict[str, object]:
     errors: list[str] = []
     located = 0
@@ -184,7 +214,6 @@ def collect(root: Path) -> dict[str, object]:
         errors.append("unexpected changed paths: " + ", ".join(unexpected))
 
     forbidden = {
-        "Makefile",
         "scripts/verify_pr_ready.sh",
         "include/mesh/Mesh.hpp",
         "include/mesh/Face.hpp",
@@ -198,6 +227,8 @@ def collect(root: Path) -> dict[str, object]:
         or path.endswith("/faces.csv")
         for path in paths
     )
+    if "Makefile" in paths and not phase1_makefile_change_is_exact_and_guarded(root):
+        production_changed = True
     if production_changed:
         errors.append("production/default/fixture surfaces changed")
 

@@ -44,7 +44,10 @@ class ValenceFourTopologySourceRepresentationInventoryTest(
         report = load_inventory_module().collect(ROOT)
         self.assertFalse(report["fixture_csvs_changed"])
         changed = set(report["changed_paths"])
-        self.assertNotIn("Makefile", changed)
+        self.assertIn("Makefile", changed)
+        self.assertTrue(
+            load_inventory_module().phase1_makefile_change_is_exact_and_guarded(ROOT)
+        )
         self.assertNotIn("scripts/verify_pr_ready.sh", changed)
         self.assertNotIn("include/mesh/Mesh.hpp", changed)
         self.assertNotIn("include/mesh/Face.hpp", changed)

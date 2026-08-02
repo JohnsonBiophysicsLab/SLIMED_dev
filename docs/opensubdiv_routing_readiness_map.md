@@ -52,7 +52,7 @@ regular route through separately reviewed production changes.
 | Route | Current production status | OpenSubdiv evidence status | Readiness result |
 | --- | --- | --- | --- |
 | Regular 12-control membrane force | Supported through the direct evaluator by default. OpenSubdiv-enabled binaries may route supported non-boundary, non-ghost regular faces only when runtime opt-in is explicit. | The guarded double-row route passes regular row, production-call force/scatter, geometry, output-visible, and serial/OpenMP executable parity under the current tolerance. | Guarded regular route active; preserve parity gates and direct fallback. |
-| Positive-depth `11 = 4+3+4` membrane force | Supported narrowly through dependency-free subdivision matrices and child-force back-projection. | OpenSubdiv diagnostics bind the force residual, mask-causality boundary, and absence of a public custom-scheme seam. The architecture decision records four ordered options without selecting one; the Option D observational survey is complete with no viable candidate in its reviewed finite non-exhaustive set. | Preserve the current SLIMED route; B and C remain behind explicit user decision and approval gates. |
+| Positive-depth `11 = 4+3+4` membrane force | The current fallback remains active through dependency-free subdivision matrices and child-force back-projection. | The Option D observational survey is complete. Option B stock semantics are accepted, and the Phase 1 guarded stock row provider now returns reviewed whole-Ptex double rows without a production caller or mutation. | Phase 2 remains unapproved; preserve the current SLIMED fallback and require separate reviewer/user gates for integration, re-baselining, and activation. |
 | Zero-depth 11-control and unsupported irregular topologies | Guarded unsupported cases. | No production approval. | Must continue to fail loudly or use only reviewed diagnostics. |
 | Broader extraordinary valence | Only the explicitly gated canonical valence-4 octahedron is production routed. Every other extraordinary topology remains unsupported by OpenSubdiv production routing. | For the approved valence-5 icosahedron, aggregate Ptex derivative coverage and the proof-only per-face source-order and weighted-transpose contract now passes against the canonical production `20 x 11` one-ring order and duplicate scatter boundary. | Actual valence-5 bending/area/volume force parity remains unproven. Broader-valence production routing remains unsupported. |
 
@@ -433,6 +433,14 @@ the scientific re-baselining and production-routing plans are authorized, but
 implementation and production routing remain disabled. The current SLIMED
 fallback remains active until a separate guarded implementation and activation
 change receives dedicated reviewer PASS and explicit user approval.
+
+The Phase 1 guarded stock row provider is implemented behind the independent
+`USE_OPENSUBDIV_VALENCE5` build flag. Its deterministic harness binds the exact
+`20 x 3 x 7 x 9` source-keyed double-row package to the accepted source-order
+proof with maximum absolute difference `6.568566814357801e-7` under `5e-6`.
+It rejects altered topology, preserves production one-rings, and executes no
+production face loop, force path, mesh mutation, or route. Phase 2 remains
+unapproved and requires a separate reviewed PR and explicit user approval.
 
 ## Inventory Check
 
