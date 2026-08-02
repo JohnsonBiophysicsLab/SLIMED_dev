@@ -20,6 +20,26 @@ DECISION = "accept"
 DECISION_DATE = "2026-08-02"
 DECISION_SOURCE = "explicit_user_instruction"
 DECISION_TEXT = "Accept Option B."
+CANONICAL_IMPLEMENTATION_PLAN = (
+    {
+        "phase": 1,
+        "name": "guarded_stock_valence5_row_provider",
+        "authorization": "requires_separate_implementation_approval",
+        "production_mutation": False,
+    },
+    {
+        "phase": 2,
+        "name": "guarded_face_loop_integration_and_rebaseline",
+        "authorization": "requires_separate_reviewed_pr",
+        "production_mutation": True,
+    },
+    {
+        "phase": 3,
+        "name": "explicit_route_activation",
+        "authorization": "requires_separate_reviewer_and_user_approval",
+        "production_mutation": True,
+    },
+)
 
 
 def _load_predecessor():
@@ -75,6 +95,9 @@ def evaluate(
     predecessor_report: dict[str, object] | None = None,
     predecessor_sha256: str | None = None,
     decision: str = DECISION,
+    decision_date: str = DECISION_DATE,
+    decision_source: str = DECISION_SOURCE,
+    decision_text: str = DECISION_TEXT,
     decision_recorded: bool = True,
     option_b_selected: bool = True,
     option_b_recommended: bool = False,
@@ -83,6 +106,7 @@ def evaluate(
     production_routing_plan_authorized: bool = True,
     implementation_authorized: bool = False,
     production_route_enabled: bool = False,
+    implementation_plan: list[dict[str, object]] | None = None,
 ) -> dict[str, object]:
     predecessor_report = (
         predecessor_report if predecessor_report is not None else _predecessor_report()
@@ -92,9 +116,20 @@ def evaluate(
         if predecessor_sha256 is not None
         else hashlib.sha256(PREDECESSOR.read_bytes()).hexdigest()
     )
+    implementation_plan = (
+        implementation_plan
+        if implementation_plan is not None
+        else deepcopy(list(CANONICAL_IMPLEMENTATION_PLAN))
+    )
     errors = _validate_predecessor(predecessor_report, predecessor_sha256)
     if decision != DECISION:
         errors.append("the recorded user decision must remain accept")
+    if decision_date != DECISION_DATE:
+        errors.append("the recorded user decision date must remain exact")
+    if decision_source != DECISION_SOURCE:
+        errors.append("the recorded decision must remain an explicit user instruction")
+    if decision_text != DECISION_TEXT:
+        errors.append("the recorded user decision text must remain exact")
     if not decision_recorded:
         errors.append("the explicit Option B decision must remain recorded")
     if not option_b_selected:
@@ -111,6 +146,8 @@ def evaluate(
         errors.append("this selection record cannot authorize implementation")
     if production_route_enabled:
         errors.append("this selection record cannot enable production routing")
+    if implementation_plan != list(CANONICAL_IMPLEMENTATION_PLAN):
+        errors.append("the separately gated three-phase implementation plan drifted")
 
     return {
         "status": "passed" if not errors else "failed",
@@ -119,9 +156,9 @@ def evaluate(
         "predecessor_merge_commit": PREDECESSOR_MERGE_COMMIT,
         "predecessor_source_sha256": predecessor_sha256,
         "decision": decision,
-        "decision_date": DECISION_DATE,
-        "decision_source": DECISION_SOURCE,
-        "decision_text": DECISION_TEXT,
+        "decision_date": decision_date,
+        "decision_source": decision_source,
+        "decision_text": decision_text,
         "decision_recorded": decision_recorded,
         "option_b_selected": option_b_selected,
         "option_b_recommended": option_b_recommended,
@@ -142,26 +179,7 @@ def evaluate(
         "accepted_scientific_changes": deepcopy(
             predecessor_report.get("measured_changes")
         ),
-        "implementation_plan": [
-            {
-                "phase": 1,
-                "name": "guarded_stock_valence5_row_provider",
-                "authorization": "requires_separate_implementation_approval",
-                "production_mutation": False,
-            },
-            {
-                "phase": 2,
-                "name": "guarded_face_loop_integration_and_rebaseline",
-                "authorization": "requires_separate_reviewed_pr",
-                "production_mutation": True,
-            },
-            {
-                "phase": 3,
-                "name": "explicit_route_activation",
-                "authorization": "requires_separate_reviewer_and_user_approval",
-                "production_mutation": True,
-            },
-        ],
+        "implementation_plan": implementation_plan,
         "remaining_boundary": (
             "review and merge this selection record, then explicitly authorize "
             "the first guarded implementation PR; production routing remains disabled"

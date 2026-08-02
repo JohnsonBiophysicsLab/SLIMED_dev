@@ -29,6 +29,9 @@ class OptionBSelectionRecordTest(unittest.TestCase):
         report = self.runner.evaluate()
         self.assertEqual(report["status"], "passed")
         self.assertEqual(report["decision"], "accept")
+        self.assertEqual(report["decision_date"], "2026-08-02")
+        self.assertEqual(report["decision_source"], "explicit_user_instruction")
+        self.assertEqual(report["decision_text"], "Accept Option B.")
         self.assertTrue(report["decision_recorded"])
         self.assertTrue(report["option_b_selected"])
         self.assertFalse(report["option_b_recommended"])
@@ -72,6 +75,18 @@ class OptionBSelectionRecordTest(unittest.TestCase):
                 self.assertEqual(self.runner.evaluate(**{key: False})["status"], "failed")
         self.assertEqual(self.runner.evaluate(decision="defer")["status"], "failed")
 
+    def test_explicit_user_decision_provenance_is_binding(self):
+        mutations = {
+            "decision_date": "2026-08-03",
+            "decision_source": "inferred_from_context",
+            "decision_text": "Proceed.",
+        }
+        for key, value in mutations.items():
+            with self.subTest(key=key):
+                self.assertEqual(
+                    self.runner.evaluate(**{key: value})["status"], "failed"
+                )
+
     def test_recommendation_implementation_and_route_false_greens_fail(self):
         for key in (
             "option_b_recommended",
@@ -83,10 +98,22 @@ class OptionBSelectionRecordTest(unittest.TestCase):
 
     def test_plan_has_three_separately_gated_phases(self):
         phases = self.runner.evaluate()["implementation_plan"]
-        self.assertEqual([phase["phase"] for phase in phases], [1, 2, 3])
-        self.assertFalse(phases[0]["production_mutation"])
-        self.assertTrue(phases[1]["production_mutation"])
-        self.assertIn("user_approval", phases[2]["authorization"])
+        self.assertEqual(phases, list(self.runner.CANONICAL_IMPLEMENTATION_PLAN))
+
+        for phase_index, phase in enumerate(self.runner.CANONICAL_IMPLEMENTATION_PLAN):
+            for field, value in phase.items():
+                mutated = copy.deepcopy(list(self.runner.CANONICAL_IMPLEMENTATION_PLAN))
+                if isinstance(value, bool):
+                    mutated[phase_index][field] = not value
+                elif isinstance(value, int):
+                    mutated[phase_index][field] = value + 10
+                else:
+                    mutated[phase_index][field] = "authorized_now"
+                with self.subTest(phase=phase_index + 1, field=field):
+                    self.assertEqual(
+                        self.runner.evaluate(implementation_plan=mutated)["status"],
+                        "failed",
+                    )
 
     def test_wrapper_executable_mode_is_inventory_bound(self):
         inventory = load(INVENTORY, "option_b_selection_record_inventory")
