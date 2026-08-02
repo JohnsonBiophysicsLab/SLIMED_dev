@@ -134,13 +134,19 @@ stock/current parity. The exact dependency-present WSL proof passes this
 contract. The digest remains reporting-only. Output-visible and stock
 serial/OpenMP evidence remain pending.
 
-## Remaining Boundary
+## Output Follow-up Boundary
 
-No output writer is executed or parsed, therefore
-`output_visible_evidence_complete:false` and output evidence remains pending.
-Stock serial/OpenMP evidence also remains pending. The exact boundary is:
+The follow-on output writer characterization now executes and parses the real
+global-energy, per-face-energy, and restart-checkpoint writers. It confirms
+that total vertex force and record energy round-trip exactly, but the current
+formats omit force families and face geometry, use insufficient default CSV
+precision, and expose a malformed per-face energy schema. Consequently,
+output-visible evidence remains incomplete and
+`output_visible_evidence_complete:false` remains binding even though the
+output characterization is complete. Output-contract repair is not authorized,
+and stock serial/OpenMP evidence remains pending. The exact boundary is:
 
-`scientific review of measured stock energy and geometry changes; Option B remains unselected and output evidence remains pending`.
+`review and explicitly authorize an output-contract repair lane; Option B remains unselected and stock serial/OpenMP evidence remains pending`.
 
 Run the proof with:
 

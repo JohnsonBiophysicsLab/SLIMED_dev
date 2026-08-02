@@ -409,10 +409,15 @@ area and volume constraint energies are global additions.
 
 Option B remains unselected, unrecommended, scientifically unapproved,
 unimplemented, and unrouted. This evidence makes no sole-mask causal claim.
-No output writer was executed or parsed, so output-visible evidence remains
-pending together with stock-semantics serial/OpenMP accumulation evidence.
-The next boundary is scientific review of these measured changes, not route
-activation.
+The follow-on output writer characterization is complete: the production
+global-energy, per-face-energy, and checkpoint writers execute and parse, and
+checkpoint total force plus record energy round-trip exactly. Output-visible
+evidence remains incomplete because the global CSV omits channels and loses
+precision, the face CSV declares five columns but emits four, force families
+and face geometry are not serialized, and output-contract repair remains
+unauthorized. Stock-semantics serial/OpenMP accumulation evidence remains
+pending. The next boundary is explicit review of an output-contract repair
+lane, not route activation.
 
 ## Inventory Check
 
