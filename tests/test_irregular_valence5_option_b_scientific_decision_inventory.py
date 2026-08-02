@@ -7,10 +7,11 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 RUNNER = ROOT / "scripts/run_irregular_valence5_option_b_scientific_decision.py"
+INVENTORY = ROOT / "scripts/inventory_irregular_valence5_option_b_scientific_decision.py"
 
 
-def load():
-    spec = importlib.util.spec_from_file_location("option_b_scientific_decision", RUNNER)
+def load(path: Path, name: str):
+    spec = importlib.util.spec_from_file_location(name, path)
     if spec is None or spec.loader is None:
         raise RuntimeError("cannot load decision runner")
     module = importlib.util.module_from_spec(spec)
@@ -22,7 +23,7 @@ def load():
 class OptionBScientificDecisionTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.runner = load()
+        cls.runner = load(RUNNER, "option_b_scientific_decision")
 
     def test_canonical_packet_is_decision_ready_but_authorizes_nothing(self):
         report = self.runner.evaluate()
@@ -31,6 +32,7 @@ class OptionBScientificDecisionTest(unittest.TestCase):
         self.assertTrue(report["decision_ready_for_user"])
         self.assertFalse(report["decision_recorded"])
         self.assertFalse(report["option_b_selected"])
+        self.assertFalse(report["option_b_recommended"])
         self.assertFalse(report["scientific_approval_granted"])
         self.assertFalse(report["implementation_authorized"])
         self.assertFalse(report["production_route_enabled"])
@@ -56,12 +58,19 @@ class OptionBScientificDecisionTest(unittest.TestCase):
     def test_selection_approval_implementation_and_route_false_greens_fail(self):
         for key in (
             "option_b_selected",
+            "option_b_recommended",
             "scientific_approval_granted",
             "implementation_authorized",
             "production_route_enabled",
         ):
             with self.subTest(key=key):
                 self.assertEqual(self.runner.evaluate(**{key: True})["status"], "failed")
+
+    def test_wrapper_executable_mode_is_inventory_bound(self):
+        inventory = load(INVENTORY, "option_b_scientific_decision_inventory")
+        report = inventory.collect(ROOT)
+        self.assertEqual(report["status"], "passed", report["errors"])
+        self.assertEqual(report["wrapper_git_mode"], "100755")
 
     def test_decision_responses_keep_defer_and_reject_on_current_fallback(self):
         report = self.runner.evaluate()

@@ -10,6 +10,7 @@ The machine-readable gate reports:
 - `decision_ready_for_user:true`
 - `decision_recorded:false`
 - `option_b_selected:false`
+- `option_b_recommended:false`
 - `scientific_approval_granted:false`
 - `implementation_authorized:false`
 - `production_route_enabled:false`

@@ -32,10 +32,12 @@ ANCHORS = {
         '"decision_ready_for_user": True',
         '"decision_recorded": False',
         '"option_b_selected": option_b_selected',
+        '"option_b_recommended": option_b_recommended',
         '"scientific_approval_granted": scientific_approval_granted',
         '"current_slimed_valence5_fallback_preserved": True',
         '"numerical_consistency_is_scientific_acceptance": False',
         "this packet cannot enable production routing",
+        "this packet cannot recommend Option B",
     ),
     WRAPPER: ("run_irregular_valence5_option_b_scientific_decision.py", '"$@"'),
     DOC: (
@@ -51,6 +53,7 @@ ANCHORS = {
         "test_canonical_packet_is_decision_ready_but_authorizes_nothing",
         "test_evidence_identity_measurements_and_source_digests_are_binding",
         "test_selection_approval_implementation_and_route_false_greens_fail",
+        "test_wrapper_executable_mode_is_inventory_bound",
     ),
     READINESS: (
         "`evidence_complete:true` and `decision_ready_for_user:true`",
@@ -76,8 +79,12 @@ ANCHORS = {
     ),
 }
 FORBIDDEN = {
+    RUNNER: (
+        '"option_b_recommended": True',
+    ),
     DOC: (
         "Option B is selected",
+        "Option B is recommended",
         "Option B is scientifically approved",
         "production routing is enabled",
     )
@@ -124,6 +131,23 @@ def collect(root: Path) -> dict[str, object]:
         for needle in needles:
             if needle in source:
                 errors.append(f"{relative} contains forbidden {needle!r}")
+    mode_result = subprocess.run(
+        [
+            "git", "-c", f"safe.directory={root}", "ls-files", "--stage",
+            str(WRAPPER),
+        ],
+        cwd=root, check=False, text=True,
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+    )
+    wrapper_mode = (
+        mode_result.stdout.split(maxsplit=1)[0]
+        if mode_result.returncode == 0 and mode_result.stdout.strip()
+        else None
+    )
+    if wrapper_mode != "100755":
+        errors.append(
+            f"{WRAPPER} must be executable in Git (mode 100755, got {wrapper_mode})"
+        )
     changed, path_error = changed_paths(root)
     if path_error:
         errors.append(path_error)
@@ -139,6 +163,7 @@ def collect(root: Path) -> dict[str, object]:
         "located_anchors": located,
         "expected_anchors": expected,
         "changed_paths": changed,
+        "wrapper_git_mode": wrapper_mode,
         "errors": errors,
     }
 

@@ -142,6 +142,7 @@ ANCHORS = {
         '"proof_kind": "valence5_option_b_scientific_decision_packet"',
         '"decision_ready_for_user": True',
         '"decision_recorded": False',
+        '"option_b_recommended": option_b_recommended',
         '"production_route_enabled": production_route_enabled',
     ),
     DECISION_DOC: (

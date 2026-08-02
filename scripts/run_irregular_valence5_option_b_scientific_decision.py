@@ -90,6 +90,7 @@ def evaluate(
     measured_changes: dict[str, object] | None = None,
     source_digests: dict[str, str] | None = None,
     option_b_selected: bool = False,
+    option_b_recommended: bool = False,
     scientific_approval_granted: bool = False,
     implementation_authorized: bool = False,
     production_route_enabled: bool = False,
@@ -111,6 +112,8 @@ def evaluate(
         errors.append("merged Option B evidence source digest drift")
     if option_b_selected:
         errors.append("this packet cannot select Option B")
+    if option_b_recommended:
+        errors.append("this packet cannot recommend Option B")
     if scientific_approval_granted:
         errors.append("this packet cannot grant scientific approval")
     if implementation_authorized:
@@ -128,6 +131,7 @@ def evaluate(
         "decision_recorded": False,
         "required_user_decision": REQUIRED_USER_DECISION,
         "option_b_selected": option_b_selected,
+        "option_b_recommended": option_b_recommended,
         "scientific_approval_granted": scientific_approval_granted,
         "implementation_authorized": implementation_authorized,
         "production_route_enabled": production_route_enabled,
