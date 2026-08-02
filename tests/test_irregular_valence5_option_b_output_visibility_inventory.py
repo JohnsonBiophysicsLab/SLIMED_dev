@@ -86,12 +86,7 @@ class OptionBOutputVisibilityInventoryTest(unittest.TestCase):
             "checkpoint_total_force_roundtrip_max_abs_difference": 0.0,
             "checkpoint_record_energy_roundtrip_max_abs_difference": 0.0,
         }
-        for prefix in (
-            "checkpoint_curvature_force", "checkpoint_area_force",
-            "checkpoint_volume_force", "checkpoint_face_normals",
-            "checkpoint_face_mean_curvature", "checkpoint_face_area",
-            "checkpoint_face_legacy_volume", "checkpoint_face_energy",
-        ):
+        for prefix, _ in self.runner.CHECKPOINT_PRESERVATION_FIELDS:
             harness[f"{prefix}_preserved"] = True
             harness[f"{prefix}_max_abs_difference"] = 0.0
         return energy_report, force_candidate, force_report, harness, energy_rows, face_rows
@@ -137,12 +132,7 @@ class OptionBOutputVisibilityInventoryTest(unittest.TestCase):
 
     def test_face_schema_and_each_checkpoint_preservation_claim_are_binding(self):
         baseline = self.canonical_inputs()
-        for prefix in (
-            "checkpoint_curvature_force", "checkpoint_area_force",
-            "checkpoint_volume_force", "checkpoint_face_normals",
-            "checkpoint_face_mean_curvature", "checkpoint_face_area",
-            "checkpoint_face_legacy_volume", "checkpoint_face_energy",
-        ):
+        for prefix, _ in self.runner.CHECKPOINT_PRESERVATION_FIELDS:
             lost = copy.deepcopy(baseline)
             lost[3][f"{prefix}_preserved"] = False
             with self.subTest(prefix=prefix), self.assertRaisesRegex(
@@ -286,6 +276,16 @@ class OptionBOutputVisibilityInventoryTest(unittest.TestCase):
         self.assertEqual(report["element_face_energy_csv_data_row_width"], 11)
         self.assertEqual(report["checkpoint_format"], "SLIMED_RESTART_V2")
         self.assertTrue(report["checkpoint_v1_loader_compatible"])
+        self.assertEqual(report["checkpoint_force_state_group_count"], 24)
+        self.assertEqual(
+            len(report["checkpoint_preservation_max_abs_differences"]), 29
+        )
+        self.assertTrue(all(
+            difference == 0.0
+            for difference in report[
+                "checkpoint_preservation_max_abs_differences"
+            ].values()
+        ))
         self.assertEqual(report["checkpoint_total_force_roundtrip_max_abs_difference"], 0.0)
         self.assertEqual(report["checkpoint_record_energy_roundtrip_max_abs_difference"], 0.0)
         self.assertEqual(

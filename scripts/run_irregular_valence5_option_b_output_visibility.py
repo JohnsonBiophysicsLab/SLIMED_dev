@@ -24,6 +24,22 @@ OUTPUT_RECORD_ENERGY_ROUNDTRIP_ABSOLUTE_TOLERANCE = 0.0
 ENERGY_FORCE_CSV_SERIALIZATION_ABSOLUTE_ENVELOPE = 0.0
 ELEMENT_FACE_ENERGY_CSV_SERIALIZATION_ABSOLUTE_ENVELOPE = 0.0
 AGGREGATE_FORCE_ABSOLUTE_TOLERANCE = 1.0e-12
+CHECKPOINT_FORCE_STATES = ("current", "previous", "ncg")
+CHECKPOINT_FORCE_TERMS = (
+    "curvature", "area", "volume", "thickness", "tilt", "regularization",
+    "harmonic_bond", "total",
+)
+CHECKPOINT_PRESERVATION_FIELDS = tuple(
+    (f"checkpoint_{state}_{term}_force", f"{state} {term} force")
+    for state in CHECKPOINT_FORCE_STATES
+    for term in CHECKPOINT_FORCE_TERMS
+) + (
+    ("checkpoint_face_normals", "face normals"),
+    ("checkpoint_face_mean_curvature", "face mean curvature"),
+    ("checkpoint_face_area", "face area"),
+    ("checkpoint_face_legacy_volume", "face legacy volume"),
+    ("checkpoint_face_energy", "face energy"),
+)
 
 
 def load_module(path: Path, name: str):
@@ -241,18 +257,8 @@ def compare_output_artifacts(
         raise RuntimeError("checkpoint total-force roundtrip drift")
     if energy_roundtrip != OUTPUT_RECORD_ENERGY_ROUNDTRIP_ABSOLUTE_TOLERANCE:
         raise RuntimeError("checkpoint energy-record roundtrip drift")
-    preservation_fields = (
-        ("checkpoint_curvature_force", "curvature force"),
-        ("checkpoint_area_force", "area force"),
-        ("checkpoint_volume_force", "volume force"),
-        ("checkpoint_face_normals", "face normals"),
-        ("checkpoint_face_mean_curvature", "face mean curvature"),
-        ("checkpoint_face_area", "face area"),
-        ("checkpoint_face_legacy_volume", "face legacy volume"),
-        ("checkpoint_face_energy", "face energy"),
-    )
     preservation_differences: dict[str, float] = {}
-    for prefix, label in preservation_fields:
+    for prefix, label in CHECKPOINT_PRESERVATION_FIELDS:
         if harness.get(f"{prefix}_preserved") is not True:
             raise RuntimeError(f"checkpoint {label} preservation drift")
         difference = finite_nonnegative_number(
@@ -356,6 +362,7 @@ def compare_output_artifacts(
         "checkpoint_format": "SLIMED_RESTART_V2",
         "checkpoint_v1_loader_compatible": True,
         "checkpoint_force_family_components_serialized": True,
+        "checkpoint_force_state_group_count": 24,
         "checkpoint_preservation_max_abs_differences": preservation_differences,
         "face_normals_output_visible": True,
         "face_mean_curvature_output_visible": True,

@@ -58,6 +58,12 @@ loads the V2 checkpoint, and parses both CSVs. It requires:
 - independent aggregation of all 2,160 per-face force components into the 108
   source-force components before accepting the output claim.
 
+The checkpoint harness assigns distinct finite nonzero sentinels to every
+component in all 24 force groups (eight current, eight previous, and eight NCG)
+after recording the stock mean-force observable. It compares each group
+independently and makes harness success depend on all 24 exact-zero maxima, so
+an omitted zero-valued family cannot produce a false green.
+
 The output-visible evidence gap identified by PR #157 is closed. The stock
 serial/OpenMP evidence is also complete under its separate proof-only lane.
 The remaining boundary is scientific review and explicit Option B selection;
