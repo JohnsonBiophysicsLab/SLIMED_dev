@@ -44,6 +44,10 @@
     "native_code": 0,
     "operation": ""
   },
+  "provenance": {
+    "base_sha": "0b2b6dd425cb47e703c02dce0d32f89e23721b0d",
+    "tested_implementation_sha": "07d3aaebb0a714ed8be46a0bd78d306308cf720a"
+  },
   "requested_context_lifecycle_iterations": 20,
   "status": "available"
 }

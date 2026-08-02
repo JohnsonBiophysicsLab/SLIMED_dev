@@ -111,7 +111,9 @@ unavailability.
 
 On the RTX 4050 Laptop GPU development machine, native `compute_89/sm_89`
 construction succeeded for 20 consecutive RAII lifetime cycles. The report
-is committed as `analysis/cuda_backend_report_rtx4050.json` and observed:
+is committed as `analysis/cuda_backend_report_rtx4050.json`. Its provenance
+records base `0b2b6dd425cb47e703c02dce0d32f89e23721b0d` and tested implementation
+commit `07d3aaebb0a714ed8be46a0bd78d306308cf720a`. It observed:
 
 - device count `1` and compute capability `8.9`;
 - driver API `13000` and Runtime API `13030`;

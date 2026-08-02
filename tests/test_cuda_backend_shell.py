@@ -65,6 +65,14 @@ class CudaBackendShellTest(unittest.TestCase):
         self.assertTrue(report["device"]["primary_context_retained"])
         self.assertTrue(report["device"]["nonblocking_stream_owned"])
         self.assertEqual(report["error"]["code"], "none")
+        self.assertEqual(
+            report["provenance"]["base_sha"],
+            "0b2b6dd425cb47e703c02dce0d32f89e23721b0d",
+        )
+        self.assertEqual(
+            report["provenance"]["tested_implementation_sha"],
+            "07d3aaebb0a714ed8be46a0bd78d306308cf720a",
+        )
 
     def test_public_header_contains_no_cuda_types_or_headers(self):
         header = (ROOT / "include/cuda/Cuda_backend.hpp").read_text(
