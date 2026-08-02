@@ -32,6 +32,7 @@ VPATH = \
 	src/math \
 	src/parser \
 	src/energy_force \
+	src/cuda \
 	src/mesh \
 	src/parameters \
 	src/diffusion \
@@ -47,6 +48,12 @@ ODIR   = obj
 SDIR   = src
 EPDIR  = EXE_PAR
 ECDIR = EXE_CLUSTER
+
+# Keep the standalone Step-1 diagnostics independent of the simulation's GSL
+# dependency. Ordinary/default and mixed simulation builds retain the existing
+# GSL requirement.
+CUDA_BACKEND_DIAGNOSTIC_GOALS := cuda_backend_report cuda_backend_stub_report
+CUDA_BACKEND_ONLY := $(if $(MAKECMDGOALS),$(if $(filter-out $(CUDA_BACKEND_DIAGNOSTIC_GOALS),$(MAKECMDGOALS)),,1),)
 
 # Detect Operating System
 UNAME_S := $(shell uname -s)
@@ -120,6 +127,10 @@ PROF   =
 
 #               REQUIREMENTS: gls and directories
 
+ifeq ($(CUDA_BACKEND_ONLY),1)
+$(shell mkdir -p bin)
+$(shell mkdir -p $(ODIR))
+else
 hasGSL = $(shell type gsl-config >/dev/null 2>&1; echo $$?)
 ifeq ($(hasGSL),1)
 $(error " GSL must be installed, and gsl-config must be in path.")
@@ -127,11 +138,17 @@ else
 $(shell mkdir -p bin)
 $(shell mkdir -p $(ODIR))
 endif
+endif
 
 #               EXECUTABLE SETUP for serial, MPI, OpenMP (omp), cluster
 #
-INCS    = $(shell gsl-config --cflags) -Iinclude -Iinclude/*
-LIBS     = $(shell gsl-config --libs)
+ifeq ($(CUDA_BACKEND_ONLY),1)
+INCS = -Iinclude -Iinclude/*
+LIBS =
+else
+INCS = $(shell gsl-config --cflags) -Iinclude -Iinclude/*
+LIBS = $(shell gsl-config --libs)
+endif
 
 USE_OPENSUBDIV_REGULAR ?= 0
 ifeq ($(USE_OPENSUBDIV_REGULAR),1)
@@ -271,8 +288,11 @@ syntax:
 #                        $(EXEC)          bin/continuum_membrane, bin/continuum_membrane_mpi or /bincontinuum_membrane_omp
 # Build the executable with or without tests
 
-$(MAKECMDGOALS):$(EXEC)
-	@echo "Finished making (re-)building $(MAKECMDGOALS) version, $(EXEC)."
+NON_CUDA_GOALS := $(filter-out $(CUDA_BACKEND_DIAGNOSTIC_GOALS),$(MAKECMDGOALS))
+ifneq ($(strip $(NON_CUDA_GOALS)),)
+$(NON_CUDA_GOALS):$(EXEC)
+	@echo "Finished making (re-)building $@ version, $(EXEC)."
+endif
 
 $(EXEC): $(OBJS) $(TEST_OBJ)
 	@echo "Linking $@"
@@ -282,6 +302,38 @@ $(EXEC): $(OBJS) $(TEST_OBJ)
 $(ODIR)/%.o: %.cpp
 	@echo "Compiling $< at $(<F) $(<D)"
 	$(CXX) $(CFLAGS) $(CXXFLAGS) $(INCS) $(PROF) -c $< -o $@ $(PLANG) $(DEFS)
+
+# Explicit Step-1 CUDA backend diagnostics. These targets are never
+# prerequisites of serial, OpenMP, dynamics, test, or the default syntax goal.
+CUDA_NVCC ?= nvcc
+CUDA_HOST_CXX ?= $(CXX)
+CUDA_COMPUTE_ARCH ?= compute_89
+CUDA_SM_CODE ?= sm_89
+CUDA_BACKEND_REPORT = $(BDIR)/cuda_backend_report
+CUDA_BACKEND_STUB_REPORT = $(BDIR)/cuda_backend_stub_report
+
+.PHONY: cuda_backend_report cuda_backend_stub_report
+
+cuda_backend_report: include/cuda/Cuda_backend.hpp \
+		src/cuda/Cuda_backend_common.cpp src/cuda/Cuda_backend.cu \
+		EXEs/cuda_backend_report.cpp
+	@command -v $(CUDA_NVCC) >/dev/null 2>&1 || \
+		( echo "CUDA_NVCC=$(CUDA_NVCC) was not found; this target is optional." >&2; exit 1 )
+	$(CUDA_NVCC) -std=$(CXX_STD) -O3 \
+		-arch=$(CUDA_COMPUTE_ARCH) -code=$(CUDA_SM_CODE) \
+		-ccbin=$(CUDA_HOST_CXX) -Iinclude \
+		src/cuda/Cuda_backend_common.cpp src/cuda/Cuda_backend.cu \
+		EXEs/cuda_backend_report.cpp \
+		-lcuda -o $(CUDA_BACKEND_REPORT)
+	@echo "Finished optional CUDA backend report build, $(CUDA_BACKEND_REPORT)."
+
+cuda_backend_stub_report: include/cuda/Cuda_backend.hpp \
+		src/cuda/Cuda_backend_common.cpp src/cuda/Cuda_backend_stub.cpp \
+		EXEs/cuda_backend_report.cpp
+	$(CXX) -std=$(CXX_STD) -O3 -Iinclude \
+		src/cuda/Cuda_backend_common.cpp src/cuda/Cuda_backend_stub.cpp \
+		EXEs/cuda_backend_report.cpp -o $(CUDA_BACKEND_STUB_REPORT)
+	@echo "Finished non-CUDA backend stub report build, $(CUDA_BACKEND_STUB_REPORT)."
 
 
 clean:

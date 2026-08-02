@@ -1,0 +1,49 @@
+{
+  "available": true,
+  "build": {
+    "command": [
+      "/usr/bin/make",
+      "cuda_backend_report",
+      "CUDA_NVCC=/usr/local/cuda/bin/nvcc",
+      "CUDA_HOST_CXX=/usr/bin/g++",
+      "CUDA_COMPUTE_ARCH=compute_89",
+      "CUDA_SM_CODE=sm_89"
+    ],
+    "compute_arch": "compute_89",
+    "host_cxx": "/usr/bin/g++",
+    "host_cxx_version": "g++ (Ubuntu 15.2.0-16ubuntu1) 15.2.0\nCopyright (C) 2025 Free Software Foundation, Inc.\nThis is free software; see the source for copying conditions.  There is NO\nwarranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.",
+    "nvcc": "/usr/local/cuda/bin/nvcc",
+    "nvcc_version": "nvcc: NVIDIA (R) Cuda compiler driver\nCopyright (c) 2005-2026 NVIDIA Corporation\nBuilt on Tue_Jun_09_02:43:40_PM_PDT_2026\nCuda compilation tools, release 13.3, V13.3.73\nBuild cuda_13.3.r13.3/compiler.38244171_0",
+    "sm_code": "sm_89",
+    "target": "cuda_backend_report"
+  },
+  "compiled": true,
+  "completed_context_lifecycle_iterations": 20,
+  "cuda_required": true,
+  "device": {
+    "asynchronous_engine_count": 1,
+    "compute_capability_major": 8,
+    "compute_capability_minor": 9,
+    "device_count": 1,
+    "driver_version": 13000,
+    "free_memory_bytes": 5319426048,
+    "maximum_threads_per_block": 1024,
+    "memory_pools_supported": true,
+    "multiprocessor_count": 20,
+    "name": "NVIDIA GeForce RTX 4050 Laptop GPU",
+    "nonblocking_stream_owned": true,
+    "primary_context_retained": true,
+    "requested_ordinal": 0,
+    "runtime_version": 13030,
+    "total_memory_bytes": 6438780928,
+    "warp_size": 32
+  },
+  "error": {
+    "code": "none",
+    "message": "",
+    "native_code": 0,
+    "operation": ""
+  },
+  "requested_context_lifecycle_iterations": 20,
+  "status": "available"
+}
