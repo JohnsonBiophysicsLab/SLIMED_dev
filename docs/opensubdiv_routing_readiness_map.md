@@ -427,6 +427,13 @@ keeping `decision_recorded:false`. The next boundary is scientific review and
 an explicit accept, reject, or defer decision for Option B; production
 valence-5 routing remains disabled and the current fallback remains preserved.
 
+On 2026-08-02 the user explicitly accepted Option B in the successor selection
+record. Option B is selected and stock semantics are scientifically approved;
+the scientific re-baselining and production-routing plans are authorized, but
+implementation and production routing remain disabled. The current SLIMED
+fallback remains active until a separate guarded implementation and activation
+change receives dedicated reviewer PASS and explicit user approval.
+
 ## Inventory Check
 
 Run the readiness-anchor inventory with:

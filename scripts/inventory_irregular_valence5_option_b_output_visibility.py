@@ -37,6 +37,22 @@ DECISION_DOC = Path("docs/irregular_valence5_option_b_scientific_decision.md")
 DECISION_TEST = Path(
     "tests/test_irregular_valence5_option_b_scientific_decision_inventory.py"
 )
+SELECTION_RUNNER = Path(
+    "scripts/run_irregular_valence5_option_b_selection_record.py"
+)
+SELECTION_WRAPPER = Path(
+    "scripts/run_irregular_valence5_option_b_selection_record.sh"
+)
+SELECTION_INVENTORY = Path(
+    "scripts/inventory_irregular_valence5_option_b_selection_record.py"
+)
+SELECTION_DOC = Path("docs/irregular_valence5_option_b_selection_record.md")
+SELECTION_TEST = Path(
+    "tests/test_irregular_valence5_option_b_selection_record_inventory.py"
+)
+CUDA_PLAN_DOC = Path("docs/cuda_end_to_end_residency_force_scatter_implementation_plan.md")
+CUDA_PLAN_INVENTORY = Path("scripts/inventory_cuda_end_to_end_plan.py")
+CUDA_PLAN_TEST = Path("tests/test_cuda_end_to_end_plan_inventory.py")
 ANALYSIS_CONSUMERS = (
     Path("analysis/plotvertex.py"),
     Path("analysis/plotvertex_gag.py"),
@@ -47,10 +63,14 @@ ALLOWED_PATHS = {
     RUNNER, WRAPPER, HARNESS, DOC, TEST, SELF, OUTPUT, IO_HEADER, IO_TEST,
     ENERGY_DOC, SERIAL_DOC, READINESS, GLOBAL, GLOBAL_TEST,
     DECISION_RUNNER, DECISION_WRAPPER, DECISION_INVENTORY, DECISION_DOC,
-    DECISION_TEST,
+    DECISION_TEST, SELECTION_RUNNER, SELECTION_WRAPPER, SELECTION_INVENTORY,
+    SELECTION_DOC, SELECTION_TEST, CUDA_PLAN_DOC, CUDA_PLAN_INVENTORY,
+    CUDA_PLAN_TEST,
     *ANALYSIS_CONSUMERS,
 }
-REQUIRED_CHANGED_PATHS = ALLOWED_PATHS - {WRAPPER, DECISION_WRAPPER}
+REQUIRED_CHANGED_PATHS = ALLOWED_PATHS - {
+    WRAPPER, DECISION_WRAPPER, SELECTION_WRAPPER,
+}
 PROTECTED_PREFIXES = (
     "include/", "src/", "EXEs/", "Makefile", ".github/", "data/fixtures/",
     "scripts/verify_pr_ready.sh",
@@ -154,6 +174,23 @@ ANCHORS = {
         "test_canonical_packet_is_decision_ready_but_authorizes_nothing",
         "test_selection_approval_implementation_and_route_false_greens_fail",
     ),
+    SELECTION_RUNNER: (
+        'DECISION = "accept"',
+        '"option_b_selected": option_b_selected',
+        '"implementation_authorized": implementation_authorized',
+        '"production_route_enabled": production_route_enabled',
+    ),
+    SELECTION_DOC: (
+        "Option B scientific selection record",
+        "Implementation and production routing remain disabled",
+    ),
+    SELECTION_TEST: (
+        "test_canonical_record_selects_and_approves_but_does_not_route",
+        "test_recommendation_implementation_and_route_false_greens_fail",
+    ),
+    CUDA_PLAN_DOC: ("CUDA",),
+    CUDA_PLAN_INVENTORY: ("CUDA",),
+    CUDA_PLAN_TEST: ("CudaEndToEndPlanInventoryTest",),
     **{
         path: (
             'pd.read_csv("EnergyForce.csv", index_col = False)',

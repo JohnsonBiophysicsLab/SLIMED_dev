@@ -135,8 +135,8 @@ ROUTE_READINESS_MATRIX: tuple[dict[str, str], ...] = (
     {
         "route": "positive-depth 11 = 4+3+4 membrane force",
         "current_production_status": "supported narrowly by subdivision matrices",
-        "opensubdiv_evidence_status": "source-order, force, child-domain, counterfactual, custom-scheme, architecture-decision, completed alternate-library feasibility, and post-Option-D gate bind the residual and decision boundaries",
-        "readiness_result": "preserve the current SLIMED route; no option is selected, recommended, preferred, or automatically next",
+        "opensubdiv_evidence_status": "Option B stock semantics are scientifically accepted after completed source-order, force, energy, geometry, output, and serial/OpenMP evidence",
+        "readiness_result": "Option B selected and scientifically approved; implementation and production routing remain disabled while the current SLIMED fallback stays active",
     },
     {
         "route": "zero-depth 11-control and unsupported irregular topologies",
@@ -755,6 +755,22 @@ ANCHORS: tuple[Anchor, ...] = (
         "explicit accept, reject, or defer decision for Option B",
         "user decision boundary",
         "The domain decision remains explicit and outside the evidence packet.",
+    ),
+    Anchor(
+        "valence-5 Option B selection record",
+        "Option B accepted selection recorded",
+        READINESS_DOC_PATH,
+        "Option B is selected and stock semantics are scientifically approved",
+        "accepted selection",
+        "The explicit user decision selects Option B and approves the measured stock semantics.",
+    ),
+    Anchor(
+        "valence-5 Option B selection record",
+        "Option B accepted but remains unrouted",
+        READINESS_DOC_PATH,
+        "implementation and production routing remain disabled",
+        "unrouted selection boundary",
+        "Selection does not itself mutate production behavior.",
     ),
     Anchor(
         "valence-5 Option B serial/OpenMP evidence",
