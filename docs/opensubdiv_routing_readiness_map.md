@@ -384,10 +384,35 @@ fails with maximum residual `0.7357563654581705`, while the maximum `fBend`,
 Option B remains unselected and scientifically unapproved. The assessment
 proposes, but does not authorize, a physical re-baselining plan. Force is
 characterized as non-parity.
-Stock energy, geometry, output, and serial/OpenMP evidence remains pending.
-The next evidence boundary is a separately reviewed
-proof-only stock OpenSubdiv valence-5 energy and geometry observable
-re-baselining lane. It must not install a production route.
+The proof-only stock OpenSubdiv valence-5 energy and geometry observable
+re-baselining lane is complete. Its independent long-double row oracle agrees
+with the existing regular evaluator at `2.2737367544323206e-13`, but stock and
+current scientific observables do not match the fixed reviewed `5e-6` policy.
+The oracle independently emits production-correct global curvature,
+regularization, area-constraint, volume-constraint, and total energies; the
+candidate and oracle totals are compared directly. Reviewed expected values
+bind all 330 ordered stock global, per-face energy, and per-face geometry
+components with a fixed scope-aware cross-platform absolute envelope: `3e-5`
+for global energy, `2e-6` for per-face energy, and `3e-7` for per-face
+geometry. The reviewed vector remains the envelope center; candidate/oracle
+agreement remains independently fixed at `1e-10`, and the rounded digest is
+reporting-only and cannot clear either gate. On Ubuntu 26.04 under WSL, the
+measured maxima from the reviewed vector are `2.6336025939599494e-05`,
+`1.7738014790324996e-06`, and `2.4650185731500684e-07`, respectively, while
+candidate/oracle agreement is `4.547473508864641e-13`. Both package readers
+reject trailing tokens.
+The maximum global-energy change is curvature `83.84946348746075`; the maximum
+per-face energy change is face 11 curvature `4.386320459494776`; and the
+maximum per-face geometry change is face 11 mean curvature
+`2.5747867579624395`. Per-face energy remains curvature plus regularization;
+area and volume constraint energies are global additions.
+
+Option B remains unselected, unrecommended, scientifically unapproved,
+unimplemented, and unrouted. This evidence makes no sole-mask causal claim.
+No output writer was executed or parsed, so output-visible evidence remains
+pending together with stock-semantics serial/OpenMP accumulation evidence.
+The next boundary is scientific review of these measured changes, not route
+activation.
 
 ## Inventory Check
 
