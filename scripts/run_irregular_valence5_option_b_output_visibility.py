@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Characterize real output visibility for stock Option B observables."""
+"""Verify the repaired production output contract for stock Option B evidence."""
 
 from __future__ import annotations
 
@@ -21,11 +21,9 @@ OUTPUT_HARNESS = ROOT / "experiments/irregular_valence5_option_b_output_visibili
 FORCE_HARNESS = ROOT / "experiments/irregular_valence5_opensubdiv_force_parity.cpp"
 OUTPUT_FORCE_ROUNDTRIP_ABSOLUTE_TOLERANCE = 0.0
 OUTPUT_RECORD_ENERGY_ROUNDTRIP_ABSOLUTE_TOLERANCE = 0.0
-ENERGY_FORCE_CSV_SERIALIZATION_ABSOLUTE_ENVELOPE = 3.0e-3
-ELEMENT_FACE_ENERGY_CSV_SERIALIZATION_ABSOLUTE_ENVELOPE = 5.0e-5
+ENERGY_FORCE_CSV_SERIALIZATION_ABSOLUTE_ENVELOPE = 0.0
+ELEMENT_FACE_ENERGY_CSV_SERIALIZATION_ABSOLUTE_ENVELOPE = 0.0
 AGGREGATE_FORCE_ABSOLUTE_TOLERANCE = 1.0e-12
-REVIEWED_WSL_ENERGY_FORCE_CSV_MAX_ABS_DIFFERENCE = 0.002616418819570754
-REVIEWED_WSL_ELEMENT_FACE_CSV_MAX_ABS_DIFFERENCE = 4.713969291714193e-05
 
 
 def load_module(path: Path, name: str):
@@ -243,7 +241,7 @@ def compare_output_artifacts(
         raise RuntimeError("checkpoint total-force roundtrip drift")
     if energy_roundtrip != OUTPUT_RECORD_ENERGY_ROUNDTRIP_ABSOLUTE_TOLERANCE:
         raise RuntimeError("checkpoint energy-record roundtrip drift")
-    absence_fields = (
+    preservation_fields = (
         ("checkpoint_curvature_force", "curvature force"),
         ("checkpoint_area_force", "area force"),
         ("checkpoint_volume_force", "volume force"),
@@ -253,36 +251,33 @@ def compare_output_artifacts(
         ("checkpoint_face_legacy_volume", "face legacy volume"),
         ("checkpoint_face_energy", "face energy"),
     )
-    absence_differences: dict[str, float] = {}
-    for prefix, label in absence_fields:
-        if harness.get(f"{prefix}_preserved") is not False:
-            raise RuntimeError(f"checkpoint {label} coverage claim drift")
+    preservation_differences: dict[str, float] = {}
+    for prefix, label in preservation_fields:
+        if harness.get(f"{prefix}_preserved") is not True:
+            raise RuntimeError(f"checkpoint {label} preservation drift")
         difference = finite_nonnegative_number(
             harness.get(f"{prefix}_max_abs_difference"),
             f"checkpoint {label} maximum difference",
         )
-        if difference <= 0.0:
-            raise RuntimeError(f"checkpoint {label} absence is not demonstrated")
-        absence_differences[prefix] = difference
+        if difference != 0.0:
+            raise RuntimeError(f"checkpoint {label} roundtrip drift")
+        preservation_differences[prefix] = difference
 
     global_stock = finite_list(
         energy_report.get("global_energy_stock"), 10, "stock global energy"
     )
     expected_energy_header = [
-        "E_Curvature", "E_Area", "E_Regularization", "E_HarmonicBond",
-        "E_GagScaffolding", "E_IdealizedProteinLattice",
+        "E_Curvature", "E_Area", "E_Volume", "E_Thickness", "E_Tilt",
+        "E_Regularization", "E_HarmonicBond", "E_GagScaffolding",
+        "E_IdealizedProteinLattice",
         "E_Total ((pN.nm))", "Mean Force (pN)",
     ]
     if len(energy_rows) != 2 or energy_rows[0] != expected_energy_header:
         raise RuntimeError("EnergyForce.csv schema drift")
     energy_values = finite_list(
-        [float(value) for value in energy_rows[1]], 8, "EnergyForce.csv row"
+        [float(value) for value in energy_rows[1]], 11, "EnergyForce.csv row"
     )
-    expected_energy_values = [
-        global_stock[0], global_stock[1], global_stock[5], global_stock[6],
-        global_stock[7], global_stock[8], global_stock[9],
-        expected_mean_force(aggregate_forces),
-    ]
+    expected_energy_values = global_stock + [expected_mean_force(aggregate_forces)]
     energy_csv_delta = max(
         abs(left - right)
         for left, right in zip(energy_values, expected_energy_values)
@@ -291,48 +286,40 @@ def compare_output_artifacts(
         raise RuntimeError("EnergyForce.csv serialization envelope exceeded")
 
     expected_face_header = [
-        "Face_index", "E_Curvature", "E_Area", "E_Regularization", "E_Total"
+        "Face_index", "E_Curvature", "E_Area", "E_Volume", "E_Thickness",
+        "E_Tilt", "E_Regularization", "E_HarmonicBond", "E_GagScaffolding",
+        "E_IdealizedProteinLattice", "E_Total",
     ]
     if len(face_rows) != 21 or face_rows[0] != expected_face_header:
         raise RuntimeError("ElementFaceEnergy.csv header or row count drift")
     row_widths = sorted({len(row) for row in face_rows[1:]})
-    if row_widths != [4]:
-        raise RuntimeError("ElementFaceEnergy.csv legacy row width drift")
+    if row_widths != [11]:
+        raise RuntimeError("ElementFaceEnergy.csv row width drift")
     face_stock = finite_list(
         energy_report.get("per_face_energy_stock"), 200, "stock face energy"
     )
     face_csv_delta = 0.0
-    total_written_in_fourth_column = True
     for face, row in enumerate(face_rows[1:]):
-        values = [float(value) for value in row]
+        values = finite_list(
+            [float(value) for value in row], 11,
+            f"ElementFaceEnergy.csv face {face}",
+        )
         if int(values[0]) != face:
             raise RuntimeError("ElementFaceEnergy.csv face order drift")
-        expected = [float(face), face_stock[face * 10],
-                    face_stock[face * 10 + 1], face_stock[face * 10 + 9]]
+        expected = [float(face)] + face_stock[face * 10:face * 10 + 10]
         face_csv_delta = max(
             face_csv_delta,
             max(abs(left - right) for left, right in zip(values, expected)),
         )
-        total_written_in_fourth_column = total_written_in_fourth_column and (
-            abs(values[3] - expected[3])
-            <= ELEMENT_FACE_ENERGY_CSV_SERIALIZATION_ABSOLUTE_ENVELOPE
-        )
-    if not total_written_in_fourth_column:
-        raise RuntimeError("ElementFaceEnergy.csv fourth-column behavior drift")
     if face_csv_delta > ELEMENT_FACE_ENERGY_CSV_SERIALIZATION_ABSOLUTE_ENVELOPE:
         raise RuntimeError("ElementFaceEnergy.csv serialization envelope exceeded")
 
-    blockers = [
-        "EnergyForce.csv omits global volume, thickness, and tilt channels and rounds stock values at default stream precision",
-        "ElementFaceEnergy.csv declares five columns but emits four; regularization is omitted and total occupies the fourth column",
-        "restart checkpoints preserve total vertex force but not separate bending, area, and volume force families",
-        "no production output writer serializes face normals, mean curvature, area, or legacy volume",
-    ]
+    blockers: list[str] = []
     return {
         "status": "passed",
-        "proof_kind": "valence5_option_b_output_visibility_characterization",
+        "proof_kind": "valence5_option_b_output_contract_repair",
         "proof_only": True,
-        "assessment_scope": "observational_output_visibility_only",
+        "assessment_scope": "authorized_output_contract_repair",
         "option_b_selected": False,
         "option_b_recommended": False,
         "stock_semantics_scientifically_approved": False,
@@ -340,23 +327,24 @@ def compare_output_artifacts(
         "valence5_opensubdiv_route_enabled": False,
         "output_writers_executed_and_parsed": True,
         "output_characterization_complete": True,
-        "output_visible_evidence_complete": False,
-        "output_contract_repair_authorized": False,
-        "stock_serial_openmp_evidence_pending": True,
+        "output_visible_evidence_complete": True,
+        "output_contract_repair_authorized": True,
+        "output_contract_repair_complete": True,
+        "stock_serial_openmp_evidence_pending": False,
         "energy_force_csv_header": energy_rows[0],
-        "energy_force_csv_energy_channel_count": 7,
+        "energy_force_csv_energy_channel_count": 10,
         "energy_force_csv_max_abs_serialization_difference": energy_csv_delta,
         "energy_force_csv_serialization_absolute_envelope": (
             ENERGY_FORCE_CSV_SERIALIZATION_ABSOLUTE_ENVELOPE
         ),
-        "energy_force_csv_default_precision_loss_observed": energy_csv_delta > 1.0e-12,
-        "energy_force_csv_omitted_global_channels": ["volume", "thickness", "tilt"],
+        "energy_force_csv_full_precision_roundtrip": energy_csv_delta == 0.0,
+        "energy_force_csv_omitted_global_channels": [],
         "element_face_energy_csv_header": face_rows[0],
-        "element_face_energy_csv_header_width": 5,
-        "element_face_energy_csv_data_row_width": 4,
-        "element_face_energy_csv_schema_matches": False,
-        "element_face_energy_csv_regularization_serialized": False,
-        "element_face_energy_csv_total_in_unlabelled_fourth_value": True,
+        "element_face_energy_csv_header_width": 11,
+        "element_face_energy_csv_data_row_width": 11,
+        "element_face_energy_csv_schema_matches": True,
+        "element_face_energy_csv_regularization_serialized": True,
+        "element_face_energy_csv_all_energy_channels_serialized": True,
         "element_face_energy_csv_max_abs_serialization_difference": face_csv_delta,
         "element_face_energy_csv_serialization_absolute_envelope": (
             ELEMENT_FACE_ENERGY_CSV_SERIALIZATION_ABSOLUTE_ENVELOPE
@@ -365,12 +353,14 @@ def compare_output_artifacts(
         "checkpoint_total_force_roundtrip_max_abs_difference": force_roundtrip,
         "checkpoint_record_energy_roundtrip_passed": True,
         "checkpoint_record_energy_roundtrip_max_abs_difference": energy_roundtrip,
-        "checkpoint_force_family_components_serialized": False,
-        "checkpoint_absence_max_abs_differences": absence_differences,
-        "face_normals_output_visible": False,
-        "face_mean_curvature_output_visible": False,
-        "face_area_output_visible": False,
-        "face_legacy_volume_output_visible": False,
+        "checkpoint_format": "SLIMED_RESTART_V2",
+        "checkpoint_v1_loader_compatible": True,
+        "checkpoint_force_family_components_serialized": True,
+        "checkpoint_preservation_max_abs_differences": preservation_differences,
+        "face_normals_output_visible": True,
+        "face_mean_curvature_output_visible": True,
+        "face_area_output_visible": True,
+        "face_legacy_volume_output_visible": True,
         "input_energy_geometry_proof_passed": True,
         "input_force_characterization_passed": True,
         "input_force_parity_passed": False,
@@ -378,8 +368,8 @@ def compare_output_artifacts(
         "aggregate_source_force_max_abs_difference": aggregate_delta,
         "writer_blockers": blockers,
         "remaining_boundary": (
-            "review and explicitly authorize an output-contract repair lane; "
-            "Option B remains unselected and stock serial/OpenMP evidence remains pending"
+            "scientific review and explicit Option B selection; "
+            "production routing remains disabled"
         ),
     }
 

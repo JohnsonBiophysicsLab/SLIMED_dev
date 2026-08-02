@@ -27,6 +27,57 @@ bool read_matrix3(std::istream &in, Matrix &matrix)
     return true;
 }
 
+void ensure_matrix3(Matrix &matrix)
+{
+    if (matrix.mat == nullptr || matrix.nrow() != 3 || matrix.ncol() != 1)
+    {
+        matrix.free();
+        matrix = mat_calloc(3, 1);
+    }
+}
+
+void write_force_terms(std::ostream &out, const Force &force)
+{
+    const Matrix *terms[] = {
+        &force.forceCurvature,
+        &force.forceArea,
+        &force.forceVolume,
+        &force.forceThickness,
+        &force.forceTilt,
+        &force.forceRegularization,
+        &force.forceHarmonicBond,
+        &force.forceTotal,
+    };
+    for (const Matrix *term : terms)
+    {
+        out << ' ';
+        write_matrix3(out, *term);
+    }
+}
+
+bool read_force_terms(std::istream &in, Force &force)
+{
+    Matrix *terms[] = {
+        &force.forceCurvature,
+        &force.forceArea,
+        &force.forceVolume,
+        &force.forceThickness,
+        &force.forceTilt,
+        &force.forceRegularization,
+        &force.forceHarmonicBond,
+        &force.forceTotal,
+    };
+    for (Matrix *term : terms)
+    {
+        ensure_matrix3(*term);
+        if (!read_matrix3(in, *term))
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
 void write_energy_terms(std::ostream &out, const Energy &energy)
 {
     out << energy.energyCurvature << ' '
@@ -53,6 +104,20 @@ bool read_energy_terms(std::istream &in, Energy &energy)
                                 >> energy.energyGagScaffolding
                                 >> energy.energyIdealizedProteinLattice
                                 >> energy.energyTotal);
+}
+
+void write_energy_csv_fields(std::ostream &out, const Energy &energy)
+{
+    out << energy.energyCurvature << ','
+        << energy.energyArea << ','
+        << energy.energyVolume << ','
+        << energy.energyThickness << ','
+        << energy.energyTilt << ','
+        << energy.energyRegularization << ','
+        << energy.energyHarmonicBond << ','
+        << energy.energyGagScaffolding << ','
+        << energy.energyIdealizedProteinLattice << ','
+        << energy.energyTotal;
 }
 }
 
@@ -93,9 +158,8 @@ bool should_write_restart_checkpoint(const Param &param, const int nextIteration
 /**
  * @brief Writes the energy force data to a CSV file.
  *
- * This function writes the energy and force data for each iteration in the following format:
- *
- * "E_Curvature, E_Area, E_Regularization, E_Total ((pN.nm)), Mean Force (pN)"
+ * Each row contains all ten Energy channels followed by mean force at
+ * round-trip-safe double precision.
  *
  * @note File name is left in definition in case customization is needed.
  *
@@ -116,22 +180,18 @@ bool write_energy_force_data_to_csv(const Model &model, const std::string &filep
         return false;
     }
 
+    outfileEF << std::setprecision(17);
+    outfileEF
+        << "E_Curvature,E_Area,E_Volume,E_Thickness,E_Tilt,"
+        << "E_Regularization,E_HarmonicBond,E_GagScaffolding,"
+        << "E_IdealizedProteinLattice,E_Total ((pN.nm)),Mean Force (pN)\n";
+
     const int recordCount = static_cast<int>(std::min(model.record.energyVec.size(),
         std::min(model.record.areaTotal.size(), model.record.meanForce.size())));
     for (int j = 0; j < recordCount; j++)
     {
-        if (j == 0)
-        {
-            outfileEF << "E_Curvature, E_Area, E_Regularization, E_HarmonicBond, E_GagScaffolding, E_IdealizedProteinLattice, E_Total ((pN.nm)), Mean Force (pN)" << '\n';
-        }
-        outfileEF << model.record.energyVec[j].energyCurvature << ", "
-                  << model.record.energyVec[j].energyArea << ", "
-                  << model.record.energyVec[j].energyRegularization << ", "
-                  << model.record.energyVec[j].energyHarmonicBond << ", "
-                  << model.record.energyVec[j].energyGagScaffolding << ", "
-                  << model.record.energyVec[j].energyIdealizedProteinLattice << ", "
-                  << model.record.energyVec[j].energyTotal << ", "
-                  << model.record.meanForce[j] << '\n';
+        write_energy_csv_fields(outfileEF, model.record.energyVec[j]);
+        outfileEF << ',' << model.record.meanForce[j] << '\n';
     }
     outfileEF.close();
     if (!outfileEF)
@@ -162,7 +222,7 @@ bool write_model_restart_checkpoint(const Model &model,
     }
 
     outfile << std::setprecision(17);
-    outfile << "SLIMED_RESTART_V1\n";
+    outfile << "SLIMED_RESTART_V2\n";
     outfile << "nextIteration " << nextIteration << "\n";
     outfile << "stepSize " << model.stepSize << "\n";
     outfile << "oa "
@@ -202,12 +262,22 @@ bool write_model_restart_checkpoint(const Model &model,
         write_matrix3(outfile, vertex.coordPrev);
         outfile << ' ';
         write_matrix3(outfile, vertex.coordRef);
-        outfile << ' ';
-        write_matrix3(outfile, vertex.force.forceTotal);
-        outfile << ' ';
-        write_matrix3(outfile, vertex.forcePrev.forceTotal);
-        outfile << ' ';
-        write_matrix3(outfile, model.ncgDirection0[vertex.index].forceTotal);
+        write_force_terms(outfile, vertex.force);
+        write_force_terms(outfile, vertex.forcePrev);
+        write_force_terms(outfile, model.ncgDirection0[vertex.index]);
+        outfile << "\n";
+    }
+
+    outfile << "faces " << model.mesh.faces.size() << "\n";
+    for (const Face &face : model.mesh.faces)
+    {
+        outfile << face.index << ' ';
+        write_matrix3(outfile, face.normVector);
+        outfile << ' ' << face.meanCurvature
+                << ' ' << face.elementArea
+                << ' ' << face.elementVolume
+                << ' ';
+        write_energy_terms(outfile, face.energy);
         outfile << "\n";
     }
 
@@ -274,7 +344,8 @@ bool load_model_restart_checkpoint(Model &model, const std::string &filepath)
 
     std::string tag;
     infile >> tag;
-    if (tag != "SLIMED_RESTART_V1")
+    const bool version2 = tag == "SLIMED_RESTART_V2";
+    if (!version2 && tag != "SLIMED_RESTART_V1")
     {
         std::cerr << "[load_model_restart_checkpoint] Unsupported checkpoint format in "
                   << filepath << "." << std::endl;
@@ -362,12 +433,55 @@ bool load_model_restart_checkpoint(Model &model, const std::string &filepath)
         Vertex &vertex = model.mesh.vertices[index];
         if (!read_matrix3(infile, vertex.coord) ||
             !read_matrix3(infile, vertex.coordPrev) ||
-            !read_matrix3(infile, vertex.coordRef) ||
-            !read_matrix3(infile, vertex.force.forceTotal) ||
-            !read_matrix3(infile, vertex.forcePrev.forceTotal) ||
-            !read_matrix3(infile, model.ncgDirection0[index].forceTotal))
+            !read_matrix3(infile, vertex.coordRef))
         {
             return false;
+        }
+        if (version2)
+        {
+            if (!read_force_terms(infile, vertex.force) ||
+                !read_force_terms(infile, vertex.forcePrev) ||
+                !read_force_terms(infile, model.ncgDirection0[index]))
+            {
+                return false;
+            }
+        }
+        else if (!read_matrix3(infile, vertex.force.forceTotal) ||
+                 !read_matrix3(infile, vertex.forcePrev.forceTotal) ||
+                 !read_matrix3(infile, model.ncgDirection0[index].forceTotal))
+        {
+            return false;
+        }
+    }
+
+    if (version2)
+    {
+        infile >> tag >> count;
+        if (tag != "faces" ||
+            count != static_cast<int>(model.mesh.faces.size()))
+        {
+            std::cerr << "[load_model_restart_checkpoint] Face count mismatch."
+                      << std::endl;
+            return false;
+        }
+        for (int row = 0; row < count; ++row)
+        {
+            int index = -1;
+            infile >> index;
+            if (index < 0 || index >= static_cast<int>(model.mesh.faces.size()))
+            {
+                return false;
+            }
+            Face &face = model.mesh.faces[index];
+            ensure_matrix3(face.normVector);
+            if (!read_matrix3(infile, face.normVector) ||
+                !(infile >> face.meanCurvature
+                         >> face.elementArea
+                         >> face.elementVolume) ||
+                !read_energy_terms(infile, face.energy))
+            {
+                return false;
+            }
         }
     }
 
@@ -444,6 +558,11 @@ bool load_model_restart_checkpoint(Model &model, const std::string &filepath)
     {
         return false;
     }
+    infile >> std::ws;
+    if (infile.peek() != std::char_traits<char>::eof())
+    {
+        return false;
+    }
 
     std::cout << "[load_model_restart_checkpoint] Restarted from " << filepath
               << " at iteration " << model.iteration << std::endl;
@@ -453,12 +572,8 @@ bool load_model_restart_checkpoint(Model &model, const std::string &filepath)
 /**
  * @brief Writes the current iteration element face energy data to a CSV file.
  *
- * This function writes the energy data for each element face of
- *  the current iteration in the following format:
- *
- * "E_Curvature, E_Area, E_Regularization, E_Total"
- *
- * @note @note File name is left in definition in case customization is needed.
+ * Each row contains the face index and all ten Energy channels at
+ * round-trip-safe double precision.
  *
  * @param model The model that cotains a mesh whose vertex data should be written to a CSV file.
  *
@@ -466,22 +581,38 @@ bool load_model_restart_checkpoint(Model &model, const std::string &filepath)
  */
 void write_element_face_energy_to_csv(const Model &model)
 {
-    // Output face index and then its corresponding element face energies
-    std::string ELEMENT_FACE_ENERGY_FILENAME = "ElementFaceEnergy.csv";
-    ofstream outfileEFE(ELEMENT_FACE_ENERGY_FILENAME);
-    
-    // Add header
-    outfileEFE << "Face_index, E_Curvature, E_Area, E_Regularization, E_Total" << "\n";
+    write_element_face_energy_to_csv(model, "ElementFaceEnergy.csv");
+}
 
-    // iterate thru face and append to the output file
-    for (Face& face: model.mesh.faces)
+bool write_element_face_energy_to_csv(const Model &model,
+                                      const std::string &filepath)
+{
+    ofstream outfileEFE(filepath);
+    if (!outfileEFE.is_open())
     {
-        outfileEFE << face.index << ","
-                << face.energy.energyCurvature << ","
-                << face.energy.energyArea << ","
-                << face.energy.energyTotal << "\n";
+        std::cerr << "[write_element_face_energy_to_csv] Could not open "
+                  << filepath << " for writing." << std::endl;
+        return false;
+    }
+    outfileEFE << std::setprecision(17);
+    outfileEFE
+        << "Face_index,E_Curvature,E_Area,E_Volume,E_Thickness,E_Tilt,"
+        << "E_Regularization,E_HarmonicBond,E_GagScaffolding,"
+        << "E_IdealizedProteinLattice,E_Total\n";
+    for (const Face &face : model.mesh.faces)
+    {
+        outfileEFE << face.index << ',';
+        write_energy_csv_fields(outfileEFE, face.energy);
+        outfileEFE << '\n';
     }
     outfileEFE.close();
+    if (!outfileEFE)
+    {
+        std::cerr << "[write_element_face_energy_to_csv] Failed while writing "
+                  << filepath << "." << std::endl;
+        return false;
+    }
+    return true;
 }
 
 /**

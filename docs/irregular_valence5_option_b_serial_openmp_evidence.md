@@ -47,14 +47,15 @@ reporting evidence rather than cross-platform exact constants.
 
 Stock Option B serial/OpenMP accumulation and fixed-thread repeatability
 evidence are complete. This does not claim scheduler assignment portability,
-change production scheduling, approve stock scientific semantics, or make the
-incomplete output contract acceptable.
+change production scheduling, or approve stock scientific semantics. The
+separately reviewed output-contract repair closes the output-visible evidence
+gap without changing this accumulation proof.
 
 Option B remains unselected, unrecommended, scientifically unapproved,
-unimplemented, and unrouted. Output-visible evidence remains incomplete and
-output-contract repair remains unauthorized. The remaining boundary is:
+unimplemented, and unrouted. Output-visible evidence is complete. The remaining
+boundary is:
 
-`review and explicitly authorize an output-contract repair lane; Option B remains unselected`.
+`scientific review and explicit Option B selection; production routing remains disabled`.
 
 Run the proof with:
 

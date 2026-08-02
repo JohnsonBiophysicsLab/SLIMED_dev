@@ -252,8 +252,7 @@ int main(int argc, char **argv)
         for (int face = 0; face < kFaceCount; ++face)
         {
             const Face &before = mesh.faces[face];
-            Face &after = restartMesh.faces[face];
-            after.normVector = mat_calloc(kAxes, 1);
+            const Face &after = restartMesh.faces[face];
             for (int axis = 0; axis < kAxes; ++axis)
                 faceNormalMaximum = std::max(
                     faceNormalMaximum,

@@ -39,7 +39,9 @@ class OptionBOutputVisibilityInventoryTest(unittest.TestCase):
         global_energy[9] = 13.25
         face_energy = []
         face_rows = [[
-            "Face_index", "E_Curvature", "E_Area", "E_Regularization", "E_Total"
+            "Face_index", "E_Curvature", "E_Area", "E_Volume", "E_Thickness",
+            "E_Tilt", "E_Regularization", "E_HarmonicBond", "E_GagScaffolding",
+            "E_IdealizedProteinLattice", "E_Total",
         ]]
         for face in range(20):
             curvature = float(face + 1)
@@ -48,13 +50,13 @@ class OptionBOutputVisibilityInventoryTest(unittest.TestCase):
             channels = [curvature, 0.0, 0.0, 0.0, 0.0,
                         regularization, 0.0, 0.0, 0.0, total]
             face_energy.extend(channels)
-            face_rows.append([str(face), str(curvature), "0", str(total)])
+            face_rows.append([str(face)] + [str(value) for value in channels])
         aggregate = [0.0] * 108
         energy_rows = [[
-            "E_Curvature", "E_Area", "E_Regularization", "E_HarmonicBond",
-            "E_GagScaffolding", "E_IdealizedProteinLattice",
-            "E_Total ((pN.nm))", "Mean Force (pN)",
-        ], ["12.5", "0", "0.75", "0", "0", "0", "13.25", "0"]]
+            "E_Curvature", "E_Area", "E_Volume", "E_Thickness", "E_Tilt",
+            "E_Regularization", "E_HarmonicBond", "E_GagScaffolding",
+            "E_IdealizedProteinLattice", "E_Total ((pN.nm))", "Mean Force (pN)",
+        ], [str(value) for value in global_energy] + ["0"]]
         energy_report = {
             "status": "passed",
             "independent_long_double_oracle_passed": True,
@@ -85,23 +87,25 @@ class OptionBOutputVisibilityInventoryTest(unittest.TestCase):
             "checkpoint_face_mean_curvature", "checkpoint_face_area",
             "checkpoint_face_legacy_volume", "checkpoint_face_energy",
         ):
-            harness[f"{prefix}_preserved"] = False
-            harness[f"{prefix}_max_abs_difference"] = 1.0
+            harness[f"{prefix}_preserved"] = True
+            harness[f"{prefix}_max_abs_difference"] = 0.0
         return energy_report, force_candidate, force_report, harness, energy_rows, face_rows
 
     def compare(self, values):
         return self.runner.compare_output_artifacts(*values)
 
-    def test_characterization_binds_incomplete_output_contract(self):
+    def test_repair_binds_complete_output_contract(self):
         report = self.compare(self.canonical_inputs())
         self.assertEqual(report["status"], "passed")
         self.assertTrue(report["output_writers_executed_and_parsed"])
         self.assertTrue(report["output_characterization_complete"])
-        self.assertFalse(report["output_visible_evidence_complete"])
-        self.assertFalse(report["element_face_energy_csv_schema_matches"])
-        self.assertFalse(report["checkpoint_force_family_components_serialized"])
-        self.assertFalse(report["face_normals_output_visible"])
-        self.assertEqual(len(report["writer_blockers"]), 4)
+        self.assertTrue(report["output_visible_evidence_complete"])
+        self.assertTrue(report["output_contract_repair_authorized"])
+        self.assertTrue(report["output_contract_repair_complete"])
+        self.assertTrue(report["element_face_energy_csv_schema_matches"])
+        self.assertTrue(report["checkpoint_force_family_components_serialized"])
+        self.assertTrue(report["face_normals_output_visible"])
+        self.assertEqual(report["writer_blockers"], [])
 
     def test_writer_execution_and_checkpoint_roundtrips_are_binding(self):
         baseline = self.canonical_inputs()
@@ -126,7 +130,7 @@ class OptionBOutputVisibilityInventoryTest(unittest.TestCase):
             with self.subTest(key=key), self.assertRaisesRegex(RuntimeError, message):
                 self.compare(mutated)
 
-    def test_face_schema_and_each_checkpoint_coverage_claim_are_binding(self):
+    def test_face_schema_and_each_checkpoint_preservation_claim_are_binding(self):
         baseline = self.canonical_inputs()
         for prefix in (
             "checkpoint_curvature_force", "checkpoint_area_force",
@@ -134,22 +138,22 @@ class OptionBOutputVisibilityInventoryTest(unittest.TestCase):
             "checkpoint_face_mean_curvature", "checkpoint_face_area",
             "checkpoint_face_legacy_volume", "checkpoint_face_energy",
         ):
-            preserved = copy.deepcopy(baseline)
-            preserved[3][f"{prefix}_preserved"] = True
+            lost = copy.deepcopy(baseline)
+            lost[3][f"{prefix}_preserved"] = False
             with self.subTest(prefix=prefix), self.assertRaisesRegex(
-                RuntimeError, "coverage claim drift"
+                RuntimeError, "preservation drift"
             ):
-                self.compare(preserved)
-            undemonstrated = copy.deepcopy(baseline)
-            undemonstrated[3][f"{prefix}_max_abs_difference"] = 0.0
+                self.compare(lost)
+            inexact = copy.deepcopy(baseline)
+            inexact[3][f"{prefix}_max_abs_difference"] = 1.0e-15
             with self.subTest(prefix=prefix), self.assertRaisesRegex(
-                RuntimeError, "absence is not demonstrated"
+                RuntimeError, "roundtrip drift"
             ):
-                self.compare(undemonstrated)
+                self.compare(inexact)
 
         widened = copy.deepcopy(baseline)
         widened[5][1].append("unexpected")
-        with self.assertRaisesRegex(RuntimeError, "legacy row width drift"):
+        with self.assertRaisesRegex(RuntimeError, "row width drift"):
             self.compare(widened)
 
         reordered = copy.deepcopy(baseline)
@@ -159,16 +163,16 @@ class OptionBOutputVisibilityInventoryTest(unittest.TestCase):
 
     def test_every_serialized_csv_field_family_is_envelope_bound(self):
         baseline = self.canonical_inputs()
-        for column in range(8):
+        for column in range(11):
             mutated = copy.deepcopy(baseline)
             mutated[4][1][column] = str(float(mutated[4][1][column]) + 1.0)
             with self.subTest(csv="energy", column=column), self.assertRaisesRegex(
                 RuntimeError, "EnergyForce.csv serialization envelope exceeded"
             ):
                 self.compare(mutated)
-        for column in (1, 2, 3):
+        for column in range(1, 11):
             mutated = copy.deepcopy(baseline)
-            mutated[5][1][column] = str(float(mutated[5][1][column]) + 9.0e-4)
+            mutated[5][1][column] = str(float(mutated[5][1][column]) + 1.0e-15)
             with self.subTest(csv="face", column=column), self.assertRaises(RuntimeError):
                 self.compare(mutated)
 
@@ -258,18 +262,23 @@ class OptionBOutputVisibilityInventoryTest(unittest.TestCase):
         report = json.loads(result.stdout)
         self.assertEqual(report["status"], "passed")
         self.assertTrue(report["output_writers_executed_and_parsed"])
-        self.assertFalse(report["output_visible_evidence_complete"])
-        self.assertEqual(report["element_face_energy_csv_header_width"], 5)
-        self.assertEqual(report["element_face_energy_csv_data_row_width"], 4)
+        self.assertTrue(report["output_visible_evidence_complete"])
+        self.assertTrue(report["output_contract_repair_complete"])
+        self.assertEqual(report["energy_force_csv_energy_channel_count"], 10)
+        self.assertEqual(report["energy_force_csv_omitted_global_channels"], [])
+        self.assertEqual(report["element_face_energy_csv_header_width"], 11)
+        self.assertEqual(report["element_face_energy_csv_data_row_width"], 11)
+        self.assertEqual(report["checkpoint_format"], "SLIMED_RESTART_V2")
+        self.assertTrue(report["checkpoint_v1_loader_compatible"])
         self.assertEqual(report["checkpoint_total_force_roundtrip_max_abs_difference"], 0.0)
         self.assertEqual(report["checkpoint_record_energy_roundtrip_max_abs_difference"], 0.0)
         self.assertEqual(
             report["energy_force_csv_max_abs_serialization_difference"],
-            self.runner.REVIEWED_WSL_ENERGY_FORCE_CSV_MAX_ABS_DIFFERENCE,
+            0.0,
         )
         self.assertEqual(
             report["element_face_energy_csv_max_abs_serialization_difference"],
-            self.runner.REVIEWED_WSL_ELEMENT_FACE_CSV_MAX_ABS_DIFFERENCE,
+            0.0,
         )
 
 

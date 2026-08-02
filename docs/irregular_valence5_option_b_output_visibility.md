@@ -1,75 +1,82 @@
-# Option B Valence-5 Output Visibility Characterization
+# Option B Valence-5 Output Contract
 
 ## Scope
 
-This is an observational output-visibility characterization for the approved
-closed valence-5 fixture under stock OpenSubdiv Option B semantics. It consumes
-the independently checked energy/geometry evidence and the existing force
-characterization, stages those values in a proof-local `Model`, then executes
-and parses all three real production writers relevant to the requested state:
+PR #157 characterized the production output writers against the approved
+closed valence-5 fixture under stock OpenSubdiv Option B semantics. It found
+three concrete contract gaps: incomplete and low-precision global energy CSV
+rows, a malformed and incomplete face-energy CSV schema, and restart files
+that retained totals but omitted force families and face observables.
 
-- `write_energy_force_data_to_csv`;
-- `write_element_face_energy_to_csv`; and
-- `write_model_restart_checkpoint`, followed by the production checkpoint
-  loader.
+This follow-on lane is the explicitly authorized output-contract repair. It is
+limited to the existing writers and loader, their tests, and this proof. It
+does not change evaluators, force formulas, scatter or OpenMP reduction order,
+optimizer behavior, fixtures, dependencies, or production routing. Option B
+remains unselected, unrecommended, scientifically unapproved, and unrouted.
 
-The lane does not change those writers, public headers, production formulas,
-routing, dependencies, output formats, checkpoints, OpenMP reductions,
-optimizer behavior, or fixtures. Option B remains unselected, unrecommended,
-scientifically unapproved, unimplemented, and unrouted.
+## Repaired CSV Contracts
 
-## Bound Inputs
+`EnergyForce.csv` now writes all ten `Energy` channels followed by mean force:
 
-The proof reuses the fixture, 20 ordered outward faces, perturbed coordinates,
-OpenSubdiv rows, and fixed energy/geometry envelope from the prior re-baseline.
-It independently executes the existing force algebra on the same rows and
-aggregates the three force families to the twelve original source vertices.
-The stock/current force and observable non-parity remains intentional evidence,
-not a failure of this output characterization.
+`E_Curvature,E_Area,E_Volume,E_Thickness,E_Tilt,E_Regularization,E_HarmonicBond,E_GagScaffolding,E_IdealizedProteinLattice,E_Total ((pN.nm)),Mean Force (pN)`
 
-## Writer Results
+`ElementFaceEnergy.csv` now writes face index followed by those same ten energy
+channels. Its header and every data row are both eleven columns wide. Both
+writers use 17 significant digits, and the proof requires exact numeric
+round-trip against the staged stock evidence; there is no tolerance override.
 
-`EnergyForce.csv` executes and parses with its existing eight-column schema.
-It exposes seven of ten global energy fields plus mean force, omitting volume,
-thickness, and tilt. The writer uses default stream precision, producing a
-maximum stock serialization difference of `0.002616418819570754` in WSL.
-Every emitted value is bound by a fixed absolute serialization envelope of
-`3e-3`; the proof exposes no command-line override for that reviewed limit.
+## Restart Contract
 
-`ElementFaceEnergy.csv` executes and parses, but its header declares five
-columns while each data row contains four values. The face regularization term
-is not written; total energy occupies the fourth value under the
-`E_Regularization` header, and no fifth value exists for `E_Total`. Default
-precision produces a maximum serialization difference of
-`4.713969291714193e-05` against the value actually written.
-Every emitted face value is bound by a fixed `5e-5` absolute envelope, while
-the row order, widths, and mislabelled fourth-column behavior are binding.
+New checkpoints use `SLIMED_RESTART_V2`. In addition to the V1 optimization,
+coordinate, scaffold, and record state, V2 serializes:
 
-The restart checkpoint preserves its record energy and total vertex force at
-the existing 17-digit precision: both round-trip maxima are exactly zero. It
-does not serialize the separate bending, area, and volume force families.
-It also does not preserve face energy, normals, mean curvature, area, or legacy
-volume. No other production output writer exposes those face observables.
-The proof measures each missing force family and face observable separately;
-each must change by a finite positive amount across restart. It also
-independently re-aggregates all 2,160 per-face force components into the 108
-source-force components before any output claim is accepted.
+- all eight current `Force` matrices for every vertex;
+- all eight previous-force matrices and all eight NCG-direction matrices;
+- each face normal, mean curvature, area, legacy volume, and all ten face
+  energy channels.
 
-## Decision Boundary
+The loader accepts both V1 and V2. A V1 file continues to restore its historical
+total-force-only state, while a V2 file restores every newly serialized field.
+The loader rejects trailing tokens after `END`. Unit tests construct a V1 file
+from V2 output to bind backward compatibility rather than merely accepting the
+version marker.
 
-The writers have now been executed and parsed, so the characterization itself
-is complete. Output-visible evidence remains incomplete because the existing
-output contract cannot represent the full reviewed stock evidence and one CSV
-schema is malformed. Output-contract repair is not authorized by this lane.
+## Verification Boundary
 
-The exact next boundary is:
+The proof stages the independently checked Option B stock energy, geometry,
+and force evidence in a real `Model`, executes all three production writers,
+loads the V2 checkpoint, and parses both CSVs. It requires:
 
-`review and explicitly authorize an output-contract repair lane; Option B remains unselected`.
+- all CSV values to match exactly at double round-trip precision;
+- all current force families, previous force families, and NCG direction
+  families to round-trip exactly;
+- face normals, mean curvature, area, legacy volume, and energy to round-trip
+  exactly; and
+- independent aggregation of all 2,160 per-face force components into the 108
+  source-force components before accepting the output claim.
 
-The separate stock serial/OpenMP lane is now complete: real OpenMP replay at
-1, 2, and 4 threads remains within `1e-10`, and fixed-thread repeats are
-tolerance-bound within `1e-10`. That result does not repair or authorize the
-output contract.
+The output-visible evidence gap identified by PR #157 is closed. The stock
+serial/OpenMP evidence is also complete under its separate proof-only lane.
+The remaining boundary is scientific review and explicit Option B selection;
+production valence-5 routing remains disabled.
+
+## Implementation Record
+
+This repair was implemented on 2026-08-02 from PR #160's merge commit
+`73bfbf1e90626eaf829d85c2a77916aaf816076f`. The work sequence was: inventory
+all affected writers/readers, define the narrow schema and V1/V2 compatibility
+boundary, implement and unit-test the production I/O, bind the real-writer
+OpenSubdiv proof, then update the readiness inventories and documentation.
+
+WSL verification completed for all five default build targets (`serial`,
+`omp`, `dyna`, `dyna_omp`, and `test`). The five focused output/restart tests
+pass, all 18 output/readiness Python tests pass with OpenSubdiv 3.7.0 present,
+and the real-writer proof reports exact zero serialization and checkpoint
+differences. The complete C++ suite remains at the documented GCC 15 baseline
+of 147/148: `SharedHelperRecordsScaffoldEnergyAndForceSideEffects` still fails
+because its expected three-component force has two uninitialized components.
+That pre-existing test defect is outside this repair and is not caused by the
+output changes.
 
 Run the proof with:
 

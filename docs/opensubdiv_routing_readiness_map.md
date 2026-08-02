@@ -409,20 +409,20 @@ area and volume constraint energies are global additions.
 
 Option B remains unselected, unrecommended, scientifically unapproved,
 unimplemented, and unrouted. This evidence makes no sole-mask causal claim.
-The follow-on output writer characterization is complete: the production
-global-energy, per-face-energy, and checkpoint writers execute and parse, and
-checkpoint total force plus record energy round-trip exactly. Output-visible
-evidence remains incomplete because the global CSV omits channels and loses
-precision, the face CSV declares five columns but emits four, force families
-and face geometry are not serialized, and output-contract repair remains
-unauthorized. The proof-only stock-semantics serial/OpenMP lane is complete:
+PR #157's output writer characterization identified incomplete CSV schemas,
+insufficient CSV precision, and omitted checkpoint force/face state. The
+authorized output-contract repair is complete: both CSVs expose all ten energy
+channels at 17-digit precision, and `SLIMED_RESTART_V2` preserves all current,
+previous, and NCG force families plus face normals, geometry, and energy while
+the loader remains V1-compatible. The real-writer proof requires exact
+round-trip, so output-visible evidence is complete. The proof-only
+stock-semantics serial/OpenMP lane is also complete:
 real OpenMP replay at 1, 2, and 4 threads across five repeats has a maximum
 serial/OpenMP accumulation difference of `2.2737367544323206e-13` under the
 fixed `1e-10` policy, fixed-thread repeatability remains within `1e-10`, face
 publication is exact, and independently recomputed aggregate-force drift is
-`0.0`. The next
-boundary is explicit review of an output-contract repair lane, not route
-activation.
+`0.0`. The next boundary is scientific review and explicit Option B selection;
+production valence-5 routing remains disabled.
 
 ## Inventory Check
 
