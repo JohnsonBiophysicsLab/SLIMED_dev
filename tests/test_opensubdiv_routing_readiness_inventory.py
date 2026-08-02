@@ -136,6 +136,9 @@ class OpenSubdivRoutingReadinessInventoryTest(unittest.TestCase):
         self.assertIn(
             "Option B stock serial/OpenMP evidence completed", anchor_names
         )
+        self.assertIn("Option B evidence is decision ready", anchor_names)
+        self.assertIn("Option B decision remains unrecorded", anchor_names)
+        self.assertIn("Option B explicit three-way decision", anchor_names)
 
         self.assertFalse(
             inventory.collect_forbidden_claims(inventory.repo_root())
