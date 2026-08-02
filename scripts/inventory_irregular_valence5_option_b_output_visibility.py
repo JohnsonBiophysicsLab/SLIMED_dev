@@ -24,10 +24,16 @@ SERIAL_DOC = Path("docs/irregular_valence5_option_b_serial_openmp_evidence.md")
 READINESS = Path("docs/opensubdiv_routing_readiness_map.md")
 GLOBAL = Path("scripts/inventory_opensubdiv_routing_readiness.py")
 GLOBAL_TEST = Path("tests/test_opensubdiv_routing_readiness_inventory.py")
+ANALYSIS_CONSUMERS = (
+    Path("analysis/plotvertex.py"),
+    Path("analysis/plotvertex_gag.py"),
+    Path("analysis/gag_scaffolding_plotvertex.py"),
+)
 
 ALLOWED_PATHS = {
     RUNNER, WRAPPER, HARNESS, DOC, TEST, SELF, OUTPUT, IO_HEADER, IO_TEST,
     ENERGY_DOC, SERIAL_DOC, READINESS, GLOBAL, GLOBAL_TEST,
+    *ANALYSIS_CONSUMERS,
 }
 REQUIRED_CHANGED_PATHS = ALLOWED_PATHS - {WRAPPER}
 PROTECTED_PREFIXES = (
@@ -105,6 +111,16 @@ ANCHORS = {
         "Option B output contract repair completed",
         "Option B selection remains gated after output repair",
     ),
+    **{
+        path: (
+            'pd.read_csv("EnergyForce.csv", index_col = False)',
+            '"E_Curvature": "E_curv"',
+            '"E_Regularization": "E_reg"',
+            '"E_Total ((pN.nm))": "E_tot"',
+            '"Mean Force (pN)": "F_mean"',
+        )
+        for path in ANALYSIS_CONSUMERS
+    },
 }
 
 FORBIDDEN = {

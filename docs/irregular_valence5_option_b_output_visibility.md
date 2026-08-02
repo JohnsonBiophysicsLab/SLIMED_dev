@@ -24,6 +24,9 @@ remains unselected, unrecommended, scientifically unapproved, and unrouted.
 channels. Its header and every data row are both eleven columns wide. Both
 writers use 17 significant digits, and the proof requires exact numeric
 round-trip against the staged stock evidence; there is no tolerance override.
+The three checked-in pandas plotting scripts now read the CSV header and rename
+the five legacy plotting columns by name, so the additional channels do not
+break those consumers.
 
 ## Restart Contract
 

@@ -15,6 +15,11 @@ ROOT = Path(__file__).resolve().parents[1]
 RUNNER_PATH = ROOT / "scripts/run_irregular_valence5_option_b_output_visibility.py"
 INVENTORY = ROOT / "scripts/inventory_irregular_valence5_option_b_output_visibility.py"
 WRAPPER = ROOT / "scripts/run_irregular_valence5_option_b_output_visibility.sh"
+ANALYSIS_CONSUMERS = (
+    ROOT / "analysis/plotvertex.py",
+    ROOT / "analysis/plotvertex_gag.py",
+    ROOT / "analysis/gag_scaffolding_plotvertex.py",
+)
 
 
 def load(path: Path, name: str):
@@ -245,6 +250,17 @@ class OptionBOutputVisibilityInventoryTest(unittest.TestCase):
             cwd=ROOT, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
         )
         self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_checked_in_energy_force_consumers_are_header_driven(self):
+        for path in ANALYSIS_CONSUMERS:
+            source = path.read_text(encoding="utf-8")
+            with self.subTest(path=path.name):
+                self.assertIn('pd.read_csv("EnergyForce.csv", index_col = False)', source)
+                self.assertIn('"E_Curvature": "E_curv"', source)
+                self.assertIn('"E_Regularization": "E_reg"', source)
+                self.assertIn('"E_Total ((pN.nm))": "E_tot"', source)
+                self.assertIn('"Mean Force (pN)": "F_mean"', source)
+                self.assertNotIn("df_ef.columns =", source)
 
     def test_inventory_passes(self):
         inventory = load(INVENTORY, "option_b_output_visibility_inventory_test")
