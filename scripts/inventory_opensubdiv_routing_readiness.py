@@ -698,7 +698,7 @@ ANCHORS: tuple[Anchor, ...] = (
         READINESS_DOC_PATH,
         "evidence remains incomplete because",
         "evidence boundary",
-        "The remaining output and stock serial/OpenMP channels stay explicit.",
+        "The remaining output-contract gap stays explicit.",
     ),
     Anchor(
         "valence-5 Option B energy/geometry re-baselining",
@@ -731,6 +731,14 @@ ANCHORS: tuple[Anchor, ...] = (
         "output-contract repair remains",
         "output repair boundary",
         "The malformed and incomplete output contract remains behind explicit review.",
+    ),
+    Anchor(
+        "valence-5 Option B serial/OpenMP evidence",
+        "Option B stock serial/OpenMP evidence completed",
+        READINESS_DOC_PATH,
+        "proof-only stock-semantics serial/OpenMP lane is complete",
+        "accumulation evidence boundary",
+        "Real OpenMP accumulation and fixed-thread repeatability are characterized without routing Option B.",
     ),
     Anchor(
         "backend policy",
