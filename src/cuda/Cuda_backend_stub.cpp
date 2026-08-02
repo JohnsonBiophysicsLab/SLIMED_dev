@@ -17,11 +17,20 @@ DeviceContext::DeviceContext(std::unique_ptr<Impl> impl,
 
 DeviceContext::DeviceContext(DeviceContext &&) noexcept = default;
 DeviceContext &DeviceContext::operator=(DeviceContext &&) noexcept = default;
-DeviceContext::~DeviceContext() = default;
+DeviceContext::~DeviceContext()
+{
+    (void)close();
+}
 
 const DeviceCapabilities &DeviceContext::capabilities() const noexcept
 {
     return capabilities_;
+}
+
+Error DeviceContext::close()
+{
+    impl_.reset();
+    return {};
 }
 
 ContextResult create_device_context(const int deviceOrdinal)

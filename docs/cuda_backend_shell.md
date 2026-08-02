@@ -1,7 +1,7 @@
 # CUDA Backend Shell And Capability Report
 
 Date: 2026-08-02. Baseline: `origin/main` at
-`a25a13906a314a40f5442f6068a3bde8bd0e8142` (merge of PR #163).
+`0b2b6dd425cb47e703c02dce0d32f89e23721b0d` (merge of PR #164).
 
 This is Step 1 of
 `docs/cuda_end_to_end_residency_force_scatter_implementation_plan.md`.
@@ -23,6 +23,14 @@ The CUDA implementation owns:
 - balanced context push/pop operations during creation and destruction; and
 - deterministic release of the stream followed by the retained context
   reference through RAII.
+
+The internal lifetime state machine remembers whether the retained context is
+already pushed. A failed creation-time pop is retried without pushing the same
+context twice. Cleanup never releases the shared primary-context reference
+while its context may still be current or while a stream remains owned.
+`DeviceContext::close()` reports cleanup failures; failed resources stay marked
+live so a later explicit close or destructor can retry without double destroy
+or double release.
 
 It does not call `cuDevicePrimaryCtxReset` or `cudaDeviceReset`, because the
 primary context is process-shared with CUDA Runtime users. NVIDIA documents
@@ -59,9 +67,10 @@ to a successful structured skip unless `--require-cuda` is used.
 
 ## Build boundaries
 
-Default serial, OpenMP, dynamics, test, and syntax targets compile only
-`src/cuda/Cuda_backend_stub.cpp`. The stub never includes CUDA headers, links a
-CUDA library, probes a driver, or creates a device context. It reports
+Default serial, OpenMP, dynamics, test, and syntax targets compile the shared
+error-name implementation and `src/cuda/Cuda_backend_stub.cpp`. They never
+compile the `.cu` implementation. The stub never includes CUDA headers, links
+a CUDA library, probes a driver, or creates a device context. It reports
 `not_compiled` without partial state.
 
 CUDA discovery and compilation occur only after explicitly requesting:
@@ -91,12 +100,12 @@ python3 scripts/run_cuda_backend_report.py \
   --require-cuda --lifecycle-iterations 20
 ```
 
-The report executable destroys each completed probe context before starting
-the next lifecycle iteration, then keeps the final successful context alive
-through JSON emission. Thus its ownership flags describe live RAII ownership
-at the reporting boundary. `query_backend()` instead creates and destroys a
-temporary context; the same flags there record that the retain/create probe
-succeeded, not ownership that outlives the call.
+The report executable explicitly closes each probe context and counts an
+iteration only after stream destruction, preceding-context restoration, and
+primary-context release all succeed. Ownership flags record the resources that
+were successfully owned during that completed lifecycle. `query_backend()`
+also closes its temporary context and converts cleanup failure into structured
+unavailability.
 
 ## Native evidence
 
@@ -120,6 +129,9 @@ The Step-1 gate includes:
 
 - C++ tests for the default stub, stable errors, no partial context, and
   move-only ownership;
+- injected driver-call tests for preceding-context restoration, failed pop,
+  failed cleanup push, failed stream destruction, retry, and exactly-once
+  primary-context release;
 - Python tests/inventory for optional-target isolation, CUDA-free public
   headers, no kernel/scientific allocation, runner skip behavior, and route
   absence;

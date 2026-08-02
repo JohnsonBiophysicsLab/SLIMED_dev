@@ -27,6 +27,8 @@ const char *error_code_name(const ErrorCode code) noexcept
         return "stream_creation_failed";
     case ErrorCode::ContextStackFailed:
         return "context_stack_failed";
+    case ErrorCode::CleanupFailed:
+        return "cleanup_failed";
     }
     return "unknown";
 }

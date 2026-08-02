@@ -143,6 +143,14 @@ int main(int argc, char **argv)
                 finalResult = std::move(result);
                 break;
             }
+            const auto cleanupError = result.context->close();
+            if (!cleanupError.ok())
+            {
+                result.report.available = false;
+                result.report.error = cleanupError;
+                finalResult = std::move(result);
+                break;
+            }
             ++completedLifecycleIterations;
             if (iteration + 1 == lifecycleIterations)
                 finalResult = std::move(result);

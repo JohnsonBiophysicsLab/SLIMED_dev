@@ -1,4 +1,5 @@
 #include "cuda/Cuda_backend.hpp"
+#include "cuda/detail/Cuda_context_lifetime.hpp"
 
 #include <cuda.h>
 #include <cuda_runtime_api.h>
@@ -65,28 +66,110 @@ bool driver_attribute(const CUdevice device, const CUdevice_attribute attribute,
     return false;
 }
 
+detail::OpaqueHandle opaque_context(const CUcontext context) noexcept
+{
+    return reinterpret_cast<detail::OpaqueHandle>(context);
+}
+
+detail::OpaqueHandle opaque_stream(const CUstream stream) noexcept
+{
+    return reinterpret_cast<detail::OpaqueHandle>(stream);
+}
+
+int push_context(void *, const detail::OpaqueHandle context) noexcept
+{
+    return static_cast<int>(
+        cuCtxPushCurrent(reinterpret_cast<CUcontext>(context)));
+}
+
+int pop_context(void *, detail::OpaqueHandle *context) noexcept
+{
+    CUcontext popped = nullptr;
+    const CUresult status = cuCtxPopCurrent(&popped);
+    *context = opaque_context(popped);
+    return static_cast<int>(status);
+}
+
+int destroy_stream(void *, const detail::OpaqueHandle stream) noexcept
+{
+    return static_cast<int>(
+        cuStreamDestroy(reinterpret_cast<CUstream>(stream)));
+}
+
+int release_primary_context(void *, const int device) noexcept
+{
+    return static_cast<int>(cuDevicePrimaryCtxRelease(device));
+}
+
+detail::LifetimeDriverCalls lifetime_driver_calls() noexcept
+{
+    detail::LifetimeDriverCalls calls;
+    calls.successCode = static_cast<int>(CUDA_SUCCESS);
+    calls.pushContext = push_context;
+    calls.popContext = pop_context;
+    calls.destroyStream = destroy_stream;
+    calls.releasePrimaryContext = release_primary_context;
+    return calls;
+}
+
+Error lifetime_error(const detail::LifetimeFailure failure,
+                     const ErrorCode code, const bool cleanup)
+{
+    Error error;
+    error.code = code;
+    error.nativeCode = failure.nativeCode;
+    if (cleanup)
+        error.operation = detail::lifetime_operation_name(failure.operation);
+    else if (failure.operation == detail::LifetimeOperation::PushContext)
+        error.operation = "cuCtxPushCurrent";
+    else if (failure.operation == detail::LifetimeOperation::PopContext)
+        error.operation = "cuCtxPopCurrent";
+    else
+        error.operation = "context_stack";
+
+    if (failure.operation ==
+        detail::LifetimeOperation::UnexpectedPoppedContext)
+    {
+        error.message =
+            "CUDA popped a context different from the retained primary context";
+        return error;
+    }
+
+    const char *description = nullptr;
+    const CUresult status = static_cast<CUresult>(failure.nativeCode);
+    const CUresult descriptionStatus = cuGetErrorString(status, &description);
+    error.message =
+        descriptionStatus == CUDA_SUCCESS && description != nullptr
+            ? description
+            : "CUDA driver API returned an unknown lifetime error";
+    return error;
+}
+
 } // namespace
 
 struct DeviceContext::Impl
 {
     CUdevice device = 0;
     CUcontext context = nullptr;
-    CUstream stream = nullptr;
-    bool retained = false;
+    detail::ContextLifetime lifetime{lifetime_driver_calls()};
 
     ~Impl() noexcept
     {
-        if (stream != nullptr && context != nullptr)
+        try
         {
-            if (cuCtxPushCurrent(context) == CUDA_SUCCESS)
-            {
-                (void)cuStreamDestroy(stream);
-                CUcontext popped = nullptr;
-                (void)cuCtxPopCurrent(&popped);
-            }
+            (void)cleanup();
         }
-        if (retained)
-            (void)cuDevicePrimaryCtxRelease(device);
+        catch (...)
+        {
+        }
+    }
+
+    Error cleanup()
+    {
+        const detail::LifetimeFailure failure = lifetime.cleanup();
+        return failure.ok()
+                   ? Error{}
+                   : lifetime_error(failure, ErrorCode::CleanupFailed, true);
     }
 };
 
@@ -98,11 +181,30 @@ DeviceContext::DeviceContext(std::unique_ptr<Impl> impl,
 
 DeviceContext::DeviceContext(DeviceContext &&) noexcept = default;
 DeviceContext &DeviceContext::operator=(DeviceContext &&) noexcept = default;
-DeviceContext::~DeviceContext() = default;
+DeviceContext::~DeviceContext()
+{
+    try
+    {
+        (void)close();
+    }
+    catch (...)
+    {
+    }
+}
 
 const DeviceCapabilities &DeviceContext::capabilities() const noexcept
 {
     return capabilities_;
+}
+
+Error DeviceContext::close()
+{
+    if (impl_ == nullptr)
+        return {};
+    Error error = impl_->cleanup();
+    if (error.ok())
+        impl_.reset();
+    return error;
 }
 
 ContextResult create_device_context(const int deviceOrdinal)
@@ -228,14 +330,28 @@ ContextResult create_device_context(const int deviceOrdinal)
                                     "cuDevicePrimaryCtxRetain");
         return result;
     }
-    impl->retained = true;
+    impl->lifetime.markPrimaryContextRetained(
+        static_cast<int>(impl->device), opaque_context(impl->context));
     report.device.primaryContextRetained = true;
 
-    status = cuCtxPushCurrent(impl->context);
-    if (status != CUDA_SUCCESS)
+    const auto finishFailure = [&report, &impl](Error primaryError) {
+        Error cleanupError = impl->cleanup();
+        if (!cleanupError.ok())
+        {
+            cleanupError.message += "; preceding failure in " +
+                                    primaryError.operation + ": " +
+                                    primaryError.message;
+            report.error = std::move(cleanupError);
+        }
+        else
+            report.error = std::move(primaryError);
+    };
+
+    detail::LifetimeFailure lifetimeStatus = impl->lifetime.pushContext();
+    if (!lifetimeStatus.ok())
     {
-        report.error = driver_error(status, ErrorCode::ContextStackFailed,
-                                    "cuCtxPushCurrent");
+        finishFailure(lifetime_error(lifetimeStatus,
+                                     ErrorCode::ContextStackFailed, false));
         return result;
     }
 
@@ -243,29 +359,33 @@ ContextResult create_device_context(const int deviceOrdinal)
         cuMemGetInfo(&report.device.freeMemoryBytes,
                      &report.device.totalMemoryBytes);
     CUresult streamStatus = CUDA_SUCCESS;
+    CUstream stream = nullptr;
     if (memoryStatus == CUDA_SUCCESS)
-        streamStatus = cuStreamCreate(&impl->stream, CU_STREAM_NON_BLOCKING);
-
-    CUcontext popped = nullptr;
-    const CUresult popStatus = cuCtxPopCurrent(&popped);
-    if (popStatus != CUDA_SUCCESS)
     {
-        report.error = driver_error(popStatus, ErrorCode::ContextStackFailed,
-                                    "cuCtxPopCurrent");
+        streamStatus = cuStreamCreate(&stream, CU_STREAM_NON_BLOCKING);
+        if (streamStatus == CUDA_SUCCESS)
+            impl->lifetime.markStreamCreated(opaque_stream(stream));
+    }
+
+    lifetimeStatus = impl->lifetime.popContext();
+    if (!lifetimeStatus.ok())
+    {
+        finishFailure(lifetime_error(lifetimeStatus,
+                                     ErrorCode::ContextStackFailed, false));
         return result;
     }
     if (memoryStatus != CUDA_SUCCESS)
     {
-        report.error = driver_error(memoryStatus,
-                                    ErrorCode::CapabilityQueryFailed,
-                                    "cuMemGetInfo");
+        finishFailure(driver_error(memoryStatus,
+                                   ErrorCode::CapabilityQueryFailed,
+                                   "cuMemGetInfo"));
         return result;
     }
     if (streamStatus != CUDA_SUCCESS)
     {
-        report.error = driver_error(streamStatus,
-                                    ErrorCode::StreamCreationFailed,
-                                    "cuStreamCreate");
+        finishFailure(driver_error(streamStatus,
+                                   ErrorCode::StreamCreationFailed,
+                                   "cuStreamCreate"));
         return result;
     }
 
@@ -278,7 +398,17 @@ ContextResult create_device_context(const int deviceOrdinal)
 
 BackendReport query_backend(const int deviceOrdinal)
 {
-    return create_device_context(deviceOrdinal).report;
+    ContextResult result = create_device_context(deviceOrdinal);
+    if (result.context != nullptr)
+    {
+        const Error cleanupError = result.context->close();
+        if (!cleanupError.ok())
+        {
+            result.report.available = false;
+            result.report.error = cleanupError;
+        }
+    }
+    return result.report;
 }
 
 } // namespace slimed::cuda_backend

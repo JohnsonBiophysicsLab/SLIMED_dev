@@ -20,6 +20,7 @@ enum class ErrorCode
     ContextCreationFailed,
     StreamCreationFailed,
     ContextStackFailed,
+    CleanupFailed,
 };
 
 const char *error_code_name(ErrorCode code) noexcept;
@@ -77,6 +78,7 @@ class DeviceContext final
     ~DeviceContext();
 
     const DeviceCapabilities &capabilities() const noexcept;
+    Error close();
 
   private:
     struct Impl;
