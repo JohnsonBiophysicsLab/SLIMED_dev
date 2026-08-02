@@ -53,6 +53,11 @@ The initial feasibility audit established:
 - CUDA driver API 13.0; and
 - CUDA 13.3 compiler/runtime development packages.
 
+These values record the initial audit, not a frozen execution requirement.
+Every proof and benchmark report must capture the values observed when it runs;
+driver, WSL, compiler, firmware, and power-state drift must be visible rather
+than silently attributed to the CUDA implementation.
+
 Proof binaries for this machine must emit native Ada SASS with
 `-arch=compute_89 -code=sm_89`. They must not depend on PTX JIT because the
 CUDA 13.3 runtime is operating through CUDA 13.x minor-version compatibility
@@ -92,9 +97,17 @@ CUDA performance measurements are invalid unless all correctness gates pass:
 2. Every CPU and CUDA input/output component is checked for finiteness.
 3. Forward and transpose outputs report maximum absolute and relative deltas.
    The initial maximum absolute acceptance gate is `1.0e-12`; it may not be
-   widened without a separately reviewed scientific decision.
+   widened without a separately reviewed scientific decision. Relative output
+   deltas are reported for diagnosis only in the first proof and are not a
+   substitute for the fixed absolute gate.
 4. The independent adjoint identity
    `dot(g, W * p) == dot(W^T * g, p)` is checked with a long-double host oracle.
+   For `left = dot(g, W * p)` and `right = dot(W^T * g, p)`, the normalized
+   adjoint residual is
+   `abs(left - right) / max(1, abs(left), abs(right))`. The gate passes only
+   when that residual is at most `1.0e-12`. The scale floor of one defines the
+   zero/near-zero case without division by zero. CPU-reference and CUDA outputs
+   are gated independently by this same formula.
 5. At least 20 identical CUDA repetitions must produce bitwise-identical
    outputs for the deterministic no-atomic kernel.
 6. Natural and deliberately permuted control orders are covered. Duplicate
@@ -104,9 +117,13 @@ CUDA performance measurements are invalid unless all correctness gates pass:
    fail loudly with actionable diagnostics.
 
 The proof report must include device name, compute capability, driver/runtime
-versions, compiler version, compile flags, random seed, batch size, and all
-correctness maxima. A passing generic vector-add smoke test is environment
-evidence only and is not SLIMED correctness evidence.
+versions, GPU power state when available, host CPU model, physical and logical
+core counts, current host power mode, WSL/kernel version, CPU and CUDA compiler
+versions and flags, OpenMP runtime, requested and observed OpenMP thread counts,
+OpenMP affinity/binding settings, random seed, batch size, and all correctness
+maxima. Unavailable metadata must be recorded explicitly rather than omitted.
+A passing generic vector-add smoke test is environment evidence only and is not
+SLIMED correctness evidence.
 
 ## Performance Method
 
@@ -119,6 +136,13 @@ Performance evidence must distinguish computation from transfer overhead:
 - host-to-device and device-to-host transfer times; and
 - transfer-inclusive end-to-end CUDA wall time.
 
+CPU comparisons must record the CPU model, physical/logical core topology,
+actual OpenMP thread count, OpenMP runtime, schedule, affinity and binding,
+compiler and flags, AC/battery state, and host/Windows power mode when those
+values are observable. A missing value is reported as unavailable. CPU and GPU
+measurements must run under the same documented host power configuration, and
+thermal or clock throttling observed during a run invalidates that comparison.
+
 The harness will cover logarithmically increasing batch sizes, including small
 batches that expose launch overhead and the largest batch that remains safely
 within the 6 GiB device-memory budget. Each measured case uses warm-up runs and
@@ -128,7 +152,8 @@ best result.
 An integration recommendation requires transfer-inclusive speedup greater than
 one on a representative repeated SLIMED workload. Kernel-only speedup is not
 sufficient. The report must identify the measured break-even batch size and
-must not extrapolate beyond the tested GPU, power state, precision, or workload.
+must not extrapolate beyond the tested CPU, core/thread configuration, OpenMP
+affinity, GPU, driver/runtime, host power state, precision, or workload.
 
 ## Staged PR Sequence
 
