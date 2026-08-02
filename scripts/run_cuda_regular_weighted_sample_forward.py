@@ -19,6 +19,7 @@ CUDA_SOURCE = Path("experiments/cuda_regular_weighted_sample_forward.cu")
 GAUSS_SOURCE = Path("src/mesh/Gauss_quadrature.cpp")
 LINALG_SOURCE = Path("src/linear_algebra/Linear_algebra.cpp")
 NO_CUDA_DEVICE_EXIT_CODE = 77
+HOST_COMPILER_FLAGS = ["-std=c++17", "-O3"]
 
 
 def repo_root() -> Path:
@@ -32,19 +33,49 @@ def detect_nvcc(explicit: str | None) -> str | None:
     return shutil.which("nvcc")
 
 
+def detect_host_cxx(explicit: str | None) -> str | None:
+    candidate = explicit or os.environ.get("CXX") or "g++"
+    path = Path(candidate)
+    if path.is_file():
+        return str(path)
+    return shutil.which(candidate)
+
+
+def compiler_version(executable: str) -> str:
+    completed = subprocess.run(
+        [executable, "--version"],
+        capture_output=True,
+        check=False,
+        text=True,
+    )
+    output = (completed.stdout or completed.stderr).strip()
+    if completed.returncode != 0 or not output:
+        return f"unavailable (exit {completed.returncode})"
+    return output
+
+
+def cuda_compiler_flags(
+    compute_arch: str, sm_code: str, host_cxx: str
+) -> list[str]:
+    return [
+        *HOST_COMPILER_FLAGS,
+        f"-arch={compute_arch}",
+        f"-code={sm_code}",
+        f"-ccbin={host_cxx}",
+    ]
+
+
 def build_command(
     root: Path,
     nvcc: str,
     output: Path,
     compute_arch: str,
     sm_code: str,
+    host_cxx: str,
 ) -> list[str]:
     return [
         nvcc,
-        "-std=c++17",
-        "-O3",
-        f"-arch={compute_arch}",
-        f"-code={sm_code}",
+        *cuda_compiler_flags(compute_arch, sm_code, host_cxx),
         "-I",
         str(root / "include"),
         str(root / CUDA_SOURCE),
@@ -92,6 +123,7 @@ def cpu_metadata() -> dict[str, object]:
         "openmp_requested_threads": 1,
         "openmp_observed_threads": 1,
         "openmp_affinity": "not used",
+        "openmp_binding": "not used",
     }
 
 
@@ -115,17 +147,18 @@ def run_proof(args: argparse.Namespace) -> int:
     nvcc = detect_nvcc(args.nvcc)
     if nvcc is None:
         return skip_report("nvcc not found; optional CUDA proof not run", required=args.require_cuda)
+    host_cxx = detect_host_cxx(args.host_cxx)
+    if host_cxx is None:
+        sys.stderr.write(
+            "CUDA forward proof failed: host C++ compiler not found; "
+            "set CXX or pass --host-cxx\n"
+        )
+        return 1
 
     with tempfile.TemporaryDirectory(prefix="slimed-cuda-forward-") as temporary:
         binary = Path(temporary) / "cuda_regular_weighted_sample_forward"
         command = build_command(
-            root, nvcc, binary, args.compute_arch, args.sm_code
-        )
-        compiler = subprocess.run(
-            [nvcc, "--version"],
-            capture_output=True,
-            check=False,
-            text=True,
+            root, nvcc, binary, args.compute_arch, args.sm_code, host_cxx
         )
         build = subprocess.run(
             command,
@@ -168,7 +201,14 @@ def run_proof(args: argparse.Namespace) -> int:
             sys.stderr.write(execution.stdout)
             return 1
         report["environment"] = cpu_metadata()
-        report["environment"]["nvcc"] = compiler.stdout.strip()
+        report["environment"]["cuda_compiler"] = nvcc
+        report["environment"]["cuda_compiler_version"] = compiler_version(nvcc)
+        report["environment"]["cuda_compiler_flags"] = cuda_compiler_flags(
+            args.compute_arch, args.sm_code, host_cxx
+        )
+        report["environment"]["host_cxx"] = host_cxx
+        report["environment"]["host_cxx_version"] = compiler_version(host_cxx)
+        report["environment"]["host_cxx_flags"] = HOST_COMPILER_FLAGS
         report["environment"]["compile_command"] = command
         print(json.dumps(report, indent=2, sort_keys=True))
         return 0 if report.get("status") == "passed" else 2
@@ -178,6 +218,10 @@ def parser() -> argparse.ArgumentParser:
     argument_parser = argparse.ArgumentParser(description=__doc__)
     argument_parser.add_argument("--root", help="repository root; defaults to script parent")
     argument_parser.add_argument("--nvcc", help="explicit nvcc path")
+    argument_parser.add_argument(
+        "--host-cxx",
+        help="explicit host C++ compiler used by nvcc; defaults to CXX or g++",
+    )
     argument_parser.add_argument("--batch-size", type=int, default=257)
     argument_parser.add_argument("--compute-arch", default="compute_89")
     argument_parser.add_argument("--sm-code", default="sm_89")
@@ -198,4 +242,3 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

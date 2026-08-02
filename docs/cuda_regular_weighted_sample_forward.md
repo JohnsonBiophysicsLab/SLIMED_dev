@@ -52,11 +52,15 @@ runner options and must describe the device being tested.
 ## Observed correctness evidence
 
 The commands below ran in WSL2 Ubuntu on 2026-08-01 using CUDA 13.3
-(`nvcc` 13.3.73), driver API 13.0, runtime API 13.3, and an NVIDIA GeForce RTX
-4050 Laptop GPU with compute capability 8.9. The host CPU was a 13th Gen Intel
-Core i5-13450HX with eight physical and 16 logical cores. GPU power state,
-Windows host power mode, and AC/battery state were unavailable to this WSL
-correctness runner and were recorded as unavailable rather than inferred.
+(`nvcc` 13.3.73), GCC 15.2.0 as the explicitly selected host C++ compiler,
+driver API 13.0, runtime API 13.3, and an NVIDIA GeForce RTX 4050 Laptop GPU
+with compute capability 8.9. CUDA compiler flags were
+`-std=c++17 -O3 -arch=compute_89 -code=sm_89 -ccbin=/usr/bin/g++`; the host
+compiler flags were `-std=c++17 -O3`. The host CPU was a 13th Gen Intel Core
+i5-13450HX with eight physical and 16 logical cores. GPU power state, Windows
+host power mode, and AC/battery state were unavailable to this WSL correctness
+runner and were recorded as unavailable rather than inferred. OpenMP affinity
+and binding were both recorded as not used for the serial CPU reference.
 
 | Batch | Components | Maximum absolute delta | Maximum relative delta (diagnostic) | Result |
 | ---: | ---: | ---: | ---: | :--- |
@@ -75,7 +79,7 @@ future gated steps.
 
 ## Validation record
 
-The focused dependency-free gate passed 15 tests:
+The focused dependency-free gate passed 16 tests:
 
 ```bash
 python3 -m unittest \

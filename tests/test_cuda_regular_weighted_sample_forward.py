@@ -50,10 +50,12 @@ class CudaRegularWeightedSampleForwardTest(unittest.TestCase):
             Path("/tmp/proof"),
             "compute_89",
             "sm_89",
+            "/usr/bin/g++",
         )
 
         self.assertIn("-arch=compute_89", command)
         self.assertIn("-code=sm_89", command)
+        self.assertIn("-ccbin=/usr/bin/g++", command)
         self.assertIn(str(ROOT / runner.CUDA_SOURCE), command)
         self.assertIn(str(ROOT / runner.GAUSS_SOURCE), command)
         self.assertIn(str(ROOT / runner.LINALG_SOURCE), command)
@@ -97,6 +99,20 @@ class CudaRegularWeightedSampleForwardTest(unittest.TestCase):
         self.assertIn("ac_battery_state", metadata)
         self.assertIn("gpu_power_state", metadata)
         self.assertIn("openmp_observed_threads", metadata)
+        self.assertEqual(metadata["openmp_binding"], "not used")
+
+    def test_compiler_metadata_fields_are_explicit(self):
+        flags = runner.cuda_compiler_flags(
+            "compute_89", "sm_89", "/usr/bin/g++"
+        )
+
+        self.assertEqual(runner.HOST_COMPILER_FLAGS, ["-std=c++17", "-O3"])
+        self.assertIn("-ccbin=/usr/bin/g++", flags)
+        source = RUNNER_PATH.read_text(encoding="utf-8")
+        self.assertIn('report["environment"]["cuda_compiler_version"]', source)
+        self.assertIn('report["environment"]["cuda_compiler_flags"]', source)
+        self.assertIn('report["environment"]["host_cxx_version"]', source)
+        self.assertIn('report["environment"]["host_cxx_flags"]', source)
 
     def test_evidence_limits_scope_and_records_observed_cuda_result(self):
         evidence = EVIDENCE_PATH.read_text(encoding="utf-8")
