@@ -86,9 +86,7 @@ struct RegularPackFixture
         ghost.oneRingVertices.clear();
         ghost.normVector = Matrix(3, 1, true);
 
-        // Storage order is deliberately non-canonical.
-        mesh->faces = {face1, ghost, face0};
-        std::reverse(mesh->vertices.begin(), mesh->vertices.end());
+        mesh->faces = {face0, face1, ghost};
     }
 };
 
@@ -106,22 +104,26 @@ RegularMeshPackRequest current_request()
 }
 
 std::vector<std::vector<std::uint64_t>> independent_incidence_oracle(
-    const RegularMeshPack &pack)
+    const Mesh &mesh)
 {
     std::vector<std::vector<std::uint64_t>> grouped(
-        static_cast<std::size_t>(pack.vertexCount));
-    for (std::uint64_t faceOrdinal = 0;
-         faceOrdinal < pack.evaluatedFaceCount;
-         ++faceOrdinal)
+        mesh.vertices.size());
+    std::uint64_t faceOrdinal = 0;
+    for (std::size_t faceId = 0; faceId < mesh.faces.size(); ++faceId)
     {
+        const Face &face = mesh.faces[faceId];
+        if (face.isGhost)
+        {
+            continue;
+        }
         for (std::uint64_t local = 0; local < kRegularControlCount; ++local)
         {
             const std::uint64_t occurrence =
                 faceOrdinal * kRegularControlCount + local;
-            const int source =
-                pack.oneRingSourceIds[static_cast<std::size_t>(occurrence)];
+            const int source = face.oneRingVertices[static_cast<std::size_t>(local)];
             grouped[static_cast<std::size_t>(source)].push_back(occurrence);
         }
+        ++faceOrdinal;
     }
     return grouped;
 }
@@ -168,17 +170,36 @@ TEST(CudaMeshPack, ExactRoundTripPreservesCanonicalInputs)
     EXPECT_EQ(pack.evaluatedFaceSpontaneousCurvature,
               (std::vector<double>{0.125, -0.25}));
 
+    for (std::size_t faceOrdinal = 0;
+         faceOrdinal < pack.evaluatedFaceIds.size();
+         ++faceOrdinal)
+    {
+        const int faceId = pack.evaluatedFaceIds[faceOrdinal];
+        const Face &cpuFace = fixture.mesh->faces[static_cast<std::size_t>(faceId)];
+        for (std::size_t local = 0; local < 3; ++local)
+        {
+            EXPECT_EQ(pack.orientedFaceVertexIds[3U * faceOrdinal + local],
+                      cpuFace.adjacentVertices[local]);
+        }
+        for (std::size_t local = 0; local < kRegularControlCount; ++local)
+        {
+            EXPECT_EQ(pack.oneRingSourceIds[
+                          kRegularControlCount * faceOrdinal + local],
+                      cpuFace.oneRingVertices[local]);
+        }
+    }
+
     for (int id = 0; id < 14; ++id)
     {
-        EXPECT_DOUBLE_EQ(pack.acceptedCoordinates[3U * id], id + 0.1);
-        EXPECT_DOUBLE_EQ(pack.acceptedCoordinates[3U * id + 1U], id + 0.2);
-        EXPECT_DOUBLE_EQ(pack.acceptedCoordinates[3U * id + 2U], id + 0.3);
+        const Vertex &cpuVertex = fixture.mesh->vertices[static_cast<std::size_t>(id)];
         for (int axis = 0; axis < 3; ++axis)
         {
+            EXPECT_DOUBLE_EQ(pack.acceptedCoordinates[3U * id + axis],
+                             cpuVertex.coord.get(axis, 0));
             EXPECT_DOUBLE_EQ(pack.previousCoordinates[3U * id + axis],
-                             100.0 + 10.0 * id + axis);
+                             cpuVertex.coordPrev.get(axis, 0));
             EXPECT_DOUBLE_EQ(pack.referenceCoordinates[3U * id + axis],
-                             200.0 + 10.0 * id + axis);
+                             cpuVertex.coordRef.get(axis, 0));
         }
     }
 
@@ -222,7 +243,7 @@ TEST(CudaMeshPack, IncidenceMatchesIndependentGroupedTupleOracle)
         build_regular_mesh_pack(*fixture.mesh, current_request());
     ASSERT_TRUE(result.ok()) << result.error.message;
     const RegularMeshPack &pack = result.pack;
-    const auto oracle = independent_incidence_oracle(pack);
+    const auto oracle = independent_incidence_oracle(*fixture.mesh);
 
     ASSERT_EQ(pack.sourceOffsets.size(), oracle.size() + 1U);
     EXPECT_EQ(pack.sourceOffsets.front(), 0U);
@@ -239,36 +260,72 @@ TEST(CudaMeshPack, IncidenceMatchesIndependentGroupedTupleOracle)
     EXPECT_EQ(oracle[13], (std::vector<std::uint64_t>{12}));
 }
 
-TEST(CudaMeshPack, ContainerPermutationDoesNotChangeCanonicalPack)
+TEST(CudaMeshPack, FaceLocalPermutationIsPreservedInCanonicalOccurrences)
 {
     RegularPackFixture fixture;
     const RegularMeshPackResult first =
         build_regular_mesh_pack(*fixture.mesh, current_request());
     ASSERT_TRUE(first.ok());
 
-    std::rotate(fixture.mesh->vertices.begin(),
-                fixture.mesh->vertices.begin() + 3,
-                fixture.mesh->vertices.end());
-    std::reverse(fixture.mesh->faces.begin(), fixture.mesh->faces.end());
+    std::reverse(fixture.mesh->faces[1].oneRingVertices.begin(),
+                 fixture.mesh->faces[1].oneRingVertices.end());
     const RegularMeshPackResult second =
         build_regular_mesh_pack(*fixture.mesh, current_request());
     ASSERT_TRUE(second.ok()) << second.error.message;
 
     EXPECT_EQ(second.pack.evaluatedFaceIds, first.pack.evaluatedFaceIds);
-    EXPECT_EQ(second.pack.oneRingSourceIds, first.pack.oneRingSourceIds);
-    EXPECT_EQ(second.pack.sourceOffsets, first.pack.sourceOffsets);
-    EXPECT_EQ(second.pack.sourceOccurrences, first.pack.sourceOccurrences);
+    EXPECT_EQ(std::vector<std::int32_t>(second.pack.oneRingSourceIds.begin(),
+                                        second.pack.oneRingSourceIds.begin() + 12),
+              std::vector<std::int32_t>(first.pack.oneRingSourceIds.begin(),
+                                        first.pack.oneRingSourceIds.begin() + 12));
+    EXPECT_NE(std::vector<std::int32_t>(second.pack.oneRingSourceIds.begin() + 12,
+                                        second.pack.oneRingSourceIds.end()),
+              std::vector<std::int32_t>(first.pack.oneRingSourceIds.begin() + 12,
+                                        first.pack.oneRingSourceIds.end()));
     EXPECT_EQ(second.pack.acceptedCoordinates,
               first.pack.acceptedCoordinates);
     EXPECT_EQ(second.pack.referenceCoordinates,
               first.pack.referenceCoordinates);
+
+    const auto oracle = independent_incidence_oracle(*fixture.mesh);
+    for (std::size_t source = 0; source < oracle.size(); ++source)
+    {
+        const std::vector<std::uint64_t> actual(
+            second.pack.sourceOccurrences.begin() +
+                second.pack.sourceOffsets[source],
+            second.pack.sourceOccurrences.begin() +
+                second.pack.sourceOffsets[source + 1U]);
+        EXPECT_EQ(actual, oracle[source]);
+    }
+}
+
+TEST(CudaMeshPack, RejectsVertexAndFaceStorageIdentityDriftAtomically)
+{
+    RegularPackFixture fixture;
+    std::swap(fixture.mesh->vertices[0], fixture.mesh->vertices[1]);
+    RegularMeshPackResult result =
+        build_regular_mesh_pack(*fixture.mesh, current_request());
+    ASSERT_FALSE(result.ok());
+    EXPECT_EQ(result.error.code, MeshPackErrorCode::InvalidIndex);
+    EXPECT_EQ(result.error.operation, "mesh_pack.vertex_identity");
+    EXPECT_TRUE(result.pack.acceptedCoordinates.empty());
+    EXPECT_TRUE(result.pack.sourceOffsets.empty());
+
+    std::swap(fixture.mesh->vertices[0], fixture.mesh->vertices[1]);
+    std::swap(fixture.mesh->faces[0], fixture.mesh->faces[1]);
+    result = build_regular_mesh_pack(*fixture.mesh, current_request());
+    ASSERT_FALSE(result.ok());
+    EXPECT_EQ(result.error.code, MeshPackErrorCode::InvalidIndex);
+    EXPECT_EQ(result.error.operation, "mesh_pack.face_identity");
+    EXPECT_TRUE(result.pack.evaluatedFaceIds.empty());
+    EXPECT_TRUE(result.pack.sourceOffsets.empty());
 }
 
 TEST(CudaMeshPack, DuplicateSourceFailsWithoutPublishingPartialPack)
 {
     RegularPackFixture fixture;
-    fixture.mesh->faces[2].oneRingVertices[8] =
-        fixture.mesh->faces[2].oneRingVertices[1];
+    fixture.mesh->faces[0].oneRingVertices[8] =
+        fixture.mesh->faces[0].oneRingVertices[1];
     const RegularMeshPackResult result =
         build_regular_mesh_pack(*fixture.mesh, current_request());
     ASSERT_FALSE(result.ok());
@@ -295,14 +352,14 @@ TEST(CudaMeshPack, RejectsStaleTopologyBeforeReadingMesh)
 TEST(CudaMeshPack, RejectsIrregularAndOutOfRangeTopologyPrecisely)
 {
     RegularPackFixture fixture;
-    fixture.mesh->faces[2].oneRingVertices.pop_back();
+    fixture.mesh->faces[0].oneRingVertices.pop_back();
     RegularMeshPackResult result =
         build_regular_mesh_pack(*fixture.mesh, current_request());
     ASSERT_FALSE(result.ok());
     EXPECT_EQ(result.error.code, MeshPackErrorCode::UnsupportedTopology);
     EXPECT_EQ(result.error.faceIndex, 0);
 
-    fixture.mesh->faces[2].oneRingVertices.push_back(99);
+    fixture.mesh->faces[0].oneRingVertices.push_back(99);
     result = build_regular_mesh_pack(*fixture.mesh, current_request());
     ASSERT_FALSE(result.ok());
     EXPECT_EQ(result.error.code, MeshPackErrorCode::InvalidIndex);
@@ -312,14 +369,14 @@ TEST(CudaMeshPack, RejectsIrregularAndOutOfRangeTopologyPrecisely)
 TEST(CudaMeshPack, RejectsMalformedOrEmptyTriangleTopology)
 {
     RegularPackFixture fixture;
-    fixture.mesh->faces[2].adjacentVertices = {0, 0, 2};
+    fixture.mesh->faces[0].adjacentVertices = {0, 0, 2};
     RegularMeshPackResult result =
         build_regular_mesh_pack(*fixture.mesh, current_request());
     ASSERT_FALSE(result.ok());
     EXPECT_EQ(result.error.code, MeshPackErrorCode::InvalidIndex);
     EXPECT_EQ(result.error.operation, "mesh_pack.oriented_face");
 
-    fixture.mesh->faces[2].adjacentVertices = {0, 1, 13};
+    fixture.mesh->faces[0].adjacentVertices = {0, 1, 13};
     result = build_regular_mesh_pack(*fixture.mesh, current_request());
     ASSERT_FALSE(result.ok());
     EXPECT_EQ(result.error.code, MeshPackErrorCode::InvalidIndex);
@@ -374,7 +431,7 @@ TEST(CudaEligibility, AllowsOnlyAnExplicitFullyProvenCudaEnvelope)
 TEST(CudaEligibility, CpuChoiceAlwaysLeavesExistingRouteAllowed)
 {
     RegularPackFixture fixture;
-    fixture.mesh->faces[2].oneRingVertices.clear();
+    fixture.mesh->faces[0].oneRingVertices.clear();
     CudaEligibilityRequest request;
     request.backend = BackendChoice::Cpu;
     const CudaEligibilityResult result =
@@ -388,7 +445,7 @@ TEST(CudaEligibility, CpuChoiceAlwaysLeavesExistingRouteAllowed)
 TEST(CudaEligibility, ReportsAllRejectionsInStableMatrixOrder)
 {
     RegularPackFixture fixture;
-    fixture.mesh->faces[2].oneRingVertices.pop_back();
+    fixture.mesh->faces[0].oneRingVertices.pop_back();
     fixture.param.isEnergyHarmonicBondIncluded = true;
     fixture.param.isGagScaffoldingEnergyIncluded = true;
     fixture.param.isIdealizedProteinLatticeEnergyIncluded = true;

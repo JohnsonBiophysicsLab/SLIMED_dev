@@ -225,56 +225,36 @@ RegularMeshPackResult build_regular_mesh_pack(
 
     std::vector<const Vertex *> verticesById(
         static_cast<std::size_t>(vertexCount), nullptr);
-    for (const Vertex &vertex : mesh.vertices)
+    for (std::size_t position = 0; position < mesh.vertices.size(); ++position)
     {
-        if (vertex.index < 0 ||
-            static_cast<std::uint64_t>(vertex.index) >= vertexCount)
+        const Vertex &vertex = mesh.vertices[position];
+        if (vertex.index != static_cast<int>(position))
         {
             return pack_failure(make_pack_error(
                 MeshPackErrorCode::InvalidIndex,
                 "mesh_pack.vertex_identity",
-                "vertex IDs must be a contiguous zero-based permutation",
+                "declared vertex ID must equal its production vector position",
                 -1,
                 -1,
                 vertex.index));
         }
-        const std::size_t id = static_cast<std::size_t>(vertex.index);
-        if (verticesById[id] != nullptr)
-        {
-            return pack_failure(make_pack_error(
-                MeshPackErrorCode::InvalidIndex,
-                "mesh_pack.vertex_identity",
-                "duplicate declared vertex ID",
-                -1,
-                -1,
-                vertex.index));
-        }
-        verticesById[id] = &vertex;
+        verticesById[position] = &vertex;
     }
 
     std::vector<const Face *> facesById(static_cast<std::size_t>(faceCount),
                                         nullptr);
-    for (const Face &face : mesh.faces)
+    for (std::size_t position = 0; position < mesh.faces.size(); ++position)
     {
-        if (face.index < 0 ||
-            static_cast<std::uint64_t>(face.index) >= faceCount)
+        const Face &face = mesh.faces[position];
+        if (face.index != static_cast<int>(position))
         {
             return pack_failure(make_pack_error(
                 MeshPackErrorCode::InvalidIndex,
                 "mesh_pack.face_identity",
-                "face IDs must be a contiguous zero-based permutation",
+                "declared face ID must equal its production vector position",
                 face.index));
         }
-        const std::size_t id = static_cast<std::size_t>(face.index);
-        if (facesById[id] != nullptr)
-        {
-            return pack_failure(make_pack_error(
-                MeshPackErrorCode::InvalidIndex,
-                "mesh_pack.face_identity",
-                "duplicate declared face ID",
-                face.index));
-        }
-        facesById[id] = &face;
+        facesById[position] = &face;
     }
 
     std::vector<const Face *> evaluatedFaces;

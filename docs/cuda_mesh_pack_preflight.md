@@ -16,8 +16,10 @@ The implementation reads the existing CPU `Mesh`, `Face`, `Vertex`, and
 `Param` objects without mutating them. A successful pack has these fixed
 orders:
 
-- vertex arrays are indexed by declared contiguous zero-based vertex ID;
-- face masks are indexed by declared contiguous zero-based face ID;
+- vertex arrays are indexed by production vector position, which must equal
+  the declared contiguous zero-based vertex ID;
+- face masks are indexed by production vector position, which must equal the
+  declared contiguous zero-based face ID;
 - evaluated non-ghost faces are in ascending declared face ID;
 - oriented triangle vertices retain their existing local order;
 - the 12 one-ring source IDs retain each face's existing local-control order;
@@ -26,10 +28,12 @@ orders:
 - coordinates are `[vertex ID][x,y,z]` for accepted, previous, and reference
   generations.
 
-Container storage order is deliberately not part of the contract. The packer
-first builds validated ID tables, so permuting the `vertices` or `faces`
-vectors does not change a scientifically equivalent packed snapshot.
-Duplicate or gapped declared IDs are rejected.
+Container position is the current CPU identity authority: production accesses
+one-ring source `s` as `mesh.vertices[s]` and face `f` as `mesh.faces[f]`.
+The packer therefore rejects any `Vertex::index` or `Face::index` that differs
+from its vector position. It does not remap identity drift into a different
+scientific state. Face-local one-ring permutations remain valid and are
+preserved exactly.
 
 Every evaluated physical face must be a regular 12-control face. A repeated
 source across different faces is expected and preserved. A repeated source
@@ -126,14 +130,15 @@ authorized by this package to silently run CPU or mix CPU/CUDA faces.
 
 ## Validation evidence
 
-`tests/test_cuda_mesh_pack.cpp` supplies a deliberately non-canonical storage
-fixture with shared sources, a permuted face-local one-ring, a boundary face,
+`tests/test_cuda_mesh_pack.cpp` supplies a CPU-identity-compatible fixture
+with shared sources, a permuted face-local one-ring, a boundary face,
 a ghost face, a ghost/boundary vertex, and distinct accepted/previous/reference
 coordinates. Its gates prove:
 
 - exact integer and floating-point round-trip for topology, masks, numerical
   rows, quadrature, coordinates, face curvature, generations, and parameters;
-- storage-permutation invariance;
+- atomic rejection of vertex/face storage identity drift;
+- exact preservation of face-local one-ring permutations;
 - exact agreement with an independent grouped-tuple incidence oracle that
   does not call the production incidence builder;
 - preservation of shared cross-face occurrences and ghost exclusion;
@@ -151,13 +156,13 @@ of a production evaluator/optimizer/dynamics route reference.
 Validation on the Step-2 branch used isolated object directories so the
 Makefile could not reuse OpenMP objects in a serial link:
 
-- focused native pack/preflight suite: all 14 tests pass;
+- focused native pack/preflight suite: all 15 tests pass;
 - focused Python Step-2, protected-plan, and legacy production-surface gates:
   all 20 tests pass;
 - strict `-Wall -Wextra -Wpedantic -Werror` host compilation: pass;
 - isolated default serial build: pass;
 - isolated OpenMP build: pass;
-- complete native suite: 169 of 170 pass; the sole failure is the documented
+- complete native suite: 171 of 172 pass; the sole failure is the documented
   pre-existing uninitialized expected-vector test
   `EnergyForceEvaluatorTest.SharedHelperRecordsScaffoldEnergyAndForceSideEffects`;
   and
@@ -166,6 +171,15 @@ Makefile could not reuse OpenMP objects in a serial link:
   skips). The one content-based production-surface false positive exposed by
   that run was removed; its focused legacy guard now passes. Those historical
   exact-base inventories are not Step-2 acceptance gates.
+
+The reproducible focused Python command is:
+
+```console
+python3 -m unittest \
+  tests.test_cuda_mesh_pack_preflight \
+  tests.test_cuda_end_to_end_plan_inventory \
+  tests.test_opensubdiv_regular_cpp_adapter_proof_inventory
+```
 
 The author and reviewer do not merge this step. Send the focused PR and exact
 head to the dedicated CUDA production reviewer. Step 3 starts only after the
