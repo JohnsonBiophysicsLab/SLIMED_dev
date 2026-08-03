@@ -19,6 +19,11 @@
 #include <opensubdiv/far/stencilTableFactory.h>
 #include <opensubdiv/far/topologyDescriptor.h>
 #include <opensubdiv/far/topologyRefinerFactory.h>
+#include <opensubdiv/version.h>
+
+#if OPENSUBDIV_VERSION_NUMBER != 30700
+#error "Valence-3 proof rows are qualified only for OpenSubdiv 3.7.0"
+#endif
 #endif
 
 namespace slimed::opensubdiv_valence3
@@ -367,6 +372,8 @@ build_guarded_opensubdiv_valence3_rows(
     result.doublePrecisionRowsGenerated = true;
     result.constantFieldInvariantsValidated = true;
     result.mixedDerivativeRowsDuplicated = true;
+    result.opensubdivVersionNumber = OPENSUBDIV_VERSION_NUMBER;
+    result.adaptiveIsolationLevel = 5;
     result.rowsGenerated = true;
     result.rows = std::move(stagedRows);
     return result;

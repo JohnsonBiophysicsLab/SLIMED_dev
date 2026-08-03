@@ -50,6 +50,16 @@ fixture. The proof locks in observation of this discrepancy; Phase 2 must
 choose and consistently apply one volume functional rather than hiding it by
 widening a tolerance.
 
+Reviewer hardening added after the first packet binds the provider at compile
+time to `OPENSUBDIV_VERSION_NUMBER == 30700`, checks adaptive isolation levels
+4/5/6 for convergent row sensitivity, evaluates both regular and asymmetrically
+perturbed tetrahedron coordinates, runs two finite-difference step sizes,
+validates every returned face normal, and exercises default-off, missing-
+request, reversed-topology, and mixed-topology rejection contracts. The mixed
+fixture now reports the canonical provider as not applicable and separately
+proves rejection. A dedicated GitHub Actions job builds stock OpenSubdiv 3.7.0
+CPU-only and runs the dependency-disabled and enabled proofs.
+
 ## Executive Recommendation
 
 Implement valence 3 as a new, canonical-tetrahedron, source-keyed OpenSubdiv

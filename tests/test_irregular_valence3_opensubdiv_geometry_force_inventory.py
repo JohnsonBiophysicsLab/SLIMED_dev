@@ -12,6 +12,9 @@ def test_valence3_provider_and_science_harness_are_guarded_and_inventoried():
     runner = (
         ROOT / "scripts/run_irregular_valence3_opensubdiv_geometry_force.py"
     ).read_text()
+    workflow = (
+        ROOT / ".github/workflows/valence3_opensubdiv_proof.yml"
+    ).read_text()
 
     assert "USE_OPENSUBDIV_VALENCE3" in provider
     assert "phase1ProviderExplicitRequest" in provider
@@ -25,9 +28,18 @@ def test_valence3_provider_and_science_harness_are_guarded_and_inventoried():
     assert "max_finite_difference_relative_error" in harness
     assert "legacyVolumeForceMismatchObserved" in harness
     assert "legacy_x_only_volume_mismatch_is_a_production_blocker" in harness
+    assert "providerApplicable" in harness
+    assert "providerRejectedWhenNotApplicable" in harness
+    assert "normalsValidated" in harness
+    assert "kDifferenceSteps" in harness
+    assert "build_proof_rows(mesh, 4)" in harness
+    assert "build_proof_rows(mesh, 6)" in harness
+    assert "OPENSUBDIV_VERSION_NUMBER != 30700" in provider
     assert "build_guarded_opensubdiv_valence3_rows" in harness
     assert "default_off_contract" in runner
     assert "-DUSE_OPENSUBDIV_VALENCE3" in runner
+    assert "Build OpenSubdiv 3.7.0 CPU library" in workflow
+    assert "--require-opensubdiv --json" in workflow
 
 
 def test_valence3_candidate_fixtures_encode_closed_3_and_mixed_345_topologies():

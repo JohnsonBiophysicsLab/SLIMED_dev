@@ -7,6 +7,7 @@
 #include <cmath>
 #include <iomanip>
 #include <iostream>
+#include <limits>
 #include <map>
 #include <memory>
 #include <numeric>
@@ -23,6 +24,11 @@
 #include <opensubdiv/far/stencilTableFactory.h>
 #include <opensubdiv/far/topologyDescriptor.h>
 #include <opensubdiv/far/topologyRefinerFactory.h>
+#include <opensubdiv/version.h>
+
+#if OPENSUBDIV_VERSION_NUMBER != 30700
+#error "Valence-3 proof is qualified only for OpenSubdiv 3.7.0"
+#endif
 #endif
 
 using slimed::opensubdiv_valence3::OpenSubdivValence3RowProviderRequest;
@@ -50,7 +56,12 @@ struct FixtureReport
     bool closed = false;
     bool mixed345FacePresent = false;
     bool rowsValid = false;
+    bool providerApplicable = false;
     bool providerParity = false;
+    bool providerRejectedWhenNotApplicable = false;
+    bool negativeProviderContractsValidated = false;
+    bool isolationSensitivityValidated = false;
+    bool normalsValidated = false;
     bool finite = false;
     bool positiveArea = false;
     bool nonzeroBendingForce = false;
@@ -61,6 +72,8 @@ struct FixtureReport
     double area = 0.0;
     double volume = 0.0;
     double bendingEnergy = 0.0;
+    double isolationDeltaLevel4To5 = 0.0;
+    double isolationDeltaLevel5To6 = 0.0;
     std::array<double, 3> maxForce{{0.0, 0.0, 0.0}};
     std::array<double, 3> maxFiniteDifferenceError{{0.0, 0.0, 0.0}};
     double maxLegacyVolumeFiniteDifferenceError = 0.0;
@@ -208,6 +221,49 @@ bool packages_match(const std::vector<SourceKeyedFaceRows> &left,
     return true;
 }
 
+double maximum_package_delta(
+    const std::vector<SourceKeyedFaceRows> &left,
+    const std::vector<SourceKeyedFaceRows> &right)
+{
+    if (left.size() != right.size())
+    {
+        return std::numeric_limits<double>::infinity();
+    }
+    double maximum = 0.0;
+    for (std::size_t face = 0; face < left.size(); ++face)
+    {
+        if (left[face].samples.size() != right[face].samples.size())
+        {
+            return std::numeric_limits<double>::infinity();
+        }
+        for (std::size_t sample = 0;
+             sample < left[face].samples.size(); ++sample)
+        {
+            for (int row = 0; row < kRowCount; ++row)
+            {
+                const SourceKeyedRow &a =
+                    left[face].samples[sample].rows[row];
+                const SourceKeyedRow &b =
+                    right[face].samples[sample].rows[row];
+                if (a.sourceIds != b.sourceIds ||
+                    a.coefficients.size() != b.coefficients.size())
+                {
+                    return std::numeric_limits<double>::infinity();
+                }
+                for (std::size_t entry = 0;
+                     entry < a.coefficients.size(); ++entry)
+                {
+                    maximum = std::max(
+                        maximum,
+                        std::abs(a.coefficients[entry] -
+                                 b.coefficients[entry]));
+                }
+            }
+        }
+    }
+    return maximum;
+}
+
 #ifdef USE_OPENSUBDIV_VALENCE3
 using namespace OpenSubdiv;
 
@@ -222,7 +278,8 @@ struct DeleteConst
     void operator()(const Value *value) const { delete value; }
 };
 
-std::vector<SourceKeyedFaceRows> build_proof_rows(const Mesh &mesh)
+std::vector<SourceKeyedFaceRows> build_proof_rows(
+    const Mesh &mesh, const int adaptiveIsolationLevel)
 {
     using Descriptor = Far::TopologyDescriptor;
     std::vector<int> verticesPerFace(mesh.faces.size(), 3);
@@ -253,7 +310,7 @@ std::vector<SourceKeyedFaceRows> build_proof_rows(const Mesh &mesh)
         throw std::runtime_error("OpenSubdiv could not create proof refiner");
     }
 
-    Far::PatchTableFactory::Options patchOptions(5);
+    Far::PatchTableFactory::Options patchOptions(adaptiveIsolationLevel);
     refiner->RefineAdaptive(patchOptions.GetRefineAdaptiveOptions());
     std::unique_ptr<const Far::PatchTable, DeleteConst<Far::PatchTable>>
         patchTable(Far::PatchTableFactory::Create(*refiner, patchOptions));
@@ -461,7 +518,8 @@ std::array<double, 4> evaluate_total_energies(
 FixtureReport evaluate_fixture(const std::string &name,
                                const std::string &verticesPath,
                                const std::string &facesPath,
-                               const bool requireProviderParity)
+                               const bool requireProviderParity,
+                               const bool asymmetricPerturbation = false)
 {
     FixtureReport report;
     report.name = name;
@@ -471,6 +529,15 @@ FixtureReport evaluate_fixture(const std::string &name,
     Mesh mesh(setupParam);
     mesh.setup_from_vertices_faces(read_data_from_csv<double>(verticesPath),
                                    read_data_from_csv<int>(facesPath));
+    if (asymmetricPerturbation)
+    {
+        mesh.vertices[0].coord.set(
+            0, 0, mesh.vertices[0].coord.get(0, 0) + 0.071);
+        mesh.vertices[0].coord.set(
+            1, 0, mesh.vertices[0].coord.get(1, 0) - 0.043);
+        mesh.vertices[0].coord.set(
+            2, 0, mesh.vertices[0].coord.get(2, 0) + 0.029);
+    }
     report.vertexCount = static_cast<int>(mesh.vertices.size());
     report.faceCount = static_cast<int>(mesh.faces.size());
     for (const Vertex &vertex : mesh.vertices)
@@ -483,24 +550,66 @@ FixtureReport evaluate_fixture(const std::string &name,
 
 #ifndef USE_OPENSUBDIV_VALENCE3
     (void)requireProviderParity;
+    (void)asymmetricPerturbation;
     return report;
 #else
-    const std::vector<SourceKeyedFaceRows> rows = build_proof_rows(mesh);
+    const std::vector<SourceKeyedFaceRows> level4Rows =
+        build_proof_rows(mesh, 4);
+    const std::vector<SourceKeyedFaceRows> rows = build_proof_rows(mesh, 5);
+    const std::vector<SourceKeyedFaceRows> level6Rows =
+        build_proof_rows(mesh, 6);
     report.rowsValid = finite_row_package(
         rows, report.faceCount, report.vertexCount);
+    report.isolationDeltaLevel4To5 =
+        maximum_package_delta(level4Rows, rows);
+    report.isolationDeltaLevel5To6 =
+        maximum_package_delta(rows, level6Rows);
+    report.isolationSensitivityValidated =
+        std::isfinite(report.isolationDeltaLevel4To5) &&
+        std::isfinite(report.isolationDeltaLevel5To6) &&
+        report.isolationDeltaLevel5To6 <=
+            report.isolationDeltaLevel4To5 + 1.0e-12;
 
     if (requireProviderParity)
     {
+        report.providerApplicable = true;
         OpenSubdivValence3RowProviderRequest request;
         request.phase1ProviderExplicitRequest = true;
         const auto provider =
             build_guarded_opensubdiv_valence3_rows(mesh, request);
-        report.providerParity = provider.accepted &&
-                                packages_match(provider.rows, rows);
+        report.providerParity =
+            provider.accepted &&
+            provider.opensubdivVersionNumber == 30700 &&
+            provider.adaptiveIsolationLevel == 5 &&
+            packages_match(provider.rows, rows);
+
+        const auto defaultOff =
+            build_guarded_opensubdiv_valence3_rows(mesh, {});
+        Param invalidParam;
+        invalidParam.VERBOSE_MODE = false;
+        Mesh invalid(invalidParam);
+        invalid.setup_from_vertices_faces(
+            read_data_from_csv<double>(verticesPath),
+            read_data_from_csv<int>(facesPath));
+        std::swap(invalid.faces[0].adjacentVertices[0],
+                  invalid.faces[0].adjacentVertices[1]);
+        const auto invalidResult =
+            build_guarded_opensubdiv_valence3_rows(invalid, request);
+        report.negativeProviderContractsValidated =
+            !defaultOff.accepted && defaultOff.rows.empty() &&
+            !invalidResult.accepted && invalidResult.rows.empty();
     }
     else
     {
-        report.providerParity = true;
+        report.providerApplicable = false;
+        OpenSubdivValence3RowProviderRequest request;
+        request.phase1ProviderExplicitRequest = true;
+        const auto rejected =
+            build_guarded_opensubdiv_valence3_rows(mesh, request);
+        report.providerRejectedWhenNotApplicable =
+            !rejected.accepted && rejected.rows.empty();
+        report.negativeProviderContractsValidated =
+            report.providerRejectedWhenNotApplicable;
     }
 
     std::vector<Matrix> coordinates;
@@ -552,6 +661,7 @@ FixtureReport evaluate_fixture(const std::string &name,
     std::vector<std::array<std::array<double, 3>, 3>> aggregate(
         mesh.vertices.size());
     bool finite = std::isfinite(report.area) && std::isfinite(report.volume);
+    bool normalsValidated = true;
     for (const SourceKeyedFaceRows &faceRows : rows)
     {
         std::vector<Matrix> shapeFunctions;
@@ -583,6 +693,16 @@ FixtureReport evaluate_fixture(const std::string &name,
         report.bendingEnergy += bendingEnergy;
         finite = finite && std::isfinite(meanCurvature) &&
                  std::isfinite(bendingEnergy);
+        double normalNormSquared = 0.0;
+        for (int axis = 0; axis < 3; ++axis)
+        {
+            const double component = normal.get(axis, 0);
+            finite = finite && std::isfinite(component);
+            normalNormSquared += component * component;
+        }
+        normalsValidated = normalsValidated &&
+            std::isfinite(normalNormSquared) &&
+            std::abs(std::sqrt(normalNormSquared) - 1.0) <= 1.0e-10;
         const std::array<const Matrix *, 3> forces{{
             &fBend, &fArea, &fVolume}};
         for (int source = 0; source < report.vertexCount; ++source)
@@ -617,51 +737,57 @@ FixtureReport evaluate_fixture(const std::string &name,
         residual = std::sqrt(residual);
     }
     report.finite = finite;
+    report.normalsValidated = normalsValidated;
     report.positiveArea = report.area > 0.0;
     report.nonzeroBendingForce = report.maxForce[0] > 1.0e-12;
     report.nonzeroAreaForce = report.maxForce[1] > 1.0e-12;
     report.nonzeroVolumeForce = report.maxForce[2] > 1.0e-12;
 
-    constexpr double kDifferenceStep = 1.0e-6;
+    constexpr std::array<double, 2> kDifferenceSteps{{1.0e-5, 1.0e-6}};
     constexpr double kDifferenceTolerance = 2.0e-4;
     for (int source = 0; source < report.vertexCount; ++source)
     {
         for (int axis = 0; axis < 3; ++axis)
         {
             const double original = coordinates[source].get(axis, 0);
-            const double step = kDifferenceStep *
-                                std::max(1.0, std::abs(original));
-            coordinates[source].set(axis, 0, original + step);
-            const auto plus = evaluate_total_energies(
-                evaluator, rows, coordinates, 0.17);
-            coordinates[source].set(axis, 0, original - step);
-            const auto minus = evaluate_total_energies(
-                evaluator, rows, coordinates, 0.17);
-            coordinates[source].set(axis, 0, original);
-            for (int kind = 0; kind < 3; ++kind)
+            for (const double relativeStep : kDifferenceSteps)
             {
-                const int energyIndex = kind == 2 ? 3 : kind;
-                const double numericalForce =
-                    -(plus[energyIndex] - minus[energyIndex]) /
-                    (2.0 * step);
-                const double actualForce = aggregate[source][kind][axis];
-                const double scale = std::max(
-                    1.0, std::max(std::abs(numericalForce),
-                                  std::abs(actualForce)));
-                report.maxFiniteDifferenceError[kind] = std::max(
-                    report.maxFiniteDifferenceError[kind],
-                    std::abs(numericalForce - actualForce) / scale);
+                const double step = relativeStep *
+                                    std::max(1.0, std::abs(original));
+                coordinates[source].set(axis, 0, original + step);
+                const auto plus = evaluate_total_energies(
+                    evaluator, rows, coordinates, 0.17);
+                coordinates[source].set(axis, 0, original - step);
+                const auto minus = evaluate_total_energies(
+                    evaluator, rows, coordinates, 0.17);
+                coordinates[source].set(axis, 0, original);
+                for (int kind = 0; kind < 3; ++kind)
+                {
+                    const int energyIndex = kind == 2 ? 3 : kind;
+                    const double numericalForce =
+                        -(plus[energyIndex] - minus[energyIndex]) /
+                        (2.0 * step);
+                    const double actualForce =
+                        aggregate[source][kind][axis];
+                    const double scale = std::max(
+                        1.0, std::max(std::abs(numericalForce),
+                                      std::abs(actualForce)));
+                    report.maxFiniteDifferenceError[kind] = std::max(
+                        report.maxFiniteDifferenceError[kind],
+                        std::abs(numericalForce - actualForce) / scale);
+                }
+                const double legacyVolumeNumericalForce =
+                    -(plus[2] - minus[2]) / (2.0 * step);
+                const double actualVolumeForce =
+                    aggregate[source][2][axis];
+                const double legacyScale = std::max(
+                    1.0, std::max(std::abs(legacyVolumeNumericalForce),
+                                  std::abs(actualVolumeForce)));
+                report.maxLegacyVolumeFiniteDifferenceError = std::max(
+                    report.maxLegacyVolumeFiniteDifferenceError,
+                    std::abs(legacyVolumeNumericalForce - actualVolumeForce) /
+                        legacyScale);
             }
-            const double legacyVolumeNumericalForce =
-                -(plus[2] - minus[2]) / (2.0 * step);
-            const double actualVolumeForce = aggregate[source][2][axis];
-            const double legacyScale = std::max(
-                1.0, std::max(std::abs(legacyVolumeNumericalForce),
-                              std::abs(actualVolumeForce)));
-            report.maxLegacyVolumeFiniteDifferenceError = std::max(
-                report.maxLegacyVolumeFiniteDifferenceError,
-                std::abs(legacyVolumeNumericalForce - actualVolumeForce) /
-                    legacyScale);
         }
     }
     report.finiteDifferenceVerified = std::all_of(
@@ -701,8 +827,24 @@ void print_report(const FixtureReport &report)
               << (report.mixed345FacePresent ? "true" : "false");
     std::cout << ",\"rows_valid\":"
               << (report.rowsValid ? "true" : "false");
+    std::cout << ",\"provider_applicable\":"
+              << (report.providerApplicable ? "true" : "false");
     std::cout << ",\"canonical_provider_parity\":"
               << (report.providerParity ? "true" : "false");
+    std::cout << ",\"provider_rejected_when_not_applicable\":"
+              << (report.providerRejectedWhenNotApplicable ? "true"
+                                                            : "false");
+    std::cout << ",\"negative_provider_contracts_validated\":"
+              << (report.negativeProviderContractsValidated ? "true"
+                                                             : "false");
+    std::cout << ",\"isolation_delta_level_4_to_5\":"
+              << report.isolationDeltaLevel4To5;
+    std::cout << ",\"isolation_delta_level_5_to_6\":"
+              << report.isolationDeltaLevel5To6;
+    std::cout << ",\"isolation_sensitivity_validated\":"
+              << (report.isolationSensitivityValidated ? "true" : "false");
+    std::cout << ",\"normals_validated\":"
+              << (report.normalsValidated ? "true" : "false");
     std::cout << ",\"finite\":" << (report.finite ? "true" : "false");
     std::cout << ",\"area\":" << report.area;
     std::cout << ",\"legacy_volume\":" << report.volume;
@@ -761,6 +903,8 @@ int main(int argc, char **argv)
     {
         const FixtureReport tetra = evaluate_fixture(
             "closed_valence3_tetrahedron", argv[1], argv[2], true);
+        const FixtureReport asymmetric = evaluate_fixture(
+            "asymmetric_valence3_tetrahedron", argv[1], argv[2], true, true);
         const FixtureReport mixed = evaluate_fixture(
             "closed_mixed_valence345", argv[3], argv[4], false);
         const bool tetraValence3 =
@@ -770,14 +914,22 @@ int main(int argc, char **argv)
         const bool mixedValenceSet =
             mixedValences == std::set<int>({3, 4, 5});
         const auto sciencePassed = [](const FixtureReport &report) {
-            return report.closed && report.rowsValid && report.providerParity &&
-                   report.finite && report.positiveArea &&
+            const bool providerContract = report.providerApplicable
+                ? report.providerParity
+                : report.providerRejectedWhenNotApplicable;
+            return report.closed && report.rowsValid && providerContract &&
+                   report.negativeProviderContractsValidated &&
+                   report.isolationSensitivityValidated &&
+                   report.finite && report.normalsValidated &&
+                   report.positiveArea &&
                    report.nonzeroBendingForce && report.nonzeroAreaForce &&
                    report.nonzeroVolumeForce &&
                    report.finiteDifferenceVerified &&
                    report.legacyVolumeForceMismatchObserved;
         };
-        const bool passed = sciencePassed(tetra) && sciencePassed(mixed) &&
+        const bool passed = sciencePassed(tetra) &&
+                            sciencePassed(asymmetric) &&
+                            sciencePassed(mixed) &&
                             tetraValence3 && mixedValenceSet &&
                             mixed.mixed345FacePresent;
         std::cout << std::setprecision(17);
@@ -791,6 +943,8 @@ int main(int argc, char **argv)
                   << ",\"legacy_x_only_volume_mismatch_is_a_production_blocker\":true"
                   << ",\"fixtures\":[";
         print_report(tetra);
+        std::cout << ',';
+        print_report(asymmetric);
         std::cout << ',';
         print_report(mixed);
         std::cout << "]}\n";

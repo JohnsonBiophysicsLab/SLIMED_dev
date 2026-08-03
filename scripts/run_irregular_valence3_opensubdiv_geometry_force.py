@@ -111,7 +111,10 @@ def emit(payload: dict[str, object], as_json: bool) -> None:
         print(json.dumps(payload, indent=2, sort_keys=True))
         return
     print(f"status: {payload['status']}")
-    print(f"default_off_contract: {payload['default_off_contract']}")
+    if "default_off_contract" in payload:
+        print(f"default_off_contract: {payload['default_off_contract']}")
+    if "reason" in payload:
+        print(f"reason: {payload['reason']}")
     for fixture in payload.get("fixtures", []):
         print(
             f"{fixture['name']}: area={fixture['area']:.17g}, "
@@ -126,26 +129,35 @@ def main() -> int:
     parser.add_argument("--require-opensubdiv", action="store_true")
     args = parser.parse_args()
     env = os.environ.copy()
-    if not env.get("OPENSUBDIV_ROOT"):
-        payload = {
-            "status": "skipped",
-            "reason": "OPENSUBDIV_ROOT is not set; Valence-3 remains opt-in.",
-        }
-        emit(payload, args.json)
-        return 2 if args.require_opensubdiv else 0
     try:
         with tempfile.TemporaryDirectory(prefix="slimed-valence3-") as temp:
             temp_path = Path(temp)
             default_binary = temp_path / "valence3-default"
-            enabled_binary = temp_path / "valence3-enabled"
             build(default_binary, env, enabled=False)
             default_payload = execute(default_binary, env)
+            default_passed = (
+                default_payload.get("status") == "passed"
+                and default_payload.get("dependency_disabled_contract_passed")
+                is True
+            )
+            if not env.get("OPENSUBDIV_ROOT"):
+                payload = {
+                    "status": "passed" if default_passed else "failed",
+                    "default_off_contract": default_passed,
+                    "enabled_status": "skipped",
+                    "reason": (
+                        "OPENSUBDIV_ROOT is not set; the default-off contract "
+                        "ran, while the enabled proof remains opt-in."
+                    ),
+                }
+                emit(payload, args.json)
+                if args.require_opensubdiv:
+                    return 2
+                return 0 if default_passed else 1
+
+            enabled_binary = temp_path / "valence3-enabled"
             build(enabled_binary, env, enabled=True)
             enabled_payload = execute(enabled_binary, env)
-        default_passed = (
-            default_payload.get("status") == "passed"
-            and default_payload.get("dependency_disabled_contract_passed") is True
-        )
         passed = enabled_payload.get("status") == "passed" and default_passed
         enabled_payload["default_off_contract"] = default_passed
         enabled_payload["status"] = "passed" if passed else "failed"

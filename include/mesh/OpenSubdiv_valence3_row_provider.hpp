@@ -33,6 +33,8 @@ struct OpenSubdivValence3RowProviderResult
     bool doublePrecisionRowsGenerated = false;
     bool constantFieldInvariantsValidated = false;
     bool mixedDerivativeRowsDuplicated = false;
+    int opensubdivVersionNumber = 0;
+    int adaptiveIsolationLevel = 0;
     bool rowsGenerated = false;
     std::vector<source_keyed_kernel::SourceKeyedFaceRows> rows;
 
