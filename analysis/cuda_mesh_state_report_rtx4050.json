@@ -1,0 +1,49 @@
+{
+  "allocation_epoch": 1,
+  "available": true,
+  "build": {
+    "command": [
+      "/usr/bin/make",
+      "cuda_mesh_state_report",
+      "CUDA_NVCC=/usr/local/cuda/bin/nvcc",
+      "CUDA_HOST_CXX=/usr/bin/g++",
+      "CUDA_COMPUTE_ARCH=compute_89",
+      "CUDA_SM_CODE=sm_89"
+    ],
+    "compute_arch": "compute_89",
+    "host_cxx": "/usr/bin/g++",
+    "host_cxx_version": "g++ (Ubuntu 15.2.0-16ubuntu1) 15.2.0\nCopyright (C) 2025 Free Software Foundation, Inc.\nThis is free software; see the source for copying conditions.  There is NO\nwarranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.",
+    "nvcc": "/usr/local/cuda/bin/nvcc",
+    "nvcc_version": "nvcc: NVIDIA (R) Cuda compiler driver\nCopyright (c) 2005-2026 NVIDIA Corporation\nBuilt on Tue_Jun_09_02:43:40_PM_PDT_2026\nCuda compilation tools, release 13.3, V13.3.73\nBuild cuda_13.3.r13.3/compiler.38244171_0",
+    "sm_code": "sm_89",
+    "target": "cuda_mesh_state_report"
+  },
+  "commits": 10,
+  "compiled": true,
+  "cuda_required": true,
+  "device_ordinal": 0,
+  "final_allocations": 19,
+  "gpu": {
+    "compute_capability": "8.9",
+    "driver_version": "581.95",
+    "memory_total_mib": "6141",
+    "name": "NVIDIA GeForce RTX 4050 Laptop GPU"
+  },
+  "iterations": 20,
+  "memory_budget_bytes": 2659713024,
+  "no_warm_allocations": true,
+  "resident_bytes": 5248,
+  "rollbacks": 10,
+  "status": "pass",
+  "transaction_epoch": 20,
+  "transfers": {
+    "accepted_coordinates": {"bytes": 576, "operations": 2},
+    "candidate_coordinates": {"bytes": 5760, "operations": 20},
+    "numerical_plan": {"bytes": 2112, "operations": 3},
+    "parameters": {"bytes": 137, "operations": 3},
+    "reference_coordinates": {"bytes": 288, "operations": 1},
+    "topology": {"bytes": 290, "operations": 9}
+  },
+  "transfers_complete": true,
+  "warmed_allocations": 19
+}
