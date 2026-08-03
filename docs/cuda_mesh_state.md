@@ -26,7 +26,9 @@ unchanged. A replacement that has already published returns success and reports
 `cleanupPending` plus `cleanupError`, so publication is never ambiguous; further
 state-changing operations require `retry_cleanup()`. Final close enters
 `Closing`, retains failed handles, and can be called again until every buffer
-and the stream have been released.
+and the stream have been released. Facade-level stream cleanup debt overlays
+the closed core report until repeated `close()` or `retry_cleanup()` destroys
+the retained stream; rejected calls cannot erase that debt.
 
 The allocation high-water mark for an update must fit the configured fraction
 of current free device memory. The default is one half. Byte arithmetic and
@@ -65,10 +67,10 @@ driver. They cover generation dirtiness, exact rollback, swap-on-commit,
 illegal transitions, stale generations, memory-budget rejection, and injected
 allocation, copy, and synchronization failures. The warmed loop proves no
 allocation after initial residency and accounts for every repeated candidate
-transfer. The reviewed amendment passes 20/20 focused tests, including
+transfer. The reviewed amendment passes 21/21 focused tests, including
 post-commit selective-update composition and retryable staging, replacement,
 final-close release failures, stream-destroy retry, and candidate dirty-state
-reporting. The clean default suite passes 191/191 tests
+reporting. The clean default suite passes 192/192 tests
 when the independently reproduced baseline scaffold-force defect is excluded.
 
 The explicit native proof builds and runs with:
@@ -77,6 +79,11 @@ The explicit native proof builds and runs with:
 python3 scripts/run_cuda_mesh_state_report.py \
   --require-cuda --iterations 20
 ```
+
+The native report closes explicitly before declaring success and requires
+`Closed`, zero cleanup debt, zero final resident bytes, and exact
+allocation/free balance. Teardown is therefore part of the RTX pass predicate,
+not a destructor side effect after reporting.
 
 The non-CUDA contract is independently runnable with `--stub`. Native evidence
 for the development RTX machine is recorded in

@@ -431,6 +431,45 @@ TEST(CudaMeshStateCoreTest, StreamDestroyFailureRetainsHandleForRepeatedClose)
 }
 
 TEST(CudaMeshStateCoreTest,
+     FacadeStreamCleanupDebtSurvivesRejectedCallsAndRetriesToClosed)
+{
+    FakeDevice device;
+    auto created = create_mesh_state_core(device.operations(), make_pack());
+    ASSERT_NE(created.state, nullptr);
+    std::uint64_t destroyCalls = 0;
+    const auto destroy = [&destroyCalls]() {
+        ++destroyCalls;
+        if (destroyCalls == 1)
+            return DriverStatus{false, FakeDevice::kInjected,
+                                "fake_stream_destroy",
+                                "injected stream-destroy failure"};
+        return DriverStatus{};
+    };
+    auto facade = CudaMeshStateFactory::create(
+        std::move(created.state), created.report, destroy);
+    ASSERT_NE(facade, nullptr);
+
+    EXPECT_EQ(facade->close().code, DeviceStateErrorCode::CleanupFailed);
+    EXPECT_EQ(facade->report().phase, TransactionPhase::Closing);
+    EXPECT_TRUE(facade->report().cleanupPending);
+    EXPECT_FALSE(facade->report().cleanupError.ok());
+
+    EXPECT_EQ(facade->prepare_candidate(make_pack().acceptedCoordinates, 2).code,
+              DeviceStateErrorCode::CleanupFailed);
+    EXPECT_EQ(facade->report().phase, TransactionPhase::Closing);
+    EXPECT_TRUE(facade->report().cleanupPending);
+    EXPECT_FALSE(facade->report().cleanupError.ok());
+
+    EXPECT_TRUE(facade->retry_cleanup().ok());
+    EXPECT_EQ(facade->report().phase, TransactionPhase::Closed);
+    EXPECT_FALSE(facade->report().cleanupPending);
+    EXPECT_TRUE(facade->report().cleanupError.ok());
+    EXPECT_EQ(destroyCalls, 2u);
+    EXPECT_TRUE(facade->retry_cleanup().ok());
+    EXPECT_EQ(destroyCalls, 2u);
+}
+
+TEST(CudaMeshStateCoreTest,
      FailedStagingReleaseRetainsOwnershipAndCanBeRetried)
 {
     FakeDevice device;

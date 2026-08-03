@@ -81,6 +81,17 @@ def gpu_inventory() -> dict[str, str]:
     )
 
 
+def teardown_complete(report: dict[str, object]) -> bool:
+    return (
+        report.get("closed") is True
+        and report.get("cleanup_pending") is False
+        and report.get("cleanup_error_code") == "none"
+        and report.get("final_resident_bytes") == 0
+        and report.get("allocation_free_balance") is True
+        and report.get("successful_frees") == report.get("final_allocations")
+    )
+
+
 def run(args: argparse.Namespace) -> int:
     root = Path(args.root).resolve() if args.root else repo_root()
     make = executable(args.make, "make")
@@ -121,6 +132,11 @@ def run(args: argparse.Namespace) -> int:
         report = json.loads(lines[-1])
     except json.JSONDecodeError as error:
         sys.stderr.write(f"invalid mesh-state JSON: {error}\n{execution.stdout}")
+        return 1
+    if report.get("status") == "pass" and not teardown_complete(report):
+        sys.stderr.write(
+            "mesh-state report claimed pass without complete, balanced teardown\n"
+        )
         return 1
     report["cuda_required"] = args.require_cuda
     report["build"] = {

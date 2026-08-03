@@ -125,17 +125,26 @@ int main(int argc, char **argv)
             break;
     }
 
-    const DeviceStateReport report = created.state->report();
+    const DeviceStateReport activeReport = created.state->report();
     bool transfersComplete = true;
-    for (const auto &counter : report.transfers)
+    for (const auto &counter : activeReport.transfers)
         transfersComplete = transfersComplete &&
                             counter.attemptedOperations ==
                                 counter.completedOperations &&
                             counter.attemptedBytes == counter.completedBytes;
     const bool noWarmAllocations =
-        report.successfulAllocations == warmedAllocations;
+        activeReport.successfulAllocations == warmedAllocations;
+    const DeviceStateError closeResult = created.state->close();
+    const DeviceStateReport finalReport = created.state->report();
+    const bool allocationFreeBalance =
+        finalReport.successfulAllocations == finalReport.successfulFrees;
+    const bool cleanupComplete =
+        closeResult.ok() && finalReport.phase == TransactionPhase::Closed &&
+        !finalReport.cleanupPending && finalReport.cleanupError.ok() &&
+        finalReport.residentBytes == 0 && allocationFreeBalance;
     const bool pass = transitionsOk && noWarmAllocations && transfersComplete &&
-                      report.phase == TransactionPhase::IdleAccepted &&
+                      activeReport.phase == TransactionPhase::IdleAccepted &&
+                      cleanupComplete &&
                       static_cast<int>(commits + rollbacks) == iterations;
 
     std::cout << "{\"status\":" << json_string(pass ? "pass" : "fail")
@@ -144,23 +153,35 @@ int main(int argc, char **argv)
               << ",\"iterations\":" << iterations
               << ",\"commits\":" << commits
               << ",\"rollbacks\":" << rollbacks
-              << ",\"allocation_epoch\":" << report.allocationEpoch
-              << ",\"transaction_epoch\":" << report.transactionEpoch
+              << ",\"allocation_epoch\":" << activeReport.allocationEpoch
+              << ",\"transaction_epoch\":" << activeReport.transactionEpoch
               << ",\"warmed_allocations\":" << warmedAllocations
-              << ",\"final_allocations\":" << report.successfulAllocations
+              << ",\"final_allocations\":" << finalReport.successfulAllocations
+              << ",\"successful_frees\":" << finalReport.successfulFrees
+              << ",\"allocation_free_balance\":"
+              << (allocationFreeBalance ? "true" : "false")
               << ",\"no_warm_allocations\":"
               << (noWarmAllocations ? "true" : "false")
-              << ",\"resident_bytes\":" << report.residentBytes
-              << ",\"memory_budget_bytes\":" << report.lastMemoryBudgetBytes
+              << ",\"resident_bytes\":" << activeReport.residentBytes
+              << ",\"final_resident_bytes\":" << finalReport.residentBytes
+              << ",\"closed\":"
+              << (finalReport.phase == TransactionPhase::Closed ? "true" : "false")
+              << ",\"cleanup_pending\":"
+              << (finalReport.cleanupPending ? "true" : "false")
+              << ",\"cleanup_error_code\":"
+              << json_string(device_state_error_code_name(
+                     finalReport.cleanupError.code))
+              << ",\"memory_budget_bytes\":"
+              << activeReport.lastMemoryBudgetBytes
               << ",\"transfers_complete\":"
               << (transfersComplete ? "true" : "false")
               << ",\"transfers\":{";
-    for (std::size_t reason = 0; reason < report.transfers.size(); ++reason)
+    for (std::size_t reason = 0; reason < activeReport.transfers.size(); ++reason)
     {
         if (reason)
             std::cout << ',';
         const auto transferReason = static_cast<TransferReason>(reason);
-        const auto &counter = report.transfers[reason];
+        const auto &counter = activeReport.transfers[reason];
         std::cout << json_string(transfer_reason_name(transferReason))
                   << ":{\"operations\":" << counter.completedOperations
                   << ",\"bytes\":" << counter.completedBytes << '}';

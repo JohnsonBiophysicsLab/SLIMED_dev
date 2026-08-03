@@ -221,6 +221,52 @@ DriverStatus release_retryable_handle(
     return status;
 }
 
+bool StreamCleanupState::pending() const noexcept { return pending_; }
+
+void StreamCleanupState::overlay(DeviceStateReport &report) const
+{
+    if (!pending_)
+        return;
+    report.available = false;
+    report.phase = TransactionPhase::Closing;
+    report.cleanupPending = true;
+    report.cleanupError = error_;
+}
+
+DeviceStateError StreamCleanupState::guard(
+    const char *operation, DeviceStateReport &report) const
+{
+    if (!pending_)
+        return {};
+    DeviceStateError blocked = error(
+        DeviceStateErrorCode::CleanupFailed, operation,
+        "CUDA stream cleanup is pending; call retry_cleanup or close");
+    overlay(report);
+    report.error = blocked;
+    return blocked;
+}
+
+DeviceStateError StreamCleanupState::attempt(
+    const std::function<DriverStatus()> &close,
+    DeviceStateReport &report)
+{
+    const DriverStatus status = close();
+    if (!status.success)
+    {
+        pending_ = true;
+        error_ = error(DeviceStateErrorCode::CleanupFailed,
+                       status.operation.empty() ? "close_cuda_stream"
+                                                : status.operation,
+                       status.message, status.nativeCode);
+        overlay(report);
+        report.error = error_;
+        return error_;
+    }
+    pending_ = false;
+    error_ = {};
+    return {};
+}
+
 struct MeshStateCore::Impl
 {
     DeviceOperations operations;
@@ -947,4 +993,166 @@ MeshStateCoreResult create_mesh_state_core(DeviceOperations operations,
 }
 
 } // namespace detail
+
+struct CudaMeshState::Impl
+{
+    std::unique_ptr<detail::MeshStateCore> core;
+    std::function<detail::DriverStatus()> closeStream;
+    detail::StreamCleanupState streamCleanup;
+    DeviceStateReport report;
+    bool closed = false;
+
+    void refresh()
+    {
+        report = core->report();
+        streamCleanup.overlay(report);
+    }
+
+    DeviceStateError guard(const char *operation)
+    {
+        return streamCleanup.guard(operation, report);
+    }
+};
+
+CudaMeshState::CudaMeshState(std::unique_ptr<Impl> impl)
+    : impl_(std::move(impl))
+{
+}
+CudaMeshState::CudaMeshState(CudaMeshState &&) noexcept = default;
+CudaMeshState &CudaMeshState::operator=(CudaMeshState &&) noexcept = default;
+CudaMeshState::~CudaMeshState()
+{
+    if (impl_)
+        close();
+}
+
+DeviceStateError CudaMeshState::ensure_resident(const RegularMeshPack &pack)
+{
+    DeviceStateError blocked = impl_->guard("ensure_resident");
+    if (!blocked.ok())
+        return blocked;
+    DeviceStateError result = impl_->core->ensure_resident(pack);
+    impl_->refresh();
+    return result;
+}
+
+DeviceStateError CudaMeshState::prepare_candidate(
+    const std::vector<double> &coordinates, std::uint64_t generation)
+{
+    DeviceStateError blocked = impl_->guard("prepare_candidate");
+    if (!blocked.ok())
+        return blocked;
+    DeviceStateError result = impl_->core->prepare_candidate(coordinates,
+                                                              generation);
+    impl_->refresh();
+    return result;
+}
+
+DeviceStateError CudaMeshState::mark_computing()
+{
+    DeviceStateError blocked = impl_->guard("mark_computing");
+    if (!blocked.ok())
+        return blocked;
+    DeviceStateError result = impl_->core->mark_computing();
+    impl_->refresh();
+    return result;
+}
+
+DeviceStateError CudaMeshState::mark_validated()
+{
+    DeviceStateError blocked = impl_->guard("mark_validated");
+    if (!blocked.ok())
+        return blocked;
+    DeviceStateError result = impl_->core->mark_validated();
+    impl_->refresh();
+    return result;
+}
+
+DeviceStateError CudaMeshState::commit()
+{
+    DeviceStateError blocked = impl_->guard("commit");
+    if (!blocked.ok())
+        return blocked;
+    DeviceStateError result = impl_->core->commit();
+    impl_->refresh();
+    return result;
+}
+
+DeviceStateError CudaMeshState::rollback()
+{
+    DeviceStateError blocked = impl_->guard("rollback");
+    if (!blocked.ok())
+        return blocked;
+    DeviceStateError result = impl_->core->rollback();
+    impl_->refresh();
+    return result;
+}
+
+DeviceStateError CudaMeshState::fail_candidate(const std::string &operation,
+                                                const std::string &message)
+{
+    DeviceStateError blocked = impl_->guard("fail_candidate");
+    if (!blocked.ok())
+        return blocked;
+    DeviceStateError result = impl_->core->fail_candidate(operation, message);
+    impl_->refresh();
+    return result;
+}
+
+DeviceStateError CudaMeshState::recover()
+{
+    DeviceStateError blocked = impl_->guard("recover");
+    if (!blocked.ok())
+        return blocked;
+    DeviceStateError result = impl_->core->recover();
+    impl_->refresh();
+    return result;
+}
+
+DeviceStateError CudaMeshState::retry_cleanup()
+{
+    if (!impl_ || impl_->closed)
+        return {};
+    if (impl_->streamCleanup.pending() ||
+        impl_->report.phase == TransactionPhase::Closing)
+        return close();
+    DeviceStateError result = impl_->core->retry_cleanup();
+    impl_->refresh();
+    return result;
+}
+
+DeviceStateError CudaMeshState::close()
+{
+    if (!impl_ || impl_->closed)
+        return {};
+    DeviceStateError result = impl_->core->close();
+    impl_->refresh();
+    if (!result.ok())
+        return result;
+    result = impl_->streamCleanup.attempt(impl_->closeStream, impl_->report);
+    if (result.ok())
+    {
+        impl_->refresh();
+        impl_->closed = true;
+    }
+    return result;
+}
+
+const DeviceStateReport &CudaMeshState::report() const noexcept
+{
+    return impl_->report;
+}
+
+std::unique_ptr<CudaMeshState> detail::CudaMeshStateFactory::create(
+    std::unique_ptr<MeshStateCore> core,
+    DeviceStateReport report,
+    std::function<DriverStatus()> closeStream)
+{
+    auto impl = std::make_unique<CudaMeshState::Impl>();
+    impl->core = std::move(core);
+    impl->closeStream = std::move(closeStream);
+    impl->report = std::move(report);
+    return std::unique_ptr<CudaMeshState>(new CudaMeshState(std::move(impl)));
+}
+
 } // namespace slimed::cuda_residency

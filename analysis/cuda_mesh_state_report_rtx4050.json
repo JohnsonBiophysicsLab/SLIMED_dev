@@ -1,5 +1,6 @@
 {
   "allocation_epoch": 1,
+  "allocation_free_balance": true,
   "available": true,
   "build": {
     "command": [
@@ -18,11 +19,15 @@
     "sm_code": "sm_89",
     "target": "cuda_mesh_state_report"
   },
+  "cleanup_error_code": "none",
+  "cleanup_pending": false,
+  "closed": true,
   "commits": 10,
   "compiled": true,
   "cuda_required": true,
   "device_ordinal": 0,
   "final_allocations": 19,
+  "final_resident_bytes": 0,
   "gpu": {
     "compute_capability": "8.9",
     "driver_version": "581.95",
@@ -35,6 +40,7 @@
   "resident_bytes": 5248,
   "rollbacks": 10,
   "status": "pass",
+  "successful_frees": 19,
   "transaction_epoch": 20,
   "transfers": {
     "accepted_coordinates": {"bytes": 576, "operations": 2},

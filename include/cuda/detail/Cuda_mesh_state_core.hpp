@@ -25,6 +25,21 @@ DriverStatus release_retryable_handle(
     DeviceBufferHandle &handle,
     const std::function<DriverStatus(DeviceBufferHandle)> &release);
 
+class StreamCleanupState final
+{
+  public:
+    bool pending() const noexcept;
+    void overlay(DeviceStateReport &report) const;
+    DeviceStateError guard(const char *operation,
+                           DeviceStateReport &report) const;
+    DeviceStateError attempt(const std::function<DriverStatus()> &close,
+                             DeviceStateReport &report);
+
+  private:
+    bool pending_ = false;
+    DeviceStateError error_;
+};
+
 struct DeviceOperations
 {
     std::function<DriverStatus(std::size_t &, std::size_t &)> queryMemory;
@@ -82,6 +97,14 @@ MeshStateCoreResult create_mesh_state_core(
     DeviceOperations operations,
     const RegularMeshPack &pack,
     const DeviceStateConfig &config = DeviceStateConfig{});
+
+struct CudaMeshStateFactory
+{
+    static std::unique_ptr<CudaMeshState> create(
+        std::unique_ptr<MeshStateCore> core,
+        DeviceStateReport report,
+        std::function<DriverStatus()> closeStream);
+};
 
 } // namespace slimed::cuda_residency::detail
 

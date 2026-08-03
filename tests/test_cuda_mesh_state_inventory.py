@@ -71,6 +71,34 @@ class CudaMeshStateInventoryTest(unittest.TestCase):
         self.assertEqual(native[1], "cuda_mesh_state_report")
         self.assertEqual(stub[1], "cuda_mesh_state_stub_report")
 
+    def test_runner_rejects_false_green_teardown(self):
+        path = ROOT / "scripts/run_cuda_mesh_state_report.py"
+        spec = importlib.util.spec_from_file_location("mesh_state_runner_teardown", path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        complete = {
+            "closed": True,
+            "cleanup_pending": False,
+            "cleanup_error_code": "none",
+            "final_resident_bytes": 0,
+            "allocation_free_balance": True,
+            "successful_frees": 19,
+            "final_allocations": 19,
+        }
+        self.assertTrue(module.teardown_complete(complete))
+        for key, invalid in (
+            ("closed", False),
+            ("cleanup_pending", True),
+            ("cleanup_error_code", "cleanup_failed"),
+            ("final_resident_bytes", 1),
+            ("allocation_free_balance", False),
+            ("successful_frees", 18),
+        ):
+            with self.subTest(key=key):
+                report = complete.copy()
+                report[key] = invalid
+                self.assertFalse(module.teardown_complete(report))
+
     def test_committed_rtx_evidence_meets_exit_gate(self):
         evidence = json.loads(
             (ROOT / "analysis/cuda_mesh_state_report_rtx4050.json").read_text()
@@ -81,6 +109,14 @@ class CudaMeshStateInventoryTest(unittest.TestCase):
         self.assertEqual(evidence["iterations"], 20)
         self.assertTrue(evidence["no_warm_allocations"])
         self.assertTrue(evidence["transfers_complete"])
+        self.assertTrue(evidence["closed"])
+        self.assertFalse(evidence["cleanup_pending"])
+        self.assertEqual(evidence["cleanup_error_code"], "none")
+        self.assertEqual(evidence["final_resident_bytes"], 0)
+        self.assertTrue(evidence["allocation_free_balance"])
+        self.assertEqual(
+            evidence["successful_frees"], evidence["final_allocations"]
+        )
         self.assertEqual(evidence["gpu"]["name"], "NVIDIA GeForce RTX 4050 Laptop GPU")
 
 

@@ -13,6 +13,11 @@
 namespace slimed::cuda_residency
 {
 
+namespace detail
+{
+struct CudaMeshStateFactory;
+}
+
 enum class DeviceStateErrorCode
 {
     None = 0,
@@ -155,6 +160,7 @@ class CudaMeshState final
     std::unique_ptr<Impl> impl_;
 
     friend struct CudaMeshStateResult;
+    friend struct detail::CudaMeshStateFactory;
     friend CudaMeshStateResult create_cuda_mesh_state(
         const RegularMeshPack &, const DeviceStateConfig &);
 };

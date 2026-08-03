@@ -126,118 +126,12 @@ DeviceStateError initialization_error(const detail::DriverStatus &status)
 
 } // namespace
 
-struct CudaMeshState::Impl
-{
-    std::unique_ptr<RuntimeDriver> driver;
-    std::unique_ptr<detail::MeshStateCore> core;
-    DeviceStateReport report;
-    bool closed = false;
-
-    void refresh() { report = core->report(); }
-};
-
-CudaMeshState::CudaMeshState(std::unique_ptr<Impl> impl)
-    : impl_(std::move(impl))
-{
-}
-CudaMeshState::CudaMeshState(CudaMeshState &&) noexcept = default;
-CudaMeshState &CudaMeshState::operator=(CudaMeshState &&) noexcept = default;
-CudaMeshState::~CudaMeshState()
-{
-    if (impl_)
-        close();
-}
-
-DeviceStateError CudaMeshState::ensure_resident(const RegularMeshPack &pack)
-{
-    DeviceStateError result = impl_->core->ensure_resident(pack);
-    impl_->refresh();
-    return result;
-}
-DeviceStateError CudaMeshState::prepare_candidate(
-    const std::vector<double> &coordinates, std::uint64_t generation)
-{
-    DeviceStateError result = impl_->core->prepare_candidate(coordinates,
-                                                              generation);
-    impl_->refresh();
-    return result;
-}
-DeviceStateError CudaMeshState::mark_computing()
-{
-    DeviceStateError result = impl_->core->mark_computing();
-    impl_->refresh();
-    return result;
-}
-DeviceStateError CudaMeshState::mark_validated()
-{
-    DeviceStateError result = impl_->core->mark_validated();
-    impl_->refresh();
-    return result;
-}
-DeviceStateError CudaMeshState::commit()
-{
-    DeviceStateError result = impl_->core->commit();
-    impl_->refresh();
-    return result;
-}
-DeviceStateError CudaMeshState::rollback()
-{
-    DeviceStateError result = impl_->core->rollback();
-    impl_->refresh();
-    return result;
-}
-DeviceStateError CudaMeshState::fail_candidate(const std::string &operation,
-                                                const std::string &message)
-{
-    DeviceStateError result = impl_->core->fail_candidate(operation, message);
-    impl_->refresh();
-    return result;
-}
-DeviceStateError CudaMeshState::recover()
-{
-    DeviceStateError result = impl_->core->recover();
-    impl_->refresh();
-    return result;
-}
-DeviceStateError CudaMeshState::retry_cleanup()
-{
-    DeviceStateError result = impl_->core->retry_cleanup();
-    impl_->refresh();
-    return result;
-}
-DeviceStateError CudaMeshState::close()
-{
-    if (!impl_ || impl_->closed)
-        return {};
-    DeviceStateError result = impl_->core->close();
-    impl_->refresh();
-    if (!result.ok())
-        return result;
-    const detail::DriverStatus stream = impl_->driver->close();
-    if (!stream.success)
-    {
-        result = {DeviceStateErrorCode::CleanupFailed, stream.operation,
-                  stream.nativeCode, stream.message};
-        impl_->report.error = result;
-        impl_->report.cleanupPending = true;
-        impl_->report.cleanupError = result;
-        impl_->report.phase = TransactionPhase::Closing;
-    }
-    else
-        impl_->closed = true;
-    return result;
-}
-const DeviceStateReport &CudaMeshState::report() const noexcept
-{
-    return impl_->report;
-}
-
 CudaMeshStateResult create_cuda_mesh_state(const RegularMeshPack &pack,
                                            const DeviceStateConfig &config)
 {
     CudaMeshStateResult result;
     result.report.compiled = true;
-    auto driver = std::make_unique<RuntimeDriver>();
+    auto driver = std::make_shared<RuntimeDriver>();
     const detail::DriverStatus initialized = driver->initialize(config.deviceOrdinal);
     if (!initialized.success)
     {
@@ -249,12 +143,9 @@ CudaMeshStateResult create_cuda_mesh_state(const RegularMeshPack &pack,
     result.report = coreResult.report;
     if (!coreResult.state)
         return result;
-    auto impl = std::make_unique<CudaMeshState::Impl>();
-    impl->driver = std::move(driver);
-    impl->core = std::move(coreResult.state);
-    impl->report = coreResult.report;
-    result.state = std::unique_ptr<CudaMeshState>(
-        new CudaMeshState(std::move(impl)));
+    result.state = detail::CudaMeshStateFactory::create(
+        std::move(coreResult.state), coreResult.report,
+        [driver]() { return driver->close(); });
     return result;
 }
 
