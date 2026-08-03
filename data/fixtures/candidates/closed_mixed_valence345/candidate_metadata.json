@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "fixture_id": "candidate_closed_mixed_valence345",
+  "status": "candidate_only",
+  "purpose": "local_3_4_5_irregularity_geometry_energy_force_feasibility",
+  "construction": "two outward spherical face insertions starting from the canonical tetrahedron",
+  "scientifically_approved": false,
+  "proof_only": true,
+  "not_production_routing": true,
+  "production_route_enabled": false,
+  "topology": {
+    "vertex_count": 6,
+    "edge_count": 12,
+    "face_count": 8,
+    "vertex_valence_by_id": [5, 5, 4, 3, 4, 3],
+    "contains_face_valence_triplet": "3/4/5",
+    "face_valence_triplets": ["3/5/5", "3/4/5", "3/4/5", "4/4/5", "4/4/5", "3/5/5", "3/4/5", "3/4/5"],
+    "closed_two_face_edge_manifold": true,
+    "faces_oriented_outward": true
+  },
+  "expected_current_production_contract": {
+    "one_ring_size_per_face": 0,
+    "geometry_preflight": "runtime_error before area or volume mutation"
+  }
+}

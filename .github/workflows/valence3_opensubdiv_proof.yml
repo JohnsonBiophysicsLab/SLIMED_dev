@@ -1,0 +1,46 @@
+name: Valence 3 OpenSubdiv proof
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/valence3_opensubdiv_proof.yml"
+      - "data/fixtures/candidates/closed_valence3_tetrahedron/**"
+      - "data/fixtures/candidates/closed_mixed_valence345/**"
+      - "experiments/irregular_valence3_opensubdiv_geometry_force.cpp"
+      - "include/mesh/OpenSubdiv_valence3_row_provider.hpp"
+      - "scripts/run_irregular_valence3_opensubdiv_geometry_force.py"
+      - "src/mesh/OpenSubdiv_valence3_row_provider.cpp"
+  workflow_dispatch:
+
+jobs:
+  opensubdiv-3-7-proof:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install build dependencies
+        run: sudo apt-get update && sudo apt-get install -y build-essential cmake libgsl-dev
+      - name: Cache OpenSubdiv 3.7.0
+        id: cache-opensubdiv
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/opensubdiv-3.7.0
+          key: opensubdiv-3.7.0-linux-x86_64-cpu-only-v1
+      - name: Build OpenSubdiv 3.7.0 CPU library
+        if: steps.cache-opensubdiv.outputs.cache-hit != 'true'
+        run: |
+          git clone --branch v3_7_0 --depth 1 https://github.com/PixarAnimationStudios/OpenSubdiv.git "${RUNNER_TEMP}/opensubdiv-src"
+          cmake -S "${RUNNER_TEMP}/opensubdiv-src" -B "${RUNNER_TEMP}/opensubdiv-build" \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX="${RUNNER_TEMP}/opensubdiv-3.7.0" \
+            -DNO_CUDA=ON -DNO_OPENCL=ON -DNO_DX=ON -DNO_METAL=ON \
+            -DNO_OPENGL=ON -DNO_GLFW=ON -DNO_PTEX=ON -DNO_TBB=ON \
+            -DNO_EXAMPLES=ON -DNO_TUTORIALS=ON -DNO_REGRESSION=ON \
+            -DNO_TESTS=ON -DNO_DOC=ON
+          cmake --build "${RUNNER_TEMP}/opensubdiv-build" --parallel 2
+          cmake --install "${RUNNER_TEMP}/opensubdiv-build"
+      - name: Run default-off and enabled Valence 3 proofs
+        env:
+          OPENSUBDIV_ROOT: ${{ runner.temp }}/opensubdiv-3.7.0
+        run: >-
+          python3 scripts/run_irregular_valence3_opensubdiv_geometry_force.py
+          --require-opensubdiv --json
