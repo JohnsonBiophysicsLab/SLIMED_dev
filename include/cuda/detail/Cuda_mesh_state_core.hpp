@@ -37,6 +37,32 @@ struct GeometryLaunch
     std::uint64_t evaluatedFaceCount = 0;
 };
 
+struct MembraneLaunch
+{
+    DeviceBufferHandle evaluatedFaceIds = 0;
+    DeviceBufferHandle oneRingSourceIds = 0;
+    DeviceBufferHandle spontaneousCurvatures = 0;
+    DeviceBufferHandle packedParameters = 0;
+    DeviceBufferHandle quadratureCoefficients = 0;
+    DeviceBufferHandle shapeWeights = 0;
+    DeviceBufferHandle coordinates = 0;
+    DeviceBufferHandle faceAreas = 0;
+    DeviceBufferHandle faceVolumes = 0;
+    DeviceBufferHandle geometryTotals = 0;
+    DeviceBufferHandle faceBendingEnergies = 0;
+    DeviceBufferHandle faceMeanCurvatures = 0;
+    DeviceBufferHandle faceNormals = 0;
+    DeviceBufferHandle occurrenceForces = 0;
+    DeviceBufferHandle sampleSurfaceMeasures = 0;
+    DeviceBufferHandle sampleMeanCurvatures = 0;
+    DeviceBufferHandle sampleNormals = 0;
+    DeviceBufferHandle sampleBendingEnergies = 0;
+    DeviceBufferHandle statusDiagnostics = 0;
+    std::uint64_t vertexCount = 0;
+    std::uint64_t faceCount = 0;
+    std::uint64_t evaluatedFaceCount = 0;
+};
+
 DriverStatus release_retryable_handle(
     DeviceBufferHandle &handle,
     const std::function<DriverStatus(DeviceBufferHandle)> &release);
@@ -66,6 +92,7 @@ struct DeviceOperations
     std::function<DriverStatus(void *, DeviceBufferHandle, std::size_t)>
         copyDeviceToHost;
     std::function<DriverStatus(const GeometryLaunch &)> computeGeometry;
+    std::function<DriverStatus(const MembraneLaunch &)> computeMembrane;
     std::function<DriverStatus()> synchronize;
 };
 
@@ -82,6 +109,7 @@ class MeshStateCore final
     DeviceStateError prepare_candidate(const std::vector<double> &coordinates,
                                        std::uint64_t generation);
     GeometryCandidateResult compute_candidate_geometry();
+    MembraneCandidateResult compute_candidate_membrane();
     DeviceStateError mark_computing();
     DeviceStateError mark_validated();
     DeviceStateError commit();

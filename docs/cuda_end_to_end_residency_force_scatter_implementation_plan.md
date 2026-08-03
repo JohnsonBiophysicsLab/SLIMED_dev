@@ -740,6 +740,21 @@ remains subject to the required pull-request review and owner merge approval.
 Exit evidence: per-sample, per-face, per-occurrence, energy, curvature, and
 normal parity against the actual CPU formula.
 
+Implementation status (2026-08-03):
+`codex/cuda-step5-regular-membrane-formula` implements the complete regular
+bending, global-area-constraint, and global-volume-constraint sample algebra
+as a candidate-only device operation. It consumes all seven packed weighted
+rows and emits sample surface measures/curvatures/normals/bending energies,
+face geometry/energy/curvature/unit normals, and canonical 12x9
+per-occurrence force contributions. An independent packed CPU oracle is bound
+directly to `Mesh::element_energy_force_regular()` for every face observable
+and force component on a curved production mesh. The native RTX report covers
+the six frozen fixtures for 20 repeats, including source-order permutation and
+structured degenerate-sample recovery, without warmed allocations. Scatter,
+vertex-force writes, `Mesh` publication, and production routing remain outside
+this slice. Final status remains subject to pull-request review and owner merge
+approval.
+
 ### Step 6 / PR 6: Deterministic source-keyed scatter
 
 - Implement the reviewed incidence-based, fixed-order reduction into nine

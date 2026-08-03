@@ -22,6 +22,7 @@ REQUIRED_GEOMETRY_CASES = {
     "degenerate",
     "production_cpu",
 }
+REQUIRED_MEMBRANE_CASES = REQUIRED_GEOMETRY_CASES
 
 
 def repo_root() -> Path:
@@ -128,6 +129,35 @@ def geometry_complete(report: dict[str, object]) -> bool:
     )
 
 
+def membrane_complete(report: dict[str, object]) -> bool:
+    error = report.get("membrane_max_abs_error")
+    cases = report.get("membrane_cases")
+    if not isinstance(cases, dict) or set(cases) != REQUIRED_MEMBRANE_CASES:
+        return False
+    for name in REQUIRED_MEMBRANE_CASES:
+        case = cases.get(name)
+        if not isinstance(case, dict):
+            return False
+        case_error = case.get("max_abs_error")
+        if not (
+            case.get("pass") is True
+            and case.get("cpu_parity") is True
+            and case.get("repeatable") is True
+            and case.get("structured_degeneracy") is True
+            and case.get("recoverable") is True
+            and case.get("permutation_equal") is True
+            and isinstance(case_error, (int, float))
+            and case_error <= 1.0e-12
+        ):
+            return False
+    return (
+        report.get("membrane_repeatable") is True
+        and report.get("membrane_degeneracy_handled") is True
+        and isinstance(error, (int, float))
+        and error <= 1.0e-12
+    )
+
+
 def run(args: argparse.Namespace) -> int:
     root = Path(args.root).resolve() if args.root else repo_root()
     make = executable(args.make, "make")
@@ -175,6 +205,11 @@ def run(args: argparse.Namespace) -> int:
                 "mesh-state report claimed pass without geometry parity and repeatability\n"
             )
             return 1
+        if not membrane_complete(report):
+            sys.stderr.write(
+                "mesh-state report claimed pass without complete membrane parity, repeatability, and recovery\n"
+            )
+            return 1
         if not teardown_complete(report):
             sys.stderr.write(
                 "mesh-state report claimed pass without complete, balanced teardown\n"
@@ -193,7 +228,13 @@ def run(args: argparse.Namespace) -> int:
     }
     if not args.stub:
         report["gpu"] = gpu_inventory()
-    print(json.dumps(report, indent=2, sort_keys=True))
+    encoded = json.dumps(report, indent=2, sort_keys=True)
+    if args.output:
+        output = Path(args.output)
+        if not output.is_absolute():
+            output = root / output
+        output.write_text(encoded + "\n")
+    print(encoded)
     if execution.returncode == NO_CUDA_EXIT_CODE:
         return NO_CUDA_EXIT_CODE if args.require_cuda and not args.stub else 0
     return execution.returncode
@@ -202,6 +243,7 @@ def run(args: argparse.Namespace) -> int:
 def parser() -> argparse.ArgumentParser:
     result = argparse.ArgumentParser(description=__doc__)
     result.add_argument("--root")
+    result.add_argument("--output")
     result.add_argument("--make")
     result.add_argument("--nvcc")
     result.add_argument("--host-cxx")
