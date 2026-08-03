@@ -172,9 +172,13 @@ void accumulate_membrane_face_energy_and_forces(
     {
         assert_supported_membrane_force_routing(mesh);
     }
-    const std::shared_ptr<const RegularLimitSurfaceRowTable>
+    std::shared_ptr<const RegularLimitSurfaceRowTable>
+        routedRegularShapeFunctions;
+    if (guardedSourceKeyedRows == nullptr)
+    {
         routedRegularShapeFunctions =
             cached_opensubdiv_regular_shape_functions_by_face(mesh);
+    }
 
     const int nVertices = static_cast<int>(mesh.vertices.size());
 #ifdef OMP

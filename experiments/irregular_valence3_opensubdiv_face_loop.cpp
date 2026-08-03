@@ -268,8 +268,11 @@ int main(int argc, char **argv)
         evaluate_guarded_valence3_phase3_face_loop(volumeMesh, request);
     const Valence3Phase3Result mixedRejected =
         evaluate_guarded_valence3_phase3_face_loop(mixedMesh, request);
+    setenv("SLIMED_USE_OPENSUBDIV_REGULAR", "1", 1);
     const Valence3Phase3Result result =
         evaluate_guarded_valence3_phase3_face_loop(mesh, request);
+    unsetenv("SLIMED_USE_OPENSUBDIV_REGULAR");
+    const bool unrelatedRegularTokenIsolated = result.accepted;
 
     const bool volumeRejectionAtomic =
         !volumeRejected.accepted &&
@@ -284,7 +287,8 @@ int main(int argc, char **argv)
     {
         const bool passed = defaultEvaluatorStillUnsupported &&
             defaultOffAtomic && volumeRejectionAtomic &&
-            mixedRejectionAtomic && !result.accepted &&
+            mixedRejectionAtomic && !unrelatedRegularTokenIsolated &&
+            !result.accepted &&
             mesh_state(mesh) == initial &&
             one_rings(mesh) == initialOneRings &&
             !result.actualProductionForcePathExecuted &&
@@ -304,7 +308,8 @@ int main(int argc, char **argv)
     const bool oneRingsPreserved = one_rings(mesh) == initialOneRings;
     const bool passed = defaultEvaluatorStillUnsupported &&
         defaultOffAtomic && volumeRejectionAtomic &&
-        mixedRejectionAtomic && result.accepted &&
+        mixedRejectionAtomic && unrelatedRegularTokenIsolated &&
+        result.accepted &&
         result.explicitRequestReceived && result.runtimeOptInRequested &&
         result.exactBaselineIdentityValidated &&
         result.exactQuadratureSamplePlanValidated &&
@@ -336,6 +341,8 @@ int main(int argc, char **argv)
               << (volumeRejectionAtomic ? "true" : "false")
               << ",\"mixed_345_rejection_atomic\":"
               << (mixedRejectionAtomic ? "true" : "false")
+              << ",\"unrelated_regular_token_isolated\":"
+              << (unrelatedRegularTokenIsolated ? "true" : "false")
               << ",\"exact_baseline_identity_validated\":"
               << (result.exactBaselineIdentityValidated ? "true" : "false")
               << ",\"complete_transaction_validated_before_mutation\":"

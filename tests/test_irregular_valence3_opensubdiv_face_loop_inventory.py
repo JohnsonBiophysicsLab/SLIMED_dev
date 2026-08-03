@@ -42,11 +42,14 @@ def test_valence3_phase3_face_loop_is_guarded_and_not_a_default_caller():
     assert "complete_transaction_validated_before_mutation" in experiment
     assert "production_one_rings_preserved" in experiment
     assert "default_evaluator_still_unsupported" in experiment
+    assert "SLIMED_USE_OPENSUBDIV_REGULAR" in experiment
+    assert "unrelated_regular_token_isolated" in experiment
     assert "default_off_contract" in runner
     assert "-DUSE_OPENSUBDIV_VALENCE3" in runner
     assert "evaluate_guarded_valence3_phase3_face_loop" not in production_caller
     assert "if (guardedSourceKeyedRows == nullptr)" in production_caller
     assert "assert_supported_membrane_force_routing(mesh);" in production_caller
+    assert production_caller.count("if (guardedSourceKeyedRows == nullptr)") >= 2
     assert "run_irregular_valence3_opensubdiv_face_loop.py" in workflow
 
 

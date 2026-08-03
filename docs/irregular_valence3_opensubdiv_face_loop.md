@@ -55,6 +55,10 @@ assertion only for ordinary calls. A complete guarded source-keyed call uses
 its already validated original-source boundary, preventing an incorrect
 fallback into the empty-one-ring legacy diagnostic while leaving default
 routing unchanged.
+The guarded branch also skips the unrelated regular-row cache lookup. The
+executable proof sets `SLIMED_USE_OPENSUBDIV_REGULAR=1` during the Phase-3
+transaction and requires complete success, proving that an inherited regular
+route token cannot throw after guarded publication has begun.
 
 Postconditions compare face normals, mean curvature, bending energy, and all
 source-keyed bending/area/volume force components with the dry run at the
