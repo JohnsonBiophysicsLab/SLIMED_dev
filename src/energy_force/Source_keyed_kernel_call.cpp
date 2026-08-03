@@ -203,11 +203,12 @@ PreparedSourceKeyedKernelCall prepare_source_keyed_kernel_call(
             throw std::invalid_argument(
                 "source-keyed kernel helper requires stable face identity");
         }
-        if (!mapping.productionOneRingEmpty)
+        if (mapping.productionOneRingEmpty ==
+            mapping.productionOneRingBypassed)
         {
             throw std::invalid_argument(
-                "source-keyed kernel helper requires empty production "
-                "one-rings");
+                "source-keyed kernel helper requires exactly one reviewed "
+                "production one-ring disposition");
         }
         if (faceRows.orientedFaceVertices !=
             mapping.orientedFaceVertices)
