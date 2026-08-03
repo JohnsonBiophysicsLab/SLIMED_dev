@@ -143,6 +143,16 @@ ifeq ($(USE_OPENSUBDIV_REGULAR),1)
 	LIBS += -L$(OPENSUBDIV_ROOT)/lib -L$(OPENSUBDIV_ROOT)/lib64 -Wl,-rpath,$(OPENSUBDIV_ROOT)/lib -Wl,-rpath,$(OPENSUBDIV_ROOT)/lib64 -losdCPU
 endif
 
+USE_OPENSUBDIV_VALENCE5 ?= 0
+ifeq ($(USE_OPENSUBDIV_VALENCE5),1)
+	ifeq ($(OPENSUBDIV_ROOT),)
+		$(error "USE_OPENSUBDIV_VALENCE5=1 requires OPENSUBDIV_ROOT=/path/to/opensubdiv")
+	endif
+	DEFS += -DUSE_OPENSUBDIV_VALENCE5
+	INCS += -I$(OPENSUBDIV_ROOT)/include
+	LIBS += -L$(OPENSUBDIV_ROOT)/lib -L$(OPENSUBDIV_ROOT)/lib64 -Wl,-rpath,$(OPENSUBDIV_ROOT)/lib -Wl,-rpath,$(OPENSUBDIV_ROOT)/lib64 -losdCPU
+endif
+
 # Optional GoogleTest prefix. This lets `make test` find Homebrew's keg on
 # macOS while preserving the default system paths used by Linux packages.
 GTEST_PREFIX ?= $(shell command -v brew >/dev/null 2>&1 && brew --prefix googletest 2>/dev/null)

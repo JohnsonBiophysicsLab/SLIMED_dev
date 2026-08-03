@@ -28,6 +28,23 @@ ALLOWED_PATHS = {
     RUNNER, WRAPPER, DOC, TEST, SELF, READINESS, GLOBAL, GLOBAL_TEST,
     PREDECESSOR_INVENTORY, OUTPUT_INVENTORY,
 }
+PHASE1_SUCCESSOR_PATHS = {
+    Path("Makefile"),
+    Path("include/mesh/OpenSubdiv_valence5_row_provider.hpp"),
+    Path("src/mesh/OpenSubdiv_valence5_row_provider.cpp"),
+    Path("experiments/irregular_valence5_opensubdiv_row_provider.cpp"),
+    Path("scripts/run_irregular_valence5_opensubdiv_row_provider.py"),
+    Path("scripts/run_irregular_valence5_opensubdiv_row_provider.sh"),
+    Path("scripts/inventory_irregular_valence5_opensubdiv_row_provider.py"),
+    Path("tests/test_irregular_valence5_opensubdiv_row_provider_inventory.py"),
+    Path("docs/irregular_valence5_opensubdiv_row_provider.md"),
+    Path("scripts/inventory_irregular_valence4_production_call_parity.py"),
+    Path("scripts/inventory_irregular_valence4_production_kernel_call_proof.py"),
+    Path("scripts/inventory_irregular_valence4_topology_source_representation.py"),
+    Path("tests/test_irregular_valence4_topology_source_representation_inventory.py"),
+    Path("scripts/inventory_opensubdiv_regular_cpp_adapter_proof.py"),
+}
+ALLOWED_PATHS |= PHASE1_SUCCESSOR_PATHS
 ANCHORS = {
     RUNNER: (
         'PREDECESSOR_MERGE_COMMIT = "023db1ea053f90e895175cf89e88ed437dad4b93"',

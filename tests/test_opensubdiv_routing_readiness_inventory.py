@@ -50,6 +50,7 @@ class OpenSubdivRoutingReadinessInventoryTest(unittest.TestCase):
         irregular_11 = matrix["positive-depth 11 = 4+3+4 membrane force"]
         self.assertIn("subdivision matrices", irregular_11["current_production_status"])
         self.assertIn("Option B selected", irregular_11["readiness_result"])
+        self.assertIn("Phase 1 provider implemented", irregular_11["readiness_result"])
         self.assertIn("production routing remain disabled", irregular_11["readiness_result"])
 
         broader = matrix["broader extraordinary valence"]
@@ -142,6 +143,8 @@ class OpenSubdivRoutingReadinessInventoryTest(unittest.TestCase):
         self.assertIn("Option B explicit three-way decision", anchor_names)
         self.assertIn("Option B accepted selection recorded", anchor_names)
         self.assertIn("Option B accepted but remains unrouted", anchor_names)
+        self.assertIn("Option B Phase 1 row provider implemented", anchor_names)
+        self.assertIn("Phase 1 provider remains non-production", anchor_names)
 
         self.assertFalse(
             inventory.collect_forbidden_claims(inventory.repo_root())

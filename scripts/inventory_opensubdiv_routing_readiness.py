@@ -135,8 +135,8 @@ ROUTE_READINESS_MATRIX: tuple[dict[str, str], ...] = (
     {
         "route": "positive-depth 11 = 4+3+4 membrane force",
         "current_production_status": "supported narrowly by subdivision matrices",
-        "opensubdiv_evidence_status": "Option B stock semantics are scientifically accepted after completed source-order, force, energy, geometry, output, and serial/OpenMP evidence",
-        "readiness_result": "Option B selected and scientifically approved; implementation and production routing remain disabled while the current SLIMED fallback stays active",
+        "opensubdiv_evidence_status": "Option B stock semantics are accepted and the guarded Phase 1 stock row provider passes exact identity, independent row-oracle, and non-mutation checks",
+        "readiness_result": "Option B selected; Phase 1 provider implemented but remains non-production; Phase 2 integration and production routing remain disabled while the current SLIMED fallback stays active",
     },
     {
         "route": "zero-depth 11-control and unsupported irregular topologies",
@@ -771,6 +771,22 @@ ANCHORS: tuple[Anchor, ...] = (
         "implementation and production routing remain disabled",
         "unrouted selection boundary",
         "Selection does not itself mutate production behavior.",
+    ),
+    Anchor(
+        "valence-5 Option B Phase 1 provider",
+        "Option B Phase 1 row provider implemented",
+        READINESS_DOC_PATH,
+        "Phase 1 guarded stock row provider is implemented",
+        "guarded provider boundary",
+        "The accepted stock rows are available only through a default-off non-production seam.",
+    ),
+    Anchor(
+        "valence-5 Option B Phase 1 provider",
+        "Phase 1 provider remains non-production",
+        READINESS_DOC_PATH,
+        "Phase 2 remains unapproved",
+        "Phase 2 approval boundary",
+        "The provider does not authorize face-loop integration, re-baselining, or routing.",
     ),
     Anchor(
         "valence-5 Option B serial/OpenMP evidence",
