@@ -25,6 +25,16 @@ def test_valence3_provider_and_science_harness_are_guarded_and_inventoried():
     assert "existing_slimed_energy_force_algebra_executed" in harness
     assert "element_energy_force_regular" in harness
     assert "finiteDifferenceVerified" in harness
+    assert "maximum_transpose_relative_residual" in harness
+    assert "transpose_identity_verified" in harness
+    assert "prepare_source_keyed_kernel_call" in harness
+    assert "scatter_source_keyed_face_forces_to_component_buffer" in harness
+    assert "reduce_source_keyed_force_component_buffers" in harness
+    assert "source_keyed_scatter_verified" in harness
+    assert "net_force_relative_residual" in harness
+    assert "net_torque_relative_residual" in harness
+    assert "unsupported_mixed_force_imbalance_observed" in harness
+    assert "phase2_mechanical_packet_started" in harness
     assert "max_finite_difference_relative_error" in harness
     assert "legacyVolumeForceMismatchObserved" in harness
     assert "legacy_x_only_volume_mismatch_is_a_production_blocker" in harness

@@ -60,6 +60,19 @@ fixture now reports the canonical provider as not applicable and separately
 proves rejection. A dedicated GitHub Actions job builds stock OpenSubdiv 3.7.0
 CPU-only and runs the dependency-disabled and enabled proofs.
 
+The first Phase-2 continuation is recorded in
+`docs/irregular_valence3_phase2_mechanical_packet.md`. The real OpenSubdiv
+rows now pass per-sample and stacked transpose identities, canonical
+source-keyed preparation, production-shaped scatter, and repeated ascending
+1/2/4-buffer reductions. True net-force and net-torque checks replace the
+earlier aggregate-magnitude diagnostic: both exact tetrahedron coordinate
+sets pass, while the non-provider-applicable mixed 3/4/5 characterization
+exposes a roughly `5.20e-3` volume-force translation residual. That mixed
+residual is preserved as a dispatcher/physics blocker rather than hidden by
+a wider tolerance. The independent oracle, full energy-channel packet,
+covariance/scale studies, nested quadrature study, and scientific baseline
+decision remain open, so Phase 3 is still blocked.
+
 ## Executive Recommendation
 
 Implement valence 3 as a new, canonical-tetrahedron, source-keyed OpenSubdiv

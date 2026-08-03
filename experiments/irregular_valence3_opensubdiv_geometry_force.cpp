@@ -67,6 +67,10 @@ struct FixtureReport
     bool nonzeroBendingForce = false;
     bool nonzeroAreaForce = false;
     bool nonzeroVolumeForce = false;
+    bool transposeIdentityVerified = false;
+    bool sourceKeyedScatterVerified = false;
+    bool forceBalanceVerified = false;
+    bool unsupportedMixedForceImbalanceObserved = false;
     bool finiteDifferenceVerified = false;
     bool legacyVolumeForceMismatchObserved = false;
     double area = 0.0;
@@ -75,9 +79,13 @@ struct FixtureReport
     double isolationDeltaLevel4To5 = 0.0;
     double isolationDeltaLevel5To6 = 0.0;
     std::array<double, 3> maxForce{{0.0, 0.0, 0.0}};
+    double maxTransposeRelativeResidual = 0.0;
+    double maxSourceKeyedScatterRelativeResidual = 0.0;
     std::array<double, 3> maxFiniteDifferenceError{{0.0, 0.0, 0.0}};
     double maxLegacyVolumeFiniteDifferenceError = 0.0;
-    std::array<double, 3> netForceResidual{{0.0, 0.0, 0.0}};
+    std::array<double, 3> aggregateForceL2{{0.0, 0.0, 0.0}};
+    std::array<double, 3> netForceRelativeResidual{{0.0, 0.0, 0.0}};
+    std::array<double, 3> netTorqueRelativeResidual{{0.0, 0.0, 0.0}};
 };
 
 std::array<double, 3> evaluate_row(const SourceKeyedRow &row,
@@ -125,6 +133,138 @@ double norm(const std::array<double, 3> &value)
 {
     return std::sqrt(value[0] * value[0] + value[1] * value[1] +
                      value[2] * value[2]);
+}
+
+double relative_residual(const long double left, const long double right)
+{
+    const long double scale =
+        std::max(1.0L, std::max(std::abs(left), std::abs(right)));
+    return static_cast<double>(std::abs(left - right) / scale);
+}
+
+double maximum_transpose_relative_residual(
+    const std::vector<SourceKeyedFaceRows> &rows,
+    const std::vector<Matrix> &coordinates)
+{
+    long double stackedLeft = 0.0L;
+    long double stackedRight = 0.0L;
+    double maximumResidual = 0.0;
+    int sampleOrdinal = 0;
+    for (const SourceKeyedFaceRows &faceRows : rows)
+    {
+        for (const SourceKeyedSampleRows &sample : faceRows.samples)
+        {
+            long double left = 0.0L;
+            std::vector<std::array<long double, 3>> transposed(
+                coordinates.size());
+            for (int row = 0; row < kRowCount; ++row)
+            {
+                const SourceKeyedRow &sourceRow = sample.rows[row];
+                for (int axis = 0; axis < kAxisCount; ++axis)
+                {
+                    const long double gradient =
+                        static_cast<long double>(
+                            ((faceRows.faceIndex + 2) * (row + 3) *
+                             (axis + 5)) % 19 - 9) /
+                        7.0L;
+                    long double evaluated = 0.0L;
+                    for (std::size_t entry = 0;
+                         entry < sourceRow.sourceIds.size(); ++entry)
+                    {
+                        const int source = sourceRow.sourceIds[entry];
+                        const long double coefficient =
+                            sourceRow.coefficients[entry];
+                        evaluated += coefficient *
+                            coordinates[source].get(axis, 0);
+                        transposed[source][axis] +=
+                            coefficient * gradient;
+                    }
+                    left += gradient * evaluated;
+                }
+            }
+
+            long double right = 0.0L;
+            for (std::size_t source = 0; source < coordinates.size();
+                 ++source)
+            {
+                for (int axis = 0; axis < kAxisCount; ++axis)
+                {
+                    right += transposed[source][axis] *
+                             coordinates[source].get(axis, 0);
+                }
+            }
+            maximumResidual = std::max(
+                maximumResidual, relative_residual(left, right));
+            const long double stackWeight =
+                static_cast<long double>(sampleOrdinal + 1);
+            stackedLeft += stackWeight * left;
+            stackedRight += stackWeight * right;
+            ++sampleOrdinal;
+        }
+    }
+    return std::max(maximumResidual,
+                    relative_residual(stackedLeft, stackedRight));
+}
+
+double force_package_relative_residual(
+    const std::vector<SourceForceKinds> &left,
+    const std::vector<SourceForceKinds> &right)
+{
+    if (left.size() != right.size())
+    {
+        return std::numeric_limits<double>::infinity();
+    }
+    double maximumResidual = 0.0;
+    for (std::size_t source = 0; source < left.size(); ++source)
+    {
+        for (int kind = 0; kind < kForceKindCount; ++kind)
+        {
+            for (int axis = 0; axis < kAxisCount; ++axis)
+            {
+                maximumResidual = std::max(
+                    maximumResidual,
+                    relative_residual(left[source][kind][axis],
+                                      right[source][kind][axis]));
+            }
+        }
+    }
+    return maximumResidual;
+}
+
+double maximum_source_keyed_scatter_relative_residual(
+    const PreparedSourceKeyedKernelCall &prepared,
+    const std::vector<SourceForceKinds> &direct)
+{
+    const std::vector<SourceForceKinds> canonical =
+        accumulate_source_keyed_force_contributions(prepared);
+    double maximumResidual =
+        force_package_relative_residual(canonical, direct);
+    constexpr std::array<int, 3> kBufferCounts{{1, 2, 4}};
+    for (const int bufferCount : kBufferCounts)
+    {
+        for (int repeat = 0; repeat < 2; ++repeat)
+        {
+            std::vector<SourceForceComponentBuffer> buffers(
+                bufferCount,
+                SourceForceComponentBuffer(
+                    static_cast<std::size_t>(prepared.sourceCount) *
+                        kForceComponentsPerSource,
+                    0.0));
+            for (const PreparedSourceKeyedFace &face : prepared.faces)
+            {
+                const int buffer = face.mapping.faceIndex % bufferCount;
+                scatter_source_keyed_face_forces_to_component_buffer(
+                    face, prepared.sourceCount, buffers[buffer]);
+            }
+            const std::vector<SourceForceKinds> reduced =
+                reduce_source_keyed_force_component_buffers(
+                    buffers, prepared.sourceCount);
+            maximumResidual = std::max(
+                maximumResidual,
+                force_package_relative_residual(canonical, reduced));
+        }
+    }
+    return maximumResidual;
 }
 
 bool finite_row_package(const std::vector<SourceKeyedFaceRows> &rows,
@@ -618,6 +758,11 @@ FixtureReport evaluate_fixture(const std::string &name,
     {
         coordinates.push_back(vertex.coord);
     }
+    report.maxTransposeRelativeResidual =
+        maximum_transpose_relative_residual(rows, coordinates);
+    report.transposeIdentityVerified =
+        std::isfinite(report.maxTransposeRelativeResidual) &&
+        report.maxTransposeRelativeResidual <= 5.0e-13;
 
     for (const SourceKeyedFaceRows &faceRows : rows)
     {
@@ -658,8 +803,23 @@ FixtureReport evaluate_fixture(const std::string &name,
         forceParam.gaussQuadratureCoeff.set(sample, 0, 1.0 / 3.0);
     }
 
-    std::vector<std::array<std::array<double, 3>, 3>> aggregate(
-        mesh.vertices.size());
+    SourceKeyedKernelCallInput kernelInput;
+    kernelInput.sourceCount = report.vertexCount;
+    kernelInput.rows = rows;
+    std::vector<int> originalSourceIds(report.vertexCount);
+    std::iota(originalSourceIds.begin(), originalSourceIds.end(), 0);
+    for (const SourceKeyedFaceRows &faceRows : rows)
+    {
+        SourceMappingView mapping;
+        mapping.faceIndex = faceRows.faceIndex;
+        mapping.orientedFaceVertices = faceRows.orientedFaceVertices;
+        mapping.originalSourceIds = originalSourceIds;
+        mapping.productionOneRingEmpty = true;
+        mapping.productionOneRingBypassed = false;
+        kernelInput.mappings.push_back(std::move(mapping));
+    }
+
+    std::vector<SourceForceKinds> aggregate(mesh.vertices.size());
     bool finite = std::isfinite(report.area) && std::isfinite(report.volume);
     bool normalsValidated = true;
     for (const SourceKeyedFaceRows &faceRows : rows)
@@ -705,6 +865,10 @@ FixtureReport evaluate_fixture(const std::string &name,
             std::abs(std::sqrt(normalNormSquared) - 1.0) <= 1.0e-10;
         const std::array<const Matrix *, 3> forces{{
             &fBend, &fArea, &fVolume}};
+        SourceKeyedFaceForces faceForces;
+        faceForces.faceIndex = faceRows.faceIndex;
+        faceForces.sourceIds = originalSourceIds;
+        faceForces.forces.resize(report.vertexCount);
         for (int source = 0; source < report.vertexCount; ++source)
         {
             for (int kind = 0; kind < 3; ++kind)
@@ -716,10 +880,21 @@ FixtureReport evaluate_fixture(const std::string &name,
                     report.maxForce[kind] =
                         std::max(report.maxForce[kind], std::abs(value));
                     aggregate[source][kind][axis] += value;
+                    faceForces.forces[source][kind][axis] = value;
                 }
             }
         }
+        kernelInput.forces.push_back(std::move(faceForces));
     }
+
+    const PreparedSourceKeyedKernelCall prepared =
+        prepare_source_keyed_kernel_call(kernelInput);
+    report.maxSourceKeyedScatterRelativeResidual =
+        maximum_source_keyed_scatter_relative_residual(prepared, aggregate);
+    report.sourceKeyedScatterVerified =
+        std::isfinite(report.maxSourceKeyedScatterRelativeResidual) &&
+        report.maxSourceKeyedScatterRelativeResidual <= 5.0e-13;
+
     for (const auto &source : aggregate)
     {
         for (int kind = 0; kind < 3; ++kind)
@@ -729,13 +904,59 @@ FixtureReport evaluate_fixture(const std::string &name,
             {
                 sourceNorm += source[kind][axis] * source[kind][axis];
             }
-            report.netForceResidual[kind] += sourceNorm;
+            report.aggregateForceL2[kind] += sourceNorm;
         }
     }
-    for (double &residual : report.netForceResidual)
+    for (double &magnitude : report.aggregateForceL2)
     {
-        residual = std::sqrt(residual);
+        magnitude = std::sqrt(magnitude);
     }
+
+    for (int kind = 0; kind < kForceKindCount; ++kind)
+    {
+        std::array<double, 3> netForce{};
+        std::array<double, 3> netTorque{};
+        double forceScale = 0.0;
+        double torqueScale = 0.0;
+        for (int source = 0; source < report.vertexCount; ++source)
+        {
+            const std::array<double, 3> position{{
+                coordinates[source].get(0, 0),
+                coordinates[source].get(1, 0),
+                coordinates[source].get(2, 0)}};
+            const Vec3 &force = aggregate[source][kind];
+            const std::array<double, 3> torque = cross(position, force);
+            for (int axis = 0; axis < kAxisCount; ++axis)
+            {
+                netForce[axis] += force[axis];
+                netTorque[axis] += torque[axis];
+            }
+            forceScale += norm(force);
+            torqueScale += norm(torque);
+        }
+        report.netForceRelativeResidual[kind] =
+            norm(netForce) / std::max(1.0, forceScale);
+        report.netTorqueRelativeResidual[kind] =
+            norm(netTorque) / std::max(1.0, torqueScale);
+    }
+    report.forceBalanceVerified =
+        std::all_of(report.netForceRelativeResidual.begin(),
+                    report.netForceRelativeResidual.end(),
+                    [](const double residual) {
+                        return std::isfinite(residual) &&
+                               residual <= 5.0e-10;
+                    }) &&
+        std::all_of(report.netTorqueRelativeResidual.begin(),
+                    report.netTorqueRelativeResidual.end(),
+                    [](const double residual) {
+                        return std::isfinite(residual) &&
+                               residual <= 5.0e-10;
+                    });
+    report.unsupportedMixedForceImbalanceObserved =
+        !report.providerApplicable &&
+        report.netForceRelativeResidual[0] <= 5.0e-10 &&
+        report.netForceRelativeResidual[1] <= 5.0e-10 &&
+        report.netForceRelativeResidual[2] > 1.0e-3;
     report.finite = finite;
     report.normalsValidated = normalsValidated;
     report.positiveArea = report.area > 0.0;
@@ -851,6 +1072,14 @@ void print_report(const FixtureReport &report)
     std::cout << ",\"bending_energy\":" << report.bendingEnergy;
     std::cout << ",\"max_abs_force\":[" << report.maxForce[0] << ','
               << report.maxForce[1] << ',' << report.maxForce[2] << ']';
+    std::cout << ",\"max_transpose_relative_residual\":"
+              << report.maxTransposeRelativeResidual;
+    std::cout << ",\"transpose_identity_verified\":"
+              << (report.transposeIdentityVerified ? "true" : "false");
+    std::cout << ",\"max_source_keyed_scatter_relative_residual\":"
+              << report.maxSourceKeyedScatterRelativeResidual;
+    std::cout << ",\"source_keyed_scatter_verified\":"
+              << (report.sourceKeyedScatterVerified ? "true" : "false");
     std::cout << ",\"max_finite_difference_relative_error\":["
               << report.maxFiniteDifferenceError[0] << ','
               << report.maxFiniteDifferenceError[1] << ','
@@ -863,9 +1092,22 @@ void print_report(const FixtureReport &report)
               << (report.legacyVolumeForceMismatchObserved ? "true"
                                                             : "false");
     std::cout << ",\"aggregate_force_l2\":["
-              << report.netForceResidual[0] << ','
-              << report.netForceResidual[1] << ','
-              << report.netForceResidual[2] << ']';
+              << report.aggregateForceL2[0] << ','
+              << report.aggregateForceL2[1] << ','
+              << report.aggregateForceL2[2] << ']';
+    std::cout << ",\"net_force_relative_residual\":["
+              << report.netForceRelativeResidual[0] << ','
+              << report.netForceRelativeResidual[1] << ','
+              << report.netForceRelativeResidual[2] << ']';
+    std::cout << ",\"net_torque_relative_residual\":["
+              << report.netTorqueRelativeResidual[0] << ','
+              << report.netTorqueRelativeResidual[1] << ','
+              << report.netTorqueRelativeResidual[2] << ']';
+    std::cout << ",\"force_balance_verified\":"
+              << (report.forceBalanceVerified ? "true" : "false");
+    std::cout << ",\"unsupported_mixed_force_imbalance_observed\":"
+              << (report.unsupportedMixedForceImbalanceObserved
+                      ? "true" : "false");
     std::cout << '}';
 }
 } // namespace
@@ -917,6 +1159,9 @@ int main(int argc, char **argv)
             const bool providerContract = report.providerApplicable
                 ? report.providerParity
                 : report.providerRejectedWhenNotApplicable;
+            const bool forceBalanceContract = report.providerApplicable
+                ? report.forceBalanceVerified
+                : report.unsupportedMixedForceImbalanceObserved;
             return report.closed && report.rowsValid && providerContract &&
                    report.negativeProviderContractsValidated &&
                    report.isolationSensitivityValidated &&
@@ -924,6 +1169,9 @@ int main(int argc, char **argv)
                    report.positiveArea &&
                    report.nonzeroBendingForce && report.nonzeroAreaForce &&
                    report.nonzeroVolumeForce &&
+                   report.transposeIdentityVerified &&
+                   report.sourceKeyedScatterVerified &&
+                   forceBalanceContract &&
                    report.finiteDifferenceVerified &&
                    report.legacyVolumeForceMismatchObserved;
         };
@@ -935,6 +1183,7 @@ int main(int argc, char **argv)
         std::cout << std::setprecision(17);
         std::cout << "{\"status\":\"" << (passed ? "passed" : "failed")
                   << "\",\"proof_only\":true"
+                  << ",\"phase2_mechanical_packet_started\":true"
                   << ",\"not_production_routing\":true"
                   << ",\"production_route_enabled\":false"
                   << ",\"production_mesh_mutated\":false"
