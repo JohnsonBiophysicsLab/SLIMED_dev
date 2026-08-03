@@ -92,6 +92,15 @@ def teardown_complete(report: dict[str, object]) -> bool:
     )
 
 
+def geometry_complete(report: dict[str, object]) -> bool:
+    error = report.get("geometry_max_abs_error")
+    return (
+        report.get("geometry_repeatable") is True
+        and isinstance(error, (int, float))
+        and error <= 1.0e-12
+    )
+
+
 def run(args: argparse.Namespace) -> int:
     root = Path(args.root).resolve() if args.root else repo_root()
     make = executable(args.make, "make")
@@ -133,11 +142,17 @@ def run(args: argparse.Namespace) -> int:
     except json.JSONDecodeError as error:
         sys.stderr.write(f"invalid mesh-state JSON: {error}\n{execution.stdout}")
         return 1
-    if report.get("status") == "pass" and not teardown_complete(report):
-        sys.stderr.write(
-            "mesh-state report claimed pass without complete, balanced teardown\n"
-        )
-        return 1
+    if report.get("status") == "pass":
+        if not geometry_complete(report):
+            sys.stderr.write(
+                "mesh-state report claimed pass without geometry parity and repeatability\n"
+            )
+            return 1
+        if not teardown_complete(report):
+            sys.stderr.write(
+                "mesh-state report claimed pass without complete, balanced teardown\n"
+            )
+            return 1
     report["cuda_required"] = args.require_cuda
     report["build"] = {
         "target": command[1],

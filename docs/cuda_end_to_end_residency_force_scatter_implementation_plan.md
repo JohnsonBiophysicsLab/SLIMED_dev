@@ -719,6 +719,15 @@ unexplained repeated transfers.
 Exit evidence: natural/permuted/curved/boundary/ghost/degenerate cases at the
 fixed numerical gate and 20-run device repeatability.
 
+Implementation status (2026-08-03): `codex/cuda-step4-geometry-reductions`
+implements this slice without production routing or host publication. The
+focused core uses production packed rows and compares against
+`Mesh::calculate_element_area_volume()` at `1.0e-12`; the native RTX report
+adds 20-run bitwise repeatability, exact analytical parity, no warmed
+allocations, and balanced teardown. Kernel, diagnostic-copy, and
+synchronization failures leave the accepted state recoverable. Final status
+remains subject to the required pull-request review and owner merge approval.
+
 ### Step 5 / PR 5: Complete regular membrane force formula
 
 - Port the actual weighted rows and full bending/area/volume formula.

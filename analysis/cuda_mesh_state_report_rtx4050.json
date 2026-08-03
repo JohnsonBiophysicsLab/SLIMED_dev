@@ -26,8 +26,10 @@
   "compiled": true,
   "cuda_required": true,
   "device_ordinal": 0,
-  "final_allocations": 19,
+  "final_allocations": 23,
   "final_resident_bytes": 0,
+  "geometry_max_abs_error": 0,
+  "geometry_repeatable": true,
   "gpu": {
     "compute_capability": "8.9",
     "driver_version": "581.95",
@@ -37,19 +39,21 @@
   "iterations": 20,
   "memory_budget_bytes": 2659713024,
   "no_warm_allocations": true,
-  "resident_bytes": 5248,
+  "resident_bytes": 5504,
   "rollbacks": 10,
   "status": "pass",
-  "successful_frees": 19,
+  "successful_frees": 23,
   "transaction_epoch": 20,
   "transfers": {
     "accepted_coordinates": {"bytes": 576, "operations": 2},
     "candidate_coordinates": {"bytes": 5760, "operations": 20},
+    "candidate_geometry": {"bytes": 0, "operations": 0},
+    "geometry_diagnostics": {"bytes": 720, "operations": 80},
     "numerical_plan": {"bytes": 2112, "operations": 3},
     "parameters": {"bytes": 137, "operations": 3},
     "reference_coordinates": {"bytes": 288, "operations": 1},
     "topology": {"bytes": 290, "operations": 9}
   },
   "transfers_complete": true,
-  "warmed_allocations": 19
+  "warmed_allocations": 23
 }

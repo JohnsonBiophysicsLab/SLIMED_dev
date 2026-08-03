@@ -1,6 +1,7 @@
 import importlib.util
 import json
 from pathlib import Path
+import sys
 import unittest
 
 
@@ -20,22 +21,26 @@ class CudaMeshStateInventoryTest(unittest.TestCase):
             "prepare_candidate",
             "commit()",
             "rollback()",
+            "GeometryCandidateResult",
+            "compute_candidate_geometry",
         ):
             self.assertIn(anchor, public)
         self.assertIn("DeviceOperations", (ROOT / "include/cuda/detail/Cuda_mesh_state_core.hpp").read_text())
         self.assertIn("MemoryBudgetExceeded", core)
         self.assertIn("topology replacement requires fresh dependent generations", core)
 
-    def test_step_is_storage_only_and_not_production_routed(self):
+    def test_step_is_geometry_only_and_not_production_routed(self):
         paths = [
             ROOT / "include/cuda/Cuda_mesh_state.hpp",
             ROOT / "src/cuda/Cuda_mesh_state_common.cpp",
             ROOT / "src/cuda/Cuda_mesh_state.cu",
         ]
         text = "\n".join(path.read_text() for path in paths)
-        self.assertNotIn("__global__", text)
+        self.assertIn("regular_geometry_kernel", text)
+        self.assertIn("deterministic_geometry_reduction_kernel", text)
         self.assertNotIn("Compute_energy_and_force", text)
         self.assertNotIn("#include \"mesh/", text)
+        self.assertNotIn("force scatter", text.lower())
 
     def test_make_targets_are_explicit_and_mutually_exclusive(self):
         makefile = (ROOT / "Makefile").read_text()
@@ -99,6 +104,26 @@ class CudaMeshStateInventoryTest(unittest.TestCase):
                 report[key] = invalid
                 self.assertFalse(module.teardown_complete(report))
 
+    def test_runner_rejects_false_green_geometry(self):
+        path = ROOT / "scripts/run_cuda_mesh_state_report.py"
+        spec = importlib.util.spec_from_file_location("mesh_state_runner_geometry", path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        complete = {
+            "geometry_repeatable": True,
+            "geometry_max_abs_error": 1.0e-12,
+        }
+        self.assertTrue(module.geometry_complete(complete))
+        for key, invalid in (
+            ("geometry_repeatable", False),
+            ("geometry_max_abs_error", 1.0001e-12),
+            ("geometry_max_abs_error", "0"),
+        ):
+            with self.subTest(key=key, invalid=invalid):
+                report = complete.copy()
+                report[key] = invalid
+                self.assertFalse(module.geometry_complete(report))
+
     def test_committed_rtx_evidence_meets_exit_gate(self):
         evidence = json.loads(
             (ROOT / "analysis/cuda_mesh_state_report_rtx4050.json").read_text()
@@ -107,6 +132,8 @@ class CudaMeshStateInventoryTest(unittest.TestCase):
         self.assertTrue(evidence["compiled"])
         self.assertTrue(evidence["available"])
         self.assertEqual(evidence["iterations"], 20)
+        self.assertLessEqual(evidence["geometry_max_abs_error"], 1.0e-12)
+        self.assertTrue(evidence["geometry_repeatable"])
         self.assertTrue(evidence["no_warm_allocations"])
         self.assertTrue(evidence["transfers_complete"])
         self.assertTrue(evidence["closed"])
@@ -118,6 +145,20 @@ class CudaMeshStateInventoryTest(unittest.TestCase):
             evidence["successful_frees"], evidence["final_allocations"]
         )
         self.assertEqual(evidence["gpu"]["name"], "NVIDIA GeForce RTX 4050 Laptop GPU")
+
+    def test_opt_in_experiment_controls_are_not_production_callers(self):
+        path = ROOT / "scripts/inventory_energy_force_call_sites.py"
+        spec = importlib.util.spec_from_file_location("energy_force_inventory", path)
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = module
+        spec.loader.exec_module(module)
+        classification, _ = module.classify_direct(
+            Path("experiments/irregular_valence5_option_b_phase3_activation.cpp"),
+            "mesh.Compute_Energy_And_Force();",
+        )
+        self.assertEqual(
+            classification, "intentional experiment/control direct call"
+        )
 
 
 if __name__ == "__main__":

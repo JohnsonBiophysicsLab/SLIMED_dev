@@ -1,6 +1,9 @@
 #include "cuda/Cuda_mesh_state.hpp"
 
 #include <cstdlib>
+#include <algorithm>
+#include <cmath>
+#include <cstring>
 #include <iomanip>
 #include <iostream>
 #include <sstream>
@@ -34,12 +37,27 @@ RegularMeshPack make_pack()
         pack.sourceOccurrences.push_back(occurrence);
     pack.quadratureSamples.assign(9, 1.0 / 3.0);
     pack.quadratureCoefficients.assign(3, 1.0 / 3.0);
-    pack.shapeWeights.assign(252, 0.125);
-    for (int value = 0; value < 36; ++value)
+    pack.shapeWeights.assign(252, 0.0);
+    pack.acceptedCoordinates.assign(36, 0.0);
+    pack.previousCoordinates.assign(36, 0.0);
+    pack.referenceCoordinates.assign(36, 0.0);
+    const double controls[3][3]{{2.0, 0.0, 0.0},
+                                {2.0, 1.0, 0.0},
+                                {2.0, 0.0, 1.0}};
+    for (int source = 0; source < 3; ++source)
+        for (int axis = 0; axis < 3; ++axis)
+            pack.acceptedCoordinates[source * 3 + axis] =
+                pack.previousCoordinates[source * 3 + axis] =
+                    pack.referenceCoordinates[source * 3 + axis] =
+                        controls[source][axis];
+    for (int sample = 0; sample < 3; ++sample)
     {
-        pack.acceptedCoordinates.push_back(value * 0.25);
-        pack.previousCoordinates.push_back(value * 0.25 - 0.01);
-        pack.referenceCoordinates.push_back(value * 0.25 + 0.01);
+        const int base = sample * 7 * 12;
+        pack.shapeWeights[base] = 1.0;
+        pack.shapeWeights[base + 12] = -1.0;
+        pack.shapeWeights[base + 13] = 1.0;
+        pack.shapeWeights[base + 24] = -1.0;
+        pack.shapeWeights[base + 26] = 1.0;
     }
     pack.parameters.kCurv = 1.0;
     return pack;
@@ -96,24 +114,57 @@ int main(int argc, char **argv)
 
     const std::uint64_t warmedAllocations =
         created.state->report().successfulAllocations;
-    std::vector<double> candidate(36, 0.0);
+    const std::vector<double> candidate = make_pack().acceptedCoordinates;
     bool transitionsOk = true;
+    bool geometryRepeatable = true;
+    double geometryMaxAbsError = 0.0;
+    std::vector<double> firstAreas, firstVolumes;
+    double firstTotalArea = 0.0, firstTotalVolume = 0.0;
     std::uint64_t commits = 0, rollbacks = 0;
     for (int iteration = 0; iteration < iterations; ++iteration)
     {
-        for (std::size_t index = 0; index < candidate.size(); ++index)
-            candidate[index] = iteration + index * 0.001;
         const std::uint64_t generation =
             created.state->report().residentGenerations.acceptedCoordinates + 1;
         transitionsOk = transitionsOk &&
-                        created.state->prepare_candidate(candidate, generation).ok() &&
-                        created.state->mark_computing().ok();
+                        created.state->prepare_candidate(candidate, generation).ok();
         if (!transitionsOk)
             break;
+        const GeometryCandidateResult geometry =
+            created.state->compute_candidate_geometry();
+        transitionsOk = geometry.ok() && geometry.faceAreas.size() == 1 &&
+                        geometry.faceVolumes.size() == 1;
+        if (!transitionsOk)
+            break;
+        geometryMaxAbsError = std::max(
+            geometryMaxAbsError,
+            std::max(std::abs(geometry.faceAreas[0] - 0.5),
+                     std::abs(geometry.faceVolumes[0] - 0.33333333332)));
+        geometryMaxAbsError = std::max(
+            geometryMaxAbsError,
+            std::max(std::abs(geometry.totalArea - 0.5),
+                     std::abs(geometry.totalVolume - 0.33333333332)));
+        if (iteration == 0)
+        {
+            firstAreas = geometry.faceAreas;
+            firstVolumes = geometry.faceVolumes;
+            firstTotalArea = geometry.totalArea;
+            firstTotalVolume = geometry.totalVolume;
+        }
+        else
+        {
+            geometryRepeatable = geometryRepeatable &&
+                std::memcmp(firstAreas.data(), geometry.faceAreas.data(),
+                            sizeof(double)) == 0 &&
+                std::memcmp(firstVolumes.data(), geometry.faceVolumes.data(),
+                            sizeof(double)) == 0 &&
+                std::memcmp(&firstTotalArea, &geometry.totalArea,
+                            sizeof(double)) == 0 &&
+                std::memcmp(&firstTotalVolume, &geometry.totalVolume,
+                            sizeof(double)) == 0;
+        }
         if (iteration % 2 == 0)
         {
-            transitionsOk = created.state->mark_validated().ok() &&
-                            created.state->commit().ok();
+            transitionsOk = created.state->commit().ok();
             ++commits;
         }
         else
@@ -142,7 +193,9 @@ int main(int argc, char **argv)
         closeResult.ok() && finalReport.phase == TransactionPhase::Closed &&
         !finalReport.cleanupPending && finalReport.cleanupError.ok() &&
         finalReport.residentBytes == 0 && allocationFreeBalance;
-    const bool pass = transitionsOk && noWarmAllocations && transfersComplete &&
+    const bool geometryParity = geometryMaxAbsError <= 1.0e-12;
+    const bool pass = transitionsOk && geometryParity && geometryRepeatable &&
+                      noWarmAllocations && transfersComplete &&
                       activeReport.phase == TransactionPhase::IdleAccepted &&
                       cleanupComplete &&
                       static_cast<int>(commits + rollbacks) == iterations;
@@ -162,6 +215,10 @@ int main(int argc, char **argv)
               << (allocationFreeBalance ? "true" : "false")
               << ",\"no_warm_allocations\":"
               << (noWarmAllocations ? "true" : "false")
+              << ",\"geometry_max_abs_error\":"
+              << std::setprecision(17) << geometryMaxAbsError
+              << ",\"geometry_repeatable\":"
+              << (geometryRepeatable ? "true" : "false")
               << ",\"resident_bytes\":" << activeReport.residentBytes
               << ",\"final_resident_bytes\":" << finalReport.residentBytes
               << ",\"closed\":"

@@ -1,8 +1,10 @@
-# Persistent CUDA Mesh State And Transactions
+# Persistent CUDA Mesh State, Transactions, And Geometry
 
-This is Step 3 of the end-to-end CUDA residency program. It adds storage and
-state control only: there are no force formulas, kernels, evaluator routing, or
-host `Mesh` publication in this step.
+This document covers Steps 3 and 4 of the end-to-end CUDA residency program.
+Step 3 added persistent storage and transaction control. Step 4 adds only the
+eligible regular-face area/volume calculation and deterministic global
+area/volume reductions. There is still no membrane-force formula, force
+scatter, evaluator routing, or host `Mesh` publication.
 
 ## Authority and ownership
 
@@ -12,7 +14,8 @@ translation unit; ordinary builds discover the structured non-CUDA stub.
 Accepted host state remains authoritative until later routing steps.
 
 The persistent groups are topology/incidence, numerical plan, parameters,
-accepted/previous/candidate coordinates, and reference coordinates. Every
+accepted/previous/candidate coordinates, reference coordinates, and candidate
+geometry/status buffers. Every
 group is keyed by the corresponding `MeshPackGenerations` value. Equal
 generations cause no allocation, copy, or synchronization. A changed group is
 allocated geometrically, copied into staging, synchronized, and installed only
@@ -40,6 +43,29 @@ The supported path is:
 
 `IdleAccepted -> CandidatePrepared -> Computing -> Validated -> commit`
 
+`compute_candidate_geometry()` owns the `Computing -> Validated` portion for
+Step 4. It evaluates all packed non-ghost regular faces against the candidate
+coordinate slot, then reduces full face-indexed area and legacy volume arrays
+in ascending face-index order. Boundary faces remain physical and are
+evaluated; ghost-face slots remain exact zero. The initial deterministic
+reduction deliberately uses one device writer and no floating-point atomics.
+Degenerate finite geometry is valid and produces zero area/volume rather than
+being rejected.
+
+The kernel uses the packed `[sample][row][local-control]` shape rows. For each
+of the three samples it forms position and the two first derivatives, computes
+their cross product, and preserves the production formula:
+
+```text
+area   += 0.5 * quadrature_coefficient * norm(cross(dV, dW))
+volume += 0.16666666666 * quadrature_coefficient
+          * position.x * cross(dV, dW).x
+```
+
+The second expression intentionally retains the existing legacy first-
+component `dot_row` behavior. A device status rejects invalid indices or
+nonfinite results before the candidate becomes validated.
+
 Commit rotates candidate into accepted, accepted into previous, and the old
 previous slot into reusable candidate storage while advancing the accepted
 coordinate generation without a mesh-sized copy. Rollback from any live
@@ -50,9 +76,12 @@ accepted state. Candidate preparation is currently an explicitly instrumented
 host-to-device transfer. Step 9 replaces that operation inside resident line
 searches; it is not hidden or misclassified here.
 
-Each transfer records attempted/completed operation and byte counts under one
-of six stable reasons: topology, numerical plan, parameters, accepted
-coordinates, reference coordinates, or candidate coordinates. Allocation and
+Each transfer records attempted/completed operation and byte counts under a
+stable reason: topology, numerical plan, parameters, accepted coordinates,
+reference coordinates, candidate coordinates, candidate geometry storage, or
+geometry diagnostics. Step 4 copies face/global outputs to the host only for
+the explicit comparison API and report; those mesh-sized diagnostic copies are
+classified and are not a production route. Allocation and
 transaction epochs, live bytes, allocation/free counts, synchronizations,
 roles, generations, and the last outcome are also reportable.
 `lastDirtyGroups` is reset at the start of each candidate-upload decision. A
@@ -70,8 +99,13 @@ allocation after initial residency and accounts for every repeated candidate
 transfer. The reviewed amendment passes 22/22 focused tests, including
 post-commit selective-update composition and retryable staging, replacement,
 final-close release failures, stream-destroy retry, and candidate dirty-state
-reporting. The clean default suite passes 193/193 tests
-when the independently reproduced baseline scaffold-force defect is excluded.
+reporting. Step 4 adds natural, local-control permutation, sample-varying
+curved, boundary, ghost, and degenerate geometry fixtures. It also compares
+every face and both global reductions against
+`Mesh::calculate_element_area_volume()` on a curved production regular mesh at
+the `1.0e-12` gate. Injected kernel, diagnostic-copy, and synchronization
+failures remain recoverable without validating or changing accepted state. The
+focused state suite passes 26/26 tests.
 
 The explicit native proof builds and runs with:
 
@@ -80,10 +114,12 @@ python3 scripts/run_cuda_mesh_state_report.py \
   --require-cuda --iterations 20
 ```
 
-The native report closes explicitly before declaring success and requires
-`Closed`, zero cleanup debt, zero final resident bytes, and exact
-allocation/free balance. Teardown is therefore part of the RTX pass predicate,
-not a destructor side effect after reporting.
+The native report executes 20 candidate geometry transactions and requires
+`geometry_max_abs_error <= 1.0e-12` plus bitwise repeatability. It also closes
+explicitly before declaring success and requires `Closed`, zero cleanup debt,
+zero final resident bytes, and exact allocation/free balance. Geometry parity,
+repeatability, and teardown are therefore part of the RTX pass predicate, not
+informational fields or destructor side effects after reporting.
 
 The non-CUDA contract is independently runnable with `--stub`. Native evidence
 for the development RTX machine is recorded in

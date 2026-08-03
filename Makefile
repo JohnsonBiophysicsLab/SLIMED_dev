@@ -349,7 +349,7 @@ cuda_backend_stub_report: include/cuda/Cuda_backend.hpp \
 		EXEs/cuda_backend_report.cpp -o $(CUDA_BACKEND_STUB_REPORT)
 	@echo "Finished non-CUDA backend stub report build, $(CUDA_BACKEND_STUB_REPORT)."
 
-# Explicit Step-3 persistent device-state diagnostics. The CUDA and stub
+# Explicit Step-3/4 persistent state and geometry diagnostics. The CUDA and stub
 # implementations are mutually exclusive and remain outside every production
 # or default target.
 cuda_mesh_state_report: include/cuda/Cuda_mesh_state.hpp \
