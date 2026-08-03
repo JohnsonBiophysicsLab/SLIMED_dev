@@ -996,8 +996,8 @@ MeshStateCoreResult create_mesh_state_core(DeviceOperations operations,
 
 struct CudaMeshState::Impl
 {
-    std::unique_ptr<detail::MeshStateCore> core;
     std::function<detail::DriverStatus()> closeStream;
+    std::unique_ptr<detail::MeshStateCore> core;
     detail::StreamCleanupState streamCleanup;
     DeviceStateReport report;
     bool closed = false;

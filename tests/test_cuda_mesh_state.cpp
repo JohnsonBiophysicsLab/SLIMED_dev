@@ -470,6 +470,96 @@ TEST(CudaMeshStateCoreTest,
 }
 
 TEST(CudaMeshStateCoreTest,
+     FacadeKeepsDriverAliveThroughCoreDestructorCleanupRetry)
+{
+    auto device = std::make_shared<FakeDevice>();
+    DeviceOperations raw = device->operations();
+    std::weak_ptr<FakeDevice> weakDevice = device;
+    auto expiredDuringOperation = std::make_shared<bool>(false);
+    auto releaseAttempts = std::make_shared<std::uint64_t>(0);
+
+    DeviceOperations guarded;
+    guarded.queryMemory =
+        [weakDevice, expiredDuringOperation, query = raw.queryMemory](
+            std::size_t &free, std::size_t &total) {
+            auto owner = weakDevice.lock();
+            if (!owner)
+            {
+                *expiredDuringOperation = true;
+                return DriverStatus{false, FakeDevice::kInjected,
+                                    "expired_query", "driver expired"};
+            }
+            return query(free, total);
+        };
+    guarded.allocate =
+        [weakDevice, expiredDuringOperation, allocate = raw.allocate](
+            std::size_t bytes, DeviceBufferHandle &handle) {
+            auto owner = weakDevice.lock();
+            if (!owner)
+            {
+                *expiredDuringOperation = true;
+                return DriverStatus{false, FakeDevice::kInjected,
+                                    "expired_allocate", "driver expired"};
+            }
+            return allocate(bytes, handle);
+        };
+    guarded.release =
+        [weakDevice, expiredDuringOperation, releaseAttempts,
+         release = raw.release](DeviceBufferHandle handle) {
+            ++*releaseAttempts;
+            auto owner = weakDevice.lock();
+            if (!owner)
+            {
+                *expiredDuringOperation = true;
+                return DriverStatus{false, FakeDevice::kInjected,
+                                    "expired_release", "driver expired"};
+            }
+            return release(handle);
+        };
+    guarded.copyHostToDevice =
+        [weakDevice, expiredDuringOperation,
+         copy = raw.copyHostToDevice](DeviceBufferHandle handle,
+                                      const void *source, std::size_t bytes) {
+            auto owner = weakDevice.lock();
+            if (!owner)
+            {
+                *expiredDuringOperation = true;
+                return DriverStatus{false, FakeDevice::kInjected,
+                                    "expired_copy", "driver expired"};
+            }
+            return copy(handle, source, bytes);
+        };
+    guarded.synchronize =
+        [weakDevice, expiredDuringOperation,
+         synchronize = raw.synchronize]() {
+            auto owner = weakDevice.lock();
+            if (!owner)
+            {
+                *expiredDuringOperation = true;
+                return DriverStatus{false, FakeDevice::kInjected,
+                                    "expired_synchronize", "driver expired"};
+            }
+            return synchronize();
+        };
+
+    auto created = create_mesh_state_core(guarded, make_pack());
+    ASSERT_NE(created.state, nullptr);
+    device->failReleaseCall = 1;
+    {
+        auto facade = CudaMeshStateFactory::create(
+            std::move(created.state), created.report,
+            [device]() { return DriverStatus{}; });
+        ASSERT_NE(facade, nullptr);
+        device.reset();
+        EXPECT_FALSE(weakDevice.expired());
+    }
+
+    EXPECT_GE(*releaseAttempts, 2u);
+    EXPECT_FALSE(*expiredDuringOperation);
+    EXPECT_TRUE(weakDevice.expired());
+}
+
+TEST(CudaMeshStateCoreTest,
      FailedStagingReleaseRetainsOwnershipAndCanBeRetried)
 {
     FakeDevice device;

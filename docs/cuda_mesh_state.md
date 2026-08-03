@@ -67,10 +67,10 @@ driver. They cover generation dirtiness, exact rollback, swap-on-commit,
 illegal transitions, stale generations, memory-budget rejection, and injected
 allocation, copy, and synchronization failures. The warmed loop proves no
 allocation after initial residency and accounts for every repeated candidate
-transfer. The reviewed amendment passes 21/21 focused tests, including
+transfer. The reviewed amendment passes 22/22 focused tests, including
 post-commit selective-update composition and retryable staging, replacement,
 final-close release failures, stream-destroy retry, and candidate dirty-state
-reporting. The clean default suite passes 192/192 tests
+reporting. The clean default suite passes 193/193 tests
 when the independently reproduced baseline scaffold-force defect is excluded.
 
 The explicit native proof builds and runs with:
