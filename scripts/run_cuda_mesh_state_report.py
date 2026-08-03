@@ -14,6 +14,14 @@ from typing import Sequence
 
 
 NO_CUDA_EXIT_CODE = 77
+REQUIRED_GEOMETRY_CASES = {
+    "natural",
+    "permuted",
+    "curved",
+    "boundary_ghost",
+    "degenerate",
+    "production_cpu",
+}
 
 
 def repo_root() -> Path:
@@ -94,6 +102,25 @@ def teardown_complete(report: dict[str, object]) -> bool:
 
 def geometry_complete(report: dict[str, object]) -> bool:
     error = report.get("geometry_max_abs_error")
+    cases = report.get("geometry_cases")
+    if not isinstance(cases, dict) or set(cases) != REQUIRED_GEOMETRY_CASES:
+        return False
+    for name in REQUIRED_GEOMETRY_CASES:
+        case = cases.get(name)
+        if not isinstance(case, dict):
+            return False
+        case_error = case.get("max_abs_error")
+        if not (
+            case.get("pass") is True
+            and case.get("cpu_parity") is True
+            and case.get("repeatable") is True
+            and case.get("ghost_zero") is True
+            and case.get("degenerate_zero") is True
+            and case.get("permutation_equal") is True
+            and isinstance(case_error, (int, float))
+            and case_error <= 1.0e-12
+        ):
+            return False
     return (
         report.get("geometry_repeatable") is True
         and isinstance(error, (int, float))

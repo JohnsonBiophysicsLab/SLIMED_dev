@@ -32,6 +32,8 @@ class CudaMeshStateInventoryTest(unittest.TestCase):
     def test_step_is_geometry_only_and_not_production_routed(self):
         paths = [
             ROOT / "include/cuda/Cuda_mesh_state.hpp",
+            ROOT / "include/cuda/detail/Cuda_regular_geometry_cpu.hpp",
+            ROOT / "src/cuda/Cuda_regular_geometry_cpu.cpp",
             ROOT / "src/cuda/Cuda_mesh_state_common.cpp",
             ROOT / "src/cuda/Cuda_mesh_state.cu",
         ]
@@ -109,9 +111,22 @@ class CudaMeshStateInventoryTest(unittest.TestCase):
         spec = importlib.util.spec_from_file_location("mesh_state_runner_geometry", path)
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
+        complete_case = {
+            "pass": True,
+            "cpu_parity": True,
+            "repeatable": True,
+            "max_abs_error": 1.0e-12,
+            "ghost_zero": True,
+            "degenerate_zero": True,
+            "permutation_equal": True,
+        }
         complete = {
             "geometry_repeatable": True,
             "geometry_max_abs_error": 1.0e-12,
+            "geometry_cases": {
+                name: complete_case.copy()
+                for name in module.REQUIRED_GEOMETRY_CASES
+            },
         }
         self.assertTrue(module.geometry_complete(complete))
         for key, invalid in (
@@ -123,6 +138,23 @@ class CudaMeshStateInventoryTest(unittest.TestCase):
                 report = complete.copy()
                 report[key] = invalid
                 self.assertFalse(module.geometry_complete(report))
+        for name in module.REQUIRED_GEOMETRY_CASES:
+            for key, invalid in (
+                ("pass", False),
+                ("cpu_parity", False),
+                ("repeatable", False),
+                ("max_abs_error", 1.0001e-12),
+                ("ghost_zero", False),
+                ("degenerate_zero", False),
+                ("permutation_equal", False),
+            ):
+                with self.subTest(case=name, key=key):
+                    report = json.loads(json.dumps(complete))
+                    report["geometry_cases"][name][key] = invalid
+                    self.assertFalse(module.geometry_complete(report))
+        missing = json.loads(json.dumps(complete))
+        missing["geometry_cases"].pop("curved")
+        self.assertFalse(module.geometry_complete(missing))
 
     def test_committed_rtx_evidence_meets_exit_gate(self):
         evidence = json.loads(
@@ -134,6 +166,25 @@ class CudaMeshStateInventoryTest(unittest.TestCase):
         self.assertEqual(evidence["iterations"], 20)
         self.assertLessEqual(evidence["geometry_max_abs_error"], 1.0e-12)
         self.assertTrue(evidence["geometry_repeatable"])
+        self.assertEqual(
+            set(evidence["geometry_cases"]),
+            {
+                "natural",
+                "permuted",
+                "curved",
+                "boundary_ghost",
+                "degenerate",
+                "production_cpu",
+            },
+        )
+        for case in evidence["geometry_cases"].values():
+            self.assertTrue(case["pass"])
+            self.assertTrue(case["cpu_parity"])
+            self.assertTrue(case["repeatable"])
+            self.assertLessEqual(case["max_abs_error"], 1.0e-12)
+            self.assertTrue(case["ghost_zero"])
+            self.assertTrue(case["degenerate_zero"])
+            self.assertTrue(case["permutation_equal"])
         self.assertTrue(evidence["no_warm_allocations"])
         self.assertTrue(evidence["transfers_complete"])
         self.assertTrue(evidence["closed"])

@@ -723,9 +723,11 @@ Implementation status (2026-08-03): `codex/cuda-step4-geometry-reductions`
 implements this slice without production routing or host publication. The
 focused core uses production packed rows and compares against
 `Mesh::calculate_element_area_volume()` at `1.0e-12`; the native RTX report
-adds 20-run bitwise repeatability, exact analytical parity, no warmed
-allocations, and balanced teardown. Kernel, diagnostic-copy, and
-synchronization failures leave the accepted state recoverable. Final status
+runs all six required fixtures through the actual kernel for 20 repetitions
+each, binds every per-face/global/structural result, and proves no warmed
+allocations plus balanced teardown. Kernel, diagnostic-copy, synchronization,
+status, nonfinite, negative-area, and invalid-total failures leave the accepted
+state recoverable. Final status
 remains subject to the required pull-request review and owner merge approval.
 
 ### Step 5 / PR 5: Complete regular membrane force formula

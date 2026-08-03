@@ -100,12 +100,14 @@ transfer. The reviewed amendment passes 22/22 focused tests, including
 post-commit selective-update composition and retryable staging, replacement,
 final-close release failures, stream-destroy retry, and candidate dirty-state
 reporting. Step 4 adds natural, local-control permutation, sample-varying
-curved, boundary, ghost, and degenerate geometry fixtures. It also compares
-every face and both global reductions against
-`Mesh::calculate_element_area_volume()` on a curved production regular mesh at
-the `1.0e-12` gate. Injected kernel, diagnostic-copy, and synchronization
-failures remain recoverable without validating or changing accepted state. The
-focused state suite passes 26/26 tests.
+curved, boundary, ghost, and degenerate geometry fixtures. It compares the
+shared independent packed CPU oracle to every CUDA face/global result and
+directly binds that same oracle to `Mesh::calculate_element_area_volume()` on a
+curved production regular mesh at the `1.0e-12` gate. Injected kernel,
+diagnostic-copy, and synchronization
+failures and injected nonzero status, nonfinite face output, negative area, or
+nonfinite totals remain recoverable without validating or changing accepted
+state. The focused state suite passes 27/27 tests.
 
 The explicit native proof builds and runs with:
 
@@ -114,12 +116,18 @@ python3 scripts/run_cuda_mesh_state_report.py \
   --require-cuda --iterations 20
 ```
 
-The native report executes 20 candidate geometry transactions and requires
+The native report executes the natural, permuted, sample-varying curved,
+boundary/ghost, degenerate, and production-formula CPU-oracle fixtures on the
+actual CUDA kernel. Each case runs 20 candidate geometry transactions and has
+separate parity, structural, and bitwise-repeatability fields; the runner
+rejects a report with any missing or false case field. The aggregate requires
 `geometry_max_abs_error <= 1.0e-12` plus bitwise repeatability. It also closes
 explicitly before declaring success and requires `Closed`, zero cleanup debt,
 zero final resident bytes, and exact allocation/free balance. Geometry parity,
 repeatability, and teardown are therefore part of the RTX pass predicate, not
-informational fields or destructor side effects after reporting.
+informational fields or destructor side effects after reporting. The recorded
+RTX proof covers 120 transactions with maximum error
+`1.3877787807814457e-17`, no warmed allocations, and 138/138 balanced frees.
 
 The non-CUDA contract is independently runnable with `--stub`. Native evidence
 for the development RTX machine is recorded in
