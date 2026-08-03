@@ -14,6 +14,14 @@ from typing import Sequence
 
 
 NO_CUDA_EXIT_CODE = 77
+REQUIRED_GEOMETRY_CASES = {
+    "natural",
+    "permuted",
+    "curved",
+    "boundary_ghost",
+    "degenerate",
+    "production_cpu",
+}
 
 
 def repo_root() -> Path:
@@ -92,6 +100,34 @@ def teardown_complete(report: dict[str, object]) -> bool:
     )
 
 
+def geometry_complete(report: dict[str, object]) -> bool:
+    error = report.get("geometry_max_abs_error")
+    cases = report.get("geometry_cases")
+    if not isinstance(cases, dict) or set(cases) != REQUIRED_GEOMETRY_CASES:
+        return False
+    for name in REQUIRED_GEOMETRY_CASES:
+        case = cases.get(name)
+        if not isinstance(case, dict):
+            return False
+        case_error = case.get("max_abs_error")
+        if not (
+            case.get("pass") is True
+            and case.get("cpu_parity") is True
+            and case.get("repeatable") is True
+            and case.get("ghost_zero") is True
+            and case.get("degenerate_zero") is True
+            and case.get("permutation_equal") is True
+            and isinstance(case_error, (int, float))
+            and case_error <= 1.0e-12
+        ):
+            return False
+    return (
+        report.get("geometry_repeatable") is True
+        and isinstance(error, (int, float))
+        and error <= 1.0e-12
+    )
+
+
 def run(args: argparse.Namespace) -> int:
     root = Path(args.root).resolve() if args.root else repo_root()
     make = executable(args.make, "make")
@@ -133,11 +169,17 @@ def run(args: argparse.Namespace) -> int:
     except json.JSONDecodeError as error:
         sys.stderr.write(f"invalid mesh-state JSON: {error}\n{execution.stdout}")
         return 1
-    if report.get("status") == "pass" and not teardown_complete(report):
-        sys.stderr.write(
-            "mesh-state report claimed pass without complete, balanced teardown\n"
-        )
-        return 1
+    if report.get("status") == "pass":
+        if not geometry_complete(report):
+            sys.stderr.write(
+                "mesh-state report claimed pass without geometry parity and repeatability\n"
+            )
+            return 1
+        if not teardown_complete(report):
+            sys.stderr.write(
+                "mesh-state report claimed pass without complete, balanced teardown\n"
+            )
+            return 1
     report["cuda_required"] = args.require_cuda
     report["build"] = {
         "target": command[1],

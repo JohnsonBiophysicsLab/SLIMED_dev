@@ -76,6 +76,8 @@ enum class TransferReason : std::size_t
     AcceptedCoordinates,
     ReferenceCoordinates,
     CandidateCoordinates,
+    CandidateGeometry,
+    GeometryDiagnostics,
     Count,
 };
 
@@ -128,6 +130,18 @@ struct DeviceStateReport
     DeviceStateError cleanupError;
 };
 
+struct GeometryCandidateResult
+{
+    std::vector<double> faceAreas;
+    std::vector<double> faceVolumes;
+    double totalArea = 0.0;
+    double totalVolume = 0.0;
+    std::uint64_t coordinateGeneration = 0;
+    DeviceStateError error;
+
+    bool ok() const noexcept { return error.ok(); }
+};
+
 struct CudaMeshStateResult;
 
 class CudaMeshState final
@@ -143,6 +157,7 @@ class CudaMeshState final
     DeviceStateError prepare_candidate(
         const std::vector<double> &coordinates,
         std::uint64_t generation);
+    GeometryCandidateResult compute_candidate_geometry();
     DeviceStateError mark_computing();
     DeviceStateError mark_validated();
     DeviceStateError commit();

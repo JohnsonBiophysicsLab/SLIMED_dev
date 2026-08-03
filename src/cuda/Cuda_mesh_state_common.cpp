@@ -44,6 +44,8 @@ const char *transfer_reason_name(TransferReason reason) noexcept
     case TransferReason::AcceptedCoordinates: return "accepted_coordinates";
     case TransferReason::ReferenceCoordinates: return "reference_coordinates";
     case TransferReason::CandidateCoordinates: return "candidate_coordinates";
+    case TransferReason::CandidateGeometry: return "candidate_geometry";
+    case TransferReason::GeometryDiagnostics: return "geometry_diagnostics";
     case TransferReason::Count: break;
     }
     return "unknown";
@@ -277,7 +279,11 @@ struct MeshStateCore::Impl
     BufferGroup parameters;
     BufferGroup coordinates;
     BufferGroup reference;
+    BufferGroup geometry;
     BufferGroup deferredCleanup;
+    std::uint64_t vertexCount = 0;
+    std::uint64_t faceCount = 0;
+    std::uint64_t evaluatedFaceCount = 0;
     bool initialized = false;
     bool closing = false;
     bool closed = false;
@@ -315,6 +321,7 @@ struct MeshStateCore::Impl
     {
         return operations.queryMemory && operations.allocate &&
                operations.release && operations.copyHostToDevice &&
+               operations.copyDeviceToHost && operations.computeGeometry &&
                operations.synchronize;
     }
 
@@ -371,6 +378,26 @@ struct MeshStateCore::Impl
     {
         std::vector<HostView> result(1);
         ok = make_view(pack.referenceCoordinates, result[0]);
+        return result;
+    }
+
+    std::vector<HostView> geometry_views(const RegularMeshPack &pack,
+                                         bool &ok) const
+    {
+        std::vector<HostView> result(4);
+        if (pack.faceCount > std::numeric_limits<std::size_t>::max() /
+                                 sizeof(double) ||
+            pack.faceCount > std::numeric_limits<std::size_t>::max() /
+                                 sizeof(std::int32_t))
+        {
+            ok = false;
+            return result;
+        }
+        const std::size_t faces = static_cast<std::size_t>(pack.faceCount);
+        result[0].bytes = faces * sizeof(double);
+        result[1].bytes = faces * sizeof(double);
+        result[2].bytes = sizeof(std::int32_t);
+        result[3].bytes = 2 * sizeof(double);
         return result;
     }
 
@@ -556,7 +583,7 @@ struct MeshStateCore::Impl
     {
         report.residentBytes = group_bytes(topology) + group_bytes(numericalPlan) +
                                group_bytes(parameters) + group_bytes(coordinates) +
-                               group_bytes(reference);
+                               group_bytes(reference) + group_bytes(geometry);
         report.capacityBytes[static_cast<std::size_t>(TransferReason::Topology)] =
             group_bytes(topology);
         report.capacityBytes[static_cast<std::size_t>(
@@ -572,6 +599,8 @@ struct MeshStateCore::Impl
             coordinates.buffers.size() > report.candidateCoordinateSlot
                 ? coordinates.buffers[report.candidateCoordinateSlot].capacityBytes
                 : 0;
+        report.capacityBytes[static_cast<std::size_t>(
+            TransferReason::CandidateGeometry)] = group_bytes(geometry);
     }
 };
 
@@ -650,6 +679,10 @@ DeviceStateError MeshStateCore::ensure_resident(const RegularMeshPack &pack)
         pending.push_back({&s.reference, {},
                            TransferReason::ReferenceCoordinates,
                            s.reference_views(pack, viewsOk)});
+    if (topologyChanged)
+        pending.push_back({&s.geometry, {},
+                           TransferReason::CandidateGeometry,
+                           s.geometry_views(pack, viewsOk)});
     if (!viewsOk)
         return s.record(error(DeviceStateErrorCode::ArithmeticOverflow,
                               "ensure_resident", "host buffer byte count overflowed"));
@@ -686,6 +719,9 @@ DeviceStateError MeshStateCore::ensure_resident(const RegularMeshPack &pack)
         s.report.previousCoordinateSlot = 2;
     }
     s.report.candidateGeneration = 0;
+    s.vertexCount = pack.vertexCount;
+    s.faceCount = pack.faceCount;
+    s.evaluatedFaceCount = pack.evaluatedFaceCount;
     ++s.report.allocationEpoch;
     s.initialized = true;
     s.refresh_resident_bytes();
@@ -750,6 +786,149 @@ DeviceStateError MeshStateCore::prepare_candidate(
     ++s.report.transactionEpoch;
     s.clear_error();
     return {};
+}
+
+GeometryCandidateResult MeshStateCore::compute_candidate_geometry()
+{
+    auto &s = *impl_;
+    GeometryCandidateResult result;
+    result.coordinateGeneration = s.report.candidateGeneration;
+    s.report.lastDirtyGroups.fill(false);
+    if (s.report.phase != TransactionPhase::CandidatePrepared ||
+        s.topology.buffers.size() < 7 || s.numericalPlan.buffers.size() < 3 ||
+        s.coordinates.buffers.size() != 3 || s.geometry.buffers.size() != 4)
+    {
+        result.error = error(DeviceStateErrorCode::InvalidTransition,
+                             "compute_candidate_geometry",
+                             "geometry requires a prepared candidate and complete resident buffers");
+        s.record(result.error);
+        return result;
+    }
+    if (s.report.cleanupPending)
+    {
+        result.error = s.cleanup_blocked("compute_candidate_geometry");
+        s.record(result.error);
+        return result;
+    }
+
+    s.report.phase = TransactionPhase::Computing;
+    s.report.lastDirtyGroups[static_cast<std::size_t>(
+        TransferReason::CandidateGeometry)] = true;
+    const GeometryLaunch launch{
+        s.topology.buffers[4].handle,
+        s.topology.buffers[6].handle,
+        s.numericalPlan.buffers[1].handle,
+        s.numericalPlan.buffers[2].handle,
+        s.coordinates.buffers[s.report.candidateCoordinateSlot].handle,
+        s.geometry.buffers[0].handle,
+        s.geometry.buffers[1].handle,
+        s.geometry.buffers[2].handle,
+        s.geometry.buffers[3].handle,
+        s.vertexCount,
+        s.faceCount,
+        s.evaluatedFaceCount,
+    };
+    DriverStatus status = s.operations.computeGeometry(launch);
+    if (!status.success)
+    {
+        result.error = error(DeviceStateErrorCode::CandidateFailed,
+                             status.operation.empty() ? "compute_geometry"
+                                                      : status.operation,
+                             status.message, status.nativeCode);
+        s.report.phase = TransactionPhase::Failed;
+        s.report.lastOutcome = TransactionOutcome::Failed;
+        s.record(result.error);
+        return result;
+    }
+    status = s.operations.synchronize();
+    if (!status.success)
+    {
+        result.error = error(DeviceStateErrorCode::SynchronizationFailed,
+                             status.operation.empty() ? "synchronize_geometry"
+                                                      : status.operation,
+                             status.message, status.nativeCode);
+        s.report.phase = TransactionPhase::Failed;
+        s.report.lastOutcome = TransactionOutcome::Failed;
+        s.record(result.error);
+        return result;
+    }
+    ++s.report.synchronizations;
+
+    result.faceAreas.resize(static_cast<std::size_t>(s.faceCount));
+    result.faceVolumes.resize(static_cast<std::size_t>(s.faceCount));
+    double totals[2]{};
+    std::int32_t geometryStatus = 0;
+    auto &counter = s.report.transfers[static_cast<std::size_t>(
+        TransferReason::GeometryDiagnostics)];
+    std::uint64_t diagnosticBytes = 0;
+    const auto copy = [&](void *destination, DeviceBufferHandle source,
+                          std::size_t bytes) -> bool {
+        ++counter.attemptedOperations;
+        counter.attemptedBytes += bytes;
+        diagnosticBytes += bytes;
+        const DriverStatus copied =
+            s.operations.copyDeviceToHost(destination, source, bytes);
+        if (!copied.success)
+        {
+            result.error = error(DeviceStateErrorCode::TransferFailed,
+                                 copied.operation.empty() ? "copy_geometry_diagnostic"
+                                                          : copied.operation,
+                                 copied.message, copied.nativeCode);
+            return false;
+        }
+        return true;
+    };
+    const std::size_t faceDoubleBytes = result.faceAreas.size() * sizeof(double);
+    if (!copy(result.faceAreas.data(), s.geometry.buffers[0].handle,
+              faceDoubleBytes) ||
+        !copy(result.faceVolumes.data(), s.geometry.buffers[1].handle,
+              faceDoubleBytes) ||
+        !copy(&geometryStatus, s.geometry.buffers[2].handle,
+              sizeof(geometryStatus)) ||
+        !copy(totals, s.geometry.buffers[3].handle, sizeof(totals)))
+    {
+        s.report.phase = TransactionPhase::Failed;
+        s.report.lastOutcome = TransactionOutcome::Failed;
+        s.record(result.error);
+        return result;
+    }
+    status = s.operations.synchronize();
+    if (!status.success)
+    {
+        result.error = error(DeviceStateErrorCode::SynchronizationFailed,
+                             status.operation.empty() ? "synchronize_geometry_diagnostic"
+                                                      : status.operation,
+                             status.message, status.nativeCode);
+        s.report.phase = TransactionPhase::Failed;
+        s.report.lastOutcome = TransactionOutcome::Failed;
+        s.record(result.error);
+        return result;
+    }
+    ++s.report.synchronizations;
+    counter.completedOperations += 4;
+    counter.completedBytes += diagnosticBytes;
+    result.totalArea = totals[0];
+    result.totalVolume = totals[1];
+    const bool finiteFaces =
+        std::all_of(result.faceAreas.begin(), result.faceAreas.end(),
+                    [](double value) { return std::isfinite(value) && value >= 0.0; }) &&
+        std::all_of(result.faceVolumes.begin(), result.faceVolumes.end(),
+                    [](double value) { return std::isfinite(value); });
+    if (geometryStatus != 0 || !finiteFaces ||
+        !std::isfinite(result.totalArea) || result.totalArea < 0.0 ||
+        !std::isfinite(result.totalVolume))
+    {
+        result.error = error(DeviceStateErrorCode::CandidateFailed,
+                             "validate_candidate_geometry",
+                             "device geometry produced nonfinite or invalid output");
+        s.report.phase = TransactionPhase::Failed;
+        s.report.lastOutcome = TransactionOutcome::Failed;
+        s.record(result.error);
+        return result;
+    }
+    s.report.phase = TransactionPhase::Validated;
+    s.clear_error();
+    return result;
 }
 
 DeviceStateError MeshStateCore::mark_computing()
@@ -897,7 +1076,7 @@ DeviceStateError MeshStateCore::close()
     auto &s = *impl_;
     if (!s.closing)
     {
-        for (BufferGroup *group : {&s.reference, &s.coordinates, &s.parameters,
+        for (BufferGroup *group : {&s.geometry, &s.reference, &s.coordinates, &s.parameters,
                                    &s.numericalPlan, &s.topology})
         {
             for (auto &buffer : group->buffers)
@@ -1044,6 +1223,20 @@ DeviceStateError CudaMeshState::prepare_candidate(
         return blocked;
     DeviceStateError result = impl_->core->prepare_candidate(coordinates,
                                                               generation);
+    impl_->refresh();
+    return result;
+}
+
+GeometryCandidateResult CudaMeshState::compute_candidate_geometry()
+{
+    GeometryCandidateResult result;
+    DeviceStateError blocked = impl_->guard("compute_candidate_geometry");
+    if (!blocked.ok())
+    {
+        result.error = blocked;
+        return result;
+    }
+    result = impl_->core->compute_candidate_geometry();
     impl_->refresh();
     return result;
 }

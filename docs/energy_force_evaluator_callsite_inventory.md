@@ -29,6 +29,7 @@ assertion.
 | Facade implementation call | `src/energy_force/Energy_force_evaluator.cpp` | Keep as the only production direct call from the facade into `Mesh::Compute_Energy_And_Force()`. |
 | Core implementation/API declaration | `src/energy_force/Compute_energy_and_force_on_mesh.cpp`, `include/mesh/Mesh.hpp` | Not routing candidates; these define and declare the existing physics method. |
 | Intentional test/control direct call | `tests/test_energy_force_evaluator.cpp`, `tests/test_io.cpp`, `tests/test_optimization_algorithm.cpp` | Leave direct calls when they provide the control baseline or fixture setup. Route only in a test-specific cleanup PR with equivalent assertions. |
+| Intentional experiment/control direct call | `experiments/irregular_valence4_production_call_parity.cpp`, `experiments/irregular_valence5_option_b_phase3_activation.cpp` | These opt-in parity/activation executables retain the direct CPU call as their scientific control. They are not production routing sites. |
 | Documentation reference | `docs/`, `src/energy_force/README.md` | Keep references current when production ownership changes. |
 | Remaining production direct call requiring future review | None found in the current inventory. | New production direct calls should be routed through `EnergyForceEvaluator` or explicitly justified. |
 

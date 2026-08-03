@@ -1,9 +1,12 @@
 #include "cuda/Cuda_mesh_state.hpp"
 #include "cuda/detail/Cuda_mesh_state_core.hpp"
+#include "cuda/detail/Cuda_regular_geometry_cpu.hpp"
+#include "mesh/Mesh.hpp"
 
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <cstring>
 #include <limits>
@@ -53,8 +56,52 @@ RegularMeshPack make_pack(std::uint64_t generation = 1)
     return pack;
 }
 
+RegularMeshPack make_geometry_pack()
+{
+    RegularMeshPack pack = make_pack();
+    std::fill(pack.shapeWeights.begin(), pack.shapeWeights.end(), 0.0);
+    std::fill(pack.acceptedCoordinates.begin(),
+              pack.acceptedCoordinates.end(), 0.0);
+    std::fill(pack.previousCoordinates.begin(),
+              pack.previousCoordinates.end(), 0.0);
+    std::fill(pack.referenceCoordinates.begin(),
+              pack.referenceCoordinates.end(), 0.0);
+    const double controls[3][3]{{2.0, 0.0, 0.0},
+                                {2.0, 1.0, 0.0},
+                                {2.0, 0.0, 1.0}};
+    for (std::size_t source = 0; source < 3; ++source)
+        for (std::size_t axis = 0; axis < 3; ++axis)
+        {
+            pack.acceptedCoordinates[source * 3 + axis] =
+                controls[source][axis];
+            pack.previousCoordinates[source * 3 + axis] =
+                controls[source][axis];
+            pack.referenceCoordinates[source * 3 + axis] =
+                controls[source][axis];
+        }
+    for (std::size_t sample = 0; sample < 3; ++sample)
+    {
+        const std::size_t base = sample * 7 * 12;
+        pack.shapeWeights[base] = 1.0;
+        pack.shapeWeights[base + 12] = -1.0;
+        pack.shapeWeights[base + 12 + 1] = 1.0;
+        pack.shapeWeights[base + 24] = -1.0;
+        pack.shapeWeights[base + 24 + 2] = 1.0;
+    }
+    return pack;
+}
+
 struct FakeDevice
 {
+    enum class GeometryCorruption
+    {
+        None,
+        Status,
+        NonFiniteFace,
+        NegativeArea,
+        NonFiniteTotals,
+    };
+
     static constexpr int kInjected = 73;
     std::unordered_map<DeviceBufferHandle, std::vector<std::uint8_t>> memory;
     DeviceBufferHandle nextHandle = 1;
@@ -62,12 +109,17 @@ struct FakeDevice
     std::size_t totalBytes = std::size_t{2} << 30;
     std::uint64_t allocationCalls = 0;
     std::uint64_t copyCalls = 0;
+    std::uint64_t copyToHostCalls = 0;
+    std::uint64_t geometryCalls = 0;
     std::uint64_t synchronizeCalls = 0;
     std::uint64_t releaseCalls = 0;
     std::uint64_t failAllocationCall = 0;
     std::uint64_t failCopyCall = 0;
+    std::uint64_t failCopyToHostCall = 0;
+    std::uint64_t failGeometryCall = 0;
     std::uint64_t failSynchronizeCall = 0;
     std::uint64_t failReleaseCall = 0;
+    GeometryCorruption geometryCorruption = GeometryCorruption::None;
 
     DeviceOperations operations()
     {
@@ -108,6 +160,129 @@ struct FakeDevice
                 std::memcpy(found->second.data(), source, bytes);
                 return DriverStatus{};
             };
+        ops.copyDeviceToHost =
+            [this](void *destination, DeviceBufferHandle handle,
+                   std::size_t bytes) {
+                ++copyToHostCalls;
+                if (copyToHostCalls == failCopyToHostCall)
+                    return DriverStatus{false, kInjected,
+                                        "fake_copy_to_host",
+                                        "injected device-to-host copy failure"};
+                auto found = memory.find(handle);
+                if (found == memory.end() || bytes > found->second.size())
+                    return DriverStatus{false, kInjected, "fake_copy_to_host",
+                                        "invalid fake source"};
+                std::memcpy(destination, found->second.data(), bytes);
+                return DriverStatus{};
+            };
+        ops.computeGeometry = [this](const GeometryLaunch &launch) {
+            ++geometryCalls;
+            if (geometryCalls == failGeometryCall)
+                return DriverStatus{false, kInjected,
+                                    "fake_compute_geometry",
+                                    "injected geometry failure"};
+            const auto read_i32 = [this](DeviceBufferHandle handle,
+                                         std::size_t index) {
+                std::int32_t value = 0;
+                std::memcpy(&value,
+                            memory.at(handle).data() + index * sizeof(value),
+                            sizeof(value));
+                return value;
+            };
+            const auto read_double = [this](DeviceBufferHandle handle,
+                                            std::size_t index) {
+                double value = 0.0;
+                std::memcpy(&value,
+                            memory.at(handle).data() + index * sizeof(value),
+                            sizeof(value));
+                return value;
+            };
+            const auto write_double = [this](DeviceBufferHandle handle,
+                                             std::size_t index,
+                                             double value) {
+                std::memcpy(memory.at(handle).data() + index * sizeof(value),
+                            &value, sizeof(value));
+            };
+            const auto write_i32 = [this](DeviceBufferHandle handle,
+                                          std::int32_t value) {
+                std::memcpy(memory.at(handle).data(), &value, sizeof(value));
+            };
+            std::fill(memory.at(launch.faceAreas).begin(),
+                      memory.at(launch.faceAreas).end(), 0);
+            std::fill(memory.at(launch.faceVolumes).begin(),
+                      memory.at(launch.faceVolumes).end(), 0);
+            std::fill(memory.at(launch.status).begin(),
+                      memory.at(launch.status).end(), 0);
+            for (std::size_t evaluated = 0;
+                 evaluated < launch.evaluatedFaceCount; ++evaluated)
+            {
+                const std::size_t face = static_cast<std::size_t>(
+                    read_i32(launch.evaluatedFaceIds, evaluated));
+                double area = 0.0;
+                double volume = 0.0;
+                for (std::size_t sample = 0; sample < 3; ++sample)
+                {
+                    double rows[3][3]{};
+                    for (std::size_t row = 0; row < 3; ++row)
+                        for (std::size_t local = 0; local < 12; ++local)
+                        {
+                            const std::size_t source = static_cast<std::size_t>(
+                                read_i32(launch.oneRingSourceIds,
+                                         evaluated * 12 + local));
+                            const double weight = read_double(
+                                launch.shapeWeights,
+                                (sample * 7 + row) * 12 + local);
+                            for (std::size_t axis = 0; axis < 3; ++axis)
+                                rows[row][axis] += weight * read_double(
+                                    launch.coordinates, source * 3 + axis);
+                        }
+                    const double cross[3]{
+                        rows[1][1] * rows[2][2] - rows[1][2] * rows[2][1],
+                        rows[1][2] * rows[2][0] - rows[1][0] * rows[2][2],
+                        rows[1][0] * rows[2][1] - rows[1][1] * rows[2][0],
+                    };
+                    const double norm = std::sqrt(cross[0] * cross[0] +
+                                                  cross[1] * cross[1] +
+                                                  cross[2] * cross[2]);
+                    const double coefficient = read_double(
+                        launch.quadratureCoefficients, sample);
+                    area += 0.5 * coefficient * norm;
+                    volume += 0.16666666666 * coefficient *
+                              rows[0][0] * cross[0];
+                }
+                write_double(launch.faceAreas, face, area);
+                write_double(launch.faceVolumes, face, volume);
+            }
+            double totalArea = 0.0;
+            double totalVolume = 0.0;
+            for (std::size_t face = 0; face < launch.faceCount; ++face)
+            {
+                totalArea += read_double(launch.faceAreas, face);
+                totalVolume += read_double(launch.faceVolumes, face);
+            }
+            write_double(launch.totals, 0, totalArea);
+            write_double(launch.totals, 1, totalVolume);
+            switch (geometryCorruption)
+            {
+            case GeometryCorruption::None:
+                break;
+            case GeometryCorruption::Status:
+                write_i32(launch.status, 1);
+                break;
+            case GeometryCorruption::NonFiniteFace:
+                write_double(launch.faceAreas, 0,
+                             std::numeric_limits<double>::quiet_NaN());
+                break;
+            case GeometryCorruption::NegativeArea:
+                write_double(launch.faceAreas, 0, -1.0);
+                break;
+            case GeometryCorruption::NonFiniteTotals:
+                write_double(launch.totals, 1,
+                             std::numeric_limits<double>::infinity());
+                break;
+            }
+            return DriverStatus{};
+        };
         ops.synchronize = [this]() {
             ++synchronizeCalls;
             if (synchronizeCalls == failSynchronizeCall)
@@ -193,6 +368,289 @@ TEST(CudaMeshStateCoreTest, InitialUploadIsReasonedAndSameGenerationsAreNoOp)
                   before.transfers[reason].attemptedBytes);
         EXPECT_EQ(after.transfers[reason].completedBytes,
                   before.transfers[reason].completedBytes);
+    }
+}
+
+TEST(CudaMeshStateCoreTest,
+     CandidateGeometryIsDeterministicAndPreservesBoundaryGhostSemantics)
+{
+    FakeDevice device;
+    RegularMeshPack pack = make_geometry_pack();
+    pack.faceCount = 2;
+    pack.faceBoundaryMask = {1, 0};
+    pack.faceGhostMask = {0, 1};
+    auto created = create_mesh_state_core(device.operations(), pack);
+    ASSERT_NE(created.state, nullptr);
+    auto facade = CudaMeshStateFactory::create(
+        std::move(created.state), created.report,
+        []() { return DriverStatus{}; });
+    ASSERT_NE(facade, nullptr);
+
+    std::vector<double> firstAreas;
+    std::vector<double> firstVolumes;
+    for (std::uint64_t repeat = 0; repeat < 20; ++repeat)
+    {
+        ASSERT_TRUE(facade->prepare_candidate(
+            pack.acceptedCoordinates, 2 + repeat).ok());
+        GeometryCandidateResult geometry =
+            facade->compute_candidate_geometry();
+        ASSERT_TRUE(geometry.ok()) << geometry.error.message;
+        ASSERT_EQ(geometry.faceAreas.size(), 2u);
+        ASSERT_EQ(geometry.faceVolumes.size(), 2u);
+        EXPECT_DOUBLE_EQ(geometry.faceAreas[0], 0.5);
+        EXPECT_DOUBLE_EQ(geometry.faceAreas[1], 0.0);
+        EXPECT_NEAR(geometry.faceVolumes[0], 0.33333333332, 1.0e-15);
+        EXPECT_DOUBLE_EQ(geometry.faceVolumes[1], 0.0);
+        EXPECT_DOUBLE_EQ(geometry.totalArea, geometry.faceAreas[0]);
+        EXPECT_DOUBLE_EQ(geometry.totalVolume, geometry.faceVolumes[0]);
+        if (repeat == 0)
+        {
+            firstAreas = geometry.faceAreas;
+            firstVolumes = geometry.faceVolumes;
+        }
+        else
+        {
+            EXPECT_EQ(std::memcmp(firstAreas.data(), geometry.faceAreas.data(),
+                                  firstAreas.size() * sizeof(double)), 0);
+            EXPECT_EQ(std::memcmp(firstVolumes.data(), geometry.faceVolumes.data(),
+                                  firstVolumes.size() * sizeof(double)), 0);
+        }
+        EXPECT_TRUE(facade->rollback().ok());
+    }
+    EXPECT_EQ(facade->report().phase, TransactionPhase::IdleAccepted);
+}
+
+TEST(CudaMeshStateCoreTest,
+     CandidateGeometryRespectsControlPermutationAndDegenerateInputs)
+{
+    FakeDevice naturalDevice;
+    RegularMeshPack naturalPack = make_geometry_pack();
+    auto naturalCreated = create_mesh_state_core(naturalDevice.operations(),
+                                                  naturalPack);
+    ASSERT_NE(naturalCreated.state, nullptr);
+    auto natural = CudaMeshStateFactory::create(
+        std::move(naturalCreated.state), naturalCreated.report,
+        []() { return DriverStatus{}; });
+    ASSERT_TRUE(natural->prepare_candidate(
+        naturalPack.acceptedCoordinates, 2).ok());
+    const GeometryCandidateResult expected =
+        natural->compute_candidate_geometry();
+    ASSERT_TRUE(expected.ok());
+
+    FakeDevice permutedDevice;
+    RegularMeshPack permutedPack = make_geometry_pack();
+    std::swap(permutedPack.oneRingSourceIds[1],
+              permutedPack.oneRingSourceIds[2]);
+    for (std::size_t sample = 0; sample < 3; ++sample)
+        for (std::size_t row = 0; row < 7; ++row)
+            std::swap(permutedPack.shapeWeights[(sample * 7 + row) * 12 + 1],
+                      permutedPack.shapeWeights[(sample * 7 + row) * 12 + 2]);
+    auto permutedCreated = create_mesh_state_core(
+        permutedDevice.operations(), permutedPack);
+    ASSERT_NE(permutedCreated.state, nullptr);
+    auto permuted = CudaMeshStateFactory::create(
+        std::move(permutedCreated.state), permutedCreated.report,
+        []() { return DriverStatus{}; });
+    ASSERT_TRUE(permuted->prepare_candidate(
+        permutedPack.acceptedCoordinates, 2).ok());
+    const GeometryCandidateResult reordered =
+        permuted->compute_candidate_geometry();
+    ASSERT_TRUE(reordered.ok());
+    EXPECT_EQ(reordered.faceAreas, expected.faceAreas);
+    EXPECT_EQ(reordered.faceVolumes, expected.faceVolumes);
+
+    FakeDevice curvedDevice;
+    RegularMeshPack curvedPack = make_geometry_pack();
+    const std::size_t sampleOne = 7 * 12;
+    curvedPack.shapeWeights[sampleOne + 12] = -2.0;
+    curvedPack.shapeWeights[sampleOne + 12 + 1] = 2.0;
+    const std::size_t sampleTwo = 2 * 7 * 12;
+    curvedPack.shapeWeights[sampleTwo + 24] = -3.0;
+    curvedPack.shapeWeights[sampleTwo + 24 + 2] = 3.0;
+    auto curvedCreated = create_mesh_state_core(curvedDevice.operations(),
+                                                 curvedPack);
+    ASSERT_NE(curvedCreated.state, nullptr);
+    auto curved = CudaMeshStateFactory::create(
+        std::move(curvedCreated.state), curvedCreated.report,
+        []() { return DriverStatus{}; });
+    ASSERT_TRUE(curved->prepare_candidate(
+        curvedPack.acceptedCoordinates, 2).ok());
+    const GeometryCandidateResult sampleVarying =
+        curved->compute_candidate_geometry();
+    ASSERT_TRUE(sampleVarying.ok());
+    EXPECT_NEAR(sampleVarying.totalArea, 1.0, 1.0e-12);
+    EXPECT_NEAR(sampleVarying.totalVolume, 0.66666666664, 1.0e-12);
+
+    FakeDevice degenerateDevice;
+    RegularMeshPack degeneratePack = make_geometry_pack();
+    std::fill(degeneratePack.acceptedCoordinates.begin(),
+              degeneratePack.acceptedCoordinates.end(), 2.0);
+    auto degenerateCreated = create_mesh_state_core(
+        degenerateDevice.operations(), degeneratePack);
+    ASSERT_NE(degenerateCreated.state, nullptr);
+    auto degenerate = CudaMeshStateFactory::create(
+        std::move(degenerateCreated.state), degenerateCreated.report,
+        []() { return DriverStatus{}; });
+    ASSERT_TRUE(degenerate->prepare_candidate(
+        degeneratePack.acceptedCoordinates, 2).ok());
+    const GeometryCandidateResult flat =
+        degenerate->compute_candidate_geometry();
+    ASSERT_TRUE(flat.ok());
+    EXPECT_DOUBLE_EQ(flat.totalArea, 0.0);
+    EXPECT_DOUBLE_EQ(flat.totalVolume, 0.0);
+}
+
+TEST(CudaMeshStateCoreTest,
+     CandidateGeometryMatchesProductionCpuRegularMeshGeometry)
+{
+    Param param;
+    param.VERBOSE_MODE = false;
+    param.boundaryCondition = BoundaryType::Periodic;
+    param.sideX = 40.0;
+    param.sideY = 10.0 * std::sqrt(3.0) / 2.0 * param.lFace;
+    Mesh mesh(param);
+    ::testing::internal::CaptureStdout();
+    mesh.setup_flat();
+    ::testing::internal::GetCapturedStdout();
+    for (Vertex &vertex : mesh.vertices)
+    {
+        const double index = static_cast<double>(vertex.index);
+        vertex.coord.set(2, 0, 0.01 * std::sin(0.7 * index) +
+                                   0.005 * std::cos(0.3 * index));
+        vertex.coordPrev = Matrix(3, 1, true);
+        vertex.coordRef = Matrix(3, 1, true);
+        for (int axis = 0; axis < 3; ++axis)
+        {
+            vertex.coordPrev.set(axis, 0, vertex.coord.get(axis, 0));
+            vertex.coordRef.set(axis, 0, vertex.coord.get(axis, 0));
+        }
+    }
+
+    RegularMeshPackRequest request;
+    request.generations = {1, 1, 1, 1, 1};
+    const RegularMeshPackResult packed =
+        build_regular_mesh_pack(mesh, request);
+    ASSERT_TRUE(packed.ok()) << packed.error.message;
+    const RegularGeometryCpuResult oracle = evaluate_regular_geometry_cpu(
+        packed.pack, packed.pack.acceptedCoordinates);
+    mesh.calculate_element_area_volume();
+
+    FakeDevice device;
+    auto created = create_mesh_state_core(device.operations(), packed.pack);
+    ASSERT_NE(created.state, nullptr);
+    auto state = CudaMeshStateFactory::create(
+        std::move(created.state), created.report,
+        []() { return DriverStatus{}; });
+    ASSERT_TRUE(state->prepare_candidate(
+        packed.pack.acceptedCoordinates, 2).ok());
+    const GeometryCandidateResult geometry =
+        state->compute_candidate_geometry();
+    ASSERT_TRUE(geometry.ok()) << geometry.error.message;
+    ASSERT_EQ(geometry.faceAreas.size(), mesh.faces.size());
+    ASSERT_EQ(geometry.faceVolumes.size(), mesh.faces.size());
+    ASSERT_EQ(oracle.faceAreas.size(), mesh.faces.size());
+    ASSERT_EQ(oracle.faceVolumes.size(), mesh.faces.size());
+
+    double expectedArea = 0.0;
+    double expectedVolume = 0.0;
+    for (const Face &face : mesh.faces)
+    {
+        const double area = face.isGhost ? 0.0 : face.elementArea;
+        const double volume = face.isGhost ? 0.0 : face.elementVolume;
+        EXPECT_NEAR(oracle.faceAreas[face.index], area, 1.0e-12);
+        EXPECT_NEAR(oracle.faceVolumes[face.index], volume, 1.0e-12);
+        EXPECT_NEAR(geometry.faceAreas[face.index],
+                    oracle.faceAreas[face.index], 1.0e-12);
+        EXPECT_NEAR(geometry.faceVolumes[face.index],
+                    oracle.faceVolumes[face.index], 1.0e-12);
+        expectedArea += area;
+        expectedVolume += volume;
+    }
+    EXPECT_NEAR(geometry.totalArea, expectedArea, 1.0e-12);
+    EXPECT_NEAR(geometry.totalVolume, expectedVolume, 1.0e-12);
+    EXPECT_NEAR(oracle.totalArea, expectedArea, 1.0e-12);
+    EXPECT_NEAR(oracle.totalVolume, expectedVolume, 1.0e-12);
+}
+
+TEST(CudaMeshStateCoreTest,
+     CandidateGeometryFailuresRemainRecoverableAndNeverValidate)
+{
+    FakeDevice device;
+    const RegularMeshPack pack = make_geometry_pack();
+    auto created = create_mesh_state_core(device.operations(), pack);
+    ASSERT_NE(created.state, nullptr);
+    auto state = CudaMeshStateFactory::create(
+        std::move(created.state), created.report,
+        []() { return DriverStatus{}; });
+
+    ASSERT_TRUE(state->prepare_candidate(pack.acceptedCoordinates, 2).ok());
+    device.failGeometryCall = device.geometryCalls + 1;
+    GeometryCandidateResult failed = state->compute_candidate_geometry();
+    EXPECT_EQ(failed.error.code, DeviceStateErrorCode::CandidateFailed);
+    EXPECT_EQ(state->report().phase, TransactionPhase::Failed);
+    EXPECT_EQ(state->report().lastOutcome, TransactionOutcome::Failed);
+    ASSERT_TRUE(state->recover().ok());
+
+    ASSERT_TRUE(state->prepare_candidate(pack.acceptedCoordinates, 2).ok());
+    device.failGeometryCall = 0;
+    device.failCopyToHostCall = device.copyToHostCalls + 1;
+    failed = state->compute_candidate_geometry();
+    EXPECT_EQ(failed.error.code, DeviceStateErrorCode::TransferFailed);
+    EXPECT_EQ(state->report().phase, TransactionPhase::Failed);
+    EXPECT_EQ(state->report().lastOutcome, TransactionOutcome::Failed);
+    ASSERT_TRUE(state->recover().ok());
+
+    ASSERT_TRUE(state->prepare_candidate(pack.acceptedCoordinates, 2).ok());
+    device.failCopyToHostCall = 0;
+    device.failSynchronizeCall = device.synchronizeCalls + 1;
+    failed = state->compute_candidate_geometry();
+    EXPECT_EQ(failed.error.code, DeviceStateErrorCode::SynchronizationFailed);
+    EXPECT_EQ(state->report().phase, TransactionPhase::Failed);
+    EXPECT_EQ(state->report().lastOutcome, TransactionOutcome::Failed);
+    EXPECT_EQ(state->report().residentGenerations.acceptedCoordinates, 1u);
+    ASSERT_TRUE(state->recover().ok());
+    EXPECT_EQ(state->report().phase, TransactionPhase::IdleAccepted);
+}
+
+TEST(CudaMeshStateCoreTest,
+     CandidateGeometryRejectsMalformedDeviceOutputsWithoutChangingAcceptedState)
+{
+    const std::vector<FakeDevice::GeometryCorruption> corruptions{
+        FakeDevice::GeometryCorruption::Status,
+        FakeDevice::GeometryCorruption::NonFiniteFace,
+        FakeDevice::GeometryCorruption::NegativeArea,
+        FakeDevice::GeometryCorruption::NonFiniteTotals,
+    };
+    for (const FakeDevice::GeometryCorruption corruption : corruptions)
+    {
+        SCOPED_TRACE(static_cast<int>(corruption));
+        FakeDevice device;
+        const RegularMeshPack pack = make_geometry_pack();
+        auto created = create_mesh_state_core(device.operations(), pack);
+        ASSERT_NE(created.state, nullptr);
+        const DeviceBufferHandle acceptedHandle =
+            created.state->accepted_coordinate_handle_for_testing();
+        const std::vector<std::uint8_t> acceptedBytes =
+            device.memory.at(acceptedHandle);
+        auto state = CudaMeshStateFactory::create(
+            std::move(created.state), created.report,
+            []() { return DriverStatus{}; });
+
+        ASSERT_TRUE(state->prepare_candidate(
+            pack.acceptedCoordinates, 2).ok());
+        device.geometryCorruption = corruption;
+        const GeometryCandidateResult failed =
+            state->compute_candidate_geometry();
+        EXPECT_EQ(failed.error.code, DeviceStateErrorCode::CandidateFailed);
+        EXPECT_EQ(state->report().phase, TransactionPhase::Failed);
+        EXPECT_EQ(state->report().lastOutcome, TransactionOutcome::Failed);
+        EXPECT_EQ(state->report().residentGenerations.acceptedCoordinates, 1u);
+        EXPECT_EQ(device.memory.at(acceptedHandle), acceptedBytes);
+
+        ASSERT_TRUE(state->recover().ok());
+        EXPECT_EQ(state->report().phase, TransactionPhase::IdleAccepted);
+        EXPECT_EQ(state->report().residentGenerations.acceptedCoordinates, 1u);
+        EXPECT_EQ(device.memory.at(acceptedHandle), acceptedBytes);
     }
 }
 
@@ -528,6 +986,34 @@ TEST(CudaMeshStateCoreTest,
                                     "expired_copy", "driver expired"};
             }
             return copy(handle, source, bytes);
+        };
+    guarded.copyDeviceToHost =
+        [weakDevice, expiredDuringOperation,
+         copy = raw.copyDeviceToHost](void *destination,
+                                      DeviceBufferHandle handle,
+                                      std::size_t bytes) {
+            auto owner = weakDevice.lock();
+            if (!owner)
+            {
+                *expiredDuringOperation = true;
+                return DriverStatus{false, FakeDevice::kInjected,
+                                    "expired_copy_to_host",
+                                    "driver expired"};
+            }
+            return copy(destination, handle, bytes);
+        };
+    guarded.computeGeometry =
+        [weakDevice, expiredDuringOperation,
+         compute = raw.computeGeometry](const GeometryLaunch &launch) {
+            auto owner = weakDevice.lock();
+            if (!owner)
+            {
+                *expiredDuringOperation = true;
+                return DriverStatus{false, FakeDevice::kInjected,
+                                    "expired_compute_geometry",
+                                    "driver expired"};
+            }
+            return compute(launch);
         };
     guarded.synchronize =
         [weakDevice, expiredDuringOperation,

@@ -349,11 +349,13 @@ cuda_backend_stub_report: include/cuda/Cuda_backend.hpp \
 		EXEs/cuda_backend_report.cpp -o $(CUDA_BACKEND_STUB_REPORT)
 	@echo "Finished non-CUDA backend stub report build, $(CUDA_BACKEND_STUB_REPORT)."
 
-# Explicit Step-3 persistent device-state diagnostics. The CUDA and stub
+# Explicit Step-3/4 persistent state and geometry diagnostics. The CUDA and stub
 # implementations are mutually exclusive and remain outside every production
 # or default target.
 cuda_mesh_state_report: include/cuda/Cuda_mesh_state.hpp \
 		include/cuda/detail/Cuda_mesh_state_core.hpp \
+		include/cuda/detail/Cuda_regular_geometry_cpu.hpp \
+		src/cuda/Cuda_regular_geometry_cpu.cpp \
 		src/cuda/Cuda_mesh_state_common.cpp src/cuda/Cuda_mesh_state.cu \
 		EXEs/cuda_mesh_state_report.cpp
 	@command -v $(CUDA_NVCC) >/dev/null 2>&1 || \
@@ -361,15 +363,19 @@ cuda_mesh_state_report: include/cuda/Cuda_mesh_state.hpp \
 	$(CUDA_NVCC) -std=$(CXX_STD) -O3 \
 		-arch=$(CUDA_COMPUTE_ARCH) -code=$(CUDA_SM_CODE) \
 		-ccbin=$(CUDA_HOST_CXX) -Iinclude \
+		src/cuda/Cuda_regular_geometry_cpu.cpp \
 		src/cuda/Cuda_mesh_state_common.cpp src/cuda/Cuda_mesh_state.cu \
 		EXEs/cuda_mesh_state_report.cpp \
 		-lcudart -o $(CUDA_MESH_STATE_REPORT)
 	@echo "Finished optional CUDA mesh-state report build, $(CUDA_MESH_STATE_REPORT)."
 
 cuda_mesh_state_stub_report: include/cuda/Cuda_mesh_state.hpp \
+		include/cuda/detail/Cuda_regular_geometry_cpu.hpp \
+		src/cuda/Cuda_regular_geometry_cpu.cpp \
 		src/cuda/Cuda_mesh_state_common.cpp src/cuda/Cuda_mesh_state_stub.cpp \
 		EXEs/cuda_mesh_state_report.cpp
 	$(CXX) -std=$(CXX_STD) -O3 -Iinclude \
+		src/cuda/Cuda_regular_geometry_cpu.cpp \
 		src/cuda/Cuda_mesh_state_common.cpp src/cuda/Cuda_mesh_state_stub.cpp \
 		EXEs/cuda_mesh_state_report.cpp -o $(CUDA_MESH_STATE_STUB_REPORT)
 	@echo "Finished non-CUDA mesh-state stub report build, $(CUDA_MESH_STATE_STUB_REPORT)."

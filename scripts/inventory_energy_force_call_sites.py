@@ -75,6 +75,11 @@ def classify_direct(path: Path, line: str) -> tuple[str, str]:
             "intentional test/control direct call",
             "Tests use the direct call as a control or fixture setup baseline.",
         )
+    if normalized.startswith("experiments/"):
+        return (
+            "intentional experiment/control direct call",
+            "Opt-in experiment executables use the direct call as a scientific control baseline.",
+        )
     if normalized.startswith("scripts/"):
         return (
             "analysis script reference",
@@ -122,6 +127,11 @@ def classify_evaluator(path: Path, line: str) -> tuple[str, str]:
         return (
             "intentional evaluator test/control usage",
             "Tests exercise or compare the evaluator facade.",
+        )
+    if normalized.startswith("experiments/"):
+        return (
+            "intentional evaluator experiment/control usage",
+            "Opt-in experiments exercise or compare the evaluator facade.",
         )
     if normalized.startswith("scripts/"):
         return (
