@@ -36,8 +36,9 @@ def test_valence3_provider_and_science_harness_are_guarded_and_inventoried():
     assert "unsupported_mixed_force_imbalance_observed" in harness
     assert "phase2_mechanical_packet_started" in harness
     assert "max_finite_difference_relative_error" in harness
-    assert "legacyVolumeForceMismatchObserved" in harness
-    assert "legacy_x_only_volume_mismatch_is_a_production_blocker" in harness
+    assert "fullDivergenceVolumeConjugacyVerified" in harness
+    assert "full_divergence_volume_energy_force_conjugate" in harness
+    assert "legacy_x_only_volume_mismatch_resolved_for_valence3" in harness
     assert "providerApplicable" in harness
     assert "providerRejectedWhenNotApplicable" in harness
     assert "normalsValidated" in harness

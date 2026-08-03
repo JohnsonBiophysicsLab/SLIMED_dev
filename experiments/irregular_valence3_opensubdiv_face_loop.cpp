@@ -153,25 +153,28 @@ void configure_fixture(Mesh &mesh,
             areaVector[0] * areaVector[0] +
             areaVector[1] * areaVector[1] +
             areaVector[2] * areaVector[2]);
-        mesh.param.vol += point[0][0] * areaVector[0] / 6.0;
+        mesh.param.vol +=
+            (point[0][0] * areaVector[0] +
+             point[0][1] * areaVector[1] +
+             point[0][2] * areaVector[2]) / 6.0;
     }
     mesh.param.area0 = 0.91 * mesh.param.area;
     mesh.param.vol0 = mesh.param.vol == 0.0 ? 1.0 : 0.89 * mesh.param.vol;
 }
 
-bool all_volume_forces_zero(const Mesh &mesh)
+bool has_nonzero_volume_force(const Mesh &mesh)
 {
     for (const Vertex &vertex : mesh.vertices)
     {
         for (int axis = 0; axis < 3; ++axis)
         {
-            if (vertex.force.forceVolume.get(axis, 0) != 0.0)
+            if (std::abs(vertex.force.forceVolume.get(axis, 0)) > 1.0e-12)
             {
-                return false;
+                return true;
             }
         }
     }
-    return true;
+    return false;
 }
 
 bool state_changed(const std::vector<double> &before, const Mesh &mesh)
@@ -199,7 +202,7 @@ int main(int argc, char **argv)
     param.boundaryCondition = BoundaryType::Fixed;
     param.kCurv = 47.5;
     param.uSurf = 130.0;
-    param.uVol = 0.0;
+    param.uVol = 65.0;
     Mesh mesh(param);
     configure_fixture(mesh, tetraVertices, tetraFaces, true);
 
@@ -208,7 +211,7 @@ int main(int argc, char **argv)
     fallbackParam.boundaryCondition = BoundaryType::Fixed;
     fallbackParam.kCurv = 47.5;
     fallbackParam.uSurf = 130.0;
-    fallbackParam.uVol = 0.0;
+    fallbackParam.uVol = 65.0;
     Mesh fallbackMesh(fallbackParam);
     configure_fixture(fallbackMesh, tetraVertices, tetraFaces, true);
     const std::vector<double> fallbackInitial = mesh_state(fallbackMesh);
@@ -243,16 +246,6 @@ int main(int argc, char **argv)
         !invalidRuntime.accepted &&
         mesh_state(mesh) == initial && one_rings(mesh) == initialOneRings;
 
-    Param volumeParam;
-    volumeParam.VERBOSE_MODE = false;
-    volumeParam.boundaryCondition = BoundaryType::Fixed;
-    volumeParam.kCurv = 47.5;
-    volumeParam.uSurf = 130.0;
-    volumeParam.uVol = 65.0;
-    Mesh volumeMesh(volumeParam);
-    configure_fixture(volumeMesh, tetraVertices, tetraFaces, true);
-    const std::vector<double> volumeInitial = mesh_state(volumeMesh);
-
     Param mixedParam;
     mixedParam.VERBOSE_MODE = false;
     mixedParam.boundaryCondition = BoundaryType::Fixed;
@@ -264,8 +257,6 @@ int main(int argc, char **argv)
     const std::vector<double> mixedInitial = mesh_state(mixedMesh);
 
     setenv("SLIMED_USE_OPENSUBDIV_VALENCE3_PHASE3", "1", 1);
-    const Valence3Phase3Result volumeRejected =
-        evaluate_guarded_valence3_phase3_face_loop(volumeMesh, request);
     const Valence3Phase3Result mixedRejected =
         evaluate_guarded_valence3_phase3_face_loop(mixedMesh, request);
     setenv("SLIMED_USE_OPENSUBDIV_REGULAR", "1", 1);
@@ -274,11 +265,6 @@ int main(int argc, char **argv)
     unsetenv("SLIMED_USE_OPENSUBDIV_REGULAR");
     const bool unrelatedRegularTokenIsolated = result.accepted;
 
-    const bool volumeRejectionAtomic =
-        !volumeRejected.accepted &&
-        volumeInitial == mesh_state(volumeMesh) &&
-        volumeRejected.rejectionReason.find("nonzero volume") !=
-            std::string::npos;
     const bool mixedRejectionAtomic =
         !mixedRejected.accepted && mixedInitial == mesh_state(mixedMesh) &&
         !mixedRejected.rowProvider.accepted;
@@ -286,7 +272,7 @@ int main(int argc, char **argv)
     if (!result.rowProvider.opensubdivCompiled)
     {
         const bool passed = defaultEvaluatorStillUnsupported &&
-            defaultOffAtomic && volumeRejectionAtomic &&
+            defaultOffAtomic &&
             mixedRejectionAtomic && !unrelatedRegularTokenIsolated &&
             !result.accepted &&
             mesh_state(mesh) == initial &&
@@ -307,15 +293,15 @@ int main(int argc, char **argv)
 
     const bool oneRingsPreserved = one_rings(mesh) == initialOneRings;
     const bool passed = defaultEvaluatorStillUnsupported &&
-        defaultOffAtomic && volumeRejectionAtomic &&
+        defaultOffAtomic &&
         mixedRejectionAtomic && unrelatedRegularTokenIsolated &&
         result.accepted &&
         result.explicitRequestReceived && result.runtimeOptInRequested &&
         result.exactBaselineIdentityValidated &&
         result.exactQuadratureSamplePlanValidated &&
         result.exactQuadratureWeightsValidated &&
-        result.zeroVolumeConstraintValidated &&
-        result.volumeFunctionalDecisionPending &&
+        result.fullDivergenceVolumeValidated &&
+        !result.volumeFunctionalDecisionPending &&
         result.sourceKeyedRowsPrepared && result.geometryStaged &&
         result.scientificDryRunExecuted &&
         result.completeTransactionValidatedBeforeMutation &&
@@ -324,7 +310,8 @@ int main(int argc, char **argv)
         result.faceObservablesMatchDryRun &&
         result.sourceForcesMatchDryRun &&
         result.totalArea > 0.0 && state_changed(initial, mesh) &&
-        oneRingsPreserved && all_volume_forces_zero(mesh) &&
+        oneRingsPreserved && has_nonzero_volume_force(mesh) &&
+        std::abs(mesh.param.energy.energyVolume) > 1.0e-12 &&
         !result.productionRouteEnabled &&
         !result.productionOneRingsPopulated &&
         !result.defaultEvaluatorCaller &&
@@ -337,8 +324,8 @@ int main(int argc, char **argv)
               << (defaultEvaluatorStillUnsupported ? "true" : "false")
               << ",\"default_off_rejections_atomic\":"
               << (defaultOffAtomic ? "true" : "false")
-              << ",\"nonzero_volume_rejection_atomic\":"
-              << (volumeRejectionAtomic ? "true" : "false")
+              << ",\"nonzero_volume_constraint_accepted\":"
+              << (result.accepted ? "true" : "false")
               << ",\"mixed_345_rejection_atomic\":"
               << (mixedRejectionAtomic ? "true" : "false")
               << ",\"unrelated_regular_token_isolated\":"
@@ -352,16 +339,18 @@ int main(int argc, char **argv)
               << (result.productionFaceLoopExecuted ? "true" : "false")
               << ",\"production_one_rings_preserved\":"
               << (oneRingsPreserved ? "true" : "false")
-              << ",\"zero_volume_force_verified\":"
-              << (all_volume_forces_zero(mesh) ? "true" : "false")
-              << ",\"volume_functional_decision_pending\":true"
+              << ",\"nonzero_volume_force_verified\":"
+              << (has_nonzero_volume_force(mesh) ? "true" : "false")
+              << ",\"full_divergence_volume_validated\":"
+              << (result.fullDivergenceVolumeValidated ? "true" : "false")
+              << ",\"volume_functional_decision_pending\":false"
               << ",\"face_observable_dry_run_max_abs_difference\":"
               << result.maxFaceObservableDifference
               << ",\"source_force_dry_run_max_abs_difference\":"
               << result.maxSourceForceDifference
               << ",\"total_area\":" << result.totalArea
-              << ",\"total_legacy_volume\":"
-              << result.totalLegacyVolume
+              << ",\"total_volume\":"
+              << result.totalVolume
               << ",\"production_route_enabled\":false"
               << ",\"default_evaluator_caller\":false"
               << ",\"phase4_activation_authorized\":false}"

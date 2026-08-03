@@ -28,7 +28,7 @@ constexpr int kReviewedQuadratureOrder = 2;
 constexpr int kReviewedSourceCount = 4;
 constexpr int kReviewedOpenSubdivVersion = 30700;
 constexpr int kReviewedIsolationLevel = 5;
-constexpr double kLegacyVolumeQuadratureFactor = 0.16666666666;
+constexpr double kFullDivergenceVolumeQuadratureFactor = 1.0 / 6.0;
 constexpr const char *kPhase3RuntimeOptIn =
     "SLIMED_USE_OPENSUBDIV_VALENCE3_PHASE3";
 constexpr std::array<std::array<double, 3>, kReviewedSampleCount>
@@ -185,6 +185,13 @@ double norm(const Vec3 &value)
                      value[2] * value[2]);
 }
 
+double dot(const Vec3 &left, const Vec3 &right)
+{
+    return left[0] * right[0] +
+           left[1] * right[1] +
+           left[2] * right[2];
+}
+
 guarded_source_keyed_face_loop::GuardedFaceGeometry evaluate_geometry(
     const Mesh &mesh,
     const PreparedSourceKeyedFace &face)
@@ -226,8 +233,8 @@ guarded_source_keyed_face_loop::GuardedFaceGeometry evaluate_geometry(
             static_cast<int>(sampleIndex), 0);
         geometry.elementArea += 0.5 * weight * norm(areaVector);
         geometry.elementVolume +=
-            kLegacyVolumeQuadratureFactor * weight *
-            evaluated[0][0] * areaVector[0];
+            kFullDivergenceVolumeQuadratureFactor * weight *
+            dot(evaluated[0], areaVector);
     }
     if (!std::isfinite(geometry.elementArea) ||
         !std::isfinite(geometry.elementVolume) ||
@@ -252,10 +259,9 @@ ScientificDryRun evaluate_scientific_dry_run(
     const double totalVolume)
 {
     Param stagedParam = mesh.param;
-    Mesh evaluator(stagedParam);
-    stagedParam = mesh.param;
     stagedParam.area = totalArea;
     stagedParam.vol = totalVolume;
+    Mesh evaluator(stagedParam);
 
     SourceKeyedKernelCallInput scientificInput;
     scientificInput.sourceCount = prepared.sourceCount;
@@ -498,14 +504,7 @@ Valence3Phase3Result evaluate_guarded_valence3_phase3_face_loop(
             std::string(kPhase3RuntimeOptIn) + "=1";
         return result;
     }
-    if (mesh.param.uVol != 0.0)
-    {
-        result.rejectionReason =
-            "valence-3 Phase 3 rejects nonzero volume constraints until "
-            "the legacy-volume/full-divergence decision is recorded";
-        return result;
-    }
-    result.zeroVolumeConstraintValidated = true;
+    result.fullDivergenceVolumeValidated = true;
 
     if (mesh.param.gaussQuadratureN != kReviewedQuadratureOrder ||
         mesh.param.VWU.nrow() != static_cast<int>(kReviewedSampleCount) ||
@@ -595,11 +594,11 @@ Valence3Phase3Result evaluate_guarded_valence3_phase3_face_loop(
         {
             auto geometry = evaluate_geometry(mesh, face);
             result.totalArea += geometry.elementArea;
-            result.totalLegacyVolume += geometry.elementVolume;
+            result.totalVolume += geometry.elementVolume;
             result.faceGeometry.push_back(std::move(geometry));
         }
         if (!std::isfinite(result.totalArea) ||
-            !std::isfinite(result.totalLegacyVolume) ||
+            !std::isfinite(result.totalVolume) ||
             result.totalArea <= 0.0)
         {
             throw std::invalid_argument(
@@ -608,19 +607,19 @@ Valence3Phase3Result evaluate_guarded_valence3_phase3_face_loop(
         result.geometryStaged = true;
 
         dryRun = evaluate_scientific_dry_run(
-            mesh, prepared, result.totalArea, result.totalLegacyVolume);
+            mesh, prepared, result.totalArea, result.totalVolume);
         result.faceObservables = dryRun.observables;
         result.scientificDryRunExecuted = true;
 
         guarded_source_keyed_face_loop::
             validate_guarded_source_keyed_production_face_loop(
                 mesh, result.faceGeometry, result.totalArea,
-                result.totalLegacyVolume, prepared);
+                result.totalVolume, prepared);
         result.completeTransactionValidatedBeforeMutation = true;
         guarded_source_keyed_face_loop::
             execute_guarded_source_keyed_production_face_loop(
                 mesh, result.faceGeometry, result.totalArea,
-                result.totalLegacyVolume, prepared);
+                result.totalVolume, prepared);
     }
     catch (const std::invalid_argument &error)
     {
