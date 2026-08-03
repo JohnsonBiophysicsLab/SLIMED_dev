@@ -30,12 +30,14 @@ PRODUCTION_PATHS = (
 )
 ALLOWED_PRODUCTION_OPENSUBDIV_PATHS = {
     Path("include/energy_force/Valence4_face_loop_route_preflight.hpp"),
+    Path("include/energy_force/Valence5_opensubdiv_face_loop.hpp"),
     Path("include/mesh/Mesh.hpp"),
     Path("include/mesh/OpenSubdiv_regular_evaluator.hpp"),
     Path("include/mesh/OpenSubdiv_valence4_row_provider.hpp"),
     Path("include/mesh/OpenSubdiv_valence5_row_provider.hpp"),
     Path("include/mesh/Regular_limit_surface_row_cache.hpp"),
     Path("src/energy_force/Valence4_face_loop_route_preflight.cpp"),
+    Path("src/energy_force/Valence5_opensubdiv_face_loop.cpp"),
     Path("src/mesh/OpenSubdiv_regular_evaluator.cpp"),
     Path("src/mesh/OpenSubdiv_valence4_row_provider.cpp"),
     Path("src/mesh/OpenSubdiv_valence5_row_provider.cpp"),

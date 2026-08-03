@@ -27,6 +27,7 @@ struct SourceMappingView
     std::array<int, 3> orientedFaceVertices{{-1, -1, -1}};
     std::vector<int> originalSourceIds;
     bool productionOneRingEmpty = false;
+    bool productionOneRingBypassed = false;
 };
 
 struct SourceKeyedRow
