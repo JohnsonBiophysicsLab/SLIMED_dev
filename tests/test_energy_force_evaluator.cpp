@@ -151,7 +151,7 @@ double expected_two_subunit_idealized_lattice_energy()
 
 Matrix expected_single_harmonic_scaffold_force()
 {
-    Matrix force(3, 1);
+    Matrix force(3, 1, true);
     force.set(2, 0, -4.0);
     return force;
 }

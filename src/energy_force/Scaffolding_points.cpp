@@ -1077,7 +1077,7 @@ double Mesh::calculate_scaffolding_energy_force(bool doLocalSearch)
     double totalEnergy = 0.0;
     double harmonicBondEnergy = 0.0;
     forceTotalOnScaffolding = mat_calloc(3, 1);
-    forceOnScaffoldingPoints.assign(param.scaffoldingPoints.size(), Matrix(3, 1));
+    forceOnScaffoldingPoints.assign(param.scaffoldingPoints.size(), Matrix(3, 1, true));
 
     // iterate over spline points
     for (int i = 0; i < param.scaffoldingPoints.size(); i++)
