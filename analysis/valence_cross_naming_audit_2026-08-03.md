@@ -25,7 +25,7 @@ and final production-route evaluator:
 | Valence 4 | Valence 5 | Equivalence |
 |---|---|---|
 | `opensubdiv_valence4_production_routing_requested()` | `opensubdiv_valence5_production_routing_requested()` | Same role and already uniformly named |
-| `evaluate_guarded_valence4_opensubdiv_production_route(Mesh&)` | `evaluate_guarded_valence5_production_route(Mesh&)` | Same role; Valence 5 omits `opensubdiv` from the function name |
+| `evaluate_guarded_valence4_opensubdiv_production_route(Mesh&)` | `evaluate_guarded_valence5_opensubdiv_production_route(Mesh&)` | Same canonical role after the compatibility-safe follow-through below |
 | `evaluate_guarded_valence4_opensubdiv_production_face_loop_caller(...)` | private `evaluate_guarded_valence5_face_loop(...)` | Similar orchestration core, but not public-contract equivalents |
 | `Valence4OpenSubdivProductionFaceLoopCallerResult` | `Valence5Phase2Result` | Similar result payload at the final route, but both names expose development history rather than stable role |
 
@@ -44,7 +44,7 @@ duplicate definitions.
 `Mesh::Compute_Energy_And_Force()` queries both runtime gates together and
 rejects a simultaneous request. It then calls one final evaluator and returns:
 
-- Valence 5: `evaluate_guarded_valence5_production_route(*this)`;
+- Valence 5: `evaluate_guarded_valence5_opensubdiv_production_route(*this)`;
 - Valence 4: `evaluate_guarded_valence4_opensubdiv_production_route(*this)`.
 
 Both successful paths use the same
@@ -139,9 +139,11 @@ historical/experimental boundaries, not the stable production route.
    intact, so downstream source and binary compatibility are preserved.
 
 3. **Add the one missing canonical function.** Define
-   `evaluate_guarded_valence5_opensubdiv_production_route(Mesh&)` as a forwarding
-   wrapper to `evaluate_guarded_valence5_production_route(Mesh&)`. Update the
-   default evaluator to use the canonical name only after tests cover both.
+   `evaluate_guarded_valence5_opensubdiv_production_route(Mesh&)` as the stable
+   implementation entry point and retain
+   `evaluate_guarded_valence5_production_route(Mesh&)` as its forwarding
+   compatibility wrapper. Update the default evaluator only with compiled
+   coverage of both symbols.
 
 4. **Normalize provider request/result vocabulary with aliases or accessor
    methods first.** Do not rename public data members in place. Aggregate
@@ -172,11 +174,13 @@ historical/experimental boundaries, not the stable production route.
    Convert inventory scripts from exact old-path assertions to canonical API
    and behavior assertions.
 
-## Work deliberately not performed
+## Compatibility-safe follow-through in this change
 
-No `.cpp`, `.hpp`, Makefile, test, experiment, script, or CUDA file was changed.
-Even a compatibility wrapper would currently overlap the Valence 4 and Valence
-5 implementation work occurring in parallel, while a direct file rename would
-cause high-churn failures in path-based inventories without improving role
-separation. The bounded safe action is this migration specification, followed
-by the test-first sequence above.
+After the audit snapshot was completed, the bounded first migration step was
+implemented: canonical Valence 4 and Valence 5 production-route headers were
+added, the default evaluator now uses the canonical Valence 5 spelling, and
+the legacy Valence 5 function remains as a forwarding symbol. The existing
+Phase-3 inventory was updated and a compiled C++ test includes both old and
+canonical headers and links/calls both Valence 5 entry points in default-off
+mode. No implementation source file was moved, no result type or namespace was
+renamed, and no CUDA file changed.

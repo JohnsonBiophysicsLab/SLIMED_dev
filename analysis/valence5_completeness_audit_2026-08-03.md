@@ -96,7 +96,9 @@ Phase 2 runner bind the accepted stock baseline. The historical OpenSubdiv
 `Mesh::Compute_Energy_And_Force()` inspects
 `SLIMED_USE_OPENSUBDIV_VALENCE5` before executing the ordinary geometry and
 legacy membrane path. With the exact token `1`, it calls
-`evaluate_guarded_valence5_production_route`; any rejection is raised as a
+`evaluate_guarded_valence5_opensubdiv_production_route`; the legacy
+`evaluate_guarded_valence5_production_route` symbol forwards to it for source
+and binary compatibility. Any rejection is raised as a
 loud runtime error before the default evaluator writes mesh state. A
 simultaneous Valence-4 and Valence-5 extraordinary request is also rejected
 before mutation.
@@ -231,18 +233,18 @@ Concrete next design step:
 This expansion requires new scientific review; it is outside the accepted
 canonical Option B scope.
 
-### P2 - Remove stale Phase-2 naming and documentation after Phase 3
+### P2 - Continue removing development-phase names from stable route types
 
 The public header is still named `Valence5_opensubdiv_face_loop.hpp`, the
 namespace remains `opensubdiv_valence5_phase2`, and the result type remains
-`Valence5Phase2Result` even for the Phase 3 production caller. More
-importantly, the Phase 2 function comment still says it is “deliberately not
-installed in `Mesh::Compute_Energy_And_Force()`,” while the same header now
-declares the installed Phase 3 route and the evaluator does call it.
+`Valence5Phase2Result` even for the Phase 3 production caller. The Phase 2
+function comment correctly says that the proof-only Phase 2 entry point is
+“deliberately not installed in `Mesh::Compute_Energy_And_Force()`,” while the
+same header also declares the separately installed Phase 3 route.
 
 Concrete fix: adopt the same neutral route/provider/caller naming convention
 chosen for Valences 3 and 4, retain compatibility aliases where needed, and
-rewrite the comment to distinguish the proof-only Phase 2 entry point from
+retain that distinction while renaming only stable production-route types and
 the Phase 3 production wrapper. This is clarity/maintainability work; it does
 not require changing stock physics.
 
