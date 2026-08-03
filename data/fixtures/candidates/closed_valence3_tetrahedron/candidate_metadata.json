@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "fixture_id": "candidate_closed_valence3_regular_tetrahedron",
+  "status": "candidate_only",
+  "purpose": "valence3_mechanical_and_scientific_evidence_candidate",
+  "scientifically_approved": false,
+  "approved_for_phase1_row_provider": true,
+  "proof_only": true,
+  "not_production_routing": true,
+  "production_route_enabled": false,
+  "coordinate_model": "regular tetrahedron with unit circumradius centered at the origin",
+  "topology": {
+    "vertex_count": 4,
+    "edge_count": 6,
+    "face_count": 4,
+    "vertex_valence": 3,
+    "face_valence_triplet": "3/3/3",
+    "closed_two_face_edge_manifold": true,
+    "faces_oriented_outward": true
+  },
+  "geometry_scope": "straight_sided_input_polyhedron_not_slimed_output",
+  "input_polyhedron_geometry": {
+    "circumradius": {"exact": "1", "value": 1.0},
+    "edge_length": {"exact": "2*sqrt(2/3)", "value": 1.632993161855452},
+    "single_face_area": {"exact": "2*sqrt(3)/3", "value": 1.1547005383792515},
+    "total_polyhedral_surface_area": {"exact": "8*sqrt(3)/3", "value": 4.618802153517006},
+    "signed_enclosed_polyhedral_volume": {"exact": "8/(9*sqrt(3))", "value": 0.5132002392796673}
+  },
+  "expected_current_production_contract": {
+    "boundary_condition": "Fixed",
+    "all_faces_physical": true,
+    "one_ring_size_per_face": 0,
+    "geometry_preflight": "runtime_error before area or volume mutation"
+  }
+}
