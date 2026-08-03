@@ -54,7 +54,7 @@ ANCHORS = {
     ),
     DEFAULT_CALLER: (
         "opensubdiv_valence5_production_routing_requested",
-        "evaluate_guarded_valence5_production_route(*this)",
+        "evaluate_guarded_valence5_opensubdiv_production_route(*this)",
         "conflicting extraordinary OpenSubdiv production routes",
         "Option B production route, but preflight rejected it ",
         "refresh_energy_force_geometry(*this)",
@@ -150,7 +150,9 @@ def collect(root: Path) -> dict[str, object]:
     caller_source = (root / DEFAULT_CALLER).read_text(encoding="utf-8")
     caller = caller_source.split("void Mesh::Compute_Energy_And_Force()", 1)[1]
     caller = caller.split("void Mesh::complete_energy_force_after_membrane_accumulation", 1)[0]
-    route_position = caller.find("evaluate_guarded_valence5_production_route(*this)")
+    route_position = caller.find(
+        "evaluate_guarded_valence5_opensubdiv_production_route(*this)"
+    )
     fallback_position = caller.find("refresh_energy_force_geometry(*this)")
     if route_position < 0 or fallback_position < 0 or route_position >= fallback_position:
         errors.append("valence-5 route must precede the unchanged fallback in the default evaluator")

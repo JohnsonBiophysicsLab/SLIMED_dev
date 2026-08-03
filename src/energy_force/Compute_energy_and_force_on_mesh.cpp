@@ -2,9 +2,9 @@
 
 #include "energy_force/Guarded_source_keyed_production_face_loop.hpp"
 #include "energy_force/Source_keyed_kernel_call.hpp"
-#include "energy_force/Valence4_face_loop_route_preflight.hpp"
+#include "energy_force/Valence4_opensubdiv_production_route.hpp"
 #include "energy_force/Valence4_production_face_loop.hpp"
-#include "energy_force/Valence5_opensubdiv_face_loop.hpp"
+#include "energy_force/Valence5_opensubdiv_production_route.hpp"
 #include "mesh/Limit_surface_evaluator.hpp"
 #include "mesh/OpenSubdiv_regular_evaluator.hpp"
 
@@ -604,7 +604,7 @@ void Mesh::Compute_Energy_And_Force()
     if (valence5RouteRequested)
     {
         const Valence5Phase2Result routed =
-            evaluate_guarded_valence5_production_route(*this);
+            evaluate_guarded_valence5_opensubdiv_production_route(*this);
         if (!routed.accepted)
         {
             throw std::runtime_error(
