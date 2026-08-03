@@ -26,8 +26,8 @@ def test_valence3_phase3_face_loop_is_guarded_and_not_a_default_caller():
 
     assert "SLIMED_USE_OPENSUBDIV_VALENCE3_PHASE3" in implementation
     assert "scientificBaselineAcceptedExplicitRequest" in implementation
-    assert "mesh.param.uVol != 0.0" in implementation
-    assert "legacy-volume/full-divergence decision" in implementation
+    assert "kFullDivergenceVolumeQuadratureFactor" in implementation
+    assert "dot(evaluated[0], areaVector)" in implementation
     assert "build_guarded_opensubdiv_valence3_rows" in implementation
     assert "prepare_source_keyed_kernel_call" in implementation
     assert "validate_guarded_source_keyed_production_face_loop" in implementation
@@ -35,9 +35,12 @@ def test_valence3_phase3_face_loop_is_guarded_and_not_a_default_caller():
     assert "productionRouteEnabled = true" not in implementation
     assert "defaultEvaluatorCaller = true" not in implementation
     assert "phase4ActivationAuthorized = true" not in implementation
-    assert "volumeFunctionalDecisionPending = true" in header
+    assert "fullDivergenceVolumeValidated = false" in header
+    assert "volumeFunctionalDecisionPending = false" in header
     assert "productionRouteEnabled = false" in header
-    assert "nonzero_volume_rejection_atomic" in experiment
+    assert "nonzero_volume_constraint_accepted" in experiment
+    assert "nonzero_volume_force_verified" in experiment
+    assert "full_divergence_volume_validated" in experiment
     assert "mixed_345_rejection_atomic" in experiment
     assert "complete_transaction_validated_before_mutation" in experiment
     assert "production_one_rings_preserved" in experiment

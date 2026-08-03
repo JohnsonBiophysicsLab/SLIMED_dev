@@ -42,8 +42,8 @@ struct Valence3Phase3Result
     bool exactBaselineIdentityValidated = false;
     bool exactQuadratureSamplePlanValidated = false;
     bool exactQuadratureWeightsValidated = false;
-    bool zeroVolumeConstraintValidated = false;
-    bool volumeFunctionalDecisionPending = true;
+    bool fullDivergenceVolumeValidated = false;
+    bool volumeFunctionalDecisionPending = false;
     bool opensubdivRowProviderExecuted = false;
     bool opensubdivRowsGenerated = false;
     bool sourceKeyedRowsPrepared = false;
@@ -56,7 +56,7 @@ struct Valence3Phase3Result
     double maxFaceObservableDifference = 0.0;
     double maxSourceForceDifference = 0.0;
     double totalArea = 0.0;
-    double totalLegacyVolume = 0.0;
+    double totalVolume = 0.0;
     std::vector<guarded_source_keyed_face_loop::GuardedFaceGeometry>
         faceGeometry;
     std::vector<Valence3Phase3FaceObservables> faceObservables;
@@ -75,9 +75,9 @@ struct Valence3Phase3Result
  * face loop behind an explicit scientific request and the dedicated Phase-3
  * runtime gate.
  *
- * This integration baseline intentionally requires uVol == 0. The existing
- * legacy-volume energy and full-divergence force mismatch remains unresolved,
- * so a nonzero volume constraint is rejected before any Mesh write.
+ * Volume uses the rotationally invariant full-divergence functional already
+ * differentiated by Mesh::element_energy_force_regular(). Nonzero volume
+ * constraints are therefore accepted after the exact baseline preflight.
  */
 Valence3Phase3Result evaluate_guarded_valence3_phase3_face_loop(
     Mesh &mesh,

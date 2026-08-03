@@ -118,7 +118,7 @@ def emit(payload: dict[str, object], as_json: bool) -> None:
     for fixture in payload.get("fixtures", []):
         print(
             f"{fixture['name']}: area={fixture['area']:.17g}, "
-            f"volume={fixture['legacy_volume']:.17g}, "
+            f"volume={fixture['full_divergence_volume']:.17g}, "
             f"max_abs_force={fixture['max_abs_force']}"
         )
 

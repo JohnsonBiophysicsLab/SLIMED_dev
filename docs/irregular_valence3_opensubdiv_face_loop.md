@@ -18,13 +18,15 @@ integration evidence:
 - bending and global-area physics through the existing SLIMED membrane
   algebra.
 
-This is not an acceptance of the current volume pairing. Phase 2 proved that
-the legacy x-only volume accumulator and the full-divergence-derived volume
-force are not conjugate. The Phase-3 transaction therefore requires
-`uVol == 0` and rejects a nonzero volume constraint before executing the row
-provider or writing any Mesh state. The legacy volume geometry is still
-staged and reported so its behavior remains observable, but its energy and
-force contribution is disabled.
+The volume pairing is now explicit and conjugate for this exact Valence-3
+lane. Phase 2 proved that the legacy x-only accumulator did not differentiate
+to the existing force. The transaction now stages the rotationally invariant
+full-divergence volume
+`V = (1/6) sum_q w_q x_q . (x_v,q cross x_w,q)`, which is the functional
+already differentiated by `Mesh::element_energy_force_regular()`. Nonzero
+volume constraints are accepted and covered by the same source-keyed force
+and finite-difference proofs. This decision is scoped to Valence 3; it does
+not silently change established Valence-4/5 or CUDA volume semantics.
 
 ## Gates
 
@@ -36,13 +38,13 @@ Execution requires both:
 
 The transaction then validates, in order:
 
-- zero volume-constraint strength;
+- full-divergence volume-functional identity;
 - exact quadrature order, ordered sample coordinates, and weights;
 - the OpenSubdiv version, isolation level, topology, Ptex identity, and
   four-source boundary reported by the guarded row provider;
 - stable face identity, source coverage, empty one-rings, coordinates, and
   source-keyed rows;
-- staged per-face and global area/legacy-volume geometry;
+- staged per-face and global area/full-divergence-volume geometry;
 - a complete scientific dry run using explicit `7 x 4` rows; and
 - every destination required by the shared guarded production face loop.
 
@@ -71,7 +73,6 @@ The executable proof covers atomic rejection for:
 
 - a missing explicit request;
 - a missing or non-exact runtime token;
-- a nonzero volume constraint;
 - dependency-disabled builds; and
 - the closed mixed valence 3/4/5 fixture, which remains outside the exact
   tetrahedron provider.
@@ -88,7 +89,8 @@ production_route_enabled: false
 default_evaluator_caller: false
 production_one_rings_populated: false
 phase4_activation_authorized: false
-volume_functional_decision_pending: true
+volume_functional_decision_pending: false
+full_divergence_volume_validated: true
 ```
 
 No production caller, CUDA source, checkpoint format, or mixed-valence
@@ -96,7 +98,6 @@ dispatcher is changed by Phase 3.
 
 ## Remaining work before Phase 4
 
-- Select a single volume functional and prove energy/force conjugacy.
 - Complete the independent long-double oracle and refined quadrature study.
 - Add serial/OpenMP repeat coverage for the actual Phase-3 transaction.
 - Verify output and checkpoint behavior for the tetrahedron transaction.

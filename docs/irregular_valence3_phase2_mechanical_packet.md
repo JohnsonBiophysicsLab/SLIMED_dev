@@ -23,7 +23,7 @@ The proof now checks:
    twice;
 5. true net-force and net-torque residuals for bending, area, and volume; and
 6. the Phase-1 finite-difference, normal, topology, provider, isolation-level,
-   dependency-disabled, and legacy-volume mismatch contracts.
+   dependency-disabled, and then-observed legacy-volume mismatch contracts.
 
 All comparisons are source-keyed. No local-slot padding or
 `Face::oneRingVertices` data is introduced.
@@ -78,7 +78,9 @@ The following Phase-2 work remains open:
 - serial/OpenMP repeat matrices at fixed thread counts;
 - output and V1/V2 checkpoint visibility; and
 - an explicit scientific decision on the volume functional and accepted
-  valence-3 integration plan.
+  valence-3 integration plan. This historical Phase-2 blocker was subsequently
+  resolved by selecting the full-divergence functional for the exact
+  Valence-3 lane and proving its energy/force conjugacy.
 
 Phase 3 remains blocked until those items are complete and a scientific
 baseline is explicitly accepted. The current production-route and
