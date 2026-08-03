@@ -214,7 +214,7 @@ inline EdgeFlipQualityEvaluation evaluate_edge_flip_quality(
         std::isfinite(options.relativeDegeneracyTolerance) &&
         options.relativeDegeneracyTolerance >= 0.0 &&
         std::isfinite(options.minimumOrientationCosine) &&
-        options.minimumOrientationCosine >= -1.0 &&
+        options.minimumOrientationCosine >= 0.0 &&
         options.minimumOrientationCosine < 1.0;
     if (!result.validOptions)
     {

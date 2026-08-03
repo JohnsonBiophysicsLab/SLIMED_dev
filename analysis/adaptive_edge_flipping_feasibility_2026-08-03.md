@@ -77,7 +77,7 @@ Defaults are intentionally strict comparisons with small hysteresis:
 | minimum-angle improvement | `1e-6` radians |
 | mean-ratio improvement | `0` (non-regression) |
 | relative degeneracy tolerance | `1e-12` |
-| minimum orientation cosine | `0` |
+| minimum orientation cosine | `0` (valid range `[0,1)`) |
 
 These are proof defaults, not calibrated production constants. Production
 values must be nondimensionalized and characterized across mesh resolution,
