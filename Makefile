@@ -52,7 +52,8 @@ ECDIR = EXE_CLUSTER
 # Keep the standalone Step-1 diagnostics independent of the simulation's GSL
 # dependency. Ordinary/default and mixed simulation builds retain the existing
 # GSL requirement.
-CUDA_BACKEND_DIAGNOSTIC_GOALS := cuda_backend_report cuda_backend_stub_report
+CUDA_BACKEND_DIAGNOSTIC_GOALS := cuda_backend_report cuda_backend_stub_report \
+	cuda_mesh_state_report cuda_mesh_state_stub_report
 CUDA_BACKEND_ONLY := $(if $(MAKECMDGOALS),$(if $(filter-out $(CUDA_BACKEND_DIAGNOSTIC_GOALS),$(MAKECMDGOALS)),,1),)
 
 # Detect Operating System
@@ -321,8 +322,11 @@ CUDA_COMPUTE_ARCH ?= compute_89
 CUDA_SM_CODE ?= sm_89
 CUDA_BACKEND_REPORT = $(BDIR)/cuda_backend_report
 CUDA_BACKEND_STUB_REPORT = $(BDIR)/cuda_backend_stub_report
+CUDA_MESH_STATE_REPORT = $(BDIR)/cuda_mesh_state_report
+CUDA_MESH_STATE_STUB_REPORT = $(BDIR)/cuda_mesh_state_stub_report
 
-.PHONY: cuda_backend_report cuda_backend_stub_report
+.PHONY: cuda_backend_report cuda_backend_stub_report \
+	cuda_mesh_state_report cuda_mesh_state_stub_report
 
 cuda_backend_report: include/cuda/Cuda_backend.hpp \
 		src/cuda/Cuda_backend_common.cpp src/cuda/Cuda_backend.cu \
@@ -344,6 +348,31 @@ cuda_backend_stub_report: include/cuda/Cuda_backend.hpp \
 		src/cuda/Cuda_backend_common.cpp src/cuda/Cuda_backend_stub.cpp \
 		EXEs/cuda_backend_report.cpp -o $(CUDA_BACKEND_STUB_REPORT)
 	@echo "Finished non-CUDA backend stub report build, $(CUDA_BACKEND_STUB_REPORT)."
+
+# Explicit Step-3 persistent device-state diagnostics. The CUDA and stub
+# implementations are mutually exclusive and remain outside every production
+# or default target.
+cuda_mesh_state_report: include/cuda/Cuda_mesh_state.hpp \
+		include/cuda/detail/Cuda_mesh_state_core.hpp \
+		src/cuda/Cuda_mesh_state_common.cpp src/cuda/Cuda_mesh_state.cu \
+		EXEs/cuda_mesh_state_report.cpp
+	@command -v $(CUDA_NVCC) >/dev/null 2>&1 || \
+		( echo "CUDA_NVCC=$(CUDA_NVCC) was not found; this target is optional." >&2; exit 1 )
+	$(CUDA_NVCC) -std=$(CXX_STD) -O3 \
+		-arch=$(CUDA_COMPUTE_ARCH) -code=$(CUDA_SM_CODE) \
+		-ccbin=$(CUDA_HOST_CXX) -Iinclude \
+		src/cuda/Cuda_mesh_state_common.cpp src/cuda/Cuda_mesh_state.cu \
+		EXEs/cuda_mesh_state_report.cpp \
+		-lcudart -o $(CUDA_MESH_STATE_REPORT)
+	@echo "Finished optional CUDA mesh-state report build, $(CUDA_MESH_STATE_REPORT)."
+
+cuda_mesh_state_stub_report: include/cuda/Cuda_mesh_state.hpp \
+		src/cuda/Cuda_mesh_state_common.cpp src/cuda/Cuda_mesh_state_stub.cpp \
+		EXEs/cuda_mesh_state_report.cpp
+	$(CXX) -std=$(CXX_STD) -O3 -Iinclude \
+		src/cuda/Cuda_mesh_state_common.cpp src/cuda/Cuda_mesh_state_stub.cpp \
+		EXEs/cuda_mesh_state_report.cpp -o $(CUDA_MESH_STATE_STUB_REPORT)
+	@echo "Finished non-CUDA mesh-state stub report build, $(CUDA_MESH_STATE_STUB_REPORT)."
 
 
 clean:
