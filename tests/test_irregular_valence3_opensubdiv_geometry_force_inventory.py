@@ -39,6 +39,8 @@ def test_valence3_provider_and_science_harness_are_guarded_and_inventoried():
     assert "fullDivergenceVolumeConjugacyVerified" in harness
     assert "full_divergence_volume_energy_force_conjugate" in harness
     assert "legacy_x_only_volume_mismatch_resolved_for_valence3" in harness
+    assert "fixture['full_divergence_volume']" in runner
+    assert "fixture['legacy_volume']" not in runner
     assert "providerApplicable" in harness
     assert "providerRejectedWhenNotApplicable" in harness
     assert "normalsValidated" in harness
