@@ -153,7 +153,6 @@ void accumulate_membrane_face_energy_and_forces(
     const std::vector<std::vector<Matrix>>
         *guardedSourceKeyedShapeFunctions = nullptr)
 {
-    assert_supported_membrane_force_routing(mesh);
     if ((guardedSourceKeyedRows == nullptr) !=
             (guardedSourceKeyedShapeFunctions == nullptr) ||
         (guardedSourceKeyedRows != nullptr &&
@@ -163,6 +162,15 @@ void accumulate_membrane_face_energy_and_forces(
         throw std::invalid_argument(
             "guarded source-keyed production face loop requires complete "
             "prevalidated rows");
+    }
+    // The ordinary evaluator must still prove that every face has a legacy
+    // 11/12-control route. A complete guarded source-keyed transaction has
+    // already validated its independent source boundary and deliberately
+    // bypasses Face::oneRingVertices, so re-entering the legacy router here
+    // would incorrectly reject canonical empty-one-ring extraordinary meshes.
+    if (guardedSourceKeyedRows == nullptr)
+    {
+        assert_supported_membrane_force_routing(mesh);
     }
     const std::shared_ptr<const RegularLimitSurfaceRowTable>
         routedRegularShapeFunctions =

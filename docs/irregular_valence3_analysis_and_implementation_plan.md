@@ -73,6 +73,16 @@ a wider tolerance. The independent oracle, full energy-channel packet,
 covariance/scale studies, nested quadrature study, and scientific baseline
 decision remain open, so Phase 3 is still blocked.
 
+Phase 3 subsequently started as a guarded integration-only transaction under
+the explicit continuation direction. Its accepted scope is stock OpenSubdiv
+3.7.0, isolation level 5, the exact tetrahedron, and the existing ordered
+three-point rule for bending and area. Because no volume-functional decision
+has been accepted, the transaction requires `uVol == 0` and atomically rejects
+nonzero volume constraints. It validates and executes the shared source-keyed
+production face loop behind `SLIMED_USE_OPENSUBDIV_VALENCE3_PHASE3=1`, but it
+does not install a default caller or authorize Phase 4. See
+`docs/irregular_valence3_opensubdiv_face_loop.md`.
+
 ## Executive Recommendation
 
 Implement valence 3 as a new, canonical-tetrahedron, source-keyed OpenSubdiv
