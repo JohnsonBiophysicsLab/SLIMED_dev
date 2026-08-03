@@ -386,17 +386,22 @@ fixed and tested.
 The isolated test was compiled and run under WSL/GCC 15.2 with C++17:
 
 ```text
-[==========] Running 5 tests from 1 test suite.
-[  PASSED  ] 5 tests.
+[==========] Running 9 tests from 1 test suite.
+[  PASSED  ] 9 tests.
 ```
 
-The five tests demonstrate:
+The nine tests demonstrate:
 
 - acceptance of a clearly improved planar hinge;
 - rejection of a cyclic rectangle whose opposite-angle sum is exactly pi;
 - strict minimum-angle hysteresis;
+- strict Delaunay-angle and mean-ratio hysteresis;
 - rejection when the proposed diagonal collapses;
-- rejection of nonfinite input and invalid options.
+- rejection when an original triangle collapses;
+- rejection of a nondegenerate nonplanar orientation failure;
+- rigid-transform, uniform-scale, and hinge-relabel invariance; and
+- rejection of nonfinite input, negative orientation thresholds, and other
+  invalid options.
 
 No production/CUDA build target or source was changed. The proof header is
 unused unless explicitly included, and no production call site includes it.
