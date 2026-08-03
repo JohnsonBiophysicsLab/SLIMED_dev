@@ -21,6 +21,10 @@ struct DriverStatus
     std::string message;
 };
 
+DriverStatus release_retryable_handle(
+    DeviceBufferHandle &handle,
+    const std::function<DriverStatus(DeviceBufferHandle)> &release);
+
 struct DeviceOperations
 {
     std::function<DriverStatus(std::size_t &, std::size_t &)> queryMemory;

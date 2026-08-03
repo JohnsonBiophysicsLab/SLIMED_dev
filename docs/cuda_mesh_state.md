@@ -53,6 +53,10 @@ of six stable reasons: topology, numerical plan, parameters, accepted
 coordinates, reference coordinates, or candidate coordinates. Allocation and
 transaction epochs, live bytes, allocation/free counts, synchronizations,
 roles, generations, and the last outcome are also reportable.
+`lastDirtyGroups` is reset at the start of each candidate-upload decision. A
+valid upload marks only `CandidateCoordinates`, retaining that mark after copy
+or synchronization failure; rejection before an upload leaves every flag
+clear.
 
 ## Evidence
 
@@ -61,9 +65,10 @@ driver. They cover generation dirtiness, exact rollback, swap-on-commit,
 illegal transitions, stale generations, memory-budget rejection, and injected
 allocation, copy, and synchronization failures. The warmed loop proves no
 allocation after initial residency and accounts for every repeated candidate
-transfer. The reviewed amendment passes 18/18 focused tests, including
+transfer. The reviewed amendment passes 20/20 focused tests, including
 post-commit selective-update composition and retryable staging, replacement,
-and final-close release failures. The clean default suite passes 189/189 tests
+final-close release failures, stream-destroy retry, and candidate dirty-state
+reporting. The clean default suite passes 191/191 tests
 when the independently reproduced baseline scaffold-force defect is excluded.
 
 The explicit native proof builds and runs with:

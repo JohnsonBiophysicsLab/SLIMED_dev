@@ -209,6 +209,18 @@ std::size_t group_bytes(const BufferGroup &group)
 
 } // namespace
 
+DriverStatus release_retryable_handle(
+    DeviceBufferHandle &handle,
+    const std::function<DriverStatus(DeviceBufferHandle)> &release)
+{
+    if (!handle)
+        return {};
+    DriverStatus status = release(handle);
+    if (status.success)
+        handle = 0;
+    return status;
+}
+
 struct MeshStateCore::Impl
 {
     DeviceOperations operations;
@@ -641,6 +653,7 @@ DeviceStateError MeshStateCore::prepare_candidate(
     const std::vector<double> &coordinates, std::uint64_t generation)
 {
     auto &s = *impl_;
+    s.report.lastDirtyGroups.fill(false);
     if (!s.initialized || s.closed || s.closing ||
         s.report.phase != TransactionPhase::IdleAccepted)
         return s.record(error(DeviceStateErrorCode::InvalidTransition,
@@ -662,6 +675,8 @@ DeviceStateError MeshStateCore::prepare_candidate(
                               "candidate coordinates have invalid size or values"));
 
     const std::uint32_t candidateSlot = s.report.candidateCoordinateSlot;
+    s.report.lastDirtyGroups[static_cast<std::size_t>(
+        TransferReason::CandidateCoordinates)] = true;
     auto &counter = s.report.transfers[
         static_cast<std::size_t>(TransferReason::CandidateCoordinates)];
     const std::size_t bytes = coordinates.size() * sizeof(double);

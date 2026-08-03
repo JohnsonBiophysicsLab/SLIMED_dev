@@ -354,6 +354,82 @@ TEST(CudaMeshStateCoreTest, CopyFailurePreservesResidentGenerationAndStorage)
     EXPECT_EQ(device.memory.size(), liveBuffers);
 }
 
+TEST(CudaMeshStateCoreTest, CandidateDirtyStateCoversSuccessAndFailure)
+{
+    FakeDevice device;
+    auto created = create_mesh_state_core(device.operations(), make_pack());
+    ASSERT_NE(created.state, nullptr);
+    std::vector<double> candidate(36, 6.0);
+    const std::size_t candidateReason = static_cast<std::size_t>(
+        TransferReason::CandidateCoordinates);
+
+    ASSERT_TRUE(created.state->prepare_candidate(candidate, 2).ok());
+    for (std::size_t reason = 0;
+         reason < created.state->report().lastDirtyGroups.size(); ++reason)
+        EXPECT_EQ(created.state->report().lastDirtyGroups[reason],
+                  reason == candidateReason);
+    ASSERT_TRUE(created.state->rollback().ok());
+
+    const TransferCounter beforeCopyFailure = created.state->report().transfers[
+        candidateReason];
+    device.failCopyCall = device.copyCalls + 1;
+    EXPECT_EQ(created.state->prepare_candidate(candidate, 2).code,
+              DeviceStateErrorCode::TransferFailed);
+    EXPECT_TRUE(created.state->report().lastDirtyGroups[candidateReason]);
+    EXPECT_EQ(created.state->report().transfers[candidateReason]
+                  .attemptedOperations,
+              beforeCopyFailure.attemptedOperations + 1);
+    EXPECT_EQ(created.state->report().transfers[candidateReason]
+                  .completedOperations,
+              beforeCopyFailure.completedOperations);
+
+    candidate[0] = std::numeric_limits<double>::quiet_NaN();
+    EXPECT_EQ(created.state->prepare_candidate(candidate, 2).code,
+              DeviceStateErrorCode::InvalidPackedInput);
+    EXPECT_TRUE(std::none_of(
+        created.state->report().lastDirtyGroups.begin(),
+        created.state->report().lastDirtyGroups.end(),
+        [](bool dirty) { return dirty; }));
+
+    candidate[0] = 6.0;
+    device.failCopyCall = 0;
+    device.failSynchronizeCall = device.synchronizeCalls + 1;
+    const TransferCounter beforeSynchronizationFailure =
+        created.state->report().transfers[candidateReason];
+    EXPECT_EQ(created.state->prepare_candidate(candidate, 2).code,
+              DeviceStateErrorCode::SynchronizationFailed);
+    EXPECT_TRUE(created.state->report().lastDirtyGroups[candidateReason]);
+    EXPECT_EQ(created.state->report().transfers[candidateReason]
+                  .attemptedOperations,
+              beforeSynchronizationFailure.attemptedOperations + 1);
+    EXPECT_EQ(created.state->report().transfers[candidateReason]
+                  .completedOperations,
+              beforeSynchronizationFailure.completedOperations);
+}
+
+TEST(CudaMeshStateCoreTest, StreamDestroyFailureRetainsHandleForRepeatedClose)
+{
+    DeviceBufferHandle streamHandle = 91;
+    std::uint64_t destroyCalls = 0;
+    const auto destroy = [&destroyCalls](DeviceBufferHandle) {
+        ++destroyCalls;
+        if (destroyCalls == 1)
+            return DriverStatus{false, FakeDevice::kInjected,
+                                "fake_stream_destroy",
+                                "injected stream-destroy failure"};
+        return DriverStatus{};
+    };
+
+    EXPECT_FALSE(release_retryable_handle(streamHandle, destroy).success);
+    EXPECT_EQ(streamHandle, 91u);
+    EXPECT_EQ(destroyCalls, 1u);
+    EXPECT_TRUE(release_retryable_handle(streamHandle, destroy).success);
+    EXPECT_EQ(streamHandle, 0u);
+    EXPECT_EQ(destroyCalls, 2u);
+    EXPECT_TRUE(release_retryable_handle(streamHandle, destroy).success);
+    EXPECT_EQ(destroyCalls, 2u);
+}
+
 TEST(CudaMeshStateCoreTest,
      FailedStagingReleaseRetainsOwnershipAndCanBeRetried)
 {

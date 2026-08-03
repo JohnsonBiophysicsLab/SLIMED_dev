@@ -97,12 +97,16 @@ class RuntimeDriver
 
     detail::DriverStatus close()
     {
-        if (!stream_)
-            return {};
-        const cudaError_t code = cudaStreamDestroy(stream_);
-        if (code == cudaSuccess)
-            stream_ = nullptr;
-        return runtime_status(code, "cudaStreamDestroy");
+        detail::DeviceBufferHandle handle =
+            reinterpret_cast<detail::DeviceBufferHandle>(stream_);
+        detail::DriverStatus status = detail::release_retryable_handle(
+            handle, [](detail::DeviceBufferHandle value) {
+                return runtime_status(
+                    cudaStreamDestroy(reinterpret_cast<cudaStream_t>(value)),
+                    "cudaStreamDestroy");
+            });
+        stream_ = reinterpret_cast<cudaStream_t>(handle);
+        return status;
     }
 
     ~RuntimeDriver() { close(); }
