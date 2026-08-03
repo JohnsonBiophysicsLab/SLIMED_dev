@@ -95,5 +95,12 @@ Valence5Phase2Result evaluate_guarded_valence5_phase2_face_loop(
  * An absent runtime request leaves the current fallback untouched. A present
  * request in a dependency-disabled build is rejected before mesh mutation.
  */
+Valence5Phase2Result
+evaluate_guarded_valence5_opensubdiv_production_route(Mesh &mesh);
+
+/**
+ * Backward-compatible spelling retained for existing downstream callers.
+ * New code should use evaluate_guarded_valence5_opensubdiv_production_route.
+ */
 Valence5Phase2Result evaluate_guarded_valence5_production_route(Mesh &mesh);
 } // namespace slimed::opensubdiv_valence5_phase2

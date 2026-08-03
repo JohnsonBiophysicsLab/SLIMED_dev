@@ -698,7 +698,8 @@ Valence5Phase2Result evaluate_guarded_valence5_phase2_face_loop(
         kPhase2RuntimeOptIn);
 }
 
-Valence5Phase2Result evaluate_guarded_valence5_production_route(Mesh &mesh)
+Valence5Phase2Result
+evaluate_guarded_valence5_opensubdiv_production_route(Mesh &mesh)
 {
     Valence5Phase2Request request;
     request.reviewerApprovedExplicitRequest = true;
@@ -715,5 +716,10 @@ Valence5Phase2Result evaluate_guarded_valence5_production_route(Mesh &mesh)
     result.defaultEvaluatorCaller = true;
     result.phase3ActivationAuthorized = true;
     return result;
+}
+
+Valence5Phase2Result evaluate_guarded_valence5_production_route(Mesh &mesh)
+{
+    return evaluate_guarded_valence5_opensubdiv_production_route(mesh);
 }
 } // namespace slimed::opensubdiv_valence5_phase2

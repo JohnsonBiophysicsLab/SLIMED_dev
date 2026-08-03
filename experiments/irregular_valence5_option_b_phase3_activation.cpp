@@ -252,7 +252,7 @@ int main(int argc, char **argv)
     const auto directInitialState = mesh_state(directMesh);
     const auto directInitialOneRings = one_rings(directMesh);
     const auto direct = slimed::opensubdiv_valence5_phase2::
-        evaluate_guarded_valence5_production_route(directMesh);
+        evaluate_guarded_valence5_opensubdiv_production_route(directMesh);
 
     if (!valence5Requested)
     {
