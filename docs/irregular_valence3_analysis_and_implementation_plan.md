@@ -545,6 +545,16 @@ not weaken route preflight.
 Activation requires explicit user/scientific approval after the full default
 and OpenSubdiv-enabled serial/OpenMP suites pass.
 
+Phase 4 was subsequently implemented under that explicit continuation and
+merge direction. The exact production token is installed in the default
+evaluator, Valence 3/4/5 requests are counted before mutation, and the exact
+tetrahedron transaction uses a post-validation immutable row cache that
+excludes coordinates. The real caller is exercised at 1/2/4 OpenMP threads,
+including repeated calls, output/checkpoint round trips, dependency-disabled
+and mixed-topology rejection, and extraordinary-route conflicts. See
+`docs/irregular_valence3_phase4_activation.md` for the activation contract and
+measured cache evidence.
+
 ### Phase 5 — broader valence-3 topology (out of scope)
 
 The canonical tetrahedron route must not imply support for:

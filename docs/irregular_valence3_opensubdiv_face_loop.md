@@ -93,14 +93,15 @@ volume_functional_decision_pending: false
 full_divergence_volume_validated: true
 ```
 
-No production caller, CUDA source, checkpoint format, or mixed-valence
-dispatcher is changed by Phase 3.
+The Phase-3 transaction itself remains integration-only. Phase 4 installs a
+separate exact-token caller without changing CUDA sources or checkpoint
+format; see `docs/irregular_valence3_phase4_activation.md`.
 
-## Remaining work before Phase 4
+## Phase-4 follow-up gates
 
 - Complete the independent long-double oracle and refined quadrature study.
-- Add serial/OpenMP repeat coverage for the actual Phase-3 transaction.
-- Verify output and checkpoint behavior for the tetrahedron transaction.
+- Preserve serial/OpenMP repeat coverage for the actual production caller.
+- Preserve output and checkpoint round-trip behavior for the tetrahedron.
 - Decide whether the three-point rule is scientifically sufficient near four
   persistent valence-3 extraordinary vertices.
 - Add a unified extraordinary-route selector before any default activation.

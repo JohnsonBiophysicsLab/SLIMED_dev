@@ -7,7 +7,9 @@
 #include <cmath>
 #include <map>
 #include <memory>
+#include <mutex>
 #include <numeric>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -189,6 +191,22 @@ build_guarded_opensubdiv_valence3_rows(
             "identity, orientation, cardinality, valence, or one-ring state",
             true,
             true);
+    }
+
+    // The accepted provider has one immutable identity: exact topology and
+    // orientation, the fixed three-sample plan, Loop options, isolation level
+    // five, and compile-time OpenSubdiv 3.7.0. Coordinates are deliberately
+    // absent. Topology preflight above runs on every call before a cache hit.
+    static std::mutex cacheMutex;
+    static std::optional<OpenSubdivValence3RowProviderResult> cachedRows;
+    {
+        std::lock_guard<std::mutex> lock(cacheMutex);
+        if (cachedRows.has_value())
+        {
+            OpenSubdivValence3RowProviderResult result = *cachedRows;
+            result.immutableRowCacheHit = true;
+            return result;
+        }
     }
 
     std::unique_ptr<Far::TopologyRefiner, RefinerDeleter> refiner =
@@ -375,7 +393,18 @@ build_guarded_opensubdiv_valence3_rows(
     result.opensubdivVersionNumber = OPENSUBDIV_VERSION_NUMBER;
     result.adaptiveIsolationLevel = 5;
     result.rowsGenerated = true;
+    result.immutableRowCachePopulated = true;
     result.rows = std::move(stagedRows);
+    {
+        std::lock_guard<std::mutex> lock(cacheMutex);
+        if (cachedRows.has_value())
+        {
+            OpenSubdivValence3RowProviderResult cachedResult = *cachedRows;
+            cachedResult.immutableRowCacheHit = true;
+            return cachedResult;
+        }
+        cachedRows = result;
+    }
     return result;
 #endif
 }
