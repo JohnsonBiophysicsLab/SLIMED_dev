@@ -50,10 +50,13 @@ class MeshStateCore final
     DeviceStateError fail_candidate(const std::string &operation,
                                     const std::string &message);
     DeviceStateError recover();
+    DeviceStateError retry_cleanup();
     DeviceStateError close();
     const DeviceStateReport &report() const noexcept;
 
     DeviceBufferHandle accepted_coordinate_handle_for_testing() const noexcept;
+    DeviceBufferHandle candidate_coordinate_handle_for_testing() const noexcept;
+    DeviceBufferHandle previous_coordinate_handle_for_testing() const noexcept;
 
   private:
     struct Impl;

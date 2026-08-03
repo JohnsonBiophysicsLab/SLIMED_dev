@@ -63,9 +63,11 @@ struct FakeDevice
     std::uint64_t allocationCalls = 0;
     std::uint64_t copyCalls = 0;
     std::uint64_t synchronizeCalls = 0;
+    std::uint64_t releaseCalls = 0;
     std::uint64_t failAllocationCall = 0;
     std::uint64_t failCopyCall = 0;
     std::uint64_t failSynchronizeCall = 0;
+    std::uint64_t failReleaseCall = 0;
 
     DeviceOperations operations()
     {
@@ -85,6 +87,10 @@ struct FakeDevice
             return DriverStatus{};
         };
         ops.release = [this](DeviceBufferHandle handle) {
+            ++releaseCalls;
+            if (releaseCalls == failReleaseCall)
+                return DriverStatus{false, kInjected, "fake_release",
+                                    "injected release failure"};
             memory.erase(handle);
             return DriverStatus{};
         };
@@ -237,6 +243,85 @@ TEST(CudaMeshStateCoreTest, OnlyChangedGenerationUploadsItsGroup)
     }
 }
 
+TEST(CudaMeshStateCoreTest,
+     SelectiveUpdatesAfterCommitsPreserveAllCoordinateRolesAndBytes)
+{
+    FakeDevice device;
+    auto created = create_mesh_state_core(device.operations(), make_pack());
+    ASSERT_NE(created.state, nullptr);
+    std::vector<double> candidate(36, 42.0);
+    ASSERT_TRUE(created.state->prepare_candidate(candidate, 2).ok());
+    ASSERT_TRUE(created.state->mark_computing().ok());
+    ASSERT_TRUE(created.state->mark_validated().ok());
+    ASSERT_TRUE(created.state->commit().ok());
+
+    const auto accepted =
+        created.state->accepted_coordinate_handle_for_testing();
+    const auto candidateHandle =
+        created.state->candidate_coordinate_handle_for_testing();
+    const auto previous =
+        created.state->previous_coordinate_handle_for_testing();
+    const auto acceptedBytes = device.memory.at(accepted);
+    const auto candidateBytes = device.memory.at(candidateHandle);
+    const auto previousBytes = device.memory.at(previous);
+    DeviceStateReport before = created.state->report();
+
+    RegularMeshPack changed = make_pack();
+    changed.generations.acceptedCoordinates = 2;
+    changed.generations.parameters = 2;
+    changed.parameters.kCurv = 8.0;
+    ASSERT_TRUE(created.state->ensure_resident(changed).ok());
+    const DeviceStateReport afterParameters = created.state->report();
+    EXPECT_EQ(created.state->accepted_coordinate_handle_for_testing(), accepted);
+    EXPECT_EQ(created.state->candidate_coordinate_handle_for_testing(),
+              candidateHandle);
+    EXPECT_EQ(created.state->previous_coordinate_handle_for_testing(), previous);
+    EXPECT_EQ(device.memory.at(accepted), acceptedBytes);
+    EXPECT_EQ(device.memory.at(candidateHandle), candidateBytes);
+    EXPECT_EQ(device.memory.at(previous), previousBytes);
+    EXPECT_EQ(created.state->report().residentGenerations.acceptedCoordinates,
+              2);
+    EXPECT_EQ(created.state->report().transfers[static_cast<std::size_t>(
+                  TransferReason::AcceptedCoordinates)].completedOperations,
+              before.transfers[static_cast<std::size_t>(
+                  TransferReason::AcceptedCoordinates)].completedOperations);
+    EXPECT_EQ(afterParameters.residentGenerations.parameters, 2);
+    EXPECT_EQ(afterParameters.transfers[static_cast<std::size_t>(
+                  TransferReason::Parameters)].completedOperations,
+              before.transfers[static_cast<std::size_t>(
+                  TransferReason::Parameters)].completedOperations + 3);
+
+    changed.generations.numericalPlan = 2;
+    changed.shapeWeights[0] += 0.01;
+    ASSERT_TRUE(created.state->ensure_resident(changed).ok());
+    const DeviceStateReport afterPlan = created.state->report();
+    EXPECT_EQ(afterPlan.residentGenerations.numericalPlan, 2);
+    EXPECT_EQ(afterPlan.transfers[static_cast<std::size_t>(
+                  TransferReason::NumericalPlan)].completedOperations,
+              afterParameters.transfers[static_cast<std::size_t>(
+                  TransferReason::NumericalPlan)].completedOperations + 3);
+    changed.generations.referenceCoordinates = 2;
+    changed.referenceCoordinates[0] += 0.02;
+    ASSERT_TRUE(created.state->ensure_resident(changed).ok());
+    const DeviceStateReport afterReference = created.state->report();
+    EXPECT_EQ(created.state->accepted_coordinate_handle_for_testing(), accepted);
+    EXPECT_EQ(created.state->candidate_coordinate_handle_for_testing(),
+              candidateHandle);
+    EXPECT_EQ(created.state->previous_coordinate_handle_for_testing(), previous);
+    EXPECT_EQ(device.memory.at(accepted), acceptedBytes);
+    EXPECT_EQ(device.memory.at(candidateHandle), candidateBytes);
+    EXPECT_EQ(device.memory.at(previous), previousBytes);
+    EXPECT_EQ(afterReference.residentGenerations.referenceCoordinates, 2);
+    EXPECT_EQ(afterReference.transfers[static_cast<std::size_t>(
+                  TransferReason::ReferenceCoordinates)].completedOperations,
+              afterPlan.transfers[static_cast<std::size_t>(
+                  TransferReason::ReferenceCoordinates)].completedOperations + 1);
+    EXPECT_EQ(afterReference.transfers[static_cast<std::size_t>(
+                  TransferReason::AcceptedCoordinates)].completedOperations,
+              before.transfers[static_cast<std::size_t>(
+                  TransferReason::AcceptedCoordinates)].completedOperations);
+}
+
 TEST(CudaMeshStateCoreTest, AllocationFailureLeavesNoPartialInitialState)
 {
     FakeDevice device;
@@ -267,6 +352,102 @@ TEST(CudaMeshStateCoreTest, CopyFailurePreservesResidentGenerationAndStorage)
     EXPECT_EQ(created.state->report().allocationEpoch, before.allocationEpoch);
     EXPECT_EQ(created.state->accepted_coordinate_handle_for_testing(), accepted);
     EXPECT_EQ(device.memory.size(), liveBuffers);
+}
+
+TEST(CudaMeshStateCoreTest,
+     FailedStagingReleaseRetainsOwnershipAndCanBeRetried)
+{
+    FakeDevice device;
+    auto created = create_mesh_state_core(device.operations(), make_pack());
+    ASSERT_NE(created.state, nullptr);
+    const std::size_t liveBuffers = device.memory.size();
+    RegularMeshPack changed = make_pack();
+    changed.generations.parameters = 2;
+    device.failCopyCall = device.copyCalls + 2;
+    device.failReleaseCall = device.releaseCalls + 1;
+
+    EXPECT_EQ(created.state->ensure_resident(changed).code,
+              DeviceStateErrorCode::CleanupFailed);
+    EXPECT_EQ(created.state->report().residentGenerations.parameters, 1);
+    EXPECT_TRUE(created.state->report().cleanupPending);
+    EXPECT_GT(created.state->report().cleanupPendingBytes, 0u);
+    EXPECT_EQ(device.memory.size(), liveBuffers + 1);
+    EXPECT_EQ(created.state->prepare_candidate(
+                  std::vector<double>(36, 3.0), 2).code,
+              DeviceStateErrorCode::CleanupFailed);
+
+    device.failReleaseCall = 0;
+    ASSERT_TRUE(created.state->retry_cleanup().ok());
+    EXPECT_FALSE(created.state->report().cleanupPending);
+    EXPECT_EQ(created.state->report().cleanupPendingBytes, 0u);
+    EXPECT_EQ(device.memory.size(), liveBuffers);
+}
+
+TEST(CudaMeshStateCoreTest,
+     PublishedReplacementReportsCleanupDebtWithoutAmbiguousFailure)
+{
+    FakeDevice device;
+    auto created = create_mesh_state_core(device.operations(), make_pack());
+    ASSERT_NE(created.state, nullptr);
+    const std::size_t liveBuffers = device.memory.size();
+    RegularMeshPack changed = make_pack();
+    changed.generations.parameters = 2;
+    device.failReleaseCall = device.releaseCalls + 1;
+
+    EXPECT_TRUE(created.state->ensure_resident(changed).ok());
+    EXPECT_EQ(created.state->report().residentGenerations.parameters, 2);
+    EXPECT_TRUE(created.state->report().cleanupPending);
+    EXPECT_FALSE(created.state->report().cleanupError.ok());
+    EXPECT_EQ(device.memory.size(), liveBuffers + 1);
+    EXPECT_EQ(created.state->ensure_resident(changed).code,
+              DeviceStateErrorCode::CleanupFailed);
+
+    device.failReleaseCall = 0;
+    ASSERT_TRUE(created.state->retry_cleanup().ok());
+    EXPECT_FALSE(created.state->report().cleanupPending);
+    EXPECT_EQ(device.memory.size(), liveBuffers);
+    EXPECT_TRUE(created.state->ensure_resident(changed).ok());
+}
+
+TEST(CudaMeshStateCoreTest, CloseFailureRetainsHandlesAndCloseIsRetryable)
+{
+    FakeDevice device;
+    auto created = create_mesh_state_core(device.operations(), make_pack());
+    ASSERT_NE(created.state, nullptr);
+    device.failReleaseCall = device.releaseCalls + 1;
+
+    EXPECT_EQ(created.state->close().code,
+              DeviceStateErrorCode::CleanupFailed);
+    EXPECT_EQ(created.state->report().phase, TransactionPhase::Closing);
+    EXPECT_FALSE(created.state->report().available);
+    EXPECT_TRUE(created.state->report().cleanupPending);
+    EXPECT_FALSE(device.memory.empty());
+
+    device.failReleaseCall = 0;
+    EXPECT_TRUE(created.state->close().ok());
+    EXPECT_EQ(created.state->report().phase, TransactionPhase::Closed);
+    EXPECT_FALSE(created.state->report().cleanupPending);
+    EXPECT_TRUE(device.memory.empty());
+}
+
+TEST(CudaMeshStateCoreTest,
+     ResidencySynchronizationFailureRollsBackAllGroups)
+{
+    FakeDevice device;
+    auto created = create_mesh_state_core(device.operations(), make_pack());
+    ASSERT_NE(created.state, nullptr);
+    const auto before = created.state->report();
+    const std::size_t liveBuffers = device.memory.size();
+    RegularMeshPack changed = make_pack();
+    changed.generations.parameters = 2;
+    device.failSynchronizeCall = device.synchronizeCalls + 1;
+
+    EXPECT_EQ(created.state->ensure_resident(changed).code,
+              DeviceStateErrorCode::SynchronizationFailed);
+    EXPECT_EQ(created.state->report().residentGenerations.parameters, 1);
+    EXPECT_EQ(created.state->report().allocationEpoch, before.allocationEpoch);
+    EXPECT_EQ(device.memory.size(), liveBuffers);
+    EXPECT_FALSE(created.state->report().cleanupPending);
 }
 
 TEST(CudaMeshStateCoreTest, RollbackIsExactAndCommitSwapsCoordinateRoles)
@@ -356,6 +537,33 @@ TEST(CudaMeshStateCoreTest, SynchronizationFailureInvalidatesOnlyCandidate)
     device.failSynchronizeCall = 0;
     ASSERT_TRUE(created.state->recover().ok());
     EXPECT_EQ(created.state->report().phase, TransactionPhase::IdleAccepted);
+}
+
+TEST(CudaMeshStateCoreTest,
+     CandidatePreparationSyncFailurePreservesAcceptedStateAndIsRetryable)
+{
+    FakeDevice device;
+    auto created = create_mesh_state_core(device.operations(), make_pack());
+    ASSERT_NE(created.state, nullptr);
+    const auto accepted =
+        created.state->accepted_coordinate_handle_for_testing();
+    const auto acceptedBytes = device.memory.at(accepted);
+    std::vector<double> candidate(36, 9.0);
+    device.failSynchronizeCall = device.synchronizeCalls + 1;
+
+    EXPECT_EQ(created.state->prepare_candidate(candidate, 2).code,
+              DeviceStateErrorCode::SynchronizationFailed);
+    EXPECT_EQ(created.state->report().phase, TransactionPhase::IdleAccepted);
+    EXPECT_EQ(created.state->report().candidateGeneration, 0);
+    EXPECT_EQ(created.state->report().residentGenerations.acceptedCoordinates,
+              1);
+    EXPECT_EQ(created.state->accepted_coordinate_handle_for_testing(), accepted);
+    EXPECT_EQ(device.memory.at(accepted), acceptedBytes);
+
+    device.failSynchronizeCall = 0;
+    ASSERT_TRUE(created.state->prepare_candidate(candidate, 2).ok());
+    EXPECT_EQ(created.state->report().phase,
+              TransactionPhase::CandidatePrepared);
 }
 
 TEST(CudaMeshStateCoreTest, MemoryBudgetRejectsBeforeAllocation)

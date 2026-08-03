@@ -51,6 +51,7 @@ enum class TransactionPhase
     Computing,
     Validated,
     Failed,
+    Closing,
     Closed,
 };
 
@@ -106,6 +107,8 @@ struct DeviceStateReport
     std::size_t residentBytes = 0;
     std::size_t lastObservedFreeBytes = 0;
     std::size_t lastMemoryBudgetBytes = 0;
+    bool cleanupPending = false;
+    std::size_t cleanupPendingBytes = 0;
     std::uint32_t acceptedCoordinateSlot = 0;
     std::uint32_t candidateCoordinateSlot = 1;
     std::uint32_t previousCoordinateSlot = 2;
@@ -117,6 +120,7 @@ struct DeviceStateReport
                static_cast<std::size_t>(TransferReason::Count)>
         transfers{};
     DeviceStateError error;
+    DeviceStateError cleanupError;
 };
 
 struct CudaMeshStateResult;
@@ -141,6 +145,7 @@ class CudaMeshState final
     DeviceStateError fail_candidate(const std::string &operation,
                                     const std::string &message);
     DeviceStateError recover();
+    DeviceStateError retry_cleanup();
     DeviceStateError close();
     const DeviceStateReport &report() const noexcept;
 

@@ -20,6 +20,14 @@ after the whole requested update succeeds. Allocation or copy failure releases
 staging and leaves resident generations and accepted coordinate storage exact.
 A topology change requires fresh dependent generations.
 
+Release failures retain their handles in an explicit cleanup-debt group. A
+failed staging rollback returns `CleanupFailed` while leaving scientific state
+unchanged. A replacement that has already published returns success and reports
+`cleanupPending` plus `cleanupError`, so publication is never ambiguous; further
+state-changing operations require `retry_cleanup()`. Final close enters
+`Closing`, retains failed handles, and can be called again until every buffer
+and the stream have been released.
+
 The allocation high-water mark for an update must fit the configured fraction
 of current free device memory. The default is one half. Byte arithmetic and
 capacity growth are checked before allocation.
@@ -53,7 +61,10 @@ driver. They cover generation dirtiness, exact rollback, swap-on-commit,
 illegal transitions, stale generations, memory-budget rejection, and injected
 allocation, copy, and synchronization failures. The warmed loop proves no
 allocation after initial residency and accounts for every repeated candidate
-transfer.
+transfer. The reviewed amendment passes 18/18 focused tests, including
+post-commit selective-update composition and retryable staging, replacement,
+and final-close release failures. The clean default suite passes 189/189 tests
+when the independently reproduced baseline scaffold-force defect is excluded.
 
 The explicit native proof builds and runs with:
 

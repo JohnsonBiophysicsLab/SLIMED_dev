@@ -100,7 +100,8 @@ class RuntimeDriver
         if (!stream_)
             return {};
         const cudaError_t code = cudaStreamDestroy(stream_);
-        stream_ = nullptr;
+        if (code == cudaSuccess)
+            stream_ = nullptr;
         return runtime_status(code, "cudaStreamDestroy");
     }
 
@@ -194,20 +195,32 @@ DeviceStateError CudaMeshState::recover()
     impl_->refresh();
     return result;
 }
+DeviceStateError CudaMeshState::retry_cleanup()
+{
+    DeviceStateError result = impl_->core->retry_cleanup();
+    impl_->refresh();
+    return result;
+}
 DeviceStateError CudaMeshState::close()
 {
     if (!impl_ || impl_->closed)
         return {};
     DeviceStateError result = impl_->core->close();
     impl_->refresh();
+    if (!result.ok())
+        return result;
     const detail::DriverStatus stream = impl_->driver->close();
-    impl_->closed = true;
-    if (result.ok() && !stream.success)
+    if (!stream.success)
     {
         result = {DeviceStateErrorCode::CleanupFailed, stream.operation,
                   stream.nativeCode, stream.message};
         impl_->report.error = result;
+        impl_->report.cleanupPending = true;
+        impl_->report.cleanupError = result;
+        impl_->report.phase = TransactionPhase::Closing;
     }
+    else
+        impl_->closed = true;
     return result;
 }
 const DeviceStateReport &CudaMeshState::report() const noexcept

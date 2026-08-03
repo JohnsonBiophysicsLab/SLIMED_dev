@@ -52,6 +52,10 @@ DeviceStateError CudaMeshState::fail_candidate(const std::string &,
     return unavailable("fail_candidate");
 }
 DeviceStateError CudaMeshState::recover() { return unavailable("recover"); }
+DeviceStateError CudaMeshState::retry_cleanup()
+{
+    return unavailable("retry_cleanup");
+}
 DeviceStateError CudaMeshState::close() { return unavailable("close"); }
 const DeviceStateReport &CudaMeshState::report() const noexcept
 {

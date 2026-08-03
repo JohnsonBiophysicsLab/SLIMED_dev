@@ -219,7 +219,9 @@ struct MeshStateCore::Impl
     BufferGroup parameters;
     BufferGroup coordinates;
     BufferGroup reference;
+    BufferGroup deferredCleanup;
     bool initialized = false;
+    bool closing = false;
     bool closed = false;
 
     explicit Impl(DeviceOperations ops, DeviceStateConfig cfg)
@@ -236,6 +238,20 @@ struct MeshStateCore::Impl
     }
 
     void clear_error() { report.error = {}; }
+
+    void refresh_cleanup_state()
+    {
+        report.cleanupPendingBytes = group_bytes(deferredCleanup);
+        report.cleanupPending = report.cleanupPendingBytes != 0;
+        if (!report.cleanupPending)
+            report.cleanupError = {};
+    }
+
+    DeviceStateError cleanup_blocked(const char *operation)
+    {
+        return error(DeviceStateErrorCode::CleanupFailed, operation,
+                     "device cleanup is pending; call retry_cleanup before changing state");
+    }
 
     bool valid_operations() const
     {
@@ -323,6 +339,8 @@ struct MeshStateCore::Impl
     DeviceStateError release_group(BufferGroup &group)
     {
         DeviceStateError first;
+        std::vector<DeviceBuffer> retained;
+        retained.reserve(group.buffers.size());
         for (auto &buffer : group.buffers)
         {
             if (!buffer.handle)
@@ -334,10 +352,44 @@ struct MeshStateCore::Impl
                 first = error(DeviceStateErrorCode::CleanupFailed,
                               status.operation.empty() ? "release" : status.operation,
                               status.message, status.nativeCode);
-            buffer.handle = 0;
+            if (!status.success)
+                retained.push_back(buffer);
         }
-        group.buffers.clear();
+        group.buffers = std::move(retained);
         return first;
+    }
+
+    void defer_failed_releases(BufferGroup &group,
+                               const DeviceStateError &cleanup)
+    {
+        for (auto &buffer : group.buffers)
+            deferredCleanup.buffers.push_back(std::move(buffer));
+        group.buffers.clear();
+        report.cleanupError = cleanup;
+        refresh_cleanup_state();
+    }
+
+    DeviceStateError release_pending(std::vector<PendingGroup> &pending,
+                                     const DeviceStateError &primary)
+    {
+        DeviceStateError cleanup;
+        for (auto &item : pending)
+        {
+            DeviceStateError released = release_group(item.staged);
+            if (!released.ok())
+            {
+                defer_failed_releases(item.staged, released);
+                if (cleanup.ok())
+                    cleanup = released;
+            }
+        }
+        if (cleanup.ok())
+            return primary;
+        cleanup.message += "; cleanup followed " +
+                           std::string(device_state_error_code_name(primary.code)) +
+                           " at " + primary.operation;
+        report.cleanupError = cleanup;
+        return cleanup;
     }
 
     DeviceStateError allocate_and_copy(std::vector<PendingGroup> &pending)
@@ -373,11 +425,6 @@ struct MeshStateCore::Impl
                          "memory_budget",
                          "staged device storage exceeds the configured fraction of current free memory");
 
-        auto release_pending = [&]() {
-            for (auto &item : pending)
-                release_group(item.staged);
-        };
-
         for (auto &item : pending)
         {
             for (auto &buffer : item.staged.buffers)
@@ -387,10 +434,11 @@ struct MeshStateCore::Impl
                 status = operations.allocate(buffer.capacityBytes, buffer.handle);
                 if (!status.success)
                 {
-                    release_pending();
-                    return error(DeviceStateErrorCode::AllocationFailed,
-                                 status.operation.empty() ? "allocate" : status.operation,
-                                 status.message, status.nativeCode);
+                    const DeviceStateError primary = error(
+                        DeviceStateErrorCode::AllocationFailed,
+                        status.operation.empty() ? "allocate" : status.operation,
+                        status.message, status.nativeCode);
+                    return release_pending(pending, primary);
                 }
                 ++report.successfulAllocations;
             }
@@ -416,11 +464,12 @@ struct MeshStateCore::Impl
                     item.staged.buffers[i].handle, view.data, view.bytes);
                 if (!status.success)
                 {
-                    release_pending();
-                    return error(DeviceStateErrorCode::TransferFailed,
-                                 status.operation.empty() ? "copy_host_to_device"
-                                                          : status.operation,
-                                 status.message, status.nativeCode);
+                    const DeviceStateError primary = error(
+                        DeviceStateErrorCode::TransferFailed,
+                        status.operation.empty() ? "copy_host_to_device"
+                                                 : status.operation,
+                        status.message, status.nativeCode);
+                    return release_pending(pending, primary);
                 }
                 copied.push_back({item.reason,
                                   static_cast<std::uint64_t>(view.bytes)});
@@ -429,10 +478,11 @@ struct MeshStateCore::Impl
         status = operations.synchronize();
         if (!status.success)
         {
-            release_pending();
-            return error(DeviceStateErrorCode::SynchronizationFailed,
-                         status.operation.empty() ? "synchronize" : status.operation,
-                         status.message, status.nativeCode);
+            const DeviceStateError primary = error(
+                DeviceStateErrorCode::SynchronizationFailed,
+                status.operation.empty() ? "synchronize" : status.operation,
+                status.message, status.nativeCode);
+            return release_pending(pending, primary);
         }
         ++report.synchronizations;
         for (const auto &entry : copied)
@@ -484,6 +534,11 @@ DeviceStateError MeshStateCore::ensure_resident(const RegularMeshPack &pack)
     if (s.closed)
         return s.record(error(DeviceStateErrorCode::InvalidTransition,
                               "ensure_resident", "device state is closed"));
+    if (s.closing)
+        return s.record(error(DeviceStateErrorCode::InvalidTransition,
+                              "ensure_resident", "device state is closing"));
+    if (s.report.cleanupPending)
+        return s.record(s.cleanup_blocked("ensure_resident"));
     if (s.report.phase != TransactionPhase::IdleAccepted)
         return s.record(error(DeviceStateErrorCode::InvalidTransition,
                               "ensure_resident",
@@ -526,8 +581,9 @@ DeviceStateError MeshStateCore::ensure_resident(const RegularMeshPack &pack)
     if (!s.initialized || pack.generations.parameters != old.parameters)
         pending.push_back({&s.parameters, {}, TransferReason::Parameters,
                            s.parameter_views(pack, viewsOk)});
-    if (!s.initialized ||
-        pack.generations.acceptedCoordinates != old.acceptedCoordinates)
+    const bool coordinatesChanged = !s.initialized ||
+        pack.generations.acceptedCoordinates != old.acceptedCoordinates;
+    if (coordinatesChanged)
         pending.push_back({&s.coordinates, {},
                            TransferReason::AcceptedCoordinates,
                            s.coordinate_views(pack, viewsOk)});
@@ -557,19 +613,26 @@ DeviceStateError MeshStateCore::ensure_resident(const RegularMeshPack &pack)
         BufferGroup oldGroup = std::move(*item.destination);
         *item.destination = std::move(item.staged);
         DeviceStateError released = s.release_group(oldGroup);
-        if (cleanup.ok() && !released.ok())
-            cleanup = released;
+        if (!released.ok())
+        {
+            s.defer_failed_releases(oldGroup, released);
+            if (cleanup.ok())
+                cleanup = released;
+        }
     }
     s.report.residentGenerations = pack.generations;
-    s.report.acceptedCoordinateSlot = 0;
-    s.report.candidateCoordinateSlot = 1;
-    s.report.previousCoordinateSlot = 2;
+    if (coordinatesChanged)
+    {
+        s.report.acceptedCoordinateSlot = 0;
+        s.report.candidateCoordinateSlot = 1;
+        s.report.previousCoordinateSlot = 2;
+    }
     s.report.candidateGeneration = 0;
     ++s.report.allocationEpoch;
     s.initialized = true;
     s.refresh_resident_bytes();
     if (!cleanup.ok())
-        return s.record(cleanup);
+        s.report.cleanupError = cleanup;
     s.clear_error();
     return {};
 }
@@ -578,11 +641,13 @@ DeviceStateError MeshStateCore::prepare_candidate(
     const std::vector<double> &coordinates, std::uint64_t generation)
 {
     auto &s = *impl_;
-    if (!s.initialized || s.closed ||
+    if (!s.initialized || s.closed || s.closing ||
         s.report.phase != TransactionPhase::IdleAccepted)
         return s.record(error(DeviceStateErrorCode::InvalidTransition,
                               "prepare_candidate",
                               "candidate preparation requires initialized idle state"));
+    if (s.report.cleanupPending)
+        return s.record(s.cleanup_blocked("prepare_candidate"));
     if (generation <= s.report.residentGenerations.acceptedCoordinates)
         return s.record(error(DeviceStateErrorCode::StaleGeneration,
                               "prepare_candidate",
@@ -741,25 +806,60 @@ DeviceStateError MeshStateCore::recover()
     return {};
 }
 
+DeviceStateError MeshStateCore::retry_cleanup()
+{
+    auto &s = *impl_;
+    if (s.closed || s.closing)
+        return s.record(error(DeviceStateErrorCode::InvalidTransition,
+                              "retry_cleanup",
+                              "use close to retry cleanup while closing"));
+    if (!s.report.cleanupPending)
+    {
+        s.clear_error();
+        return {};
+    }
+    DeviceStateError released = s.release_group(s.deferredCleanup);
+    s.refresh_cleanup_state();
+    if (!released.ok())
+    {
+        s.report.cleanupError = released;
+        return s.record(released);
+    }
+    s.clear_error();
+    return {};
+}
+
 DeviceStateError MeshStateCore::close()
 {
     if (!impl_ || impl_->closed)
         return {};
     auto &s = *impl_;
-    DeviceStateError result;
-    for (BufferGroup *group : {&s.reference, &s.coordinates, &s.parameters,
-                               &s.numericalPlan, &s.topology})
+    if (!s.closing)
     {
-        DeviceStateError released = s.release_group(*group);
-        if (result.ok() && !released.ok())
-            result = released;
+        for (BufferGroup *group : {&s.reference, &s.coordinates, &s.parameters,
+                                   &s.numericalPlan, &s.topology})
+        {
+            for (auto &buffer : group->buffers)
+                s.deferredCleanup.buffers.push_back(std::move(buffer));
+            group->buffers.clear();
+        }
+        s.closing = true;
+        s.initialized = false;
+        s.report.available = false;
+        s.report.phase = TransactionPhase::Closing;
+        s.report.residentBytes = 0;
+        s.refresh_cleanup_state();
+    }
+    DeviceStateError result = s.release_group(s.deferredCleanup);
+    s.refresh_cleanup_state();
+    if (!result.ok())
+    {
+        s.report.cleanupError = result;
+        return s.record(result);
     }
     s.closed = true;
+    s.closing = false;
     s.report.phase = TransactionPhase::Closed;
-    s.report.available = false;
-    s.report.residentBytes = 0;
-    if (!result.ok())
-        return s.record(result);
     s.clear_error();
     return {};
 }
@@ -775,6 +875,24 @@ DeviceBufferHandle MeshStateCore::accepted_coordinate_handle_for_testing() const
         return 0;
     return impl_->coordinates
         .buffers[impl_->report.acceptedCoordinateSlot]
+        .handle;
+}
+
+DeviceBufferHandle MeshStateCore::candidate_coordinate_handle_for_testing() const noexcept
+{
+    if (!impl_ || impl_->coordinates.buffers.size() < 3)
+        return 0;
+    return impl_->coordinates
+        .buffers[impl_->report.candidateCoordinateSlot]
+        .handle;
+}
+
+DeviceBufferHandle MeshStateCore::previous_coordinate_handle_for_testing() const noexcept
+{
+    if (!impl_ || impl_->coordinates.buffers.size() < 3)
+        return 0;
+    return impl_->coordinates
+        .buffers[impl_->report.previousCoordinateSlot]
         .handle;
 }
 
