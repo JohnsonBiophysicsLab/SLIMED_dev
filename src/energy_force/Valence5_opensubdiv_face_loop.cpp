@@ -26,8 +26,10 @@ using source_keyed_kernel::Vec3;
 constexpr std::size_t kReviewedSampleCount = 3;
 constexpr int kReviewedQuadratureOrder = 2;
 constexpr double kLegacyVolumeQuadratureFactor = 0.16666666666;
-constexpr const char *kRuntimeOptIn =
+constexpr const char *kPhase2RuntimeOptIn =
     "SLIMED_USE_OPENSUBDIV_VALENCE5_PHASE2";
+constexpr const char *kProductionRuntimeOptIn =
+    "SLIMED_USE_OPENSUBDIV_VALENCE5";
 constexpr std::array<std::array<double, 3>, kReviewedSampleCount>
     kReviewedSamples{{
         {{1.0 / 6.0, 1.0 / 6.0, 4.0 / 6.0}},
@@ -494,19 +496,26 @@ bool output_state_is_finite(const Mesh &mesh)
 
 bool opensubdiv_valence5_phase2_requested()
 {
-    const char *value = std::getenv(kRuntimeOptIn);
+    const char *value = std::getenv(kPhase2RuntimeOptIn);
     return value != nullptr && std::string(value) == "1";
 }
 
-Valence5Phase2Result evaluate_guarded_valence5_phase2_face_loop(
+bool opensubdiv_valence5_production_routing_requested()
+{
+    const char *value = std::getenv(kProductionRuntimeOptIn);
+    return value != nullptr && std::string(value) == "1";
+}
+
+static Valence5Phase2Result evaluate_guarded_valence5_face_loop(
     Mesh &mesh,
-    const Valence5Phase2Request &request)
+    const Valence5Phase2Request &request,
+    const bool runtimeOptInRequested,
+    const char *runtimeGate)
 {
     Valence5Phase2Result result;
     result.explicitRequestReceived =
         request.reviewerApprovedExplicitRequest;
-    result.runtimeOptInRequested =
-        opensubdiv_valence5_phase2_requested();
+    result.runtimeOptInRequested = runtimeOptInRequested;
     if (!result.explicitRequestReceived)
     {
         result.rejectionReason =
@@ -517,8 +526,8 @@ Valence5Phase2Result evaluate_guarded_valence5_phase2_face_loop(
     if (!result.runtimeOptInRequested)
     {
         result.rejectionReason =
-            "valence-5 Option B Phase 2 requires "
-            "SLIMED_USE_OPENSUBDIV_VALENCE5_PHASE2=1";
+            "valence-5 Option B route requires " +
+            std::string(runtimeGate) + "=1";
         return result;
     }
 
@@ -675,6 +684,36 @@ Valence5Phase2Result evaluate_guarded_valence5_phase2_face_loop(
     result.defaultEvaluatorCaller = false;
     result.phase3ActivationAuthorized = false;
     result.rejectionReason.clear();
+    return result;
+}
+
+Valence5Phase2Result evaluate_guarded_valence5_phase2_face_loop(
+    Mesh &mesh,
+    const Valence5Phase2Request &request)
+{
+    return evaluate_guarded_valence5_face_loop(
+        mesh,
+        request,
+        opensubdiv_valence5_phase2_requested(),
+        kPhase2RuntimeOptIn);
+}
+
+Valence5Phase2Result evaluate_guarded_valence5_production_route(Mesh &mesh)
+{
+    Valence5Phase2Request request;
+    request.reviewerApprovedExplicitRequest = true;
+    Valence5Phase2Result result = evaluate_guarded_valence5_face_loop(
+        mesh,
+        request,
+        opensubdiv_valence5_production_routing_requested(),
+        kProductionRuntimeOptIn);
+    if (!result.accepted)
+    {
+        return result;
+    }
+    result.productionRouteEnabled = true;
+    result.defaultEvaluatorCaller = true;
+    result.phase3ActivationAuthorized = true;
     return result;
 }
 } // namespace slimed::opensubdiv_valence5_phase2

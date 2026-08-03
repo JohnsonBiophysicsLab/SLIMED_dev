@@ -19,6 +19,9 @@ constexpr double kReviewedProductionTolerance = 1.0e-10;
 
 bool opensubdiv_valence5_phase2_requested();
 
+/** Return whether the reviewed valence-5 production route is requested. */
+bool opensubdiv_valence5_production_routing_requested();
+
 struct Valence5Phase2Request
 {
     bool reviewerApprovedExplicitRequest = false;
@@ -84,4 +87,13 @@ struct Valence5Phase2Result
 Valence5Phase2Result evaluate_guarded_valence5_phase2_face_loop(
     Mesh &mesh,
     const Valence5Phase2Request &request);
+
+/**
+ * Execute the reviewed Option B transaction for the default production
+ * evaluator when SLIMED_USE_OPENSUBDIV_VALENCE5=1 is explicitly set.
+ *
+ * An absent runtime request leaves the current fallback untouched. A present
+ * request in a dependency-disabled build is rejected before mesh mutation.
+ */
+Valence5Phase2Result evaluate_guarded_valence5_production_route(Mesh &mesh);
 } // namespace slimed::opensubdiv_valence5_phase2

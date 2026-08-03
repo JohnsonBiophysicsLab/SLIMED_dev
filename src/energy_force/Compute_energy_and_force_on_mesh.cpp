@@ -4,6 +4,7 @@
 #include "energy_force/Source_keyed_kernel_call.hpp"
 #include "energy_force/Valence4_face_loop_route_preflight.hpp"
 #include "energy_force/Valence4_production_face_loop.hpp"
+#include "energy_force/Valence5_opensubdiv_face_loop.hpp"
 #include "mesh/Limit_surface_evaluator.hpp"
 #include "mesh/OpenSubdiv_regular_evaluator.hpp"
 
@@ -588,7 +589,33 @@ void Mesh::clear_force_on_vertices_and_energy_on_faces()
 void Mesh::Compute_Energy_And_Force()
 {
     using namespace slimed::valence4_route_preflight;
-    if (opensubdiv_valence4_production_routing_requested())
+    using namespace slimed::opensubdiv_valence5_phase2;
+    const bool valence4RouteRequested =
+        opensubdiv_valence4_production_routing_requested();
+    const bool valence5RouteRequested =
+        opensubdiv_valence5_production_routing_requested();
+    if (valence4RouteRequested && valence5RouteRequested)
+    {
+        throw std::runtime_error(
+            "conflicting extraordinary OpenSubdiv production routes: "
+            "request exactly one of SLIMED_USE_OPENSUBDIV_VALENCE4=1 or "
+            "SLIMED_USE_OPENSUBDIV_VALENCE5=1");
+    }
+    if (valence5RouteRequested)
+    {
+        const Valence5Phase2Result routed =
+            evaluate_guarded_valence5_production_route(*this);
+        if (!routed.accepted)
+        {
+            throw std::runtime_error(
+                "SLIMED_USE_OPENSUBDIV_VALENCE5 requested the reviewed "
+                "Option B production route, but preflight rejected it "
+                "before mutation: " +
+                routed.rejectionReason);
+        }
+        return;
+    }
+    if (valence4RouteRequested)
     {
         const Valence4OpenSubdivProductionFaceLoopCallerResult routed =
             evaluate_guarded_valence4_opensubdiv_production_route(*this);

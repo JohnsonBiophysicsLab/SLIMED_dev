@@ -24,11 +24,22 @@ DOC = Path("docs/irregular_valence5_option_b_phase2_face_loop.md")
 TEST = Path("tests/test_irregular_valence5_option_b_phase2_face_loop_inventory.py")
 SELF = Path("scripts/inventory_irregular_valence5_option_b_phase2_face_loop.py")
 REGULAR_COMPATIBILITY = Path("scripts/inventory_opensubdiv_regular_cpp_adapter_proof.py")
+PHASE3_PATHS = {
+    Path("docs/irregular_valence5_option_b_phase3_activation.md"),
+    Path("docs/opensubdiv_routing_readiness_map.md"),
+    Path("experiments/irregular_valence5_option_b_phase3_activation.cpp"),
+    Path("scripts/inventory_irregular_valence5_option_b_phase3_activation.py"),
+    Path("scripts/inventory_opensubdiv_routing_readiness.py"),
+    Path("scripts/run_irregular_valence5_option_b_phase3_activation.py"),
+    Path("scripts/run_irregular_valence5_option_b_phase3_activation.sh"),
+    Path("tests/test_irregular_valence5_option_b_phase3_activation_inventory.py"),
+    Path("tests/test_opensubdiv_routing_readiness_inventory.py"),
+}
 ALLOWED_PATHS = {
     HEADER, GENERIC_HEADER, IMPLEMENTATION, FACE_LOOP, SOURCE_KEYED_HEADER,
     SOURCE_KEYED_IMPLEMENTATION, HARNESS, RUNNER, WRAPPER, DOC, TEST, SELF,
     REGULAR_COMPATIBILITY,
-}
+} | PHASE3_PATHS
 ANCHORS = {
     HEADER: (
         "reviewerApprovedExplicitRequest = false",
@@ -147,7 +158,11 @@ def collect(root: Path) -> dict[str, object]:
     compute_source = (root / FACE_LOOP).read_text(encoding="utf-8")
     default_caller = compute_source.split("void Mesh::Compute_Energy_And_Force()", 1)[1]
     default_caller = default_caller.split("void Mesh::complete_energy_force_after_membrane_accumulation", 1)[0]
-    if "valence5" in default_caller.lower():
+    phase2_default_caller_markers = (
+        "SLIMED_USE_OPENSUBDIV_VALENCE5_PHASE2",
+        "evaluate_guarded_valence5_face_loop(",
+    )
+    if any(marker in default_caller for marker in phase2_default_caller_markers):
         errors.append("Mesh::Compute_Energy_And_Force unexpectedly selects valence-5 Phase 2")
 
     mode = subprocess.run(
