@@ -48,6 +48,10 @@ def test_valence3_provider_and_science_harness_are_guarded_and_inventoried():
     assert "build_proof_rows(mesh, 4)" in harness
     assert "build_proof_rows(mesh, 6)" in harness
     assert "OPENSUBDIV_VERSION_NUMBER != 30700" in provider
+    assert "immutableRowCacheHit" in (
+        ROOT / "include/mesh/OpenSubdiv_valence3_row_provider.hpp"
+    ).read_text()
+    assert "Coordinates are deliberately" in provider
     assert "build_guarded_opensubdiv_valence3_rows" in harness
     assert "default_off_contract" in runner
     assert "-DUSE_OPENSUBDIV_VALENCE3" in runner

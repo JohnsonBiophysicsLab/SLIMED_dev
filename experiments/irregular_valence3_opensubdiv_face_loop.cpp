@@ -1,13 +1,17 @@
 #include "energy_force/Valence3_opensubdiv_face_loop.hpp"
 #include "io/io.hpp"
 #include "mesh/Mesh.hpp"
+#include "model/Model.hpp"
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cmath>
 #include <cstdlib>
+#include <filesystem>
 #include <iomanip>
 #include <iostream>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -18,6 +22,22 @@ using slimed::opensubdiv_valence3_phase3::Valence3Phase3Request;
 using slimed::opensubdiv_valence3_phase3::Valence3Phase3Result;
 using slimed::opensubdiv_valence3_phase3::
     evaluate_guarded_valence3_phase3_face_loop;
+using slimed::opensubdiv_valence3_phase3::
+    evaluate_guarded_valence3_opensubdiv_production_route;
+
+class ScopedCoutSilence
+{
+public:
+    ScopedCoutSilence() : previous_(std::cout.rdbuf(sink_.rdbuf())) {}
+    ~ScopedCoutSilence() { std::cout.rdbuf(previous_); }
+
+    ScopedCoutSilence(const ScopedCoutSilence &) = delete;
+    ScopedCoutSilence &operator=(const ScopedCoutSilence &) = delete;
+
+private:
+    std::ostringstream sink_;
+    std::streambuf *previous_;
+};
 
 void append_matrix(std::vector<double> &values, const Matrix &matrix)
 {
@@ -181,6 +201,67 @@ bool state_changed(const std::vector<double> &before, const Mesh &mesh)
 {
     return before != mesh_state(mesh);
 }
+
+double maximum_state_difference(const std::vector<double> &left,
+                                const std::vector<double> &right)
+{
+    if (left.size() != right.size())
+    {
+        return INFINITY;
+    }
+    double maximum = 0.0;
+    for (std::size_t index = 0; index < left.size(); ++index)
+    {
+        maximum = std::max(maximum, std::abs(left[index] - right[index]));
+    }
+    return maximum;
+}
+
+bool verify_output_and_checkpoint_round_trip(
+    Mesh &mesh,
+    const Param &fixtureParam,
+    const std::vector<std::vector<double>> &vertices,
+    const std::vector<std::vector<int>> &faces)
+{
+    ScopedCoutSilence silence;
+    Record record(1);
+    record.add(mesh.param.area, mesh.param.energy, mesh.calculate_mean_force());
+    Model model(mesh, record);
+    const auto nonce = std::chrono::steady_clock::now()
+        .time_since_epoch().count();
+    const std::filesystem::path directory =
+        std::filesystem::temp_directory_path();
+    const std::filesystem::path energyPath = directory /
+        ("slimed_valence3_phase4_energy_" + std::to_string(nonce) + ".csv");
+    const std::filesystem::path facePath = directory /
+        ("slimed_valence3_phase4_faces_" + std::to_string(nonce) + ".csv");
+    const std::filesystem::path checkpointPath = directory /
+        ("slimed_valence3_phase4_restart_" + std::to_string(nonce) + ".chk");
+
+    bool passed = write_energy_force_data_to_csv(model, energyPath.string()) &&
+        write_element_face_energy_to_csv(model, facePath.string()) &&
+        write_model_restart_checkpoint(model, checkpointPath.string(), 1) &&
+        std::filesystem::file_size(energyPath) > 0 &&
+        std::filesystem::file_size(facePath) > 0;
+
+    Param restartParam = fixtureParam;
+    Mesh restartMesh(restartParam);
+    configure_fixture(restartMesh, vertices, faces, true);
+    Record restartRecord(1);
+    Model restartModel(restartMesh, restartRecord);
+    passed = passed &&
+        load_model_restart_checkpoint(restartModel, checkpointPath.string()) &&
+        maximum_state_difference(
+            mesh_state(model.mesh), mesh_state(restartModel.mesh)) <=
+            slimed::opensubdiv_valence3_phase3::
+                kReviewedPostconditionTolerance;
+
+    std::error_code ignored;
+    std::filesystem::remove(energyPath, ignored);
+    std::filesystem::remove(facePath, ignored);
+    std::filesystem::remove(checkpointPath, ignored);
+    return passed;
+}
 } // namespace
 
 int main(int argc, char **argv)
@@ -196,6 +277,11 @@ int main(int argc, char **argv)
     const auto tetraFaces = read_data_from_csv<int>(argv[2]);
     const auto mixedVertices = read_data_from_csv<double>(argv[3]);
     const auto mixedFaces = read_data_from_csv<int>(argv[4]);
+
+    unsetenv("SLIMED_USE_OPENSUBDIV_VALENCE3");
+    unsetenv("SLIMED_USE_OPENSUBDIV_VALENCE3_PHASE3");
+    unsetenv("SLIMED_USE_OPENSUBDIV_VALENCE4");
+    unsetenv("SLIMED_USE_OPENSUBDIV_VALENCE5");
 
     Param param;
     param.VERBOSE_MODE = false;
@@ -260,14 +346,50 @@ int main(int argc, char **argv)
     const Valence3Phase3Result mixedRejected =
         evaluate_guarded_valence3_phase3_face_loop(mixedMesh, request);
     setenv("SLIMED_USE_OPENSUBDIV_REGULAR", "1", 1);
+    const auto uncachedStart = std::chrono::steady_clock::now();
     const Valence3Phase3Result result =
         evaluate_guarded_valence3_phase3_face_loop(mesh, request);
+    const auto uncachedEnd = std::chrono::steady_clock::now();
     unsetenv("SLIMED_USE_OPENSUBDIV_REGULAR");
     const bool unrelatedRegularTokenIsolated = result.accepted;
 
     const bool mixedRejectionAtomic =
         !mixedRejected.accepted && mixedInitial == mesh_state(mixedMesh) &&
         !mixedRejected.rowProvider.accepted;
+
+    unsetenv("SLIMED_USE_OPENSUBDIV_VALENCE3_PHASE3");
+    Param productionParam = param;
+    Mesh productionMesh(productionParam);
+    configure_fixture(productionMesh, tetraVertices, tetraFaces, true);
+    const std::vector<double> productionInitial = mesh_state(productionMesh);
+    Mesh productionWrapperDefaultOff(productionParam);
+    configure_fixture(
+        productionWrapperDefaultOff, tetraVertices, tetraFaces, true);
+    const std::vector<double> productionWrapperDefaultOffInitial =
+        mesh_state(productionWrapperDefaultOff);
+    const Valence3Phase3Result productionWrapperMissingGate =
+        evaluate_guarded_valence3_opensubdiv_production_route(
+            productionWrapperDefaultOff);
+    const bool productionWrapperDefaultOffAtomic =
+        !productionWrapperMissingGate.accepted &&
+        mesh_state(productionWrapperDefaultOff) ==
+            productionWrapperDefaultOffInitial;
+    setenv("SLIMED_USE_OPENSUBDIV_VALENCE3", "1", 1);
+    bool dependencyDisabledProductionRejectedAtomically = false;
+    if (!result.rowProvider.opensubdivCompiled)
+    {
+        try
+        {
+            productionMesh.Compute_Energy_And_Force();
+        }
+        catch (const std::runtime_error &error)
+        {
+            dependencyDisabledProductionRejectedAtomically =
+                std::string(error.what()).find("OpenSubdiv-enabled") !=
+                    std::string::npos &&
+                mesh_state(productionMesh) == productionInitial;
+        }
+    }
 
     if (!result.rowProvider.opensubdivCompiled)
     {
@@ -281,7 +403,9 @@ int main(int argc, char **argv)
             !result.productionFaceLoopExecuted &&
             !result.productionRouteEnabled &&
             !result.defaultEvaluatorCaller &&
-            !result.phase4ActivationAuthorized;
+            !result.phase4ActivationAuthorized &&
+            dependencyDisabledProductionRejectedAtomically &&
+            productionWrapperDefaultOffAtomic;
         std::cout << "{\"status\":\""
                   << (passed ? "passed" : "failed")
                   << "\",\"dependency_disabled_contract_passed\":"
@@ -290,6 +414,80 @@ int main(int argc, char **argv)
                   << '\n';
         return passed ? 0 : 3;
     }
+
+    const auto cachedStart = std::chrono::steady_clock::now();
+    productionMesh.Compute_Energy_And_Force();
+    const auto cachedEnd = std::chrono::steady_clock::now();
+    const std::vector<double> productionFirst = mesh_state(productionMesh);
+    productionMesh.Compute_Energy_And_Force();
+    const double repeatedProductionMaxAbsDifference =
+        maximum_state_difference(productionFirst, mesh_state(productionMesh));
+    const bool repeatedProductionDeterministic =
+        repeatedProductionMaxAbsDifference <=
+        slimed::opensubdiv_valence3_phase3::kReviewedPostconditionTolerance;
+
+    Mesh wrapperMesh(productionParam);
+    configure_fixture(wrapperMesh, tetraVertices, tetraFaces, true);
+    const Valence3Phase3Result productionResult =
+        evaluate_guarded_valence3_opensubdiv_production_route(wrapperMesh);
+
+    const std::vector<double> mixedProductionInitial = mesh_state(mixedMesh);
+    bool mixedProductionRejectedAtomically = false;
+    try
+    {
+        mixedMesh.Compute_Energy_And_Force();
+    }
+    catch (const std::runtime_error &)
+    {
+        mixedProductionRejectedAtomically =
+            mesh_state(mixedMesh) == mixedProductionInitial;
+    }
+
+    Mesh conflictMesh(productionParam);
+    configure_fixture(conflictMesh, tetraVertices, tetraFaces, true);
+    const std::vector<double> conflictInitial = mesh_state(conflictMesh);
+    setenv("SLIMED_USE_OPENSUBDIV_VALENCE4", "1", 1);
+    setenv("SLIMED_USE_OPENSUBDIV_VALENCE5", "1", 1);
+    bool conflictingRoutesRejectedAtomically = false;
+    try
+    {
+        conflictMesh.Compute_Energy_And_Force();
+    }
+    catch (const std::runtime_error &error)
+    {
+        conflictingRoutesRejectedAtomically =
+            std::string(error.what()).find("exactly one") !=
+                std::string::npos &&
+            mesh_state(conflictMesh) == conflictInitial;
+    }
+    unsetenv("SLIMED_USE_OPENSUBDIV_VALENCE4");
+    unsetenv("SLIMED_USE_OPENSUBDIV_VALENCE5");
+    unsetenv("SLIMED_USE_OPENSUBDIV_VALENCE3");
+
+    const auto uncachedMicroseconds =
+        std::chrono::duration_cast<std::chrono::microseconds>(
+            uncachedEnd - uncachedStart).count();
+    const auto cachedMicroseconds =
+        std::chrono::duration_cast<std::chrono::microseconds>(
+            cachedEnd - cachedStart).count();
+    const bool immutableRowCacheValidated =
+        result.rowProvider.immutableRowCachePopulated &&
+        !result.rowProvider.immutableRowCacheHit &&
+        productionResult.rowProvider.immutableRowCacheHit;
+    const bool outputCheckpointRoundTripValidated =
+        verify_output_and_checkpoint_round_trip(
+            productionMesh, productionParam, tetraVertices, tetraFaces);
+    const bool productionActivationValidated =
+        state_changed(productionInitial, productionMesh) &&
+        repeatedProductionDeterministic &&
+        productionWrapperDefaultOffAtomic &&
+        mixedProductionRejectedAtomically &&
+        conflictingRoutesRejectedAtomically &&
+        productionResult.accepted &&
+        productionResult.productionRouteEnabled &&
+        productionResult.defaultEvaluatorCaller &&
+        productionResult.phase4ActivationAuthorized &&
+        immutableRowCacheValidated && outputCheckpointRoundTripValidated;
 
     const bool oneRingsPreserved = one_rings(mesh) == initialOneRings;
     const bool passed = defaultEvaluatorStillUnsupported &&
@@ -315,7 +513,8 @@ int main(int argc, char **argv)
         !result.productionRouteEnabled &&
         !result.productionOneRingsPopulated &&
         !result.defaultEvaluatorCaller &&
-        !result.phase4ActivationAuthorized;
+        !result.phase4ActivationAuthorized &&
+        productionActivationValidated;
 
     std::cout << std::setprecision(17)
               << "{\"status\":\"" << (passed ? "passed" : "failed")
@@ -353,7 +552,31 @@ int main(int argc, char **argv)
               << result.totalVolume
               << ",\"production_route_enabled\":false"
               << ",\"default_evaluator_caller\":false"
-              << ",\"phase4_activation_authorized\":false}"
+              << ",\"phase4_activation_authorized\":false"
+              << ",\"phase4_production_route_enabled\":"
+              << (productionResult.productionRouteEnabled ? "true" : "false")
+              << ",\"phase4_default_evaluator_caller\":"
+              << (productionResult.defaultEvaluatorCaller ? "true" : "false")
+              << ",\"phase4_activation_validated\":"
+              << (productionActivationValidated ? "true" : "false")
+              << ",\"production_wrapper_default_off_atomic\":"
+              << (productionWrapperDefaultOffAtomic ? "true" : "false")
+              << ",\"mixed_production_rejection_atomic\":"
+              << (mixedProductionRejectedAtomically ? "true" : "false")
+              << ",\"conflicting_routes_rejection_atomic\":"
+              << (conflictingRoutesRejectedAtomically ? "true" : "false")
+              << ",\"repeated_production_deterministic\":"
+              << (repeatedProductionDeterministic ? "true" : "false")
+              << ",\"repeated_production_max_abs_difference\":"
+              << repeatedProductionMaxAbsDifference
+              << ",\"immutable_row_cache_validated\":"
+              << (immutableRowCacheValidated ? "true" : "false")
+              << ",\"output_checkpoint_round_trip_validated\":"
+              << (outputCheckpointRoundTripValidated ? "true" : "false")
+              << ",\"uncached_transaction_microseconds\":"
+              << uncachedMicroseconds
+              << ",\"cached_transaction_microseconds\":"
+              << cachedMicroseconds << "}"
               << '\n';
     return passed ? 0 : 4;
 }

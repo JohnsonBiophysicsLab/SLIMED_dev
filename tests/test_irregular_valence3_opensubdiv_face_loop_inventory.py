@@ -32,9 +32,10 @@ def test_valence3_phase3_face_loop_is_guarded_and_not_a_default_caller():
     assert "prepare_source_keyed_kernel_call" in implementation
     assert "validate_guarded_source_keyed_production_face_loop" in implementation
     assert "execute_guarded_source_keyed_production_face_loop" in implementation
-    assert "productionRouteEnabled = true" not in implementation
-    assert "defaultEvaluatorCaller = true" not in implementation
-    assert "phase4ActivationAuthorized = true" not in implementation
+    assert "evaluate_guarded_valence3_opensubdiv_production_route" in implementation
+    assert "result.productionRouteEnabled = true" in implementation
+    assert "result.defaultEvaluatorCaller = true" in implementation
+    assert "result.phase4ActivationAuthorized = true" in implementation
     assert "fullDivergenceVolumeValidated = false" in header
     assert "volumeFunctionalDecisionPending = false" in header
     assert "productionRouteEnabled = false" in header
@@ -49,11 +50,24 @@ def test_valence3_phase3_face_loop_is_guarded_and_not_a_default_caller():
     assert "unrelated_regular_token_isolated" in experiment
     assert "default_off_contract" in runner
     assert "-DUSE_OPENSUBDIV_VALENCE3" in runner
-    assert "evaluate_guarded_valence3_phase3_face_loop" not in production_caller
+    assert "Valence3_opensubdiv_production_route.hpp" in production_caller
+    assert "opensubdiv_valence3_production_routing_requested" in production_caller
+    assert "extraordinaryRouteRequestCount" in production_caller
+    assert "evaluate_guarded_valence3_opensubdiv_production_route" in production_caller
     assert "if (guardedSourceKeyedRows == nullptr)" in production_caller
     assert "assert_supported_membrane_force_routing(mesh);" in production_caller
     assert production_caller.count("if (guardedSourceKeyedRows == nullptr)") >= 2
     assert "run_irregular_valence3_opensubdiv_face_loop.py" in workflow
+    assert "phase4_activation_validated" in experiment
+    assert "production_wrapper_default_off_atomic" in experiment
+    assert "conflicting_routes_rejection_atomic" in experiment
+    assert "immutable_row_cache_validated" in experiment
+    assert "output_checkpoint_round_trip_validated" in experiment
+    assert "serial_openmp_repeat_validated" in runner
+    assert '"-DOMP"' in runner
+    assert "Valence3_opensubdiv_production_route.hpp" in (
+        ROOT / "include/energy_force/Valence3_opensubdiv_production_route.hpp"
+    ).read_text()
 
 
 def test_phase3_files_do_not_touch_cuda_sources():

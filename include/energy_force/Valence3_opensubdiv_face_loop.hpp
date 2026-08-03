@@ -20,6 +20,9 @@ constexpr double kReviewedPostconditionTolerance = 1.0e-10;
 /** Exact-token integration-only gate. */
 bool opensubdiv_valence3_phase3_requested();
 
+/** Exact-token Phase-4 production-routing gate. */
+bool opensubdiv_valence3_production_routing_requested();
+
 struct Valence3Phase3Request
 {
     bool scientificBaselineAcceptedExplicitRequest = false;
@@ -82,4 +85,8 @@ struct Valence3Phase3Result
 Valence3Phase3Result evaluate_guarded_valence3_phase3_face_loop(
     Mesh &mesh,
     const Valence3Phase3Request &request);
+
+/** Execute the reviewed exact-tetrahedron transaction as a production route. */
+Valence3Phase3Result
+evaluate_guarded_valence3_opensubdiv_production_route(Mesh &mesh);
 } // namespace slimed::opensubdiv_valence3_phase3

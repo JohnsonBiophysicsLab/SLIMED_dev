@@ -2,6 +2,7 @@
 
 #include "energy_force/Guarded_source_keyed_production_face_loop.hpp"
 #include "energy_force/Source_keyed_kernel_call.hpp"
+#include "energy_force/Valence3_opensubdiv_production_route.hpp"
 #include "energy_force/Valence4_opensubdiv_production_route.hpp"
 #include "energy_force/Valence4_production_face_loop.hpp"
 #include "energy_force/Valence5_opensubdiv_production_route.hpp"
@@ -600,18 +601,39 @@ void Mesh::clear_force_on_vertices_and_energy_on_faces()
  */
 void Mesh::Compute_Energy_And_Force()
 {
+    using namespace slimed::opensubdiv_valence3_phase3;
     using namespace slimed::valence4_route_preflight;
     using namespace slimed::opensubdiv_valence5_phase2;
+    const bool valence3RouteRequested =
+        opensubdiv_valence3_production_routing_requested();
     const bool valence4RouteRequested =
         opensubdiv_valence4_production_routing_requested();
     const bool valence5RouteRequested =
         opensubdiv_valence5_production_routing_requested();
-    if (valence4RouteRequested && valence5RouteRequested)
+    const int extraordinaryRouteRequestCount =
+        static_cast<int>(valence3RouteRequested) +
+        static_cast<int>(valence4RouteRequested) +
+        static_cast<int>(valence5RouteRequested);
+    if (extraordinaryRouteRequestCount > 1)
     {
         throw std::runtime_error(
             "conflicting extraordinary OpenSubdiv production routes: "
-            "request exactly one of SLIMED_USE_OPENSUBDIV_VALENCE4=1 or "
+            "request exactly one of SLIMED_USE_OPENSUBDIV_VALENCE3=1, "
+            "SLIMED_USE_OPENSUBDIV_VALENCE4=1, or "
             "SLIMED_USE_OPENSUBDIV_VALENCE5=1");
+    }
+    if (valence3RouteRequested)
+    {
+        const Valence3Phase3Result routed =
+            evaluate_guarded_valence3_opensubdiv_production_route(*this);
+        if (!routed.accepted)
+        {
+            throw std::runtime_error(
+                "SLIMED_USE_OPENSUBDIV_VALENCE3 requested the reviewed "
+                "exact-tetrahedron production route, but preflight rejected "
+                "it before mutation: " + routed.rejectionReason);
+        }
+        return;
     }
     if (valence5RouteRequested)
     {

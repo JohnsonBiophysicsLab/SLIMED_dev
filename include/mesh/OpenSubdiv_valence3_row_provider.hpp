@@ -36,6 +36,8 @@ struct OpenSubdivValence3RowProviderResult
     int opensubdivVersionNumber = 0;
     int adaptiveIsolationLevel = 0;
     bool rowsGenerated = false;
+    bool immutableRowCacheHit = false;
+    bool immutableRowCachePopulated = false;
     std::vector<source_keyed_kernel::SourceKeyedFaceRows> rows;
 
     bool productionRouteEnabled = false;

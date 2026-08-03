@@ -31,6 +31,8 @@ constexpr int kReviewedIsolationLevel = 5;
 constexpr double kFullDivergenceVolumeQuadratureFactor = 1.0 / 6.0;
 constexpr const char *kPhase3RuntimeOptIn =
     "SLIMED_USE_OPENSUBDIV_VALENCE3_PHASE3";
+constexpr const char *kProductionRuntimeOptIn =
+    "SLIMED_USE_OPENSUBDIV_VALENCE3";
 constexpr std::array<std::array<double, 3>, kReviewedSampleCount>
     kReviewedSamples{{
         {{1.0 / 6.0, 1.0 / 6.0, 4.0 / 6.0}},
@@ -482,6 +484,12 @@ bool opensubdiv_valence3_phase3_requested()
     return value != nullptr && std::string(value) == "1";
 }
 
+bool opensubdiv_valence3_production_routing_requested()
+{
+    const char *value = std::getenv(kProductionRuntimeOptIn);
+    return value != nullptr && std::string(value) == "1";
+}
+
 Valence3Phase3Result evaluate_guarded_valence3_phase3_face_loop(
     Mesh &mesh,
     const Valence3Phase3Request &request)
@@ -489,7 +497,9 @@ Valence3Phase3Result evaluate_guarded_valence3_phase3_face_loop(
     Valence3Phase3Result result;
     result.explicitRequestReceived =
         request.scientificBaselineAcceptedExplicitRequest;
-    result.runtimeOptInRequested = opensubdiv_valence3_phase3_requested();
+    result.runtimeOptInRequested =
+        opensubdiv_valence3_phase3_requested() ||
+        opensubdiv_valence3_production_routing_requested();
     if (!result.explicitRequestReceived)
     {
         result.rejectionReason =
@@ -500,8 +510,9 @@ Valence3Phase3Result evaluate_guarded_valence3_phase3_face_loop(
     if (!result.runtimeOptInRequested)
     {
         result.rejectionReason =
-            "valence-3 Phase 3 requires " +
-            std::string(kPhase3RuntimeOptIn) + "=1";
+            "valence-3 requires " + std::string(kPhase3RuntimeOptIn) +
+            "=1 for integration or " +
+            std::string(kProductionRuntimeOptIn) + "=1 for production";
         return result;
     }
     result.fullDivergenceVolumeValidated = true;
@@ -654,6 +665,30 @@ Valence3Phase3Result evaluate_guarded_valence3_phase3_face_loop(
     result.defaultEvaluatorCaller = false;
     result.phase4ActivationAuthorized = false;
     result.rejectionReason.clear();
+    return result;
+}
+
+Valence3Phase3Result
+evaluate_guarded_valence3_opensubdiv_production_route(Mesh &mesh)
+{
+    if (!opensubdiv_valence3_production_routing_requested())
+    {
+        Valence3Phase3Result result;
+        result.rejectionReason =
+            std::string(kProductionRuntimeOptIn) +
+            " requires the exact value 1";
+        return result;
+    }
+    Valence3Phase3Request request;
+    request.scientificBaselineAcceptedExplicitRequest = true;
+    Valence3Phase3Result result =
+        evaluate_guarded_valence3_phase3_face_loop(mesh, request);
+    if (result.accepted)
+    {
+        result.productionRouteEnabled = true;
+        result.defaultEvaluatorCaller = true;
+        result.phase4ActivationAuthorized = true;
+    }
     return result;
 }
 } // namespace slimed::opensubdiv_valence3_phase3

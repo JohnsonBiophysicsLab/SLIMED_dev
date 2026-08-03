@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 from pathlib import Path
 import shlex
@@ -50,6 +51,8 @@ def build(binary: Path, env: dict[str, str], enabled: bool) -> None:
     command = [
         compiler,
         "-std=c++17",
+        "-fopenmp",
+        "-DOMP",
         "-Iinclude",
         "-Iinclude/energy_force",
         "-Iinclude/linalg",
@@ -84,7 +87,11 @@ def build(binary: Path, env: dict[str, str], enabled: bool) -> None:
         raise RuntimeError(result.stderr.strip() or result.stdout.strip())
 
 
-def execute(binary: Path, env: dict[str, str]) -> dict[str, object]:
+def execute(
+    binary: Path, env: dict[str, str], thread_count: int = 1
+) -> dict[str, object]:
+    run_env = env.copy()
+    run_env["OMP_NUM_THREADS"] = str(thread_count)
     result = run(
         [
             str(binary),
@@ -93,7 +100,7 @@ def execute(binary: Path, env: dict[str, str]) -> dict[str, object]:
             str(MIXED / "vertices.csv"),
             str(MIXED / "faces.csv"),
         ],
-        env,
+        run_env,
     )
     if result.returncode:
         raise RuntimeError(
@@ -101,6 +108,35 @@ def execute(binary: Path, env: dict[str, str]) -> dict[str, object]:
             + (result.stderr.strip() or result.stdout.strip())
         )
     return json.loads(result.stdout)
+
+
+def deterministic_payload(payload: dict[str, object]) -> dict[str, object]:
+    stable = dict(payload)
+    stable.pop("uncached_transaction_microseconds", None)
+    stable.pop("cached_transaction_microseconds", None)
+    return stable
+
+
+def maximum_payload_difference(left: object, right: object) -> float:
+    if isinstance(left, bool) or isinstance(right, bool):
+        return 0.0 if left is right else math.inf
+    if isinstance(left, (int, float)) and isinstance(right, (int, float)):
+        return abs(float(left) - float(right))
+    if isinstance(left, dict) and isinstance(right, dict):
+        if left.keys() != right.keys():
+            return math.inf
+        return max(
+            (maximum_payload_difference(left[key], right[key]) for key in left),
+            default=0.0,
+        )
+    if isinstance(left, list) and isinstance(right, list):
+        if len(left) != len(right):
+            return math.inf
+        return max(
+            (maximum_payload_difference(a, b) for a, b in zip(left, right)),
+            default=0.0,
+        )
+    return 0.0 if left == right else math.inf
 
 
 def emit(payload: dict[str, object], as_json: bool) -> None:
@@ -154,9 +190,35 @@ def main() -> int:
 
             enabled_binary = temp_path / "valence3-phase3-enabled"
             build(enabled_binary, env, enabled=True)
-            enabled_payload = execute(enabled_binary, env)
-        passed = enabled_payload.get("status") == "passed" and default_passed
+            enabled_runs = [
+                execute(enabled_binary, env, thread_count)
+                for thread_count in (1, 2, 4)
+                for _ in range(2)
+            ]
+            enabled_payload = enabled_runs[0]
+            serial_openmp_max_abs_difference = max(
+                maximum_payload_difference(
+                    deterministic_payload(payload),
+                    deterministic_payload(enabled_payload),
+                )
+                for payload in enabled_runs[1:]
+            )
+            serial_openmp_repeat_validated = (
+                serial_openmp_max_abs_difference <= 1.0e-10
+            )
+        passed = (
+            enabled_payload.get("status") == "passed"
+            and default_passed
+            and serial_openmp_repeat_validated
+        )
         enabled_payload["default_off_contract"] = default_passed
+        enabled_payload["serial_openmp_repeat_validated"] = (
+            serial_openmp_repeat_validated
+        )
+        enabled_payload["serial_openmp_thread_counts"] = [1, 2, 4]
+        enabled_payload["serial_openmp_max_abs_difference"] = (
+            serial_openmp_max_abs_difference
+        )
         enabled_payload["status"] = "passed" if passed else "failed"
         emit(enabled_payload, args.json)
         return 0 if passed else 1
