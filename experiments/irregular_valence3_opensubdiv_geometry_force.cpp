@@ -32,6 +32,7 @@
 #endif
 
 using slimed::opensubdiv_valence3::OpenSubdivValence3RowProviderRequest;
+using slimed::opensubdiv_valence3::Valence3TopologyKind;
 using slimed::opensubdiv_valence3::build_guarded_opensubdiv_valence3_rows;
 using namespace slimed::source_keyed_kernel;
 
@@ -55,9 +56,11 @@ struct FixtureReport
     std::vector<int> valences;
     bool closed = false;
     bool mixed345FacePresent = false;
+    bool allFacesAre344 = false;
     bool rowsValid = false;
     bool providerApplicable = false;
     bool providerParity = false;
+    bool providerCacheValidated = false;
     bool providerRejectedWhenNotApplicable = false;
     bool negativeProviderContractsValidated = false;
     bool isolationSensitivityValidated = false;
@@ -585,6 +588,27 @@ bool has_mixed_345_face(const Mesh &mesh)
     return false;
 }
 
+bool all_faces_are_344(const Mesh &mesh)
+{
+    return !mesh.faces.empty() &&
+           std::all_of(mesh.faces.begin(), mesh.faces.end(),
+                       [&mesh](const Face &face) {
+                           std::array<int, 3> valence{{
+                               static_cast<int>(
+                                   mesh.vertices[face.adjacentVertices[0]]
+                                       .adjacentVertices.size()),
+                               static_cast<int>(
+                                   mesh.vertices[face.adjacentVertices[1]]
+                                       .adjacentVertices.size()),
+                               static_cast<int>(
+                                   mesh.vertices[face.adjacentVertices[2]]
+                                       .adjacentVertices.size())}};
+                           std::sort(valence.begin(), valence.end());
+                           return valence ==
+                                  std::array<int, 3>{{3, 4, 4}};
+                       });
+}
+
 std::array<double, 3> evaluate_total_energies(
     Mesh &evaluator,
     const std::vector<SourceKeyedFaceRows> &rows,
@@ -649,7 +673,9 @@ FixtureReport evaluate_fixture(const std::string &name,
                                const std::string &verticesPath,
                                const std::string &facesPath,
                                const bool requireProviderParity,
-                               const bool asymmetricPerturbation = false)
+                               const bool asymmetricPerturbation = false,
+                               const Valence3TopologyKind providerTopology =
+                                   Valence3TopologyKind::CanonicalTetrahedron)
 {
     FixtureReport report;
     report.name = name;
@@ -677,10 +703,12 @@ FixtureReport evaluate_fixture(const std::string &name,
     }
     report.closed = closed_mesh(mesh);
     report.mixed345FacePresent = has_mixed_345_face(mesh);
+    report.allFacesAre344 = all_faces_are_344(mesh);
 
 #ifndef USE_OPENSUBDIV_VALENCE3
     (void)requireProviderParity;
     (void)asymmetricPerturbation;
+    (void)providerTopology;
     return report;
 #else
     const std::vector<SourceKeyedFaceRows> level4Rows =
@@ -705,13 +733,32 @@ FixtureReport evaluate_fixture(const std::string &name,
         report.providerApplicable = true;
         OpenSubdivValence3RowProviderRequest request;
         request.phase1ProviderExplicitRequest = true;
+        request.topology = providerTopology;
         const auto provider =
             build_guarded_opensubdiv_valence3_rows(mesh, request);
+        const auto repeatedProvider =
+            build_guarded_opensubdiv_valence3_rows(mesh, request);
+        const bool sourceBoundaryValidated =
+            providerTopology == Valence3TopologyKind::CanonicalTetrahedron
+                ? provider.exactFourSourceBoundaryValidated
+                : provider.exactFiveSourceBoundaryValidated &&
+                      provider.triangularBipyramidTopologyValidated;
         report.providerParity =
             provider.accepted &&
             provider.opensubdivVersionNumber == 30700 &&
             provider.adaptiveIsolationLevel == 5 &&
+            provider.sourceCount == report.vertexCount &&
+            provider.faceCount == report.faceCount &&
+            provider.topology == providerTopology &&
+            sourceBoundaryValidated &&
             packages_match(provider.rows, rows);
+        report.providerCacheValidated =
+            repeatedProvider.accepted &&
+            repeatedProvider.immutableRowCacheHit &&
+            repeatedProvider.topology == providerTopology &&
+            packages_match(repeatedProvider.rows, rows);
+        report.providerParity =
+            report.providerParity && report.providerCacheValidated;
 
         const auto defaultOff =
             build_guarded_opensubdiv_valence3_rows(mesh, {});
@@ -725,9 +772,19 @@ FixtureReport evaluate_fixture(const std::string &name,
                   invalid.faces[0].adjacentVertices[1]);
         const auto invalidResult =
             build_guarded_opensubdiv_valence3_rows(invalid, request);
+        OpenSubdivValence3RowProviderRequest wrongTopologyRequest = request;
+        wrongTopologyRequest.topology =
+            providerTopology == Valence3TopologyKind::CanonicalTetrahedron
+                ? Valence3TopologyKind::TriangularBipyramid344
+                : Valence3TopologyKind::CanonicalTetrahedron;
+        const auto wrongTopologyResult =
+            build_guarded_opensubdiv_valence3_rows(mesh,
+                                                   wrongTopologyRequest);
         report.negativeProviderContractsValidated =
             !defaultOff.accepted && defaultOff.rows.empty() &&
-            !invalidResult.accepted && invalidResult.rows.empty();
+            !invalidResult.accepted && invalidResult.rows.empty() &&
+            !wrongTopologyResult.accepted &&
+            wrongTopologyResult.rows.empty();
     }
     else
     {
@@ -1026,12 +1083,16 @@ void print_report(const FixtureReport &report)
     std::cout << ",\"closed\":" << (report.closed ? "true" : "false");
     std::cout << ",\"mixed_345_face_present\":"
               << (report.mixed345FacePresent ? "true" : "false");
+    std::cout << ",\"all_faces_are_344\":"
+              << (report.allFacesAre344 ? "true" : "false");
     std::cout << ",\"rows_valid\":"
               << (report.rowsValid ? "true" : "false");
     std::cout << ",\"provider_applicable\":"
               << (report.providerApplicable ? "true" : "false");
     std::cout << ",\"canonical_provider_parity\":"
               << (report.providerParity ? "true" : "false");
+    std::cout << ",\"topology_keyed_provider_cache_validated\":"
+              << (report.providerCacheValidated ? "true" : "false");
     std::cout << ",\"provider_rejected_when_not_applicable\":"
               << (report.providerRejectedWhenNotApplicable ? "true"
                                                             : "false");
@@ -1092,10 +1153,11 @@ void print_report(const FixtureReport &report)
 
 int main(int argc, char **argv)
 {
-    if (argc != 5)
+    if (argc != 7)
     {
         std::cerr << "usage: " << argv[0]
-                  << " TETRA_VERTICES TETRA_FACES MIXED_VERTICES MIXED_FACES\n";
+                  << " TETRA_VERTICES TETRA_FACES MIXED_VERTICES MIXED_FACES"
+                  << " BIPYRAMID_VERTICES BIPYRAMID_FACES\n";
         return 2;
     }
 
@@ -1127,12 +1189,20 @@ int main(int argc, char **argv)
             "asymmetric_valence3_tetrahedron", argv[1], argv[2], true, true);
         const FixtureReport mixed = evaluate_fixture(
             "closed_mixed_valence345", argv[3], argv[4], false);
+        const FixtureReport bipyramid = evaluate_fixture(
+            "closed_valence3_triangular_bipyramid", argv[5], argv[6], true,
+            false, Valence3TopologyKind::TriangularBipyramid344);
+        const FixtureReport asymmetricBipyramid = evaluate_fixture(
+            "asymmetric_valence3_triangular_bipyramid", argv[5], argv[6],
+            true, true, Valence3TopologyKind::TriangularBipyramid344);
         const bool tetraValence3 =
             tetra.valences == std::vector<int>({3, 3, 3, 3});
         const std::set<int> mixedValences(
             mixed.valences.begin(), mixed.valences.end());
         const bool mixedValenceSet =
             mixedValences == std::set<int>({3, 4, 5});
+        const bool bipyramidValences =
+            bipyramid.valences == std::vector<int>({3, 3, 4, 4, 4});
         const auto sciencePassed = [](const FixtureReport &report) {
             const bool providerContract = report.providerApplicable
                 ? report.providerParity
@@ -1156,8 +1226,11 @@ int main(int argc, char **argv)
         const bool passed = sciencePassed(tetra) &&
                             sciencePassed(asymmetric) &&
                             sciencePassed(mixed) &&
+                            sciencePassed(bipyramid) &&
+                            sciencePassed(asymmetricBipyramid) &&
                             tetraValence3 && mixedValenceSet &&
-                            mixed.mixed345FacePresent;
+                            mixed.mixed345FacePresent &&
+                            bipyramidValences && bipyramid.allFacesAre344;
         std::cout << std::setprecision(17);
         std::cout << "{\"status\":\"" << (passed ? "passed" : "failed")
                   << "\",\"proof_only\":true"
@@ -1175,6 +1248,10 @@ int main(int argc, char **argv)
         print_report(asymmetric);
         std::cout << ',';
         print_report(mixed);
+        std::cout << ',';
+        print_report(bipyramid);
+        std::cout << ',';
+        print_report(asymmetricBipyramid);
         std::cout << "]}\n";
         return passed ? 0 : 4;
     }

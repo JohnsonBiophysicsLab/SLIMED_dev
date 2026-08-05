@@ -19,7 +19,10 @@ def test_valence3_provider_and_science_harness_are_guarded_and_inventoried():
     assert "USE_OPENSUBDIV_VALENCE3" in provider
     assert "phase1ProviderExplicitRequest" in provider
     assert "productionRouteEnabled = true" not in provider
-    assert "kApprovedSourceCount = 4" in provider
+    assert "Valence3TopologyKind::CanonicalTetrahedron" in provider
+    assert "Valence3TopologyKind::TriangularBipyramid344" in provider
+    assert '"closed valence-3 3/4/4 triangular bipyramid"' in provider
+    assert "cachedRows[cacheIndex]" in provider
     assert "LimitStencilTableFactoryReal<double>" in provider
     assert "mixed.mixed345FacePresent" in harness
     assert "existing_slimed_energy_force_algebra_executed" in harness
@@ -59,13 +62,47 @@ def test_valence3_provider_and_science_harness_are_guarded_and_inventoried():
     assert "--require-opensubdiv --json" in workflow
 
 
-def test_valence3_candidate_fixtures_encode_closed_3_and_mixed_345_topologies():
+def test_valence3_candidate_fixtures_encode_closed_3_mixed_345_and_344_topologies():
     tetra = ROOT / "data/fixtures/candidates/closed_valence3_tetrahedron"
     mixed = ROOT / "data/fixtures/candidates/closed_mixed_valence345"
+    bipyramid = (
+        ROOT
+        / "data/fixtures/candidates/closed_valence3_triangular_bipyramid"
+    )
     assert len((tetra / "vertices.csv").read_text().strip().splitlines()) == 4
     assert len((tetra / "faces.csv").read_text().strip().splitlines()) == 4
     assert len((mixed / "vertices.csv").read_text().strip().splitlines()) == 6
     assert len((mixed / "faces.csv").read_text().strip().splitlines()) == 8
+    assert len((bipyramid / "vertices.csv").read_text().strip().splitlines()) == 5
+    assert len((bipyramid / "faces.csv").read_text().strip().splitlines()) == 6
     metadata = (mixed / "candidate_metadata.json").read_text()
     assert '"vertex_valence_by_id": [5, 5, 4, 3, 4, 3]' in metadata
     assert '"contains_face_valence_triplet": "3/4/5"' in metadata
+    bipyramid_metadata = (bipyramid / "candidate_metadata.json").read_text()
+    assert '"vertex_valence_by_id": [3, 3, 4, 4, 4]' in bipyramid_metadata
+    assert bipyramid_metadata.count('"3/4/4"') == 6
+
+
+def test_phase5_bipyramid_remains_proof_only_and_production_stays_tetrahedral():
+    header = (ROOT / "include/mesh/OpenSubdiv_valence3_row_provider.hpp").read_text()
+    provider = (ROOT / "src/mesh/OpenSubdiv_valence3_row_provider.cpp").read_text()
+    face_loop = (ROOT / "src/energy_force/Valence3_opensubdiv_face_loop.cpp").read_text()
+    harness = (
+        ROOT / "experiments/irregular_valence3_opensubdiv_geometry_force.cpp"
+    ).read_text()
+    runner = (
+        ROOT / "scripts/run_irregular_valence3_opensubdiv_geometry_force.py"
+    ).read_text()
+
+    assert "TriangularBipyramid344" in header
+    assert "Production callers" in header
+    assert "request.topology" in provider
+    assert "exactFiveSourceBoundaryValidated" in provider
+    assert "exactFourSourceBoundaryValidated" in face_loop
+    assert "rowRequest.topology" not in face_loop
+    assert "bipyramid.allFacesAre344" in harness
+    assert "asymmetric_valence3_triangular_bipyramid" in harness
+    assert "topology_keyed_provider_cache_validated" in harness
+    assert "repeatedProvider.immutableRowCacheHit" in harness
+    assert "wrongTopologyRequest" in harness
+    assert "BIPYRAMID" in runner

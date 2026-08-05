@@ -36,20 +36,50 @@ using source_keyed_kernel::SourceKeyedFaceRows;
 using source_keyed_kernel::SourceKeyedRow;
 using source_keyed_kernel::SourceKeyedSampleRows;
 
-constexpr int kApprovedFaceCount = 4;
-constexpr int kApprovedSourceCount = 4;
 constexpr int kSampleCount = 3;
 constexpr int kDerivativeRowCount = source_keyed_kernel::kDerivativeRowCount;
 constexpr double kInvariantTolerance = 1.0e-12;
 
-constexpr std::array<std::array<int, 3>, kApprovedFaceCount> kApprovedFaces{{
-    {{0, 2, 1}},
-    {{0, 1, 3}},
-    {{0, 3, 2}},
-    {{1, 2, 3}},
-}};
+struct ApprovedTopology
+{
+    Valence3TopologyKind kind;
+    const char *name;
+    int sourceCount;
+    std::vector<int> valences;
+    std::vector<std::array<int, 3>> faces;
+};
 
-constexpr std::array<int, kApprovedSourceCount> kApprovedSources{{0, 1, 2, 3}};
+const ApprovedTopology *approved_topology(const Valence3TopologyKind kind)
+{
+    static const ApprovedTopology tetrahedron{
+        Valence3TopologyKind::CanonicalTetrahedron,
+        "canonical valence-3 tetrahedron",
+        4,
+        {3, 3, 3, 3},
+        {{{0, 2, 1}}, {{0, 1, 3}}, {{0, 3, 2}}, {{1, 2, 3}}},
+    };
+    static const ApprovedTopology triangularBipyramid{
+        Valence3TopologyKind::TriangularBipyramid344,
+        "closed valence-3 3/4/4 triangular bipyramid",
+        5,
+        {3, 3, 4, 4, 4},
+        {{{0, 2, 3}}, {{0, 3, 4}}, {{0, 4, 2}},
+         {{1, 3, 2}}, {{1, 4, 3}}, {{1, 2, 4}}},
+    };
+    switch (kind)
+    {
+    case Valence3TopologyKind::CanonicalTetrahedron:
+        return &tetrahedron;
+    case Valence3TopologyKind::TriangularBipyramid344:
+        return &triangularBipyramid;
+    }
+    return nullptr;
+}
+
+std::size_t topology_cache_index(const Valence3TopologyKind kind)
+{
+    return kind == Valence3TopologyKind::TriangularBipyramid344 ? 1u : 0u;
+}
 
 OpenSubdivValence3RowProviderResult reject(
     const std::string &reason,
@@ -63,30 +93,34 @@ OpenSubdivValence3RowProviderResult reject(
     return result;
 }
 
-bool exact_topology_identity(const Mesh &mesh)
+bool exact_topology_identity(const Mesh &mesh,
+                             const ApprovedTopology &topology)
 {
-    if (mesh.vertices.size() != kApprovedSourceCount ||
-        mesh.faces.size() != kApprovedFaceCount)
+    if (mesh.vertices.size() !=
+            static_cast<std::size_t>(topology.sourceCount) ||
+        mesh.faces.size() != topology.faces.size())
     {
         return false;
     }
-    for (int source = 0; source < kApprovedSourceCount; ++source)
+    for (int source = 0; source < topology.sourceCount; ++source)
     {
         const Vertex &vertex = mesh.vertices[source];
         if (vertex.index != source || vertex.isBoundary || vertex.isGhost ||
-            vertex.adjacentVertices.size() != 3u)
+            vertex.adjacentVertices.size() !=
+                static_cast<std::size_t>(topology.valences[source]))
         {
             return false;
         }
     }
-    for (int face = 0; face < kApprovedFaceCount; ++face)
+    for (std::size_t face = 0; face < topology.faces.size(); ++face)
     {
         const Face &actual = mesh.faces[face];
-        if (actual.index != face || actual.isGhost || actual.isBoundary ||
+        if (actual.index != static_cast<int>(face) || actual.isGhost ||
+            actual.isBoundary ||
             !actual.oneRingVertices.empty() ||
             actual.adjacentVertices.size() != 3u ||
-            !std::equal(kApprovedFaces[face].begin(),
-                        kApprovedFaces[face].end(),
+            !std::equal(topology.faces[face].begin(),
+                        topology.faces[face].end(),
                         actual.adjacentVertices.begin()))
         {
             return false;
@@ -117,12 +151,12 @@ struct DeleteConst
 };
 
 std::unique_ptr<Far::TopologyRefiner, RefinerDeleter>
-create_refiner(const Mesh &mesh)
+create_refiner(const Mesh &mesh, const ApprovedTopology &topology)
 {
     using Descriptor = Far::TopologyDescriptor;
-    std::array<int, kApprovedFaceCount> verticesPerFace{{3, 3, 3, 3}};
+    std::vector<int> verticesPerFace(topology.faces.size(), 3);
     std::vector<int> vertexIndices;
-    vertexIndices.reserve(kApprovedFaceCount * 3u);
+    vertexIndices.reserve(topology.faces.size() * 3u);
     for (const Face &face : mesh.faces)
     {
         vertexIndices.insert(vertexIndices.end(),
@@ -131,8 +165,8 @@ create_refiner(const Mesh &mesh)
     }
 
     Descriptor descriptor;
-    descriptor.numVertices = kApprovedSourceCount;
-    descriptor.numFaces = kApprovedFaceCount;
+    descriptor.numVertices = topology.sourceCount;
+    descriptor.numFaces = static_cast<int>(topology.faces.size());
     descriptor.numVertsPerFace = verticesPerFace.data();
     descriptor.vertIndicesPerFace = vertexIndices.data();
 
@@ -184,38 +218,53 @@ build_guarded_opensubdiv_valence3_rows(
         false,
         true);
 #else
-    if (!exact_topology_identity(mesh))
+    const ApprovedTopology *topology = approved_topology(request.topology);
+    if (!topology)
     {
         return reject(
-            "valence-3 OpenSubdiv Phase 1 row provider rejected topology "
-            "identity, orientation, cardinality, valence, or one-ring state",
+            "valence-3 OpenSubdiv row provider rejected an unknown topology "
+            "selection",
+            true,
+            true);
+    }
+    if (!exact_topology_identity(mesh, *topology))
+    {
+        return reject(
+            "valence-3 OpenSubdiv row provider rejected the selected " +
+                std::string(topology->name) +
+                " identity, orientation, cardinality, valence, or one-ring "
+                "state",
             true,
             true);
     }
 
-    // The accepted provider has one immutable identity: exact topology and
-    // orientation, the fixed three-sample plan, Loop options, isolation level
-    // five, and compile-time OpenSubdiv 3.7.0. Coordinates are deliberately
-    // absent. Topology preflight above runs on every call before a cache hit.
+    // Each accepted provider package has one immutable identity: exact
+    // topology and orientation, the fixed three-sample plan, Loop options,
+    // isolation level five, and compile-time OpenSubdiv 3.7.0.
+    // Coordinates are deliberately absent. Selected-topology preflight above
+    // runs on every call before a cache hit.
     static std::mutex cacheMutex;
-    static std::optional<OpenSubdivValence3RowProviderResult> cachedRows;
+    static std::array<std::optional<OpenSubdivValence3RowProviderResult>, 2>
+        cachedRows;
+    const std::size_t cacheIndex = topology_cache_index(request.topology);
     {
         std::lock_guard<std::mutex> lock(cacheMutex);
-        if (cachedRows.has_value())
+        if (cachedRows[cacheIndex].has_value())
         {
-            OpenSubdivValence3RowProviderResult result = *cachedRows;
+            OpenSubdivValence3RowProviderResult result =
+                *cachedRows[cacheIndex];
             result.immutableRowCacheHit = true;
             return result;
         }
     }
 
     std::unique_ptr<Far::TopologyRefiner, RefinerDeleter> refiner =
-        create_refiner(mesh);
+        create_refiner(mesh, *topology);
     if (!refiner)
     {
         return reject(
             "valence-3 OpenSubdiv Phase 1 row provider could not create "
-            "the canonical topology refiner",
+            "the selected topology refiner",
             true,
             true);
     }
@@ -224,11 +273,12 @@ build_guarded_opensubdiv_valence3_rows(
     refiner->RefineAdaptive(patchOptions.GetRefineAdaptiveOptions());
     std::unique_ptr<const Far::PatchTable, DeleteConst<Far::PatchTable>>
         patchTable(Far::PatchTableFactory::Create(*refiner, patchOptions));
-    if (!patchTable || patchTable->GetNumPtexFaces() != kApprovedFaceCount)
+    const int faceCount = static_cast<int>(topology->faces.size());
+    if (!patchTable || patchTable->GetNumPtexFaces() != faceCount)
     {
         return reject(
-            "valence-3 OpenSubdiv Phase 1 row provider requires exactly "
-            "four canonical Ptex faces",
+            "valence-3 OpenSubdiv row provider found a Ptex face count "
+            "different from the selected topology",
             true,
             true);
     }
@@ -238,13 +288,13 @@ build_guarded_opensubdiv_valence3_rows(
     const std::array<double, kSampleCount> sampleT{{
         1.0 / 6.0, 4.0 / 6.0, 1.0 / 6.0}};
     std::vector<std::array<double, kSampleCount>> sByFace(
-        kApprovedFaceCount, sampleS);
+        faceCount, sampleS);
     std::vector<std::array<double, kSampleCount>> tByFace(
-        kApprovedFaceCount, sampleT);
+        faceCount, sampleT);
     using DoubleFactory = Far::LimitStencilTableFactoryReal<double>;
     DoubleFactory::LocationArrayVec locations;
-    locations.reserve(kApprovedFaceCount);
-    for (int face = 0; face < kApprovedFaceCount; ++face)
+    locations.reserve(faceCount);
+    for (int face = 0; face < faceCount; ++face)
     {
         DoubleFactory::LocationArray location;
         location.ptexIdx = face;
@@ -261,23 +311,23 @@ build_guarded_opensubdiv_valence3_rows(
         stencils(DoubleFactory::Create(
             *refiner, locations, nullptr, nullptr, stencilOptions));
     if (!stencils ||
-        stencils->GetNumStencils() != kApprovedFaceCount * kSampleCount)
+        stencils->GetNumStencils() != faceCount * kSampleCount)
     {
         return reject(
             "valence-3 OpenSubdiv Phase 1 row provider requires the "
-            "complete 4 x 3 stencil plan",
+            "complete selected-face x 3 stencil plan",
             true,
             true);
     }
 
     Far::PatchMap patchMap(*patchTable);
     std::vector<SourceKeyedFaceRows> stagedRows;
-    stagedRows.reserve(kApprovedFaceCount);
-    for (int face = 0; face < kApprovedFaceCount; ++face)
+    stagedRows.reserve(faceCount);
+    for (int face = 0; face < faceCount; ++face)
     {
         SourceKeyedFaceRows faceRows;
         faceRows.faceIndex = face;
-        faceRows.orientedFaceVertices = kApprovedFaces[face];
+        faceRows.orientedFaceVertices = topology->faces[face];
         faceRows.samples.resize(kSampleCount);
 
         for (int sample = 0; sample < kSampleCount; ++sample)
@@ -324,21 +374,25 @@ build_guarded_opensubdiv_valence3_rows(
                     aggregate_row(stencil, weights[row]);
                 for (const auto &entry : aggregated)
                 {
-                    if (entry.first < 0 || entry.first >= kApprovedSourceCount)
+                    if (entry.first < 0 ||
+                        entry.first >= topology->sourceCount)
                     {
                         return reject(
                             "valence-3 OpenSubdiv Phase 1 row provider "
-                            "escaped the canonical four-source boundary",
+                            "escaped the selected topology source boundary",
                             true,
                             true);
                     }
                 }
 
                 SourceKeyedRow &target = sampleRows.rows[row];
-                target.sourceIds.assign(kApprovedSources.begin(),
-                                        kApprovedSources.end());
-                target.coefficients.reserve(kApprovedSourceCount);
-                for (const int sourceId : kApprovedSources)
+                target.sourceIds.resize(topology->sourceCount);
+                std::iota(target.sourceIds.begin(),
+                          target.sourceIds.end(), 0);
+                target.coefficients.reserve(topology->sourceCount);
+                for (int sourceId = 0;
+                     sourceId < topology->sourceCount;
+                     ++sourceId)
                 {
                     const auto found = aggregated.find(sourceId);
                     const double coefficient =
@@ -386,7 +440,13 @@ build_guarded_opensubdiv_valence3_rows(
     result.topologySourceMappingValidated = true;
     result.ptexFaceIdentityValidated = true;
     result.exactSamplePlanValidated = true;
-    result.exactFourSourceBoundaryValidated = true;
+    result.exactFourSourceBoundaryValidated = topology->sourceCount == 4;
+    result.exactFiveSourceBoundaryValidated = topology->sourceCount == 5;
+    result.triangularBipyramidTopologyValidated =
+        topology->kind == Valence3TopologyKind::TriangularBipyramid344;
+    result.sourceCount = topology->sourceCount;
+    result.faceCount = faceCount;
+    result.topology = topology->kind;
     result.doublePrecisionRowsGenerated = true;
     result.constantFieldInvariantsValidated = true;
     result.mixedDerivativeRowsDuplicated = true;
@@ -397,13 +457,14 @@ build_guarded_opensubdiv_valence3_rows(
     result.rows = std::move(stagedRows);
     {
         std::lock_guard<std::mutex> lock(cacheMutex);
-        if (cachedRows.has_value())
+        if (cachedRows[cacheIndex].has_value())
         {
-            OpenSubdivValence3RowProviderResult cachedResult = *cachedRows;
+            OpenSubdivValence3RowProviderResult cachedResult =
+                *cachedRows[cacheIndex];
             cachedResult.immutableRowCacheHit = true;
             return cachedResult;
         }
-        cachedRows = result;
+        cachedRows[cacheIndex] = result;
     }
     return result;
 #endif
