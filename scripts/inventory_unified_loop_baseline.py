@@ -38,6 +38,14 @@ EXPECTED_RUNTIME_FLAGS = [
 ]
 EXPECTED_VOLUME_FACTOR_NAMES = ["kLegacyVolumeQuadratureFactor"]
 EXPECTED_VOLUME_FUNCTIONAL_TOKENS: list[str] = []
+LEGACY_VOLUME_FACTOR_LITERAL = "0.16666666666"
+EXPECTED_WP0_PATHS = [
+    "docs/adr_unified_loop_backend.md",
+    "docs/irregular_loop_architecture_reassessment.md",
+    "docs/unified_irregular_loop_implementation_plan.md",
+    "scripts/inventory_unified_loop_baseline.py",
+    "tests/test_unified_loop_baseline_inventory.py",
+]
 EXPECTED_VALENCE5_FACE_SOURCE_MAPPING_SHA256 = (
     "9f5fe4e76a9815a806970164d4a5e02771c4350a6c1047ceb7ce3e86cd2acd1a")
 
@@ -85,13 +93,30 @@ EXPECTED_FIXTURE_HASHES = {
 EXPECTED_DECISIONS = {
     "D0": "Proposed - pending explicit user disposition",
     "D1": "Proposed - pending explicit user scientific approval",
-    "D2": "Proposed - pending explicit user/maintainer approval",
-    "D3": "Pending post-WP2.1 oracle, scientific review, and user decision",
-    "D4": "Pending post-WP2.1 characterization and user/maintainer decision",
+    "D2": "Proposed - pending explicit user approval",
+    "D3": "Pending post-WP2.1 oracle, independent scientific review, and user decision",
+    "D4": "Pending post-WP2.1 characterization, independent scientific review, and user decision",
     "D5": "Proposed - pending explicit user approval",
-    "D6": "Accepted existing policy",
-    "D7": "Accepted existing user instruction",
+    "D6": "Restated existing project policy",
+    "D7": "Restated existing user instruction",
 }
+
+EXPECTED_PLAN_AUTHORITIES = {
+    "D0": "Explicit user decision",
+    "D1": "Explicit user scientific decision, informed by prior Valence-5 acceptance",
+    "D2": "Explicit user decision",
+    "D3": "WP2.1 oracle, independent scientific review, and explicit user scientific decision",
+    "D4": "WP2.1 characterization, independent scientific review, and explicit user decision",
+    "D5": "Explicit user decision",
+    "D6": "Existing project policy",
+    "D7": "Existing user instruction",
+}
+
+EXPECTED_ENERGY_FIELDS = [
+    "energyCurvature", "energyArea", "energyVolume", "energyThickness",
+    "energyTilt", "energyRegularization", "energyHarmonicBond",
+    "energyGagScaffolding", "energyIdealizedProteinLattice", "energyTotal",
+]
 
 EXPECTED_TOLERANCES = {
     "regular_row_and_route_parity": {
@@ -172,6 +197,59 @@ def _all_present(text: str, anchors: list[str]) -> bool:
     return all(anchor in text for anchor in anchors)
 
 
+def _blank_non_code(match: re.Match[str]) -> str:
+    return "".join("\n" if character == "\n" else " "
+                   for character in match.group(0))
+
+
+def _cpp_code(text: str) -> str:
+    non_code = re.compile(
+        r"//[^\n]*|/\*.*?\*/|\"(?:\\.|[^\"\\])*\"|'(?:\\.|[^'\\])*'",
+        re.DOTALL,
+    )
+    return non_code.sub(_blank_non_code, text)
+
+
+def _cpp_block_after(text: str, marker: str) -> str:
+    code = _cpp_code(text)
+    marker_offset = code.index(marker)
+    opening = code.index("{", marker_offset + len(marker))
+    depth = 0
+    for offset in range(opening, len(code)):
+        if code[offset] == "{":
+            depth += 1
+        elif code[offset] == "}":
+            depth -= 1
+            if depth == 0:
+                return code[opening + 1:offset]
+    raise ValueError(f"unterminated C++ block after {marker}")
+
+
+def _route_block_is_guarded_terminal_return(
+        text: str, condition: str, evaluator: str) -> bool:
+    block = _cpp_block_after(text, f"if ({condition})")
+    return (evaluator in block
+            and "if (!routed.accepted)" in block
+            and bool(re.search(r"\breturn\s*;\s*$", block)))
+
+
+def _energy_field_order(text: str, marker: str) -> list[str]:
+    block = _cpp_block_after(text, marker)
+    return re.findall(r"\benergy\.(energy[A-Za-z0-9_]+)\b", block)
+
+
+def _markdown_row_cells(text: str, decision: str) -> list[str]:
+    for line in text.splitlines():
+        if re.match(rf"^\|\s*{re.escape(decision)}(?::[^|]*)?\s*\|", line):
+            return [cell.strip() for cell in line.strip().strip("|").split("|")]
+    return []
+
+
+def _source_float(text: str, pattern: str) -> float:
+    match = re.search(pattern, text)
+    return float(match.group(1)) if match else float("nan")
+
+
 def _git_output(*arguments: str) -> str:
     try:
         return subprocess.check_output(
@@ -181,8 +259,20 @@ def _git_output(*arguments: str) -> str:
         return "unavailable"
 
 
+def _git_success(*arguments: str) -> bool:
+    try:
+        subprocess.check_call(
+            ["git", *arguments], cwd=ROOT,
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return True
+    except (OSError, subprocess.CalledProcessError):
+        return False
+
+
 def collect_inventory() -> dict[str, Any]:
     makefile = _text("Makefile")
+    adr = _text("docs/adr_unified_loop_backend.md")
+    plan = _text("docs/unified_irregular_loop_implementation_plan.md")
     compute = _text("src/energy_force/Compute_energy_and_force_on_mesh.cpp")
     regular = _text("src/mesh/OpenSubdiv_regular_evaluator.cpp")
     v3 = _text("src/mesh/OpenSubdiv_valence3_row_provider.cpp")
@@ -202,6 +292,13 @@ def collect_inventory() -> dict[str, Any]:
     adaptive = _text("include/mesh/Adaptive_edge_flip_quality.hpp")
     corpus = _source_corpus()
 
+    observed_head = _git_output("rev-parse", "HEAD")
+    changed_paths = sorted(filter(None, _git_output(
+        "diff", "--name-only", f"{BASE_SHA}..HEAD").splitlines()))
+    commit_count_text = _git_output("rev-list", "--count", f"{BASE_SHA}..HEAD")
+    commit_count = (int(commit_count_text)
+                    if commit_count_text.isdigit() else -1)
+
     build_flags = sorted(set(re.findall(
         r"^(USE_OPENSUBDIV_[A-Z0-9_]+)\s*\?=", makefile, re.MULTILINE)))
     runtime_flags = sorted(set(re.findall(
@@ -215,6 +312,33 @@ def collect_inventory() -> dict[str, Any]:
         flags=re.IGNORECASE)))
     pr182_face_loop = _git_output(
         "show", f"{PR182_SHA}:src/energy_force/Valence3_opensubdiv_face_loop.cpp")
+
+    decisions = {
+        decision: (_markdown_row_cells(adr, decision) + ["missing"])[1]
+        for decision in EXPECTED_DECISIONS
+    }
+    plan_authorities = {
+        decision: (_markdown_row_cells(plan, decision) +
+                   ["missing", "missing", "missing"])[2]
+        for decision in EXPECTED_PLAN_AUTHORITIES
+    }
+    observed_tolerances = copy.deepcopy(EXPECTED_TOLERANCES)
+    observed_tolerances["regular_row_and_route_parity"]["value"] = _source_float(
+        regular, r"kOpenSubdivRegularRowTolerance\s*=\s*([0-9.eE+-]+)")
+    observed_tolerances["regular_residual_scale_floor"]["value"] = _source_float(
+        regular, r"kOpenSubdivRegularResidualScaleFloor\s*=\s*([0-9.eE+-]+)")
+    observed_tolerances["valence3_row_invariants"]["value"] = _source_float(
+        v3, r"kInvariantTolerance\s*=\s*([0-9.eE+-]+)")
+    observed_tolerances["valence4_row_invariants"]["value"] = _source_float(
+        v4, r"coefficientSum\s*-\s*expectedSum\)\s*>\s*([0-9.eE+-]+)")
+    observed_tolerances["valence5_row_invariants"]["value"] = _source_float(
+        v5, r"kInvariantTolerance\s*=\s*([0-9.eE+-]+)")
+    observed_tolerances["valence5_reviewed_production_parity"]["value"] = _source_float(
+        _text("include/energy_force/Valence5_opensubdiv_face_loop.hpp"),
+        r"kReviewedProductionTolerance\s*=\s*([0-9.eE+-]+)")
+    observed_tolerances["irregular_serial_openmp_envelope"]["value"] = _source_float(
+        _text("docs/irregular_serial_omp_tolerance_characterization.md"),
+        r"tolerance envelope is `([0-9.eE+-]+)` absolute")
 
     fixtures = {path: _sha256(path) for path in EXPECTED_FIXTURE_HASHES}
     topology = {
@@ -278,7 +402,17 @@ def collect_inventory() -> dict[str, Any]:
         "status": "pending",
         "baseline": {
             "authoritative_current_main": BASE_SHA,
-            "observed_head": _git_output("rev-parse", "HEAD"),
+            "observed_head": observed_head,
+            "observed_head_commit": _git_output(
+                "rev-parse", "--verify", "HEAD^{commit}"),
+            "observed_merge_base": _git_output("merge-base", BASE_SHA, "HEAD"),
+            "base_is_ancestor": _git_success(
+                "merge-base", "--is-ancestor", BASE_SHA, "HEAD"),
+            "commits_after_base": commit_count,
+            "merge_commits_after_base": list(filter(None, _git_output(
+                "rev-list", "--min-parents=2", f"{BASE_SHA}..HEAD").splitlines())),
+            "changed_paths_from_base": changed_paths,
+            "allowed_wp0_paths": EXPECTED_WP0_PATHS,
             "pr182_stack_head": PR182_SHA,
             "pr182_merge_base": PR182_MERGE_BASE,
             "observed_pr182_merge_base": _git_output("merge-base", PR182_SHA, BASE_SHA),
@@ -286,11 +420,14 @@ def collect_inventory() -> dict[str, Any]:
             "pr182_full_divergence_anchor":
                 "kFullDivergenceVolumeQuadratureFactor" in pr182_face_loop
                 and "dot(evaluated[0], areaVector)" in pr182_face_loop,
-            "pr182_classification": "unmerged stacked negative convergence evidence",
+            "pr182_classification": (
+                "unmerged stacked negative evidence limited to symmetric/asymmetric "
+                "3/4/4 bipyramids, OpenSubdiv 3.7.0, isolation 5, depths 0-4, "
+                "fixed parameters and recorded targets"),
             "pr182_current_main_production": False,
             "current_main_valence3_runtime_route": False,
         },
-        "decisions": copy.deepcopy(EXPECTED_DECISIONS),
+        "decisions": decisions,
         "A_build_dependency": {
             "build_flags": build_flags,
             "dependency_root": "OPENSUBDIV_ROOT",
@@ -317,8 +454,14 @@ def collect_inventory() -> dict[str, Any]:
                 v5_loop.count('std::string(value) == "1"') >= 2,
             "v4_v5_conflict_rejected":
                 "if (valence4RouteRequested && valence5RouteRequested)" in compute,
-            "whole_mesh_early_returns":
-                compute.count("return;") >= 2,
+            "whole_mesh_route_terminal_returns": {
+                "valence4": _route_block_is_guarded_terminal_return(
+                    compute, "valence4RouteRequested",
+                    "evaluate_guarded_valence4_opensubdiv_production_route"),
+                "valence5": _route_block_is_guarded_terminal_return(
+                    compute, "valence5RouteRequested",
+                    "evaluate_guarded_valence5_opensubdiv_production_route"),
+            },
         },
         "C_valence3_ancestry": {
             "current_main": "proof-only row provider; no runtime production selector",
@@ -363,12 +506,16 @@ def collect_inventory() -> dict[str, Any]:
         "G_volume_functionals": {
             "enumerated_factor_names": volume_factor_names,
             "geometry": {
-                "regular_mesh": "legacy x-only 1/6",
-                "valence4": "legacy x-only 1/6",
-                "valence5": "legacy x-only 1/6",
-                "cuda_cpu": "legacy x-only 1/6",
-                "cuda_device": "legacy x-only 1/6",
+                "regular_mesh": "legacy x-only literal 0.16666666666",
+                "valence4": "legacy x-only literal 0.16666666666",
+                "valence5": "legacy x-only literal 0.16666666666",
+                "cuda_cpu": "legacy x-only literal 0.16666666666",
+                "cuda_device": "legacy x-only literal 0.16666666666",
             },
+            "legacy_factor_literal": LEGACY_VOLUME_FACTOR_LITERAL,
+            "legacy_factor_anchors_present": all(
+                f"kLegacyVolumeQuadratureFactor = {LEGACY_VOLUME_FACTOR_LITERAL}" in text
+                for text in (geometry, v4_loop, v5_loop, cuda_cpu, cuda_device)),
             "x_only_anchors_present": all([
                 "evaluation.position.get(0, 0) * a_3.get(0, 0)" in geometry,
                 "evaluated[0][0] * areaVector[0]" in v4_loop,
@@ -398,7 +545,7 @@ def collect_inventory() -> dict[str, Any]:
                 "execute_guarded_source_keyed_production_face_loop("]),
         },
         "I_tolerances_fixtures": {
-            "tolerances": copy.deepcopy(EXPECTED_TOLERANCES),
+            "tolerances": observed_tolerances,
             "source_anchors_present": all([
                 "kOpenSubdivRegularRowTolerance = 5.0e-6" in regular,
                 "kOpenSubdivRegularResidualScaleFloor = 1.0e-12" in regular,
@@ -415,11 +562,12 @@ def collect_inventory() -> dict[str, Any]:
                 "fixture regressions are locks, not independent scientific oracles",
         },
         "J_output_checkpoint": {
-            "energy_csv_fields": [
-                "energyCurvature", "energyArea", "energyVolume", "energyThickness",
-                "energyTilt", "energyRegularization", "energyHarmonicBond",
-                "energyGagScaffolding", "energyIdealizedProteinLattice", "energyTotal",
-            ],
+            "energy_csv_fields": _energy_field_order(
+                output, "void write_energy_csv_fields"),
+            "checkpoint_energy_write_fields": _energy_field_order(
+                output, "void write_energy_terms"),
+            "checkpoint_energy_read_fields": _energy_field_order(
+                output, "bool read_energy_terms"),
             "energy_force_csv_appends": "meanForce",
             "precision": 17,
             "checkpoint_tag": "SLIMED_RESTART_V2",
@@ -451,6 +599,8 @@ def collect_inventory() -> dict[str, Any]:
             "allowed_volume_factor_names": EXPECTED_VOLUME_FACTOR_NAMES,
             "allowed_volume_functional_tokens": EXPECTED_VOLUME_FUNCTIONAL_TOKENS,
             "observed_volume_functional_tokens": volume_functional_tokens,
+            "plan_decision_authorities": plan_authorities,
+            "expected_plan_decision_authorities": EXPECTED_PLAN_AUTHORITIES,
         },
     }
     return report
@@ -467,6 +617,20 @@ def validate_inventory(report: dict[str, Any], check_adr: bool = True) -> list[s
         require(report["schema_version"] == 1, "schema version drift")
         baseline = report["baseline"]
         require(baseline["authoritative_current_main"] == BASE_SHA, "base SHA drift")
+        require(baseline["observed_head"] not in {"unavailable", BASE_SHA},
+                "HEAD missing or not beyond the pinned base")
+        require(baseline["observed_head_commit"] == baseline["observed_head"],
+                "observed HEAD identity drift")
+        require(baseline["observed_merge_base"] == BASE_SHA,
+                "HEAD/base merge ancestry drift")
+        require(baseline["base_is_ancestor"], "pinned base is not an ancestor of HEAD")
+        require(baseline["commits_after_base"] > 0, "WP0 commit sequence missing")
+        require(not baseline["merge_commits_after_base"],
+                "unexpected merge commit in WP0 branch")
+        require(baseline["allowed_wp0_paths"] == EXPECTED_WP0_PATHS,
+                "WP0 path allowlist drift")
+        require(baseline["changed_paths_from_base"] == EXPECTED_WP0_PATHS,
+                "WP0 aggregate diff path drift")
         require(baseline["pr182_stack_head"] == PR182_SHA, "PR 182 SHA drift")
         require(baseline["observed_pr182_merge_base"] == PR182_MERGE_BASE,
                 "PR 182 ancestry drift")
@@ -496,7 +660,9 @@ def validate_inventory(report: dict[str, Any], check_adr: bool = True) -> list[s
         require(b["regular_semantics_present"], "regular truthy semantics drift")
         require(b["valence4_semantics_present"] and b["valence5_semantics_present"],
                 "V4/V5 exact-1 semantics drift")
-        require(b["v4_v5_conflict_rejected"] and b["whole_mesh_early_returns"],
+        require(b["v4_v5_conflict_rejected"] and
+                b["whole_mesh_route_terminal_returns"] == {
+                    "valence4": True, "valence5": True},
                 "extraordinary route conflict/early-return drift")
 
         c = report["C_valence3_ancestry"]
@@ -550,6 +716,9 @@ def validate_inventory(report: dict[str, Any], check_adr: bool = True) -> list[s
         g = report["G_volume_functionals"]
         require(g["enumerated_factor_names"] == EXPECTED_VOLUME_FACTOR_NAMES,
                 "unlisted/missing volume functional factor")
+        require(g["legacy_factor_literal"] == LEGACY_VOLUME_FACTOR_LITERAL and
+                g["legacy_factor_anchors_present"],
+                "legacy volume decimal literal drift")
         require(g["x_only_anchors_present"], "legacy x-only geometry anchor drift")
         require(g["global_volume_energy"] != "missing", "global volume energy anchor missing")
         require(g["force_anchor_present"], "full-vector /3 force anchor missing")
@@ -569,8 +738,14 @@ def validate_inventory(report: dict[str, Any], check_adr: bool = True) -> list[s
         require(i["fixture_sha256"] == EXPECTED_FIXTURE_HASHES, "fixture SHA256 drift")
 
         j = report["J_output_checkpoint"]
-        require(len(j["energy_csv_fields"]) == 10, "energy CSV width drift")
-        require(j["energy_csv_fields"][-1] == "energyTotal", "energy CSV field order drift")
+        require(j["energy_csv_fields"] == EXPECTED_ENERGY_FIELDS,
+                "energy CSV field order drift")
+        require(j["checkpoint_energy_write_fields"] == EXPECTED_ENERGY_FIELDS and
+                j["checkpoint_energy_read_fields"] == EXPECTED_ENERGY_FIELDS,
+                "checkpoint energy field order drift")
+        require(j["energy_csv_fields"] == j["checkpoint_energy_write_fields"] ==
+                j["checkpoint_energy_read_fields"],
+                "CSV/checkpoint energy order disagreement")
         require(j["energy_force_csv_appends"] == "meanForce", "EnergyForce CSV suffix drift")
         require(j["precision"] == 17 and j["checkpoint_tag"] == "SLIMED_RESTART_V2",
                 "output precision/checkpoint tag drift")
@@ -600,6 +775,11 @@ def validate_inventory(report: dict[str, Any], check_adr: bool = True) -> list[s
         require(l["observed_volume_functional_tokens"] ==
                 EXPECTED_VOLUME_FUNCTIONAL_TOKENS,
                 "unlisted volume functional token")
+        require(l["expected_plan_decision_authorities"] ==
+                EXPECTED_PLAN_AUTHORITIES,
+                "plan authority allowlist drift")
+        require(l["plan_decision_authorities"] == EXPECTED_PLAN_AUTHORITIES,
+                "plan/user decision authority drift")
     except (KeyError, TypeError, IndexError) as error:
         errors.append(f"inventory schema incomplete: {error}")
 
@@ -608,11 +788,12 @@ def validate_inventory(report: dict[str, Any], check_adr: bool = True) -> list[s
         if not adr_path.is_file():
             errors.append("ADR missing")
         else:
-            adr = adr_path.read_text(encoding="utf-8")
+            adr = _text("docs/adr_unified_loop_backend.md")
             for decision, status in EXPECTED_DECISIONS.items():
                 if f"| {decision} | {status} |" not in adr:
                     errors.append(f"ADR/inventory disagreement for {decision}")
-            for anchor in (BASE_SHA, PR182_SHA, "D3 and D4 remain pending post-WP2.1"):
+            for anchor in (BASE_SHA, PR182_SHA,
+                           "D3 and D4 remain pending WP2.1, independent scientific review"):
                 if anchor not in adr:
                     errors.append(f"ADR anchor missing: {anchor}")
     return errors

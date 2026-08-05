@@ -24,10 +24,13 @@ inventory and evidence package; it does not implicitly approve D0-D5.
 Current main and PR 182 are different evidence sets. Current main contains
 Valence-4 and Valence-5 whole-mesh runtime routes and a Valence-3 proof-only
 row provider. PR 182 is open, green, and previously reviewed as mergeable at
-the SHA above, but it is stacked on a non-main ancestry. Its deeper bipyramid
-study is useful negative convergence evidence. Its dedicated Valence-3
-production route is not current-main production and is not the target
-architecture of this ADR.
+the SHA above, but it is stacked on a non-main ancestry. Its convergence result
+is limited to the symmetric and asymmetric `3/4/4` triangular bipyramids,
+OpenSubdiv 3.7.0, isolation level 5, nested depths 0 through 4, fixed study
+parameters, and its recorded global/force activation targets. It does not
+establish a result for other topologies, deeper levels, different rules, or
+stock Loop generally. Its dedicated Valence-3 production route is not
+current-main production and is not the target architecture of this ADR.
 
 ## Decision ledger
 
@@ -36,18 +39,18 @@ The exact status phrases below are checked by
 
 | ID | Status | Proposed or existing rule | Required authority / evidence |
 | --- | --- | --- | --- |
-| D0 | Proposed - pending explicit user disposition | Do not merge PR 182 as a production milestone; preserve or extract only clearly labelled negative convergence evidence. | User decision before PR closure, retargeting, or evidence extraction. |
+| D0 | Proposed - pending explicit user disposition | Do not merge PR 182 as a production milestone; preserve or extract only the scoped two-fixture evidence described above. | Explicit user decision before PR closure, retargeting, or evidence extraction. |
 | D1 | Proposed - pending explicit user scientific approval | Use stock OpenSubdiv Loop semantics as the forward-looking CPU baseline. Do not modify completed rows to imitate the legacy mask. | Explicit user scientific approval. Prior acceptance applies only to the narrow Valence-5 lane. |
-| D2 | Proposed - pending explicit user/maintainer approval | Initial generic scope is a complete closed, consistently oriented, two-manifold triangular mesh. Reject boundaries, holes, ghosts, non-triangles, non-manifold incidence, and inconsistent orientation before mutation. | Explicit user/maintainer approval before WP3. |
-| D3 | Pending post-WP2.1 oracle, scientific review, and user decision | Candidate canonical functional is full-divergence signed volume with exact `1/6` when triangle weights sum to one. | Independent WP2.1 oracle, technical review, scientific review, and explicit user baseline decision. |
-| D4 | Pending post-WP2.1 characterization and user/maintainer decision | Candidate compatibility behavior is a named `legacy-x-volume` mode, never selected by valence. Its default, metadata, and retirement date are undecided. | WP2.1 characterization and explicit user/maintainer compatibility decision. |
+| D2 | Proposed - pending explicit user approval | Initial generic scope is a complete closed, consistently oriented, two-manifold triangular mesh. Reject boundaries, holes, ghosts, non-triangles, non-manifold incidence, and inconsistent orientation before mutation. | Explicit user approval before WP3. |
+| D3 | Pending post-WP2.1 oracle, independent scientific review, and user decision | Candidate canonical functional is full-divergence signed volume with exact `1/6` when triangle weights sum to one. | Independent WP2.1 oracle, technical review, independent scientific review, and explicit user baseline decision. |
+| D4 | Pending post-WP2.1 characterization, independent scientific review, and user decision | Candidate compatibility behavior is a named `legacy-x-volume` mode that reproduces the x-only literal `0.16666666666`, never selected by valence. Its default, metadata, and retirement date are undecided. | WP2.1 characterization, independent scientific review, and explicit user compatibility decision. |
 | D5 | Proposed - pending explicit user approval | Reject the current all-Valence-5 11-control predicate before matrix evaluation or publication. Retain a 5/6/6 compatibility path only if its topology, ordering, and distinct controls are independently proven. | Explicit user approval because quarantine reverses a previously positive compatibility fixture. |
-| D6 | Accepted existing policy | Default builds and tests remain OpenSubdiv-free throughout proof and opt-in work. Every OpenSubdiv build remains explicit and requires `OPENSUBDIV_ROOT`. | Existing project policy; later changes require a separate dependency decision. |
-| D7 | Accepted existing user instruction | WP0-WP7 do not change `src/cuda`, `include/cuda`, CUDA targets, or CUDA scientific baselines. CUDA work is deferred to its backward-compatibility lane. | Existing user instruction; expansion requires explicit user authority. |
+| D6 | Restated existing project policy | Default builds and tests remain OpenSubdiv-free throughout proof and opt-in work. Every OpenSubdiv build remains explicit and requires `OPENSUBDIV_ROOT`. | WP0.1 makes no new decision; later changes require a separate dependency decision. |
+| D7 | Restated existing user instruction | WP0-WP7 do not change `src/cuda`, `include/cuda`, CUDA targets, or CUDA scientific baselines. CUDA work is deferred to its backward-compatibility lane. | WP0.1 makes no new decision; expansion requires explicit user authority. |
 
-D3 and D4 remain pending post-WP2.1. They must not be inferred from D1, from
-the proposed target architecture, or from the Valence-3 stack's full-divergence
-implementation.
+D3 and D4 remain pending WP2.1, independent scientific review, and explicit
+user decisions. They must not be inferred from D1, from the proposed target
+architecture, or from the Valence-3 stack's full-divergence implementation.
 
 ## Context: current-main implementation facts
 
@@ -151,13 +154,17 @@ one:
 
 | Consumer | Current-main behavior |
 | --- | --- |
-| Regular geometry | Legacy x-only `1/6 * weight * position.x * cross(du,dv).x`. |
+| Regular geometry | Legacy x-only `0.16666666666 * weight * position.x * cross(du,dv).x`. The decimal literal is the compatibility fact; it is not exact `1/6`. |
 | Valence-4 geometry | Same legacy x-only expression. |
 | Valence-5 geometry | Same legacy x-only expression. |
 | CUDA CPU/device geometry proof | Same legacy x-only expression. |
 | Global volume constraint energy | `0.5 * uVol / vol0 * (vol - vol0)^2`. |
 | Membrane volume force | Full-vector analytic derivative, scaled by `(uVol/vol0) * (vol-vol0) / 3`. |
 | PR 182 Valence-3 stack geometry | Separately stacked full-divergence `1/6 * weight * dot(position,cross(du,dv))`. |
+
+The legacy decimal literal `0.16666666666` and exact `1/6` are distinct
+compatibility/scientific baselines. Inventory and migration code must not
+normalize one into the other.
 
 Geometry, energy, and force anchors are inventoried independently so a shared
 name or coefficient cannot hide their mismatch. WP2.1 must characterize
@@ -230,13 +237,14 @@ anchors to characterize compatibility but makes no CUDA edit.
 ## Execution gates after WP0.1
 
 1. Technical and scientific reviewers verify this ADR and the fail-closed
-   inventory at the exact PR head.
+   inventory at the exact PR head; their PASS validates evidence completeness
+   but does not decide D0-D5.
 2. The user explicitly decides D0 and approves or rejects D1, D2, and D5.
    D6 and D7 remain existing constraints.
 3. WP1 may start only after D5. WP2.1 characterization may proceed without
    deciding D3/D4.
 4. D3/D4 remain blocked until WP2.1, independent scientific review, and the
-   named user/maintainer decisions.
+   named explicit user decisions.
 5. WP3 and later generic-backend packages remain blocked until D1 and D2.
 6. Any changed source anchor, fixture byte, tolerance, selector, functional
    name, output/checkpoint contract, or follow-up commit invalidates the

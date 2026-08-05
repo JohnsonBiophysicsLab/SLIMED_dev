@@ -7,6 +7,7 @@ import importlib.util
 import math
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -33,6 +34,33 @@ class UnifiedLoopBaselineInventoryTest(unittest.TestCase):
             "synthetic drift unexpectedly passed fail-closed validation",
         )
 
+    def assert_text_mutation_rejected(self, relative, transform) -> None:
+        original_text = INVENTORY._text
+        before = original_text(relative)
+        after = transform(before)
+        self.assertNotEqual(before, after, "source mutation changed nothing")
+
+        def replacement(path):
+            return after if path == relative else original_text(path)
+
+        with mock.patch.object(INVENTORY, "_text", side_effect=replacement):
+            candidate = INVENTORY.collect_inventory()
+            errors = INVENTORY.validate_inventory(candidate)
+        self.assertTrue(errors, "collection-layer source drift unexpectedly passed")
+
+    def assert_git_output_mutation_rejected(self, matcher, replacement) -> None:
+        original_output = INVENTORY._git_output
+
+        def changed(*arguments):
+            return replacement if matcher(arguments) else original_output(*arguments)
+
+        with mock.patch.object(INVENTORY, "_git_output", side_effect=changed):
+            candidate = INVENTORY.collect_inventory()
+        self.assertTrue(
+            INVENTORY.validate_inventory(candidate, check_adr=False),
+            "collection-layer Git drift unexpectedly passed",
+        )
+
     def test_A_build_flags_dependency_and_macro_coupling(self) -> None:
         self.assert_mutation_rejected(
             lambda r: r["A_build_dependency"]["build_flags"].append(
@@ -54,6 +82,22 @@ class UnifiedLoopBaselineInventoryTest(unittest.TestCase):
         self.assert_mutation_rejected(
             lambda r: r["B_runtime_routes"].update(
                 {"v4_v5_conflict_rejected": False}))
+        self.assert_text_mutation_rejected(
+            "src/energy_force/Compute_energy_and_force_on_mesh.cpp",
+            lambda text: text.replace(
+                "        return;\n    }\n    if (valence4RouteRequested)",
+                "        // return;\n    }\n    if (valence4RouteRequested)", 1))
+        self.assert_text_mutation_rejected(
+            "src/energy_force/Compute_energy_and_force_on_mesh.cpp",
+            lambda text: text.replace(
+                "        return;\n    }\n\n    // Step 1.",
+                "        // return;\n    }\n\n    // Step 1. fake return;", 1))
+        self.assert_text_mutation_rejected(
+            "src/energy_force/Compute_energy_and_force_on_mesh.cpp",
+            lambda text: text.replace(
+                "evaluate_guarded_valence5_opensubdiv_production_route(*this)",
+                "/* evaluate_guarded_valence5_opensubdiv_production_route(*this) */\n"
+                "            evaluate_guarded_valence5_route_removed(*this)", 1))
 
     def test_C_current_main_and_pr182_remain_separate(self) -> None:
         self.assert_mutation_rejected(
@@ -62,6 +106,18 @@ class UnifiedLoopBaselineInventoryTest(unittest.TestCase):
         self.assert_mutation_rejected(
             lambda r: r["C_valence3_ancestry"].update(
                 {"runtime_selector_absent_on_current_main": False}))
+        self.assert_mutation_rejected(
+            lambda r: r["baseline"].update({"observed_head": "0" * 40}))
+        self.assert_git_output_mutation_rejected(
+            lambda args: args[:2] == ("merge-base", INVENTORY.BASE_SHA)
+            and args[-1] == "HEAD",
+            "0" * 40,
+        )
+        self.assert_git_output_mutation_rejected(
+            lambda args: args[:2] == ("diff", "--name-only")
+            and args[-1].endswith("..HEAD"),
+            "\n".join(INVENTORY.EXPECTED_WP0_PATHS + ["src/mesh/Mesh.cpp"]),
+        )
 
     def test_D_topology_face_order_count_valence_and_one_ring(self) -> None:
         self.assert_mutation_rejected(
@@ -99,6 +155,9 @@ class UnifiedLoopBaselineInventoryTest(unittest.TestCase):
         self.assert_mutation_rejected(
             lambda r: r["E_provider_policy"].update(
                 {"ambient_version_qualified": True}))
+        self.assert_text_mutation_rejected(
+            "src/mesh/OpenSubdiv_valence4_row_provider.cpp",
+            lambda text: text.replace("Sdc::SCHEME_LOOP", "Sdc::SCHEME_CATMARK", 1))
 
     def test_F_cache_key_coordinate_mutex_and_invalidation(self) -> None:
         self.assert_mutation_rejected(
@@ -129,6 +188,11 @@ class UnifiedLoopBaselineInventoryTest(unittest.TestCase):
         self.assert_mutation_rejected(
             lambda r: r["G_volume_functionals"]["enumerated_factor_names"]
             .append("kFullDivergenceVolumeFunctional"))
+        self.assert_text_mutation_rejected(
+            "src/mesh/Mesh.cpp",
+            lambda text: text.replace(
+                "kLegacyVolumeQuadratureFactor = 0.16666666666",
+                "kLegacyVolumeQuadratureFactor = 1.0 / 6.0", 1))
 
     def test_H_source_ids_seven_rows_mixed_duplicate_and_transaction(self) -> None:
         self.assert_mutation_rejected(
@@ -154,6 +218,16 @@ class UnifiedLoopBaselineInventoryTest(unittest.TestCase):
         self.assert_mutation_rejected(
             lambda r: r["I_tolerances_fixtures"].update(
                 {"source_anchors_present": False}))
+        self.assert_text_mutation_rejected(
+            "src/mesh/OpenSubdiv_regular_evaluator.cpp",
+            lambda text: text.replace(
+                "kOpenSubdivRegularRowTolerance = 5.0e-6",
+                "kOpenSubdivRegularRowTolerance = 6.0e-6", 1))
+        self.assert_text_mutation_rejected(
+            "src/mesh/OpenSubdiv_valence4_row_provider.cpp",
+            lambda text: text.replace(
+                "std::abs(coefficientSum - expectedSum) > 1.0e-12",
+                "std::abs(coefficientSum - expectedSum) > 2.0e-12", 1))
         fixture = next(iter(INVENTORY.EXPECTED_FIXTURE_HASHES))
         self.assert_mutation_rejected(
             lambda r: r["I_tolerances_fixtures"]["fixture_sha256"]
@@ -170,6 +244,13 @@ class UnifiedLoopBaselineInventoryTest(unittest.TestCase):
         self.assert_mutation_rejected(
             lambda r: r["J_output_checkpoint"].update(
                 {"backend_or_functional_metadata_present": True}))
+        self.assert_text_mutation_rejected(
+            "src/io/output.cpp",
+            lambda text: text.replace(
+                "        << energy.energyArea << ','\n"
+                "        << energy.energyVolume << ','",
+                "        << energy.energyVolume << ','\n"
+                "        << energy.energyArea << ','", 1))
 
     def test_K_edge_flip_proof_only_and_cuda_frozen(self) -> None:
         self.assert_mutation_rejected(
@@ -191,6 +272,19 @@ class UnifiedLoopBaselineInventoryTest(unittest.TestCase):
             .append("full_divergence_volume"))
         self.assert_mutation_rejected(lambda r: r.pop("G_volume_functionals"))
         self.assert_mutation_rejected(lambda r: r.update({"schema_version": 2}))
+        self.assert_text_mutation_rejected(
+            "docs/unified_irregular_loop_implementation_plan.md",
+            lambda text: text.replace(
+                "| D5: legacy 11-control matrix | Immediately quarantine all-valence-5 misuse; retain only as an explicit compatibility path if its intended topology is proven. | Explicit user decision |",
+                "| D5: legacy 11-control matrix | Immediately quarantine all-valence-5 misuse; retain only as an explicit compatibility path if its intended topology is proven. | Maintainer decision |",
+                1))
+        original_corpus = INVENTORY._source_corpus()
+        with mock.patch.object(
+                INVENTORY, "_source_corpus",
+                return_value=original_corpus +
+                '\nconst char *unexpected = "SLIMED_USE_OPENSUBDIV_UNKNOWN";'):
+            candidate = INVENTORY.collect_inventory()
+        self.assertTrue(INVENTORY.validate_inventory(candidate, check_adr=False))
 
 
 if __name__ == "__main__":

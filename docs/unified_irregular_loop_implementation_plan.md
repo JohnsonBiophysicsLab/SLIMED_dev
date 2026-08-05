@@ -42,27 +42,31 @@ plan was written:
   current `main`. Its Valence-3 production face loop, Phase-5 convergence
   document, and asymmetric bipyramid fixture are unmerged stack evidence and
   must not be inventoried as current-main production behavior;
-- PR 182 is useful negative convergence evidence, but its dedicated
-  Valence-3 provider is not the recommended production architecture;
+- PR 182 records negative convergence evidence only for its symmetric and
+  asymmetric `3/4/4` triangular bipyramids, OpenSubdiv 3.7.0, isolation level
+  5, nested depths 0 through 4, fixed parameters, and recorded targets. It
+  does not establish a result for other topology/rule/depth combinations, and
+  its dedicated Valence-3 provider is not the recommended architecture;
 - current `main` contains the merged Valence-4/5 behavior and earlier
   Valence-3 provider proof; later exact Valence-3 production/convergence work
   exists only in the named stack;
 - stock OpenSubdiv Valence-5 semantics were explicitly accepted for the
   narrow exact topology; and
 - the regular, Valence-4, Valence-5, and CUDA paths still expose legacy
-  x-only volume while Valence 3 uses full divergence.
+  x-only volume using the literal `0.16666666666`, while the unmerged PR 182
+  Valence-3 stack uses full divergence with exact `1/6`.
 
 No implementation package may start until its dependencies in this table are
 resolved.
 
 | Decision | Recommended answer | Authority required | Blocks |
 | --- | --- | --- | --- |
-| D0: PR 182 disposition | Do not merge as an implementation milestone. Extract or retain only clearly labeled negative evidence. | User | WP0.2 and final branch cleanup |
-| D1: subdivision scheme | Stock OpenSubdiv Loop is the forward-looking CPU baseline. | User scientific decision, informed by prior Valence-5 acceptance | WP3+ |
-| D2: initial topology scope | Closed, oriented, manifold, triangular meshes; reject unsupported boundaries, holes, and non-manifold inputs. | User/maintainer | WP3+ |
-| D3: canonical volume | Full divergence with exact `1/6` under the weights-sum-to-one triangle convention. | User scientific decision after WP2 evidence | WP2.2 and WP4+ production claims; does not block WP2.1 characterization |
-| D4: legacy volume compatibility | Preserve an explicit `legacy-x-volume` mode for bounded reproduction; never select by valence. | User/maintainer | WP2.2, WP6+ |
-| D5: legacy 11-control matrix | Immediately quarantine all-valence-5 misuse; retain only as an explicit compatibility path if its intended topology is proven. | Maintainer; user if old-run compatibility changes | WP1 |
+| D0: PR 182 disposition | Do not merge as an implementation milestone. Extract or retain only the scoped two-bipyramid evidence. | Explicit user decision | WP0.2 and final branch cleanup |
+| D1: subdivision scheme | Stock OpenSubdiv Loop is the forward-looking CPU baseline; narrow Valence-5 acceptance is insufficient for the generic backend. | Explicit user scientific decision, informed by prior Valence-5 acceptance | WP3+ |
+| D2: initial topology scope | Closed, oriented, manifold, triangular meshes; reject unsupported boundaries, holes, and non-manifold inputs. | Explicit user decision | WP3+ |
+| D3: canonical volume | Full divergence with exact `1/6` under the weights-sum-to-one triangle convention. | WP2.1 oracle, independent scientific review, and explicit user scientific decision | WP2.2 and WP4+ production claims; does not block WP2.1 characterization |
+| D4: legacy volume compatibility | Candidate `legacy-x-volume` reproduces the x-only literal `0.16666666666`; never select by valence. Default and lifetime remain undecided. | WP2.1 characterization, independent scientific review, and explicit user decision | WP2.2, WP6+ |
+| D5: legacy 11-control matrix | Immediately quarantine all-valence-5 misuse; retain only as an explicit compatibility path if its intended topology is proven. | Explicit user decision | WP1 |
 | D6: dependency policy | Default builds remain OpenSubdiv-free through proof and opt-in phases. | Existing project policy | All packages |
 | D7: CUDA timing | No CUDA implementation changes before the dedicated compatibility package. | Existing user instruction | WP8 |
 
@@ -329,9 +333,9 @@ conversation messages.
 | Checkpoint | Deliverable | Initial status | Required approvals |
 | --- | --- | --- | --- |
 | K0 | Reassessment and this control plan | Drafted locally | Technical review |
-| K1 | Preliminary architecture ADR (D1/D2/D5-D7) and PR 182 disposition | WP0.1 draft implemented; exact-head review and explicit decisions pending | User + technical + scientific |
+| K1 | Preliminary ADR: D0/D1/D2/D5 explicit-user choices, D6/D7 restatements, D3/D4 deferred | WP0.1 draft implemented; exact-head review and explicit decisions pending | User + technical + scientific |
 | K2 | Legacy all-valence-5 quarantine | Pending | Technical |
-| K3 | Canonical volume specification and independent oracle | Pending | Technical + scientific + user baseline decision |
+| K3 | Candidate volume-functional characterization and independent oracle | Pending | Technical + independent scientific + explicit user D3/D4 decisions |
 | K4 | Backend-neutral generic row interface | Pending | Technical |
 | K5 | Full-mesh OpenSubdiv Loop provider and cache proof | Pending | Technical |
 | K6 | Variable-cardinality one-pass face kernel | Pending | Technical + scientific |
@@ -347,8 +351,8 @@ conversation messages.
 
 ### WP0.1 - architecture ADR and tolerance ledger
 
-Objective: convert the reassessment into binding decisions without changing
-production code.
+Objective: record proposed decisions, existing-policy restatements, and
+binding authority gates without changing production code or deciding D0-D5.
 
 Dependencies: K0 technical review. Exact base:
 `origin/main@906a7850d2c1ceec3ffdda9bf0ce44a437f6aa4a`. Target: `main`.
@@ -373,10 +377,11 @@ Steps:
 2. Inventory every active build/runtime backend flag, exact-topology guard,
    provider, cache, volume expression, version check, output schema, and
    authoritative tolerance.
-3. Record preliminary decisions D1, D2, and D5-D7, including rejected
-   alternatives and compatibility lifetime. Record D3/D4 as pending
-   post-oracle questions with their required WP2.1 evidence; do not decide
-   them in this package.
+3. Record D1, D2, and D5 as proposals pending explicit user decisions,
+   including rejected alternatives and the unresolved compatibility lifetime.
+   Record D6/D7 only as existing constraints. Record D3/D4 as pending
+   post-oracle questions with their required WP2.1 evidence and independent
+   review; do not decide them in this package.
 4. Freeze a tolerance ledger by name, source file, rationale, and owning gate.
 5. Record fixture hashes and the source of every scientific expected value.
 6. Define the initial boundary/hole/ghost/non-manifold rejection policy.
@@ -388,14 +393,16 @@ Evidence:
 - no production file changes;
 - technical and scientific reviewers agree the decision questions are
   complete;
-- user explicitly records the preliminary D1/D2/D5-D7 choices; D3/D4 remain
-  visibly pending until WP2.1 review.
+- user explicitly records D0/D1/D2/D5 decisions; D6/D7 remain existing
+  constraints and D3/D4 remain visibly pending until WP2.1, independent
+  scientific review, and explicit user decisions.
 
 Stop conditions:
 
 - stock Loop versus custom scheme remains undecided;
 - the D3/D4 question or required post-oracle evidence cannot be stated;
-- the compatibility lifetime cannot be stated; or
+- the D4 characterization questions, evidence, or later lifetime-decision
+  gate cannot be stated; or
 - the inventory finds an additional active backend not covered by the ADR.
 
 Branch: `codex/unified-loop-adr`, created only by the coordinator from the
@@ -403,8 +410,8 @@ exact base above.
 
 ### WP0.2 - PR 182 evidence disposition
 
-Objective: preserve useful evidence without carrying the Valence-3-specific
-provider forward as the generic architecture.
+Objective: preserve the scoped two-bipyramid evidence without carrying the
+Valence-3-specific provider forward as the generic architecture.
 
 Dependencies: user decision D0 and WP0.1.
 
@@ -426,7 +433,8 @@ change. No agent may close, retarget, or merge the PR autonomously.
 Objective: prevent the legacy all-valence-5 topology from reaching a matrix
 that assumes one valence-5 and two valence-6 corners.
 
-Dependencies: WP0.1 decisions D5-D6.
+Dependencies: explicit user decision D5 after WP0.1; D6 remains a restated
+existing constraint.
 
 Allowed files:
 
@@ -475,10 +483,10 @@ Stop conditions:
 
 Suggested branch: `codex/legacy-irregular-quarantine`.
 
-### WP2.1 - canonical volume specification and oracle
+### WP2.1 - candidate volume-functional characterization and oracle
 
-Objective: establish the functional and evidence before changing production
-semantics.
+Objective: characterize candidate functionals and establish independent
+evidence before any production semantic or baseline decision.
 
 Dependencies: WP0.1; may run in parallel with WP1.1 because file ownership is
 disjoint.
@@ -489,7 +497,7 @@ Allowed files:
 - new runner/inventory under `scripts/`;
 - new fixtures only when documented;
 - focused tests;
-- `docs/canonical_signed_volume_functional.md`.
+- `docs/candidate_signed_volume_functional.md`.
 
 Forbidden:
 
@@ -501,7 +509,9 @@ Forbidden:
 
 Steps:
 
-1. State the full-divergence discrete functional and sign convention.
+1. State the candidate full-divergence discrete functional, exact `1/6`
+   coefficient, and sign convention; separately record the current legacy
+   x-only literal `0.16666666666` without normalizing it to exact `1/6`.
 2. Derive its gradient independently of the production force routine.
 3. Implement at least two independent checks: central finite differences and
    either automatic differentiation or a separately coded higher-precision
@@ -521,6 +531,8 @@ Evidence:
 - technical reviewer reproduces every fixture;
 - authoritative tolerance ledger is unchanged;
 - report clearly distinguishes characterization from baseline approval.
+- completion explicitly leaves D3/D4 undecided pending independent scientific
+  review and explicit user decisions.
 
 Stop conditions:
 
@@ -529,14 +541,15 @@ Stop conditions:
 - a fixture's orientation or closure is ambiguous;
 - evidence passes only after dropping an axis or force family.
 
-Suggested branch: `codex/canonical-volume-oracle`.
+Suggested branch: `codex/volume-functional-oracle`.
 
 ### WP2.2 - explicit volume-mode seam
 
 Objective: represent canonical and legacy volume as named policies without
 changing the default.
 
-Dependencies: WP2.1 scientific PASS and user decisions D3-D4.
+Dependencies: completed WP2.1, independent scientific PASS, and explicit user
+decisions D3-D4.
 
 Allowed files: a new backend-neutral volume policy header/source, focused
 configuration tests, documentation, and minimal call-site plumbing required
@@ -561,7 +574,8 @@ approved definitions, and exact default-output preservation.
 
 Objective: define the public contract before OpenSubdiv implementation.
 
-Dependencies: WP0.1 decisions D1-D2-D6.
+Dependencies: explicit user decisions D1-D2 after WP0.1; D6 remains a
+restated existing constraint.
 
 Recommended files:
 
@@ -600,7 +614,7 @@ Suggested branch: `codex/generic-loop-row-interface`.
 
 Objective: implement the generic interface for proof-only full-mesh topology.
 
-Dependencies: WP3.1 merged and D1-D2 approved.
+Dependencies: WP3.1 merged and D1-D2 explicitly decided by the user.
 
 Recommended implementation:
 
@@ -673,8 +687,9 @@ Gate:
 Objective: extract mathematics from `element_energy_force_regular()` without
 changing production routing or scientific outputs.
 
-Dependencies: WP2.1, WP3.1, and volume policy decision; provider implementation
-is not required if synthetic source-keyed rows exercise the interface.
+Dependencies: WP2.1, WP3.1, independent scientific review, and explicit user
+D3-D4 volume-policy decisions; provider implementation is not required if
+synthetic source-keyed rows exercise the interface.
 
 Steps:
 
@@ -1009,9 +1024,10 @@ Implement WP0.1 only. This is docs/inventory work. Do not edit src, include,
 Makefile, CUDA, route flags, or numerical baselines. Inventory all active Loop
 backends, flags, topology guards, caches, volume functionals, version policies,
 tolerances, fixtures, and output/checkpoint contracts. Draft
-docs/adr_unified_loop_backend.md with decisions D1-D7 left as explicit
-approve/reject choices where user authority is required. D3/D4 must remain
-pending post-oracle decisions. Add a machine-readable inventory and
+docs/adr_unified_loop_backend.md with D0/D1/D2/D5 left as explicit user
+approve/reject choices and D6/D7 recorded only as existing constraints.
+D3/D4 must remain pending post-oracle independent review and explicit user
+decisions. Add a machine-readable inventory and
 mutation-tested focused test. Enforce S1-S7, A1-A9, C1-C7, and P1-P10. Stop if
 another active backend or hidden functional is found. Return the focused diff
 and evidence to the coordinator; do not stage, commit, push, or open a PR.
@@ -1027,7 +1043,7 @@ analysis/cuda_benchmark_graphs/ and scripts/plot_cuda_benchmark_comparison.py.
 ### Prompt B - WP1.1 legacy quarantine agent
 
 ```text
-After WP0.1 and D5 approval, implement WP1.1 only. Own
+After WP0.1 and an explicit user D5 decision, implement WP1.1 only. Own
 src/mesh/Mesh_setup_geometry.cpp plus focused topology tests and one safety
 note. Do not edit OpenSubdiv providers/routes, energy/force or volume formulas,
 CUDA, outputs, checkpoints, or unrelated naming. Add a pure topology
@@ -1044,22 +1060,24 @@ do not change git state.
 
 ```text
 Implement WP2.1 only in experiments, scripts, tests, fixtures, and
-docs/canonical_signed_volume_functional.md. Do not modify production, CUDA,
+docs/candidate_signed_volume_functional.md. Do not modify production, CUDA,
 routes, defaults, or expected baselines. Independently derive and evaluate the
-full-divergence signed-volume functional and gradient. Use central finite
-differences plus a separately coded AD or higher-precision oracle. Cover every
+candidate full-divergence signed-volume functional and gradient with exact
+`1/6`; separately characterize the legacy x-only literal `0.16666666666` and
+never normalize or change it. Use central finite differences plus a separately
+coded AD or higher-precision oracle. Cover every
 fixture/axis/orientation named in WP2.1, emit complete JSON, and add mutation
 tests for missing axes, zeroed X/Y, nonfinite data, orientation drift, and
 false conjugacy. Freeze tolerances before authoritative results. A mismatch is
-a valid blocker; do not widen thresholds. Return the diff/evidence to the
-coordinator for technical and scientific exact-head review; do not change git
-state.
+a valid blocker; do not widen thresholds. Do not decide D3/D4. Return the
+diff/evidence to the coordinator for technical and independent scientific
+exact-head review; do not change git state.
 ```
 
 ### Prompt D - WP3.1 interface agent
 
 ```text
-After D1/D2 approval, implement WP3.1 only. Define backend-neutral immutable
+After explicit user D1/D2 decisions, implement WP3.1 only. Define backend-neutral immutable
 Loop topology and source-keyed limit-row contracts. Public headers must not
 include or expose OpenSubdiv, valence-specific classes, fixed source counts, or
 production routing. Represent one mixed derivative and explicit topology
@@ -1073,8 +1091,8 @@ exact-head technical review; do not change git state.
 WP1.1 and WP2.1 are logically independent after WP0.1, but implementation
 agents edit the shared worktree sequentially unless the coordinator explicitly
 creates isolated worktrees. WP3.1 may overlap only as a read-only audit while
-WP2.1 edits; implementation starts after D1-D2 are recorded and volume
-semantics are excluded. All later implementation packages are dependency-
+WP2.1 edits; implementation starts after D1-D2 are explicitly decided by the
+user and volume semantics are excluded. All later implementation packages are dependency-
 linked and run sequentially by default.
 
 ## 12. Coordinator status update format
@@ -1102,9 +1120,11 @@ field is pending.
 
 ```text
 K0 plan
-  -> K1 decisions/ADR
-      -> K2 legacy safety
-      -> K3 volume science
+  -> K1 ADR/reviews + explicit user D0/D1/D2/D5 decisions
+      (D6/D7 restated; D3/D4 pending)
+      -> K2 legacy safety after D5
+      -> K3 WP2.1 evidence -> independent scientific review
+          -> explicit user D3/D4 decisions before policy implementation
       -> K4 generic interface
           -> K5 full-mesh rows/cache
               -> K6 one-pass kernel/transaction
@@ -1119,7 +1139,8 @@ K0 plan
 ```
 
 K2 and K3 may overlap after K1. K4 may overlap proof-only K3 work only if D1
-and D2 are recorded and volume semantics are excluded from K4. K5 through K10
+and D2 are explicitly decided by the user and volume semantics are excluded
+from K4. K5 through K10
 are sequential scientific/architectural gates except that K12 is inserted
 before K10 when the proposed default would otherwise permit a scientifically
 different CUDA/backend combination. K10 may instead approve an explicit
