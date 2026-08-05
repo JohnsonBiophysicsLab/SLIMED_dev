@@ -1,6 +1,6 @@
 /**
  * @file OpenSubdiv_valence3_row_provider.hpp
- * @brief Guarded stock OpenSubdiv rows for the candidate valence-3 tetrahedron.
+ * @brief Guarded stock OpenSubdiv rows for reviewed valence-3 candidates.
  */
 
 #pragma once
@@ -14,9 +14,16 @@ class Mesh;
 
 namespace slimed::opensubdiv_valence3
 {
+enum class Valence3TopologyKind
+{
+    CanonicalTetrahedron = 0,
+    TriangularBipyramid344 = 1,
+};
+
 struct OpenSubdivValence3RowProviderRequest
 {
     bool phase1ProviderExplicitRequest = false;
+    Valence3TopologyKind topology = Valence3TopologyKind::CanonicalTetrahedron;
 };
 
 struct OpenSubdivValence3RowProviderResult
@@ -30,6 +37,11 @@ struct OpenSubdivValence3RowProviderResult
     bool ptexFaceIdentityValidated = false;
     bool exactSamplePlanValidated = false;
     bool exactFourSourceBoundaryValidated = false;
+    bool exactFiveSourceBoundaryValidated = false;
+    bool triangularBipyramidTopologyValidated = false;
+    int sourceCount = 0;
+    int faceCount = 0;
+    Valence3TopologyKind topology = Valence3TopologyKind::CanonicalTetrahedron;
     bool doublePrecisionRowsGenerated = false;
     bool constantFieldInvariantsValidated = false;
     bool mixedDerivativeRowsDuplicated = false;
@@ -49,12 +61,15 @@ struct OpenSubdivValence3RowProviderResult
 };
 
 /**
- * Build caller-owned 4 x 3 x 7 x 4 stock whole-Ptex rows for the canonical
- * closed valence-3 tetrahedron candidate.
+ * Build caller-owned stock whole-Ptex rows for an explicitly selected,
+ * reviewed closed valence-3 candidate. The default selection remains the
+ * canonical 4 x 3 x 7 x 4 tetrahedron package. Phase-5 proof callers may
+ * explicitly request the 6 x 3 x 7 x 5 triangular-bipyramid package.
  *
  * The provider is proof-only. It requires an explicit request, validates the
- * complete topology and source boundary before returning rows, and never
- * mutates Mesh state or enables production routing.
+ * complete selected topology and source boundary before returning rows, and
+ * never mutates Mesh state or enables production routing. Production callers
+ * do not select the broader topology and remain tetrahedron-only.
  */
 OpenSubdivValence3RowProviderResult
 build_guarded_opensubdiv_valence3_rows(

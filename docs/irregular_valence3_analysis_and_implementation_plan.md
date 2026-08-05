@@ -570,6 +570,14 @@ curvature behavior, scientific outputs, and route policy. Only after at least
 two non-isomorphic approved topologies should a generic topology-driven
 provider be considered.
 
+Phase 5 subsequently started with a proof-only closed triangular-bipyramid
+candidate. It has five sources, six `3/4/4` faces, and vertex valences
+`3,3,4,4,4`. The existing provider now requires an explicit topology selector
+and maintains separate immutable row packages for the tetrahedron and
+bipyramid; the default selector remains the tetrahedron, so the Phase-4
+production route is not broadened. See
+`docs/irregular_valence3_phase5_triangular_bipyramid.md`.
+
 ## Verification Matrix
 
 | Layer | Required checks |

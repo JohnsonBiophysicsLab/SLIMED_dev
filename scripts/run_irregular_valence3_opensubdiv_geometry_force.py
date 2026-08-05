@@ -17,6 +17,9 @@ ROOT = Path(__file__).resolve().parents[1]
 EXPERIMENT = ROOT / "experiments/irregular_valence3_opensubdiv_geometry_force.cpp"
 TETRA = ROOT / "data/fixtures/candidates/closed_valence3_tetrahedron"
 MIXED = ROOT / "data/fixtures/candidates/closed_mixed_valence345"
+BIPYRAMID = (
+    ROOT / "data/fixtures/candidates/closed_valence3_triangular_bipyramid"
+)
 
 
 def run(command: list[str], env: dict[str, str]) -> subprocess.CompletedProcess[str]:
@@ -95,6 +98,8 @@ def execute(binary: Path, env: dict[str, str]) -> dict[str, object]:
             str(TETRA / "faces.csv"),
             str(MIXED / "vertices.csv"),
             str(MIXED / "faces.csv"),
+            str(BIPYRAMID / "vertices.csv"),
+            str(BIPYRAMID / "faces.csv"),
         ],
         env,
     )
