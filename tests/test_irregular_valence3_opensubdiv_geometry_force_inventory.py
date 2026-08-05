@@ -1,3 +1,6 @@
+import contextlib
+import io
+import runpy
 from pathlib import Path
 
 
@@ -69,18 +72,33 @@ def test_valence3_candidate_fixtures_encode_closed_3_mixed_345_and_344_topologie
         ROOT
         / "data/fixtures/candidates/closed_valence3_triangular_bipyramid"
     )
+    asymmetric_bipyramid = (
+        ROOT
+        / "data/fixtures/candidates/asymmetric_valence3_triangular_bipyramid"
+    )
     assert len((tetra / "vertices.csv").read_text().strip().splitlines()) == 4
     assert len((tetra / "faces.csv").read_text().strip().splitlines()) == 4
     assert len((mixed / "vertices.csv").read_text().strip().splitlines()) == 6
     assert len((mixed / "faces.csv").read_text().strip().splitlines()) == 8
     assert len((bipyramid / "vertices.csv").read_text().strip().splitlines()) == 5
     assert len((bipyramid / "faces.csv").read_text().strip().splitlines()) == 6
+    assert len(
+        (asymmetric_bipyramid / "vertices.csv").read_text().strip().splitlines()
+    ) == 5
+    assert len(
+        (asymmetric_bipyramid / "faces.csv").read_text().strip().splitlines()
+    ) == 6
     metadata = (mixed / "candidate_metadata.json").read_text()
     assert '"vertex_valence_by_id": [5, 5, 4, 3, 4, 3]' in metadata
     assert '"contains_face_valence_triplet": "3/4/5"' in metadata
     bipyramid_metadata = (bipyramid / "candidate_metadata.json").read_text()
     assert '"vertex_valence_by_id": [3, 3, 4, 4, 4]' in bipyramid_metadata
     assert bipyramid_metadata.count('"3/4/4"') == 6
+    asymmetric_metadata = (
+        asymmetric_bipyramid / "candidate_metadata.json"
+    ).read_text()
+    assert '"coordinate_delta_source_0": [0.071, -0.043, 0.029]' in asymmetric_metadata
+    assert '"vertex_valence_by_id": [3, 3, 4, 4, 4]' in asymmetric_metadata
 
 
 def test_phase5_bipyramid_remains_proof_only_and_production_stays_tetrahedral():
@@ -106,3 +124,65 @@ def test_phase5_bipyramid_remains_proof_only_and_production_stays_tetrahedral():
     assert "repeatedProvider.immutableRowCacheHit" in harness
     assert "wrongTopologyRequest" in harness
     assert "BIPYRAMID" in runner
+    assert "ASYMMETRIC_BIPYRAMID" in runner
+
+
+def test_phase5_bipyramid_nested_quadrature_is_binding_and_fixed():
+    harness = (
+        ROOT / "experiments/irregular_valence3_opensubdiv_geometry_force.cpp"
+    ).read_text()
+    runner = (
+        ROOT / "scripts/run_irregular_valence3_opensubdiv_geometry_force.py"
+    ).read_text()
+
+    assert "nested_quadrature_plan" in harness
+    assert "kMaximumDepth = 4" in harness
+    assert "samplesPerFace" in harness
+    assert "subtriangleWeight / kSampleCount" in harness
+    assert "plan.s[sample] + plan.t[sample] >= 1.0" in harness
+    assert "twoSuccessiveGlobalTargetsMet" in harness
+    assert "twoSuccessiveForceTargetsMet" in harness
+    assert "scientificTargetsMet" in harness
+    assert "activationBlocked" in harness
+    assert "studyCompleted" in harness
+    assert "<= 1.0e-6" in harness
+    assert "<= 1.0e-5" in harness
+    assert "bipyramidConvergence.passed" in harness
+    assert "asymmetricBipyramidConvergence.passed" in harness
+    assert "quadrature_convergence" in harness
+    assert "broader_topology_activation_blocked" in harness
+    assert "convergence['global_relative_changes']" in runner
+    assert "ASYMMETRIC_BIPYRAMID" in runner
+    study = (
+        ROOT / "docs/irregular_valence3_phase5_quadrature_convergence.md"
+    ).read_text()
+    assert "scientific_targets_met: false" in study
+    assert "activation_blocked: true" in study
+    assert "No tolerance was widened" in study
+
+
+def test_phase5_human_runner_reports_quadrature_blocker():
+    runner_path = (
+        ROOT / "scripts/run_irregular_valence3_opensubdiv_geometry_force.py"
+    )
+    runner = runpy.run_path(str(runner_path))
+    payload = {
+        "status": "passed",
+        "fixtures": [],
+        "quadrature_convergence": [
+            {
+                "name": "asymmetric_valence3_triangular_bipyramid",
+                "passed": True,
+                "global_relative_changes": [2.3e-4],
+                "force_relative_changes": [1.5e-2],
+            }
+        ],
+    }
+    output = io.StringIO()
+    with contextlib.redirect_stdout(output):
+        runner["emit"](payload, False)
+    rendered = output.getvalue()
+    assert "status: passed" in rendered
+    assert "asymmetric_valence3_triangular_bipyramid quadrature" in rendered
+    assert "global_changes=[0.00023]" in rendered
+    assert "force_changes=[0.015]" in rendered

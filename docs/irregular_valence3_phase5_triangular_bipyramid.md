@@ -65,12 +65,16 @@ applicable and requires:
 - rejection for missing opt-in, reversed winding, and an incorrect topology
   selector.
 
-Passing this packet establishes mechanical feasibility only. Before any
-production activation, the topology still needs a separate scientific
-baseline decision, a separately serialized asymmetric-coordinate fixture,
-quadrature convergence,
-guarded transaction dry-run/postcondition evidence, output/checkpoint tests,
-serial/OpenMP repeats, and an independently reviewed activation change.
+Passing this packet establishes mechanical feasibility only. The asymmetric
+coordinates were subsequently serialized and a depth-0…4 nested quadrature
+study was completed. It did not meet the fixed convergence or row-invariant
+targets, so scientific activation remains blocked. See
+`docs/irregular_valence3_phase5_quadrature_convergence.md`.
+
+Before any production activation, the topology still needs an accepted
+scientific baseline/integration decision, guarded-transaction dry-run and
+postcondition evidence, output/checkpoint tests, serial/OpenMP repeats, and an
+independently reviewed activation change.
 
 ## Initial measured proof
 

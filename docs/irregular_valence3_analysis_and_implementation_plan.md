@@ -578,6 +578,14 @@ bipyramid; the default selector remains the tetrahedron, so the Phase-4
 production route is not broadened. See
 `docs/irregular_valence3_phase5_triangular_bipyramid.md`.
 
+The next Phase-5 packet serialized the asymmetric bipyramid and ran the fixed
+three-point rule over nested affine subtriangles through depth 4. The study
+completed but did not meet the proposed two-successive-depth global `1e-6`
+and force `1e-5` targets; depth-4 derivative-row constant-field residual also
+reached `1.0517e-12`, just above the unchanged `1e-12` target. No tolerance was
+widened, and broader-topology activation remains blocked. See
+`docs/irregular_valence3_phase5_quadrature_convergence.md`.
+
 ## Verification Matrix
 
 | Layer | Required checks |

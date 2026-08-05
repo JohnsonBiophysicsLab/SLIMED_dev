@@ -20,6 +20,9 @@ MIXED = ROOT / "data/fixtures/candidates/closed_mixed_valence345"
 BIPYRAMID = (
     ROOT / "data/fixtures/candidates/closed_valence3_triangular_bipyramid"
 )
+ASYMMETRIC_BIPYRAMID = (
+    ROOT / "data/fixtures/candidates/asymmetric_valence3_triangular_bipyramid"
+)
 
 
 def run(command: list[str], env: dict[str, str]) -> subprocess.CompletedProcess[str]:
@@ -100,6 +103,8 @@ def execute(binary: Path, env: dict[str, str]) -> dict[str, object]:
             str(MIXED / "faces.csv"),
             str(BIPYRAMID / "vertices.csv"),
             str(BIPYRAMID / "faces.csv"),
+            str(ASYMMETRIC_BIPYRAMID / "vertices.csv"),
+            str(ASYMMETRIC_BIPYRAMID / "faces.csv"),
         ],
         env,
     )
@@ -125,6 +130,13 @@ def emit(payload: dict[str, object], as_json: bool) -> None:
             f"{fixture['name']}: area={fixture['area']:.17g}, "
             f"volume={fixture['full_divergence_volume']:.17g}, "
             f"max_abs_force={fixture['max_abs_force']}"
+        )
+    for convergence in payload.get("quadrature_convergence", []):
+        print(
+            f"{convergence['name']} quadrature: "
+            f"passed={convergence['passed']}, "
+            f"global_changes={convergence['global_relative_changes']}, "
+            f"force_changes={convergence['force_relative_changes']}"
         )
 
 
