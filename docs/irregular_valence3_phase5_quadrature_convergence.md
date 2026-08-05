@@ -35,6 +35,39 @@ level 5. The existing `Mesh::element_energy_force_regular()` algebra consumes
 those rows with fixed material parameters and fixed area/volume reference
 targets across all depths.
 
+The serialized study contract is binding:
+
+| input | fixed value |
+| --- | ---: |
+| bending modulus `kCurv` | `47.5` |
+| area penalty `uSurf` | `130` |
+| volume penalty `uVol` | `65` |
+| spontaneous curvature | `0.17` |
+| reference area `area0` | `0.95` |
+| reference volume `vol0` | `0.09` |
+| adaptive isolation level | `5` |
+| maximum quadrature depth | `4` |
+
+For each global scalar, the successive-depth relative change is
+
+```text
+abs(current - previous) /
+max(1e-12, abs(previous), abs(current))
+```
+
+The reported global change is the maximum across area, full-divergence
+volume, and total energy. For each source, force family, and Cartesian axis,
+the force-component change is
+
+```text
+abs(current - previous) /
+max(1, abs(previous), abs(current))
+```
+
+The reported force change is the maximum across those components. These
+denominators are emitted by the C++ harness and independently asserted by the
+Python evidence runner.
+
 The study targets from the Valence-3 implementation plan remain unchanged:
 
 - global area, full-divergence volume, and total-energy change at most `1e-6`;
@@ -57,6 +90,14 @@ The study completed, but neither fixture met the activation targets:
 The preceding depth 2→3 changes were also above target. Depth-4 rows remained
 finite and structurally complete, but their maximum constant-field residual
 was slightly above the fixed `1e-12` target. No tolerance was widened.
+
+The evidence runner binds the serialized face order and outward orientation,
+the exact asymmetric source-0 displacement `(0.071, -0.043, 0.029)`, the
+five-level sample sequence, the fixed study contract, and the measured global
+and force changes. Numeric reproduction uses `5e-10` relative / `5e-12`
+absolute comparison tolerances; the depth-4 row residual uses `5e-6` relative /
+`1e-15` absolute comparison tolerances. These are evidence-reproduction
+checks, not widened geometry or row-invariant acceptance thresholds.
 
 The evidence runner therefore reports:
 

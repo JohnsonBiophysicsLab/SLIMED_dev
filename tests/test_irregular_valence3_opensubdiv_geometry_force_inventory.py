@@ -1,4 +1,6 @@
 import contextlib
+import copy
+from decimal import Decimal
 import io
 import runpy
 from pathlib import Path
@@ -136,7 +138,7 @@ def test_phase5_bipyramid_nested_quadrature_is_binding_and_fixed():
     ).read_text()
 
     assert "nested_quadrature_plan" in harness
-    assert "kMaximumDepth = 4" in harness
+    assert "kStudyMaximumDepth = 4" in harness
     assert "samplesPerFace" in harness
     assert "subtriangleWeight / kSampleCount" in harness
     assert "plan.s[sample] + plan.t[sample] >= 1.0" in harness
@@ -145,13 +147,21 @@ def test_phase5_bipyramid_nested_quadrature_is_binding_and_fixed():
     assert "scientificTargetsMet" in harness
     assert "activationBlocked" in harness
     assert "studyCompleted" in harness
-    assert "<= 1.0e-6" in harness
-    assert "<= 1.0e-5" in harness
+    assert "kStudyGlobalChangeTarget = 1.0e-6" in harness
+    assert "kStudyForceChangeTarget = 1.0e-5" in harness
+    assert "kStudyAdaptiveIsolationLevel = 5" in harness
+    assert "build_proof_rows(mesh, kStudyAdaptiveIsolationLevel, plan)" in harness
+    assert "<=\n            kStudyGlobalChangeTarget" in harness
+    assert "<=\n            kStudyForceChangeTarget" in harness
     assert "bipyramidConvergence.passed" in harness
     assert "asymmetricBipyramidConvergence.passed" in harness
     assert "quadrature_convergence" in harness
     assert "broader_topology_activation_blocked" in harness
     assert "convergence['global_relative_changes']" in runner
+    assert "validate_serialized_bipyramids" in runner
+    assert "validate_convergence_payload" in runner
+    assert "global_change_denominator" in harness
+    assert "force_change_denominator" in harness
     assert "ASYMMETRIC_BIPYRAMID" in runner
     study = (
         ROOT / "docs/irregular_valence3_phase5_quadrature_convergence.md"
@@ -193,3 +203,130 @@ def test_phase5_human_runner_reports_quadrature_blocker():
     assert "activation_blocked=True" in rendered
     assert "global_changes=[0.00023]" in rendered
     assert "force_changes=[0.015]" in rendered
+
+
+def _valid_convergence_payload(runner):
+    reports = []
+    for name, expected in runner["EXPECTED_CONVERGENCE"].items():
+        levels = []
+        for index, depth in enumerate(runner["EXPECTED_DEPTHS"]):
+            levels.append(
+                {
+                    "depth": depth,
+                    "samples_per_face": runner["EXPECTED_SAMPLES"][index],
+                    "plan_validated": True,
+                    "rows_structurally_valid": True,
+                    "rows_valid": index < 4,
+                    "maximum_row_invariant_residual": (
+                        1.0516032489249483e-12 if index == 4 else 1.0e-14
+                    ),
+                    "finite": True,
+                    "area": expected["area"][index],
+                    "full_divergence_volume": expected["volume"][index],
+                    "bending_energy": expected["bending"][index],
+                    "total_energy": expected["total"][index],
+                }
+            )
+        reports.append(
+            {
+                "name": name,
+                "levels": levels,
+                "global_relative_changes": expected["global_changes"].copy(),
+                "force_relative_changes": expected["force_changes"].copy(),
+                "all_plans_validated": True,
+                "all_rows_structurally_valid": True,
+                "all_rows_valid": False,
+                "all_finite": True,
+                "two_successive_global_targets_met": False,
+                "two_successive_force_targets_met": False,
+                "scientific_targets_met": False,
+                "activation_blocked": True,
+                "study_completed": True,
+                "passed": True,
+            }
+        )
+    return {
+        "status": "passed",
+        "broader_topology_quadrature_targets_met": False,
+        "broader_topology_activation_blocked": True,
+        "quadrature_study_contract": copy.deepcopy(
+            runner["EXPECTED_STUDY_CONTRACT"]
+        ),
+        "quadrature_convergence": reports,
+    }
+
+
+def test_phase5_runner_independently_rejects_mutated_convergence_evidence():
+    runner = runpy.run_path(
+        str(ROOT / "scripts/run_irregular_valence3_opensubdiv_geometry_force.py")
+    )
+    validate = runner["validate_convergence_payload"]
+    valid = _valid_convergence_payload(runner)
+    assert validate(valid)[0]
+
+    mutations = []
+
+    missing_report = copy.deepcopy(valid)
+    missing_report["quadrature_convergence"].pop()
+    mutations.append(missing_report)
+
+    missing_field = copy.deepcopy(valid)
+    del missing_field["quadrature_convergence"][0]["levels"][0]["area"]
+    mutations.append(missing_field)
+
+    nonfinite = copy.deepcopy(valid)
+    nonfinite["quadrature_convergence"][0]["levels"][0]["total_energy"] = float(
+        "nan"
+    )
+    mutations.append(nonfinite)
+
+    wrong_sequence = copy.deepcopy(valid)
+    wrong_sequence["quadrature_convergence"][0]["levels"][2]["depth"] = 3
+    mutations.append(wrong_sequence)
+
+    flipped_policy = copy.deepcopy(valid)
+    flipped_policy["quadrature_convergence"][0]["activation_blocked"] = False
+    mutations.append(flipped_policy)
+
+    accidental_convergence = copy.deepcopy(valid)
+    accidental_convergence["quadrature_convergence"][0][
+        "global_relative_changes"
+    ][-2:] = [1.0e-8, 1.0e-8]
+    accidental_convergence["quadrature_convergence"][0][
+        "two_successive_global_targets_met"
+    ] = True
+    mutations.append(accidental_convergence)
+
+    changed_contract = copy.deepcopy(valid)
+    changed_contract["quadrature_study_contract"]["maximum_depth"] = 5
+    mutations.append(changed_contract)
+
+    for mutation in mutations:
+        assert not validate(mutation)[0]
+
+
+def test_phase5_runner_binds_serialized_bipyramid_geometry_and_topology():
+    runner = runpy.run_path(
+        str(ROOT / "scripts/run_irregular_valence3_opensubdiv_geometry_force.py")
+    )
+    validate = runner["validate_bipyramid_fixture_data"]
+    symmetric = copy.deepcopy(runner["EXPECTED_SYMMETRIC_BIPYRAMID_VERTICES"])
+    asymmetric = copy.deepcopy(symmetric)
+    asymmetric[0] = [
+        Decimal("0.071"),
+        Decimal("-0.043"),
+        Decimal("1.029"),
+    ]
+    faces = copy.deepcopy(runner["EXPECTED_BIPYRAMID_FACES"])
+    assert validate(symmetric, faces, asymmetric, faces)[0]
+
+    changed_coordinate = copy.deepcopy(asymmetric)
+    changed_coordinate[0][0] += Decimal("0.001")
+    assert not validate(symmetric, faces, changed_coordinate, faces)[0]
+
+    reversed_face = copy.deepcopy(faces)
+    reversed_face[0] = list(reversed(reversed_face[0]))
+    assert not validate(symmetric, reversed_face, asymmetric, faces)[0]
+
+    missing_face = copy.deepcopy(faces[:-1])
+    assert not validate(symmetric, missing_face, asymmetric, faces)[0]

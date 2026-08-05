@@ -43,6 +43,16 @@ constexpr int kRowCount = 7;
 constexpr int kAxisCount = 3;
 constexpr double kVolumeQuadratureFactor = 1.0 / 6.0;
 constexpr double kRowTolerance = 1.0e-12;
+constexpr double kStudyKCurv = 47.5;
+constexpr double kStudyUSurf = 130.0;
+constexpr double kStudyUVol = 65.0;
+constexpr double kStudySpontaneousCurvature = 0.17;
+constexpr double kStudyArea0 = 0.95;
+constexpr double kStudyVol0 = 0.09;
+constexpr double kStudyGlobalChangeTarget = 1.0e-6;
+constexpr double kStudyForceChangeTarget = 1.0e-5;
+constexpr int kStudyAdaptiveIsolationLevel = 5;
+constexpr int kStudyMaximumDepth = 4;
 constexpr std::array<double, kSampleCount> kS{{
     1.0 / 6.0, 1.0 / 6.0, 4.0 / 6.0}};
 constexpr std::array<double, kSampleCount> kT{{
@@ -869,7 +879,7 @@ QuadratureEvaluation evaluate_quadrature(
     evaluation.samplesPerFace = static_cast<int>(plan.s.size());
     evaluation.planValidated = quadrature_plan_valid(plan);
     const std::vector<SourceKeyedFaceRows> rows =
-        build_proof_rows(mesh, 5, plan);
+        build_proof_rows(mesh, kStudyAdaptiveIsolationLevel, plan);
     evaluation.rowsStructurallyValid = finite_row_package(
         rows, static_cast<int>(mesh.faces.size()),
         static_cast<int>(mesh.vertices.size()),
@@ -909,13 +919,13 @@ QuadratureEvaluation evaluate_quadrature(
     Param forceParam;
     forceParam.VERBOSE_MODE = false;
     forceParam.boundaryCondition = BoundaryType::Fixed;
-    forceParam.kCurv = 47.5;
-    forceParam.uSurf = 130.0;
-    forceParam.uVol = 65.0;
+    forceParam.kCurv = kStudyKCurv;
+    forceParam.uSurf = kStudyUSurf;
+    forceParam.uVol = kStudyUVol;
     forceParam.area = evaluation.area;
     forceParam.vol = evaluation.volume;
-    forceParam.area0 = 0.95;
-    forceParam.vol0 = 0.09;
+    forceParam.area0 = kStudyArea0;
+    forceParam.vol0 = kStudyVol0;
     Mesh evaluator(forceParam);
     evaluator.param.gaussQuadratureCoeff =
         Matrix(static_cast<int>(plan.weights.size()), 1, true);
@@ -955,7 +965,7 @@ QuadratureEvaluation evaluate_quadrature(
 
         Face face;
         face.index = faceRows.faceIndex;
-        face.spontCurvature = 0.17;
+        face.spontCurvature = kStudySpontaneousCurvature;
         double meanCurvature = 0.0;
         double bendingEnergy = 0.0;
         Matrix normal = mat_calloc(3, 1);
@@ -1055,8 +1065,7 @@ QuadratureConvergenceReport evaluate_quadrature_convergence(
     Mesh mesh(setupParam);
     mesh.setup_from_vertices_faces(read_data_from_csv<double>(verticesPath),
                                    read_data_from_csv<int>(facesPath));
-    constexpr int kMaximumDepth = 4;
-    for (int depth = 0; depth <= kMaximumDepth; ++depth)
+    for (int depth = 0; depth <= kStudyMaximumDepth; ++depth)
     {
         report.levels.push_back(
             evaluate_quadrature(mesh, nested_quadrature_plan(depth)));
@@ -1086,11 +1095,15 @@ QuadratureConvergenceReport evaluate_quadrature_convergence(
         [](const QuadratureEvaluation &level) { return level.finite; });
     const std::size_t changeCount = report.globalRelativeChanges.size();
     report.twoSuccessiveGlobalTargetsMet = changeCount >= 2u &&
-        report.globalRelativeChanges[changeCount - 2u] <= 1.0e-6 &&
-        report.globalRelativeChanges[changeCount - 1u] <= 1.0e-6;
+        report.globalRelativeChanges[changeCount - 2u] <=
+            kStudyGlobalChangeTarget &&
+        report.globalRelativeChanges[changeCount - 1u] <=
+            kStudyGlobalChangeTarget;
     report.twoSuccessiveForceTargetsMet = changeCount >= 2u &&
-        report.forceRelativeChanges[changeCount - 2u] <= 1.0e-5 &&
-        report.forceRelativeChanges[changeCount - 1u] <= 1.0e-5;
+        report.forceRelativeChanges[changeCount - 2u] <=
+            kStudyForceChangeTarget &&
+        report.forceRelativeChanges[changeCount - 1u] <=
+            kStudyForceChangeTarget;
     report.scientificTargetsMet = report.allRowsValid &&
         report.twoSuccessiveGlobalTargetsMet &&
         report.twoSuccessiveForceTargetsMet;
@@ -1656,6 +1669,29 @@ void print_quadrature_convergence(
     std::cout << ",\"passed\":" << (report.passed ? "true" : "false")
               << '}';
 }
+
+void print_quadrature_study_contract()
+{
+    std::cout << "{\"k_curv\":" << kStudyKCurv
+              << ",\"u_surf\":" << kStudyUSurf
+              << ",\"u_vol\":" << kStudyUVol
+              << ",\"spontaneous_curvature\":"
+              << kStudySpontaneousCurvature
+              << ",\"area0\":" << kStudyArea0
+              << ",\"vol0\":" << kStudyVol0
+              << ",\"adaptive_isolation_level\":"
+              << kStudyAdaptiveIsolationLevel
+              << ",\"maximum_depth\":" << kStudyMaximumDepth
+              << ",\"global_change_target\":"
+              << kStudyGlobalChangeTarget
+              << ",\"force_change_target\":"
+              << kStudyForceChangeTarget
+              << ",\"row_invariant_target\":" << kRowTolerance
+              << ",\"global_change_denominator\":"
+              << "\"max(1e-12,abs(previous),abs(current))\""
+              << ",\"force_change_denominator\":"
+              << "\"max(1,abs(previous),abs(current))\"}";
+}
 } // namespace
 
 int main(int argc, char **argv)
@@ -1768,6 +1804,9 @@ int main(int argc, char **argv)
                   << (bipyramidConvergence.activationBlocked &&
                               asymmetricBipyramidConvergence.activationBlocked
                           ? "true" : "false")
+                  << ",\"quadrature_study_contract\":";
+        print_quadrature_study_contract();
+        std::cout
                   << ",\"fixtures\":[";
         print_report(tetra);
         std::cout << ',';
