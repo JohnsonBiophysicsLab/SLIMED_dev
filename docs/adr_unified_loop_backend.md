@@ -4,10 +4,16 @@ Status: preliminary, non-authorizing decision record
 
 Date: 2026-08-05
 
-Package: WP0.1
+Package: WP0.1 plus post-merge external-review amendment
 
 Authoritative current-main base:
+`e9af3ddad494fc073040ee82bdf07944b9fee8cf`
+
+Original WP0.1 base:
 `906a7850d2c1ceec3ffdda9bf0ce44a437f6aa4a`
+
+Separately inventoried PR 176 stack root:
+`46c06080fb663bcb43f38cf32fc1b45daa8732e8`
 
 Separately inventoried PR 182 stack head:
 `9587e3dce4509029e611e2937bac570b410193c3`
@@ -17,14 +23,17 @@ Separately inventoried PR 182 stack head:
 This ADR records the current implementation facts, proposed architecture, and
 questions requiring explicit authority before production work proceeds. It
 does not activate a backend, accept a new scientific baseline, change a volume
-functional, quarantine the legacy matrix, dispose of PR 182, or modify CUDA.
+functional, quarantine the legacy matrix, dispose of the PR 176/182 stack, or
+modify CUDA.
 The user's instruction to begin preparatory production work authorizes this
-inventory and evidence package; it does not implicitly approve D0-D5.
+inventory and evidence package; it does not implicitly approve D0-D5, D2b, or
+D8.
 
-Current main and PR 182 are different evidence sets. Current main contains
+Current main and the PR 176 -> PR 182 stack are different evidence sets. Current main contains
 Valence-4 and Valence-5 whole-mesh runtime routes and a Valence-3 proof-only
-row provider. PR 182 is open, green, and previously reviewed as mergeable at
-the SHA above, but it is stacked on a non-main ancestry. Its convergence result
+row provider. PR 176 is the open stack root that would add Valence-3 production
+source and routing; PR 182 is its evidence-only leaf, based on PR 176 rather
+than `main`. PR 182 is open, green, and mergeable at the SHA above. Its convergence result
 is limited to the symmetric and asymmetric `3/4/4` triangular bipyramids,
 OpenSubdiv 3.7.0, isolation level 5, nested depths 0 through 4, fixed study
 parameters, and its recorded global/force activation targets. It does not
@@ -39,17 +48,20 @@ The exact status phrases below are checked by
 
 | ID | Status | Proposed or existing rule | Required authority / evidence |
 | --- | --- | --- | --- |
-| D0 | Proposed - pending explicit user disposition | Do not merge PR 182 as a production milestone; preserve or extract only the scoped two-fixture evidence described above. | Explicit user decision before PR closure, retargeting, or evidence extraction. |
-| D1 | Proposed - pending explicit user scientific approval | Use stock OpenSubdiv Loop semantics as the forward-looking CPU baseline. Do not modify completed rows to imitate the legacy mask. | Explicit user scientific approval. Prior acceptance applies only to the narrow Valence-5 lane. |
-| D2 | Proposed - pending explicit user approval | Initial generic scope is a complete closed, consistently oriented, two-manifold triangular mesh. Reject boundaries, holes, ghosts, non-triangles, non-manifold incidence, and inconsistent orientation before mutation. | Explicit user approval before WP3. |
+| D0 | Proposed - pending explicit user stack disposition | Decide PR 176, the production-code root, and PR 182, its negative-evidence leaf, as one stack. Recommended: do not merge PR 176 as a production milestone; extract the symmetric/asymmetric bipyramid fixtures and scoped convergence record before closing or superseding the stack. | Explicit user decision before either PR is merged, closed, retargeted, or extracted. PR 176 is the blocking decision; PR 182 cannot reach `main` independently. |
+| D1 | Proposed - pending explicit user scientific approval | Use stock OpenSubdiv Loop semantics as the forward-looking CPU baseline. The stock and historical `3/(8N)` smooth masks coincide exactly at `N=6` (`1/16` neighbor, `5/8` center); the checked-in `data/example` physical faces are regular, so that workload has no physical-face mask rebaseline. No claim is made for arbitrary production inputs. Do not modify completed rows to imitate the legacy mask. | Explicit user scientific approval. Prior acceptance applies only to the narrow Valence-5 lane; D2b still governs the periodic ghost-band representation. |
+| D2 | Proposed - pending explicit user approval | Initial proof scope is a complete closed, consistently oriented, two-manifold triangular mesh. Reject boundaries, holes, ghosts, non-triangles, non-manifold incidence, and inconsistent orientation before mutation. | Explicit user approval before the closed-mesh WP3 proofs. This does not authorize a production default. |
+| D2b | Proposed - pending explicit user production-scope approval | The primary flat/periodic workload has 2,720 regular physical faces and a 960-face ghost band containing all 336 mixed-valence faces. Recommended: require an explicit periodic/ghost topology, Ptex/source-ID, and physical-face evaluation policy in WP3.2; otherwise declare that workload permanently legacy-only. | Explicit user decision before WP3.2 final scope and before any WP6 production/default claim. |
 | D3 | Pending post-WP2.1 oracle, independent scientific review, and user decision | Candidate canonical functional is full-divergence signed volume with exact `1/6` when triangle weights sum to one. | Independent WP2.1 oracle, technical review, independent scientific review, and explicit user baseline decision. |
 | D4 | Pending post-WP2.1 characterization, independent scientific review, and user decision | Candidate compatibility behavior is a named `legacy-x-volume` mode that reproduces the x-only literal `0.16666666666`, never selected by valence. Its default, metadata, and retirement date are undecided. | WP2.1 characterization, independent scientific review, and explicit user compatibility decision. |
-| D5 | Proposed - pending explicit user approval | Reject the current all-Valence-5 11-control predicate before matrix evaluation or publication. Retain a 5/6/6 compatibility path only if its topology, ordering, and distinct controls are independently proven. | Explicit user approval because quarantine reverses a previously positive compatibility fixture. |
+| D5 | Pending WP1.1a evidence and explicit user approval | Reject the current all-Valence-5 11-control predicate before matrix evaluation or publication. The intended `5/6/6` class has never been admitted by the all-`5/5/5` predicate; implementing it would be net-new work, not retained compatibility, and requires its own reviewed scientific gate. | WP1.1a may remove unconditional undefined behavior without deciding D5. Quarantine of the accepted all-Valence-5 fixture and any new `5/6/6` implementation require explicit user approval after WP1.1a evidence. |
 | D6 | Restated existing project policy | Default builds and tests remain OpenSubdiv-free throughout proof and opt-in work. Every OpenSubdiv build remains explicit and requires `OPENSUBDIV_ROOT`. | WP0.1 makes no new decision; later changes require a separate dependency decision. |
 | D7 | Restated existing user instruction | WP0-WP7 do not change `src/cuda`, `include/cuda`, CUDA targets, or CUDA scientific baselines. CUDA work is deferred to its backward-compatibility lane. | WP0.1 makes no new decision; expansion requires explicit user authority. |
+| D8 | Proposed - pending explicit user performance-budget approval | Freeze the same-binary alternating-order regular benchmark. Candidate ceilings: generic coordinate-only steady-state median no slower than `1.10x` the current cached OpenSubdiv regular route and no case above `2.00x` the direct analytic route; topology preparation is reported separately and occurs once per epoch. | Reproduce the benchmark protocol, review platform variance, then obtain explicit user approval before WP3.3 performance PASS or WP6 default selection. |
 
 D3 and D4 remain pending WP2.1, independent scientific review, and explicit
-user decisions. They must not be inferred from D1, from the proposed target
+user decisions. D2b, D5, and D8 also remain pending their named evidence and
+authority. They must not be inferred from D1, from the proposed target
 architecture, or from the Valence-3 stack's full-divergence implementation.
 
 ## Context: current-main implementation facts
@@ -96,6 +108,13 @@ inventory and bound to the fixture hashes below. Face reversal, face
 reordering, count changes, valence changes, and one-ring drift are rejection
 cases, not equivalent fixtures.
 
+The checked-in primary workload is not one of those closed fixtures:
+`data/example/example.params` selects `isFlat=true` and periodic boundaries.
+Production characterization records 2,720 regular physical faces plus a
+960-face periodic ghost band; all 336 mixed-valence faces lie in that ghost
+band. D2 is therefore a closed-proof scope, while D2b determines whether and
+how the primary workload crosses the eventual generic production seam.
+
 The legacy 11-control setup predicate currently admits faces whose three
 corner valences are 5/5/5. The matrix construction describes one valence-5
 corner and two valence-6 corners (5/6/6). The predicate also declares `d4`,
@@ -137,8 +156,12 @@ source IDs are variable-cardinality original mesh IDs and are range, uniqueness,
 cardinality, and finiteness checked. Its compatibility sample still contains
 seven derivative rows. Rows 5 and 6 must be exactly equal duplicated mixed
 derivatives. The future generic backend should store one mixed derivative and
-duplicate only at this seam. Complete transactions are validated before the
-guarded production write.
+duplicate only at this seam. The WP3.1 representation is sparse at rest:
+immutable rows retain original source IDs and coefficients. At evaluation,
+one deterministic union source list per face is formed and the requested
+sample rows are densified into a compact row-by-union-source matrix for the
+existing dense algebra. Complete transactions are validated before the guarded
+production write.
 
 The future topology-epoch cache must expand the identity and invalidation
 contract before production use: complete connectivity and orientation,
@@ -185,6 +208,16 @@ for the future generic backend.
 | `valence5_row_invariants` | `1.0e-12` | Valence-5 exact provider row sums. |
 | `valence5_reviewed_production_parity` | `1.0e-10` | Valence-5 reviewed face/force parity. |
 | `irregular_serial_openmp_envelope` | `1.0e-10` | Existing irregular scalar/force reduction characterization. |
+
+Proposed D8 performance budgets are frozen as decision inputs, not silently
+activated thresholds: `generic_vs_cached_regular_median <= 1.10` and
+`generic_vs_direct_regular_each_case <= 2.00`, measured as coordinate-only
+steady state with the existing same-binary, alternating-order,
+warmup-plus-repeat protocol. Topology preparation is reported separately and
+occurs once per epoch. These derive from the corrected cached-route
+characterization (`1.15x` to `1.95x` direct), and must be reproduced, reviewed
+for platform variance, and explicitly approved before they become acceptance
+gates.
 
 Authoritative fixture hashes:
 
@@ -238,14 +271,17 @@ anchors to characterize compatibility but makes no CUDA edit.
 
 1. Technical and scientific reviewers verify this ADR and the fail-closed
    inventory at the exact PR head; their PASS validates evidence completeness
-   but does not decide D0-D5.
-2. The user explicitly decides D0 and approves or rejects D1, D2, and D5.
+   but does not decide D0-D5, D2b, or D8.
+2. The user explicitly decides the PR 176/182 stack under D0 and approves or
+   rejects D1 and D2. D2b and D8 remain named production/performance choices.
    D6 and D7 remain existing constraints.
-3. WP1 may start only after D5. WP2.1 characterization may proceed without
-   deciding D3/D4.
+3. WP1.1a unconditional safety work and WP2.1 characterization may proceed.
+   WP1.1b remains blocked on WP1.1a evidence and D5; neither package decides
+   D3/D4.
 4. D3/D4 remain blocked until WP2.1, independent scientific review, and the
    named explicit user decisions.
-5. WP3 and later generic-backend packages remain blocked until D1 and D2.
+5. WP3 closed proofs remain blocked until D1 and D2. WP3.2 production-scope
+   completion additionally requires D2b; performance PASS requires D8.
 6. Any changed source anchor, fixture byte, tolerance, selector, functional
    name, output/checkpoint contract, or follow-up commit invalidates the
    inventory/review and requires a new exact-head run.

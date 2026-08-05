@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Fail-closed inventory for the unified irregular Loop architecture ADR.
 
-This script is deliberately read-only.  It describes current main separately
-from the unmerged PR 182 stack and rejects source, fixture, policy, or ADR drift
-before later work packages rely on the baseline.
+This script is deliberately read-only. It describes current main separately
+from the unmerged PR 176 production root and PR 182 evidence leaf, and rejects
+source, fixture, policy, or ADR drift before later work packages rely on the
+baseline.
 """
 
 from __future__ import annotations
@@ -12,16 +13,20 @@ import argparse
 import copy
 import csv
 import hashlib
+import io
 import json
 import re
 import subprocess
 import sys
+import tokenize
 from pathlib import Path
 from typing import Any
 
 
 ROOT = Path(__file__).resolve().parents[1]
-BASE_SHA = "906a7850d2c1ceec3ffdda9bf0ce44a437f6aa4a"
+BASE_SHA = "e9af3ddad494fc073040ee82bdf07944b9fee8cf"
+ORIGINAL_WP01_BASE_SHA = "906a7850d2c1ceec3ffdda9bf0ce44a437f6aa4a"
+PR176_SHA = "46c06080fb663bcb43f38cf32fc1b45daa8732e8"
 PR182_SHA = "9587e3dce4509029e611e2937bac570b410193c3"
 PR182_MERGE_BASE = "6d9213e260c90c74c72e831deab1a2ec2d67e1d3"
 
@@ -91,25 +96,34 @@ EXPECTED_FIXTURE_HASHES = {
 }
 
 EXPECTED_DECISIONS = {
-    "D0": "Proposed - pending explicit user disposition",
+    "D0": "Proposed - pending explicit user stack disposition",
     "D1": "Proposed - pending explicit user scientific approval",
     "D2": "Proposed - pending explicit user approval",
+    "D2b": "Proposed - pending explicit user production-scope approval",
     "D3": "Pending post-WP2.1 oracle, independent scientific review, and user decision",
     "D4": "Pending post-WP2.1 characterization, independent scientific review, and user decision",
-    "D5": "Proposed - pending explicit user approval",
+    "D5": "Pending WP1.1a evidence and explicit user approval",
     "D6": "Restated existing project policy",
     "D7": "Restated existing user instruction",
+    "D8": "Proposed - pending explicit user performance-budget approval",
 }
 
 EXPECTED_PLAN_AUTHORITIES = {
     "D0": "Explicit user decision",
     "D1": "Explicit user scientific decision, informed by prior Valence-5 acceptance",
     "D2": "Explicit user decision",
+    "D2b": "Explicit user production-scope decision",
     "D3": "WP2.1 oracle, independent scientific review, and explicit user scientific decision",
     "D4": "WP2.1 characterization, independent scientific review, and explicit user decision",
-    "D5": "Explicit user decision",
+    "D5": "Explicit user decision after WP1.1a; any `5/6/6` implementation needs a separate scientific gate",
     "D6": "Existing project policy",
     "D7": "Existing user instruction",
+    "D8": "Reproduced benchmark evidence plus explicit user approval",
+}
+
+EXPECTED_PERFORMANCE_BUDGET = {
+    "generic_vs_cached_regular_median": 1.10,
+    "generic_vs_direct_regular_each_case": 2.00,
 }
 
 EXPECTED_ENERGY_FIELDS = [
@@ -210,6 +224,25 @@ def _cpp_code(text: str) -> str:
     return non_code.sub(_blank_non_code, text)
 
 
+def _python_code(text: str) -> str:
+    tokens = tokenize.generate_tokens(io.StringIO(text).readline)
+    return tokenize.untokenize(
+        token for token in tokens
+        if token.type not in {tokenize.COMMENT, tokenize.STRING})
+
+
+def _active_markdown_paragraph(text: str, marker: str) -> str:
+    active = re.sub(r"<!--.*?-->", "", text, flags=re.DOTALL)
+    active = re.sub(
+        r"^```[^\n]*\n.*?^```\s*$", "", active,
+        flags=re.DOTALL | re.MULTILINE)
+    start = active.find(marker)
+    if start < 0:
+        return ""
+    end = active.find("\n\n", start)
+    return active[start:] if end < 0 else active[start:end]
+
+
 def _cpp_block_after(text: str, marker: str) -> str:
     code = _cpp_code(text)
     marker_offset = code.index(marker)
@@ -248,6 +281,11 @@ def _markdown_row_cells(text: str, decision: str) -> list[str]:
 def _source_float(text: str, pattern: str) -> float:
     match = re.search(pattern, text)
     return float(match.group(1)) if match else float("nan")
+
+
+def _source_int(text: str, pattern: str) -> int:
+    match = re.search(pattern, text)
+    return int(match.group(1)) if match else -1
 
 
 def _git_output(*arguments: str) -> str:
@@ -290,6 +328,11 @@ def collect_inventory() -> dict[str, Any]:
     cuda_cpu = _text("src/cuda/Cuda_regular_geometry_cpu.cpp")
     cuda_device = _text("src/cuda/Cuda_mesh_state.cu")
     adaptive = _text("include/mesh/Adaptive_edge_flip_quality.hpp")
+    example_params = _text("data/example/example.params")
+    routing_gap_map = _text("docs/irregular_routing_evidence_gap_map.md")
+    surface_characterization = _text(
+        "tests/test_surface_geometry_characterization.cpp")
+    fixture_inventory_test = _text("tests/test_irregular_fixture_inventory.py")
     corpus = _source_corpus()
 
     observed_head = _git_output("rev-parse", "HEAD")
@@ -310,8 +353,32 @@ def collect_inventory() -> dict[str, Any]:
         r"\b(?:legacy[_-]?x[_-]?volume|full[_-]?divergence[_-]?volume|"
         r"volume[_-]?functional|volume[_-]?mode)\b", corpus,
         flags=re.IGNORECASE)))
+    pr176_face_loop = _git_output(
+        "show", f"{PR176_SHA}:src/energy_force/Valence3_opensubdiv_face_loop.cpp")
     pr182_face_loop = _git_output(
         "show", f"{PR182_SHA}:src/energy_force/Valence3_opensubdiv_face_loop.cpp")
+
+    d8_paragraph = _active_markdown_paragraph(
+        adr, "Proposed D8 performance budgets are frozen")
+    performance_budget = {
+        "generic_vs_cached_regular_median": _source_float(
+            d8_paragraph,
+            r"generic_vs_cached_regular_median\s*<=\s*([0-9.]+)"),
+        "generic_vs_direct_regular_each_case": _source_float(
+            d8_paragraph,
+            r"generic_vs_direct_regular_each_case\s*<=\s*([0-9.]+)"),
+    }
+    performance_protocol = {
+        "coordinate_only_steady_state": "coordinate-only\nsteady state" in d8_paragraph,
+        "same_binary": "same-binary" in d8_paragraph,
+        "alternating_order": "alternating-order" in d8_paragraph,
+        "warmup_repeats": "warmup-plus-repeat" in d8_paragraph,
+        "preparation_separate_once_per_epoch": _all_present(d8_paragraph, [
+            "Topology preparation is reported separately",
+            "occurs once per epoch",
+        ]),
+        "platform_variance_review": "reviewed\nfor platform variance" in d8_paragraph,
+    }
 
     decisions = {
         decision: (_markdown_row_cells(adr, decision) + ["missing"])[1]
@@ -402,6 +469,7 @@ def collect_inventory() -> dict[str, Any]:
         "status": "pending",
         "baseline": {
             "authoritative_current_main": BASE_SHA,
+            "original_wp01_base": ORIGINAL_WP01_BASE_SHA,
             "observed_head": observed_head,
             "observed_head_commit": _git_output(
                 "rev-parse", "--verify", "HEAD^{commit}"),
@@ -413,9 +481,18 @@ def collect_inventory() -> dict[str, Any]:
                 "rev-list", "--min-parents=2", f"{BASE_SHA}..HEAD").splitlines())),
             "changed_paths_from_base": changed_paths,
             "allowed_wp0_paths": EXPECTED_WP0_PATHS,
+            "pr176_stack_root": PR176_SHA,
+            "pr176_object_available": pr176_face_loop != "unavailable",
+            "observed_pr176_merge_base": _git_output(
+                "merge-base", PR176_SHA, BASE_SHA),
+            "pr176_production_route_anchor":
+                "evaluate_guarded_valence3_opensubdiv_production_route" in
+                pr176_face_loop,
             "pr182_stack_head": PR182_SHA,
             "pr182_merge_base": PR182_MERGE_BASE,
             "observed_pr182_merge_base": _git_output("merge-base", PR182_SHA, BASE_SHA),
+            "observed_pr182_pr176_merge_base": _git_output(
+                "merge-base", PR182_SHA, PR176_SHA),
             "pr182_object_available": pr182_face_loop != "unavailable",
             "pr182_full_divergence_anchor":
                 "kFullDivergenceVolumeQuadratureFactor" in pr182_face_loop
@@ -425,6 +502,7 @@ def collect_inventory() -> dict[str, Any]:
                 "3/4/4 bipyramids, OpenSubdiv 3.7.0, isolation 5, depths 0-4, "
                 "fixed parameters and recorded targets"),
             "pr182_current_main_production": False,
+            "pr176_current_main_production": False,
             "current_main_valence3_runtime_route": False,
         },
         "decisions": decisions,
@@ -561,6 +639,42 @@ def collect_inventory() -> dict[str, Any]:
             "expected_values_policy":
                 "fixture regressions are locks, not independent scientific oracles",
         },
+        "I2_scope_performance": {
+            "regular_n6_masks_coincide": {
+                "neighbor": 1.0 / 16.0,
+                "center": 5.0 / 8.0,
+            },
+            "primary_workload": {
+                "is_flat": bool(re.search(
+                    r"^isFlat\s*=\s*true\b", example_params, re.MULTILINE)),
+                "boundary_type": "Periodic" if re.search(
+                    r"^boundaryType\s*=\s*Periodic\b", example_params,
+                    re.MULTILINE) else "missing",
+                "physical_faces": _source_int(
+                    _cpp_code(surface_characterization),
+                    r"EXPECT_EQ\(physicalRegularFaces,\s*(\d+)\)"),
+                "ghost_faces": _source_int(
+                    _cpp_code(surface_characterization),
+                    r"EXPECT_EQ\(ghostFaces,\s*(\d+)\)"),
+                "mixed_valence_ghost_faces": _source_int(
+                    _cpp_code(surface_characterization),
+                    r"EXPECT_EQ\(ghostMixedValenceFaces,\s*(\d+)\)"),
+                "prose_count_anchor_present": _all_present(routing_gap_map, [
+                    "all 2,720 physical faces are regular",
+                    "all 336 mixed-valence faces belong to the 960-face periodic ghost band",
+                ]),
+                "executable_count_anchors_present": _all_present(
+                    _python_code(fixture_inventory_test), [
+                        "self.assertEqual(sum(flag is True for flag in mesh.face_ghost_flags), 960)",
+                        "inventory.BOUNDARY_ROUTE: 960",
+                        "inventory.REGULAR_ROUTE: 2720",
+                        "self.assertEqual(sum(flags), 960)",
+                    ]),
+            },
+            "performance_budget": performance_budget,
+            "performance_protocol": performance_protocol,
+            "performance_budget_status": "candidate pending reproduction and explicit user approval",
+        },
         "J_output_checkpoint": {
             "energy_csv_fields": _energy_field_order(
                 output, "void write_energy_csv_fields"),
@@ -617,6 +731,8 @@ def validate_inventory(report: dict[str, Any], check_adr: bool = True) -> list[s
         require(report["schema_version"] == 1, "schema version drift")
         baseline = report["baseline"]
         require(baseline["authoritative_current_main"] == BASE_SHA, "base SHA drift")
+        require(baseline["original_wp01_base"] == ORIGINAL_WP01_BASE_SHA,
+                "original WP0.1 base drift")
         require(baseline["observed_head"] not in {"unavailable", BASE_SHA},
                 "HEAD missing or not beyond the pinned base")
         require(baseline["observed_head_commit"] == baseline["observed_head"],
@@ -631,13 +747,24 @@ def validate_inventory(report: dict[str, Any], check_adr: bool = True) -> list[s
                 "WP0 path allowlist drift")
         require(baseline["changed_paths_from_base"] == EXPECTED_WP0_PATHS,
                 "WP0 aggregate diff path drift")
+        require(baseline["pr176_stack_root"] == PR176_SHA,
+                "PR 176 root SHA drift")
+        require(baseline["pr176_object_available"] and
+                baseline["pr176_production_route_anchor"],
+                "PR 176 production root object/route anchor missing")
+        require(baseline["observed_pr176_merge_base"] == PR182_MERGE_BASE,
+                "PR 176/current-main ancestry drift")
         require(baseline["pr182_stack_head"] == PR182_SHA, "PR 182 SHA drift")
         require(baseline["observed_pr182_merge_base"] == PR182_MERGE_BASE,
                 "PR 182 ancestry drift")
+        require(baseline["observed_pr182_pr176_merge_base"] == PR176_SHA,
+                "PR 182 is not stacked directly on the reviewed PR 176 head")
         require(baseline["pr182_object_available"] and
                 baseline["pr182_full_divergence_anchor"],
                 "PR 182 evidence object/functional anchor missing")
-        require(not baseline["pr182_current_main_production"], "PR 182 ancestry conflated")
+        require(not baseline["pr176_current_main_production"] and
+                not baseline["pr182_current_main_production"],
+                "PR 176/182 ancestry conflated with current main")
         require(not baseline["current_main_valence3_runtime_route"], "false V3 runtime claim")
         require(report["decisions"] == EXPECTED_DECISIONS, "decision authority/status drift")
 
@@ -737,6 +864,34 @@ def validate_inventory(report: dict[str, Any], check_adr: bool = True) -> list[s
         require(i["source_anchors_present"], "named tolerance source anchor drift")
         require(i["fixture_sha256"] == EXPECTED_FIXTURE_HASHES, "fixture SHA256 drift")
 
+        i2 = report["I2_scope_performance"]
+        require(i2["regular_n6_masks_coincide"] == {
+                    "neighbor": 1.0 / 16.0, "center": 5.0 / 8.0},
+                "regular N=6 mask-equivalence rationale drift")
+        primary = i2["primary_workload"]
+        require(primary == {
+                    "is_flat": True,
+                    "boundary_type": "Periodic",
+                    "physical_faces": 2720,
+                    "ghost_faces": 960,
+                    "mixed_valence_ghost_faces": 336,
+                    "prose_count_anchor_present": True,
+                    "executable_count_anchors_present": True,
+                }, "primary periodic/ghost workload scope drift")
+        require(i2["performance_budget"] == EXPECTED_PERFORMANCE_BUDGET,
+                "candidate D8 performance budget drift")
+        require(i2["performance_protocol"] == {
+                    "coordinate_only_steady_state": True,
+                    "same_binary": True,
+                    "alternating_order": True,
+                    "warmup_repeats": True,
+                    "preparation_separate_once_per_epoch": True,
+                    "platform_variance_review": True,
+                }, "candidate D8 performance protocol drift")
+        require(i2["performance_budget_status"] ==
+                "candidate pending reproduction and explicit user approval",
+                "D8 performance budget authority drift")
+
         j = report["J_output_checkpoint"]
         require(j["energy_csv_fields"] == EXPECTED_ENERGY_FIELDS,
                 "energy CSV field order drift")
@@ -792,7 +947,7 @@ def validate_inventory(report: dict[str, Any], check_adr: bool = True) -> list[s
             for decision, status in EXPECTED_DECISIONS.items():
                 if f"| {decision} | {status} |" not in adr:
                     errors.append(f"ADR/inventory disagreement for {decision}")
-            for anchor in (BASE_SHA, PR182_SHA,
+            for anchor in (BASE_SHA, ORIGINAL_WP01_BASE_SHA, PR176_SHA, PR182_SHA,
                            "D3 and D4 remain pending WP2.1, independent scientific review"):
                 if anchor not in adr:
                     errors.append(f"ADR anchor missing: {anchor}")

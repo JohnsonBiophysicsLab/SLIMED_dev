@@ -27,18 +27,23 @@ The target outcome is:
 6. explicit legacy and CUDA compatibility boundaries.
 
 This plan does not authorize production activation, a new scientific
-baseline, merging PR 182, deleting legacy behavior, or changing CUDA. Those
+baseline, merging the PR 176/182 stack, deleting legacy behavior, or changing
+CUDA. Those
 actions have separate gates below.
 
 ## 2. Current baseline and pending decisions
 
-The authoritative production base for WP0.1 is
-`origin/main@906a7850d2c1ceec3ffdda9bf0ce44a437f6aa4a`. At the time this
-plan was written:
+The original WP0.1 base was
+`origin/main@906a7850d2c1ceec3ffdda9bf0ce44a437f6aa4a`; PR 183 merged that
+record as `e9af3ddad494fc073040ee82bdf07944b9fee8cf`, which is the
+authoritative base for this amendment. At the time this plan was amended:
 
+- PR 176, `Advance Valence 3 Phase 2 mechanical proof`, is the open
+  production-code stack root at
+  `46c06080fb663bcb43f38cf32fc1b45daa8732e8`;
 - PR 182, `Measure Valence 3 bipyramid quadrature convergence`, is open and
   clean at `9587e3dce4509029e611e2937bac570b410193c3`;
-- PR 182 is stacked on `codex/valence3-phase2-scientific-packet`, not on
+- PR 182 is stacked on PR 176 (`codex/valence3-phase2-scientific-packet`), not on
   current `main`. Its Valence-3 production face loop, Phase-5 convergence
   document, and asymmetric bipyramid fixture are unmerged stack evidence and
   must not be inventoried as current-main production behavior;
@@ -61,14 +66,16 @@ resolved.
 
 | Decision | Recommended answer | Authority required | Blocks |
 | --- | --- | --- | --- |
-| D0: PR 182 disposition | Do not merge as an implementation milestone. Extract or retain only the scoped two-bipyramid evidence. | Explicit user decision | WP0.2 and final branch cleanup |
-| D1: subdivision scheme | Stock OpenSubdiv Loop is the forward-looking CPU baseline; narrow Valence-5 acceptance is insufficient for the generic backend. | Explicit user scientific decision, informed by prior Valence-5 acceptance | WP3+ |
-| D2: initial topology scope | Closed, oriented, manifold, triangular meshes; reject unsupported boundaries, holes, and non-manifold inputs. | Explicit user decision | WP3+ |
+| D0: PR 176/182 stack disposition | Do not merge PR 176 as an implementation milestone. Extract the symmetric/asymmetric bipyramid fixtures and scoped negative convergence record before superseding or closing the stack. | Explicit user decision | WP0.2 and final stack cleanup |
+| D1: subdivision scheme | Stock OpenSubdiv Loop is the forward-looking CPU baseline; narrow Valence-5 acceptance is insufficient for the generic backend. At `N=6`, stock Loop and historical `3/(8N)` weights coincide exactly, so the checked-in `data/example` physical regular faces have no mask rebaseline; arbitrary production inputs remain unqualified. | Explicit user scientific decision, informed by prior Valence-5 acceptance | WP3+ |
+| D2: initial proof topology scope | Closed, oriented, manifold, triangular meshes; reject unsupported boundaries, holes, and non-manifold inputs. | Explicit user decision | Closed-mesh WP3 proofs |
+| D2b: periodic/ghost production scope | Require an explicit periodic ghost-band, Ptex/source-ID, and physical-face evaluation policy in WP3.2; otherwise declare the primary flat/periodic workload legacy-only. | Explicit user production-scope decision | WP3.2 completion, WP6+ |
 | D3: canonical volume | Full divergence with exact `1/6` under the weights-sum-to-one triangle convention. | WP2.1 oracle, independent scientific review, and explicit user scientific decision | WP2.2 and WP4+ production claims; does not block WP2.1 characterization |
 | D4: legacy volume compatibility | Candidate `legacy-x-volume` reproduces the x-only literal `0.16666666666`; never select by valence. Default and lifetime remain undecided. | WP2.1 characterization, independent scientific review, and explicit user decision | WP2.2, WP6+ |
-| D5: legacy 11-control matrix | Immediately quarantine all-valence-5 misuse; retain only as an explicit compatibility path if its intended topology is proven. | Explicit user decision | WP1 |
+| D5: legacy 11-control matrix | After WP1.1a evidence, quarantine all-valence-5 misuse. Treat intended `5/6/6` support as net-new work because the current all-`5/5/5` predicate never admitted it. | Explicit user decision after WP1.1a; any `5/6/6` implementation needs a separate scientific gate | WP1.1b |
 | D6: dependency policy | Default builds remain OpenSubdiv-free through proof and opt-in phases. | Existing project policy | All packages |
 | D7: CUDA timing | No CUDA implementation changes before the dedicated compatibility package. | Existing user instruction | WP8 |
+| D8: performance budget | Candidate same-binary ceilings: generic coordinate-only median `<=1.10x` current cached regular route and every case `<=2.00x` direct analytic route; preparation once per epoch and reported separately. | Reproduced benchmark evidence plus explicit user approval | WP3.3 PASS, WP6.3 |
 
 If an answer changes, update this table and every downstream prompt before
 starting another package.
@@ -199,9 +206,22 @@ Subagent prompts should cite rule IDs rather than paraphrasing them.
 | Scientific reviewer | Review the functional, oracle independence, fixtures, quadrature, tolerances, and interpretation of negative results. | Granting production activation or changing code. |
 | Gatekeeper | Compare all evidence with the gate checklist and issue the formal PASS/FAIL. | Authoring the package under review. |
 
-One agent may perform verification and technical review only for a docs-only
-package. Scientific-baseline or production-routing packages require separate
-technical and scientific reviewers.
+Review staffing is risk-tiered without weakening P4 exact-head review:
+
+- **T0 documentation/inventory:** implementer plus one independent reviewer;
+  that reviewer may combine verification, technical review, and gatekeeping.
+- **T1 mechanical/safety/interface:** implementer plus one independent
+  technical reviewer; that reviewer may reproduce verification and act as
+  gatekeeper. This applies to WP1.1a, WP3.1, WP3.3, and WP7 when no formula,
+  baseline, production route, or compatibility behavior changes.
+- **T2 scientific/production:** separate implementer, verification agent,
+  technical reviewer, scientific reviewer, and gatekeeper. WP1.1b (either
+  compatibility quarantine or net-new `5/6/6`), WP2.1, WP5.1, WP5.2, WP6.2,
+  and any formula/baseline/default/compatibility change are always T2.
+
+A package escalates to T2 whenever its diff or findings cross the stated
+boundary. Follow-up commits still invalidate the prior exact-head verdict, but
+the same independent reviewer may re-review a T0/T1 correction.
 
 ## 5. Standard package lifecycle
 
@@ -333,8 +353,9 @@ conversation messages.
 | Checkpoint | Deliverable | Initial status | Required approvals |
 | --- | --- | --- | --- |
 | K0 | Reassessment and this control plan | Drafted locally | Technical review |
-| K1 | Preliminary ADR: D0/D1/D2/D5 explicit-user choices, D6/D7 restatements, D3/D4 deferred | WP0.1 draft implemented; exact-head review and explicit decisions pending | User + technical + scientific |
-| K2 | Legacy all-valence-5 quarantine | Pending | Technical |
+| K1 | ADR: stack D0, D1/D2/D2b/D5/D8 choices, D6/D7 restatements, D3/D4 deferred | PR 183 merged; external-review amendment in progress | User + technical + scientific as decision class requires |
+| K2a | Unconditional legacy index/classifier safety | Ready after plan amendment | T1 technical |
+| K2b | Legacy all-valence-5 quarantine and optional net-new `5/6/6` decision | Pending WP1.1a evidence and D5 | T2: verification + technical + scientific + gatekeeper + user |
 | K3 | Candidate volume-functional characterization and independent oracle | Pending | Technical + independent scientific + explicit user D3/D4 decisions |
 | K4 | Backend-neutral generic row interface | Pending | Technical |
 | K5 | Full-mesh OpenSubdiv Loop provider and cache proof | Pending | Technical |
@@ -352,7 +373,8 @@ conversation messages.
 ### WP0.1 - architecture ADR and tolerance ledger
 
 Objective: record proposed decisions, existing-policy restatements, and
-binding authority gates without changing production code or deciding D0-D5.
+binding authority gates without changing production code or deciding D0-D5,
+D2b, or D8.
 
 Dependencies: K0 technical review. Exact base:
 `origin/main@906a7850d2c1ceec3ffdda9bf0ce44a437f6aa4a`. Target: `main`.
@@ -368,7 +390,7 @@ Allowed files:
 - its focused inventory test.
 
 Forbidden: `src/**`, `include/**`, `Makefile`, CUDA paths, numerical baseline
-files, route flags, or PR 182 state changes.
+files, route flags, or PR 176/182 stack state changes.
 
 Steps:
 
@@ -377,9 +399,10 @@ Steps:
 2. Inventory every active build/runtime backend flag, exact-topology guard,
    provider, cache, volume expression, version check, output schema, and
    authoritative tolerance.
-3. Record D1, D2, and D5 as proposals pending explicit user decisions,
-   including rejected alternatives and the unresolved compatibility lifetime.
-   Record D6/D7 only as existing constraints. Record D3/D4 as pending
+3. Record D0, D1, D2, D2b, D5, and D8 as proposals pending their named
+   explicit user decisions, including rejected alternatives and unresolved
+   production/performance/compatibility scope. Record D6/D7 only as existing
+   constraints. Record D3/D4 as pending
    post-oracle questions with their required WP2.1 evidence and independent
    review; do not decide them in this package.
 4. Freeze a tolerance ledger by name, source file, rationale, and owning gate.
@@ -393,9 +416,9 @@ Evidence:
 - no production file changes;
 - technical and scientific reviewers agree the decision questions are
   complete;
-- user explicitly records D0/D1/D2/D5 decisions; D6/D7 remain existing
-  constraints and D3/D4 remain visibly pending until WP2.1, independent
-  scientific review, and explicit user decisions.
+- D0/D1/D2/D2b/D5/D8 remain visibly bound to their named explicit user gates;
+  D6/D7 remain existing constraints and D3/D4 remain visibly pending until
+  WP2.1, independent scientific review, and explicit user decisions.
 
 Stop conditions:
 
@@ -408,33 +431,62 @@ Stop conditions:
 Branch: `codex/unified-loop-adr`, created only by the coordinator from the
 exact base above.
 
-### WP0.2 - PR 182 evidence disposition
+### WP0.1a - external-review control-plan amendment
 
-Objective: preserve the scoped two-bipyramid evidence without carrying the
-Valence-3-specific provider forward as the generic architecture.
+Objective: incorporate the post-PR-183 review without changing production:
+bind D0 to the PR 176/182 stack, add D2b and D8, split unconditional WP1.1a
+from decision-dependent WP1.1b, name the WP3.1 sparse/dense seam, add regular
+equivalence and performance gates, and route uniform-quadrature null results
+to the predeclared graded/patch-domain candidates.
+
+Exact base: `main@e9af3ddad494fc073040ee82bdf07944b9fee8cf`.
+Allowed paths are the same five ADR/plan/inventory/test paths as WP0.1.
+Production, CUDA, build flags, fixtures, tolerances, and PR 176/182 source are
+forbidden. PR 182's body may receive only the explicit stacked-base disclosure.
+
+Frozen candidate D8 inputs:
+
+- protocol: same binary/compiler/OpenSubdiv build/fixture/thread count,
+  alternating direct/cached/generic ordering, warmup, at least three repeats;
+- `generic_vs_cached_regular_median <= 1.10`;
+- `generic_vs_direct_regular_each_case <= 2.00`;
+- topology preparation and memory are reported separately, with exactly one
+  preparation per topology epoch.
+
+The numeric ceilings are decision inputs derived from the published corrected
+cached-route range (`1.15x` to `1.95x` direct); they do not become acceptance
+criteria until D8 is explicitly approved.
+
+### WP0.2 - PR 176/182 stack evidence disposition
+
+Objective: decide the production-code root and evidence leaf together,
+preserving the scoped two-bipyramid evidence without carrying the
+Valence-3-specific provider/route forward as the generic architecture.
 
 Dependencies: user decision D0 and WP0.1.
 
 This is a coordination package. It makes no source changes until the user
 chooses one of:
 
-1. close PR 182 as superseded and cherry-pick only the fixture/report into a
-   later generic quadrature package;
-2. retitle/retarget it as negative proof-only evidence and remove claims of
-   implementation progress; or
-3. merge it explicitly as historical evidence, accepting its maintenance
-   cost but prohibiting production generalization from that provider.
+1. mark PR 176 superseded, extract the symmetric fixture from PR 176 plus the
+   asymmetric fixture and negative convergence report from PR 182, then close
+   both PRs;
+2. retitle/retarget the stack as proof-only historical evidence while keeping
+   every production route disabled; or
+3. merge the stack explicitly as historical evidence, accepting its
+   maintenance cost and the inventory conflict while prohibiting production
+   generalization from that provider.
 
 Required review: exact diff/ancestry review after any retarget or content
-change. No agent may close, retarget, or merge the PR autonomously.
+change. No agent may close, retarget, or merge either PR autonomously. PR 176
+is the blocking root decision; PR 182 cannot reach `main` independently.
 
-### WP1.1 - legacy 11-control safety quarantine
+### WP1.1a - unconditional legacy index/classifier safety
 
-Objective: prevent the legacy all-valence-5 topology from reaching a matrix
-that assumes one valence-5 and two valence-6 corners.
+Objective: remove undefined/uninitialized index behavior and produce evidence
+for D5 without changing the accepted all-Valence-5 compatibility result.
 
-Dependencies: explicit user decision D5 after WP0.1; D6 remains a restated
-existing constraint.
+Dependencies: merged plan amendment only. D5 is deliberately not required.
 
 Allowed files:
 
@@ -454,41 +506,59 @@ Forbidden:
 
 Steps:
 
-1. Add a pure topology classifier for regular `6/6/6`, intended legacy
-   `5/6/6` permutations, and unsupported topology.
-2. Make every index assignment total; remove the uninitialized
-   `d4/d7/d8` path.
-3. Reject all-valence-5 and aliased 11-slot constructions before writing
-   `Face::oneRingVertices`.
-4. Preserve unchanged regular one-ring ordering.
-5. If D5 retains `5/6/6`, prove exact ordering and 11 distinct source IDs. If
-   not, reject all legacy irregular one-rings with an explicit diagnostic.
-6. Add adversarial tests for boundary count mismatch, all-valence-5,
-   permutation of `5/6/6`, duplicate sources, reversed faces, and no mutation
-   after rejection.
+1. Extract a pure observational classifier for corner valence, adjacent-face
+   cardinality, candidate extraordinary corner, duplicate source IDs, and
+   whether every required index can be assigned uniquely.
+2. Replace uninitialized `d4/d7/d8` locals with total/sentinel state and reject
+   only cases that would otherwise read an unassigned or ambiguous index.
+3. Prove from the current predicate that `5/6/6` has never executed; record it
+   as a net-new candidate rather than retained compatibility.
+4. Preserve the currently accepted all-Valence-5 fixture behavior and regular
+   one-ring ordering exactly; WP1.1a may diagnose aliasing but may not quarantine
+   it before D5.
+5. Add adversarial tests for missing adjacent-face matches, ambiguous matches,
+   boundary count mismatch, reversed faces, and fail-before-mutation.
 
 Evidence:
 
 - sanitizer-enabled focused tests;
 - regular fixture outputs unchanged exactly;
-- icosahedron cannot reach `irregM`;
+- accepted icosahedron behavior is unchanged under the existing route;
+- `5/6/6` is proven unreachable under the current predicate;
 - default full suite passes;
 - no OpenSubdiv or CUDA diff.
 
 Stop conditions:
 
-- intended `5/6/6` ordering cannot be proven from topology alone;
-- a supported existing fixture changes without an approved baseline decision;
+- a supported existing fixture changes;
 - rejection occurs after partial one-ring mutation.
 
-Suggested branch: `codex/legacy-irregular-quarantine`.
+Suggested branch: `codex/legacy-index-safety`.
+
+### WP1.1b - legacy quarantine or net-new `5/6/6` lane
+
+Objective: act on D5 after WP1.1a evidence.
+
+Dependencies: WP1.1a merged and explicit user D5 decision.
+
+Options:
+
+1. quarantine the all-Valence-5 aliased 11-slot construction before one-ring
+   publication and reject every unsupported irregular legacy case; or
+2. in a separate T2 scientific package, design net-new `5/6/6` support with
+   exact topology/orientation proof, 11 distinct ordered sources, matrix/force
+   conjugacy, and no claim of historical compatibility.
+
+The first option reverses an accepted fixture and therefore requires the D5
+user decision. The second is new scientific implementation, not retention,
+and requires independent scientific review plus explicit user approval.
 
 ### WP2.1 - candidate volume-functional characterization and oracle
 
 Objective: characterize candidate functionals and establish independent
 evidence before any production semantic or baseline decision.
 
-Dependencies: WP0.1; may run in parallel with WP1.1 because file ownership is
+Dependencies: WP0.1; may run in parallel with WP1.1a because file ownership is
 disjoint.
 
 Allowed files:
@@ -589,7 +659,11 @@ per-valence types, CUDA, or actual topology preparation.
 Required contract:
 
 - `LoopTopologyKey` and monotonic topology epoch;
-- original-source sparse rows for position, `du`, `dv`, `duu`, `duv`, `dvv`;
+- original-source sparse-at-rest rows for position, `du`, `dv`, `duu`, `duv`,
+  `dvv`;
+- one deterministic union source list per face; at evaluation, densify each
+  requested sample into a compact row-by-union-source matrix consumed by the
+  dense face algebra, then scatter by the same original IDs;
 - per-face sample coordinates and weights;
 - structural validation and rejection diagnostics;
 - immutable prepared package ownership;
@@ -614,7 +688,9 @@ Suggested branch: `codex/generic-loop-row-interface`.
 
 Objective: implement the generic interface for proof-only full-mesh topology.
 
-Dependencies: WP3.1 merged and D1-D2 explicitly decided by the user.
+Dependencies: WP3.1 merged and D1-D2 explicitly decided by the user. The
+closed proof may proceed while D2b is pending, but WP3.2 cannot claim primary
+production-workload scope until D2b is decided and its policy passes.
 
 Recommended implementation:
 
@@ -637,6 +713,13 @@ Steps:
 6. Pin and emit the reviewed OpenSubdiv version and all scheme options.
 7. Compare existing exact providers only as reference oracles; do not call
    them from the generic provider.
+8. For a canonical `6/6/6` face, compare position, first/pure/mixed second
+   derivative rows and area/legacy-volume integrands against
+   `SlimedLoopLimitSurfaceEvaluator` under the frozen
+   `regular_row_and_route_parity = 5.0e-6` tolerance.
+9. If D2b includes the flat/periodic workload, prove one reviewed ghost-band,
+   Ptex/source-ID, physical-face-only evaluation, and force/state-transfer
+   policy on `data/example`; otherwise emit an explicit legacy-only rejection.
 
 Evidence:
 
@@ -645,12 +728,17 @@ Evidence:
 - default-off stub and absent-dependency behavior;
 - full default suite and OpenSubdiv-present proof;
 - independent JSON validation and mutation tests.
+- regular `6/6/6` full-mesh rows satisfy the frozen analytic-route equivalence
+  gate; this is a stop condition, not merely a fixture-matrix row.
 
 Stop conditions:
 
 - mixed topology requires multiple refiners or a valence switch;
 - original source IDs cannot be reconstructed unambiguously;
 - a supported closed face lacks derivative-complete rows;
+- any canonical regular-face row/integrand exceeds `5.0e-6` versus the existing
+  analytic regular route;
+- D2b is silently bypassed while claiming the primary workload is supported;
 - OpenSubdiv types escape the backend seam.
 
 Suggested branch: `codex/full-mesh-loop-provider`.
@@ -659,7 +747,8 @@ Suggested branch: `codex/full-mesh-loop-provider`.
 
 Objective: ensure topology preparation is not a timestep operation.
 
-Dependencies: WP3.2.
+Dependencies: WP3.2. A structural cache proof may start while D8 evidence is
+pending, but performance PASS requires the approved D8 budget.
 
 Steps:
 
@@ -674,12 +763,17 @@ Steps:
    an equivalent race-focused harness where available.
 6. Record preparation time, memory, and coordinate-only retrieval time
    separately; do not hide preparation in averaged timestep numbers.
+7. Reproduce the same-binary alternating-order regular benchmark and compare
+   the generic path with both the current cached OpenSubdiv route and direct
+   analytic route.
 
 Gate:
 
 - exactly one preparation per topology epoch;
 - zero refiner/patch/stencil construction during coordinate-only evaluation;
 - no stale package acceptance;
+- after D8 approval, coordinate-only generic median is `<=1.10x` the cached
+  regular route and every frozen case is `<=2.00x` the direct analytic route;
 - technical reviewer PASS.
 
 ### WP4.1 - variable-cardinality face-kernel extraction
@@ -751,6 +845,13 @@ Candidates:
 - graded composite refinement toward extraordinary corners; and
 - integration over the OpenSubdiv patch-domain decomposition.
 
+Hypothesis under test: uniform low-order rules can fail bending-energy/force
+convergence near extraordinary points because higher curvature derivatives
+are singular or unbounded there. PR 182 is evidence only for its two tested
+`3/4/4` bipyramids, not a general proof. A uniform-rule null result therefore
+routes to the graded and patch-domain candidates; it does not by itself block
+K7.
+
 Steps:
 
 1. Establish deeper reference levels and an independent convergence oracle.
@@ -766,7 +867,8 @@ Steps:
 
 Stop conditions:
 
-- no candidate converges under the frozen budget/targets;
+- graded, patch-domain, and every other predeclared candidate family all fail
+  the frozen budget/targets; a uniform-only null result is not this condition;
 - conclusions depend on a single symmetric fixture;
 - a plan changes with coordinates without an approved differentiability
   policy;
@@ -814,7 +916,7 @@ publication.
 
 Objective: publish the generic transaction only under one explicit selector.
 
-Dependencies: WP6.1 and user authorization.
+Dependencies: WP6.1, user authorization, and an explicit D2b scope decision.
 
 Selector target:
 
@@ -827,8 +929,11 @@ Steps:
 1. Add one compile-time OpenSubdiv Loop gate and one runtime selector.
 2. Map old valence flags only as temporary deprecated aliases for their exact
    compatibility fixtures; reject conflicts.
-3. Route the complete supported closed mesh through one backend. Do not mix
-   schemes or volume policies face by face.
+3. Route the complete supported closed mesh through one backend. If D2b
+   includes the primary flat/periodic workload, route it under the reviewed
+   ghost/source policy; if D2b declares it legacy-only, reject the generic
+   selector explicitly for that workload. Do not mix schemes or volume
+   policies face by face.
 4. Preserve gate-absent default exactly.
 5. Repeat default/OSD-present, output/checkpoint, restart, serial/OpenMP,
    sanitizer, cache, and long-run dynamics evidence.
@@ -845,7 +950,10 @@ Required evidence:
 
 - accepted scientific baseline and quadrature;
 - opt-in production soak results;
-- performance and memory budget;
+- approved D8 performance and memory budget, reproduced on the frozen
+  same-binary protocol;
+- explicit D2b result showing whether the primary flat/periodic workload is
+  supported or permanently legacy-only;
 - dependency/install/license review;
 - old-run compatibility and rollback period;
 - CUDA/backend compatibility decision;
@@ -1024,36 +1132,56 @@ Implement WP0.1 only. This is docs/inventory work. Do not edit src, include,
 Makefile, CUDA, route flags, or numerical baselines. Inventory all active Loop
 backends, flags, topology guards, caches, volume functionals, version policies,
 tolerances, fixtures, and output/checkpoint contracts. Draft
-docs/adr_unified_loop_backend.md with D0/D1/D2/D5 left as explicit user
-approve/reject choices and D6/D7 recorded only as existing constraints.
+docs/adr_unified_loop_backend.md with D0/D1/D2/D2b/D5/D8 left as explicit user
+approve/reject choices under their named evidence gates and D6/D7 recorded
+only as existing constraints. Preserve PR 176/182 as one unmerged stack;
+do not merge, close, retarget, or alter either PR.
 D3/D4 must remain pending post-oracle independent review and explicit user
 decisions. Add a machine-readable inventory and
 mutation-tested focused test. Enforce S1-S7, A1-A9, C1-C7, and P1-P10. Stop if
 another active backend or hidden functional is found. Return the focused diff
 and evidence to the coordinator; do not stage, commit, push, or open a PR.
 
-Exact base: origin/main@906a7850d2c1ceec3ffdda9bf0ce44a437f6aa4a
+Original WP0.1 base: origin/main@906a7850d2c1ceec3ffdda9bf0ce44a437f6aa4a
+External-review amendment base: origin/main@e9af3ddad494fc073040ee82bdf07944b9fee8cf
 Target: main
-Coordinator-owned branch: codex/unified-loop-adr
-Treat PR182@9587e3dce4509029e611e2937bac570b410193c3 as unmerged stack
-evidence, not current-main behavior. Preserve and do not stage the unrelated
+Coordinator-owned branch: codex/unified-loop-plan-amendments
+Treat PR176@46c06080fb663bcb43f38cf32fc1b45daa8732e8 as the unmerged stack
+root and PR182@9587e3dce4509029e611e2937bac570b410193c3 as its leaf evidence,
+not current-main behavior. Preserve and do not stage the unrelated
 analysis/cuda_benchmark_graphs/ and scripts/plot_cuda_benchmark_comparison.py.
 ```
 
-### Prompt B - WP1.1 legacy quarantine agent
+### Prompt B1 - WP1.1a unconditional safety agent
 
 ```text
-After WP0.1 and an explicit user D5 decision, implement WP1.1 only. Own
+After the amended WP0.1, implement WP1.1a only; no D5 decision is required. Own
 src/mesh/Mesh_setup_geometry.cpp plus focused topology tests and one safety
 note. Do not edit OpenSubdiv providers/routes, energy/force or volume formulas,
-CUDA, outputs, checkpoints, or unrelated naming. Add a pure topology
-classifier, make d4/d7/d8 assignment total, reject all-valence-5/aliased
-legacy one-rings before mutation, and preserve regular ordering exactly. If
-5/6/6 retention was not explicitly approved, reject every legacy irregular
-case. Run sanitizer-focused tests, the default full suite, and no-forbidden-
-diff checks. Stop if ordering cannot be proven or a supported baseline moves.
-Return the diff/evidence to the coordinator for commit and exact-head review;
-do not change git state.
+CUDA, outputs, checkpoints, or unrelated naming. Make d4/d7/d8 state total and
+sentinel-initialized before any read; add a pure observational classifier; and
+reject only ambiguous or unassigned states that could otherwise trigger
+undefined behavior. Preserve every currently accepted topology and exact
+regular/all-valence-5 ordering, including the aliased icosahedron fixture.
+Diagnose but do not quarantine all-valence-5 and do not add 5/6/6 support.
+Run sanitizer-focused tests, the default full suite, and no-forbidden-diff
+checks. Stop if ordering cannot be proven or an accepted baseline moves. Return
+the diff/evidence to the coordinator for commit and exact-head review; do not
+change git state.
+```
+
+### Prompt B2 - WP1.1b D5-dependent quarantine or net-new lane agent
+
+```text
+Do not dispatch until WP1.1a is merged and the user has explicitly decided D5.
+Implement only the selected WP1.1b outcome. If quarantine is selected, reject
+the accepted all-valence-5 alias before geometry mutation and update its
+focused contract tests. If a 5/6/6 lane is separately authorized, treat it as
+net-new scientific work: require exact topology/orientation proof, 11 distinct
+ordered sources, matrix/force conjugacy, independent scientific review, and no
+claim of historical compatibility. Do not modify generic OpenSubdiv routes,
+volume formulas, CUDA, outputs, or checkpoints. Return the focused diff and
+evidence to the coordinator; do not change git state.
 ```
 
 ### Prompt C - WP2.1 volume oracle agent
@@ -1088,7 +1216,7 @@ backend patch types. Return the diff/evidence to the coordinator for
 exact-head technical review; do not change git state.
 ```
 
-WP1.1 and WP2.1 are logically independent after WP0.1, but implementation
+WP1.1a and WP2.1 are logically independent after WP0.1, but implementation
 agents edit the shared worktree sequentially unless the coordinator explicitly
 creates isolated worktrees. WP3.1 may overlap only as a read-only audit while
 WP2.1 edits; implementation starts after D1-D2 are explicitly decided by the
@@ -1120,9 +1248,10 @@ field is pending.
 
 ```text
 K0 plan
-  -> K1 ADR/reviews + explicit user D0/D1/D2/D5 decisions
-      (D6/D7 restated; D3/D4 pending)
-      -> K2 legacy safety after D5
+  -> K1 ADR/reviews + explicit user D0/D1/D2/D2b/D5/D8 decisions as gated
+      (D6/D7 restated; D3/D4 pending WP2.1)
+      -> K2a unconditional index/classifier safety
+          -> K2b legacy quarantine or net-new 5/6/6 after D5
       -> K3 WP2.1 evidence -> independent scientific review
           -> explicit user D3/D4 decisions before policy implementation
       -> K4 generic interface
@@ -1138,7 +1267,8 @@ K0 plan
                               -> K13 edge flipping only by separate instruction
 ```
 
-K2 and K3 may overlap after K1. K4 may overlap proof-only K3 work only if D1
+K2a and K3 may overlap after the amended K1; K2b waits for D5. K4 may overlap
+proof-only K3 work only if D1
 and D2 are explicitly decided by the user and volume semantics are excluded
 from K4. K5 through K10
 are sequential scientific/architectural gates except that K12 is inserted
