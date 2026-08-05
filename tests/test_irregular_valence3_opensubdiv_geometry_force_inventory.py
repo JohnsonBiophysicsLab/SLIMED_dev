@@ -36,8 +36,11 @@ def test_valence3_provider_and_science_harness_are_guarded_and_inventoried():
     assert "unsupported_mixed_force_imbalance_observed" in harness
     assert "phase2_mechanical_packet_started" in harness
     assert "max_finite_difference_relative_error" in harness
-    assert "legacyVolumeForceMismatchObserved" in harness
-    assert "legacy_x_only_volume_mismatch_is_a_production_blocker" in harness
+    assert "fullDivergenceVolumeConjugacyVerified" in harness
+    assert "full_divergence_volume_energy_force_conjugate" in harness
+    assert "legacy_x_only_volume_mismatch_resolved_for_valence3" in harness
+    assert "fixture['full_divergence_volume']" in runner
+    assert "fixture['legacy_volume']" not in runner
     assert "providerApplicable" in harness
     assert "providerRejectedWhenNotApplicable" in harness
     assert "normalsValidated" in harness
@@ -45,6 +48,10 @@ def test_valence3_provider_and_science_harness_are_guarded_and_inventoried():
     assert "build_proof_rows(mesh, 4)" in harness
     assert "build_proof_rows(mesh, 6)" in harness
     assert "OPENSUBDIV_VERSION_NUMBER != 30700" in provider
+    assert "immutableRowCacheHit" in (
+        ROOT / "include/mesh/OpenSubdiv_valence3_row_provider.hpp"
+    ).read_text()
+    assert "Coordinates are deliberately" in provider
     assert "build_guarded_opensubdiv_valence3_rows" in harness
     assert "default_off_contract" in runner
     assert "-DUSE_OPENSUBDIV_VALENCE3" in runner

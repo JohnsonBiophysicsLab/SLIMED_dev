@@ -40,7 +40,7 @@ namespace
 constexpr int kSampleCount = 3;
 constexpr int kRowCount = 7;
 constexpr int kAxisCount = 3;
-constexpr double kLegacyVolumeFactor = 0.16666666666;
+constexpr double kVolumeQuadratureFactor = 1.0 / 6.0;
 constexpr double kRowTolerance = 1.0e-12;
 constexpr std::array<double, kSampleCount> kS{{
     1.0 / 6.0, 1.0 / 6.0, 4.0 / 6.0}};
@@ -72,7 +72,7 @@ struct FixtureReport
     bool forceBalanceVerified = false;
     bool unsupportedMixedForceImbalanceObserved = false;
     bool finiteDifferenceVerified = false;
-    bool legacyVolumeForceMismatchObserved = false;
+    bool fullDivergenceVolumeConjugacyVerified = false;
     double area = 0.0;
     double volume = 0.0;
     double bendingEnergy = 0.0;
@@ -82,7 +82,6 @@ struct FixtureReport
     double maxTransposeRelativeResidual = 0.0;
     double maxSourceKeyedScatterRelativeResidual = 0.0;
     std::array<double, 3> maxFiniteDifferenceError{{0.0, 0.0, 0.0}};
-    double maxLegacyVolumeFiniteDifferenceError = 0.0;
     std::array<double, 3> aggregateForceL2{{0.0, 0.0, 0.0}};
     std::array<double, 3> netForceRelativeResidual{{0.0, 0.0, 0.0}};
     std::array<double, 3> netTorqueRelativeResidual{{0.0, 0.0, 0.0}};
@@ -586,15 +585,14 @@ bool has_mixed_345_face(const Mesh &mesh)
     return false;
 }
 
-std::array<double, 4> evaluate_total_energies(
+std::array<double, 3> evaluate_total_energies(
     Mesh &evaluator,
     const std::vector<SourceKeyedFaceRows> &rows,
     const std::vector<Matrix> &coordinates,
     const double spontaneousCurvature)
 {
     double area = 0.0;
-    double legacyVolume = 0.0;
-    double forceConjugateVolume = 0.0;
+    double volume = 0.0;
     double bending = 0.0;
     for (const SourceKeyedFaceRows &faceRows : rows)
     {
@@ -606,9 +604,7 @@ std::array<double, 4> evaluate_total_energies(
             const auto dv = evaluate_row(sample.rows[2], coordinates);
             const auto areaVector = cross(du, dv);
             area += (1.0 / 6.0) * norm(areaVector);
-            legacyVolume += (kLegacyVolumeFactor / 3.0) * position[0] *
-                            areaVector[0];
-            forceConjugateVolume += (kLegacyVolumeFactor / 3.0) *
+            volume += (kVolumeQuadratureFactor / 3.0) *
                 (position[0] * areaVector[0] +
                  position[1] * areaVector[1] +
                  position[2] * areaVector[2]);
@@ -645,14 +641,8 @@ std::array<double, 4> evaluate_total_energies(
         std::pow(area - evaluator.param.area0, 2);
     const double volumeEnergy =
         0.5 * evaluator.param.uVol / evaluator.param.vol0 *
-        std::pow(legacyVolume - evaluator.param.vol0, 2);
-    const double currentVolumeMultiplier =
-        evaluator.param.uVol / evaluator.param.vol0 *
-        (evaluator.param.vol - evaluator.param.vol0);
-    const double forceConjugateVolumePotential =
-        currentVolumeMultiplier * forceConjugateVolume;
-    return {{bending, areaEnergy, volumeEnergy,
-             forceConjugateVolumePotential}};
+        std::pow(volume - evaluator.param.vol0, 2);
+    return {{bending, areaEnergy, volumeEnergy}};
 }
 
 FixtureReport evaluate_fixture(const std::string &name,
@@ -774,8 +764,10 @@ FixtureReport evaluate_fixture(const std::string &name,
             const auto areaVector = cross(du, dv);
             const double weight = 1.0 / 3.0;
             report.area += 0.5 * weight * norm(areaVector);
-            report.volume += kLegacyVolumeFactor * weight * position[0] *
-                             areaVector[0];
+            report.volume += kVolumeQuadratureFactor * weight *
+                (position[0] * areaVector[0] +
+                 position[1] * areaVector[1] +
+                 position[2] * areaVector[2]);
         }
     }
 
@@ -984,9 +976,8 @@ FixtureReport evaluate_fixture(const std::string &name,
                 coordinates[source].set(axis, 0, original);
                 for (int kind = 0; kind < 3; ++kind)
                 {
-                    const int energyIndex = kind == 2 ? 3 : kind;
                     const double numericalForce =
-                        -(plus[energyIndex] - minus[energyIndex]) /
+                        -(plus[kind] - minus[kind]) /
                         (2.0 * step);
                     const double actualForce =
                         aggregate[source][kind][axis];
@@ -997,17 +988,6 @@ FixtureReport evaluate_fixture(const std::string &name,
                         report.maxFiniteDifferenceError[kind],
                         std::abs(numericalForce - actualForce) / scale);
                 }
-                const double legacyVolumeNumericalForce =
-                    -(plus[2] - minus[2]) / (2.0 * step);
-                const double actualVolumeForce =
-                    aggregate[source][2][axis];
-                const double legacyScale = std::max(
-                    1.0, std::max(std::abs(legacyVolumeNumericalForce),
-                                  std::abs(actualVolumeForce)));
-                report.maxLegacyVolumeFiniteDifferenceError = std::max(
-                    report.maxLegacyVolumeFiniteDifferenceError,
-                    std::abs(legacyVolumeNumericalForce - actualVolumeForce) /
-                        legacyScale);
             }
         }
     }
@@ -1017,9 +997,9 @@ FixtureReport evaluate_fixture(const std::string &name,
         [](const double error) {
             return std::isfinite(error) && error <= kDifferenceTolerance;
         });
-    report.legacyVolumeForceMismatchObserved =
-        std::isfinite(report.maxLegacyVolumeFiniteDifferenceError) &&
-        report.maxLegacyVolumeFiniteDifferenceError > 1.0e-3;
+    report.fullDivergenceVolumeConjugacyVerified =
+        std::isfinite(report.maxFiniteDifferenceError[2]) &&
+        report.maxFiniteDifferenceError[2] <= kDifferenceTolerance;
     return report;
 #endif
 }
@@ -1068,7 +1048,7 @@ void print_report(const FixtureReport &report)
               << (report.normalsValidated ? "true" : "false");
     std::cout << ",\"finite\":" << (report.finite ? "true" : "false");
     std::cout << ",\"area\":" << report.area;
-    std::cout << ",\"legacy_volume\":" << report.volume;
+    std::cout << ",\"full_divergence_volume\":" << report.volume;
     std::cout << ",\"bending_energy\":" << report.bendingEnergy;
     std::cout << ",\"max_abs_force\":[" << report.maxForce[0] << ','
               << report.maxForce[1] << ',' << report.maxForce[2] << ']';
@@ -1086,11 +1066,9 @@ void print_report(const FixtureReport &report)
               << report.maxFiniteDifferenceError[2] << ']';
     std::cout << ",\"finite_difference_verified\":"
               << (report.finiteDifferenceVerified ? "true" : "false");
-    std::cout << ",\"legacy_volume_energy_force_relative_error\":"
-              << report.maxLegacyVolumeFiniteDifferenceError;
-    std::cout << ",\"legacy_volume_force_mismatch_observed\":"
-              << (report.legacyVolumeForceMismatchObserved ? "true"
-                                                            : "false");
+    std::cout << ",\"full_divergence_volume_conjugacy_verified\":"
+              << (report.fullDivergenceVolumeConjugacyVerified
+                      ? "true" : "false");
     std::cout << ",\"aggregate_force_l2\":["
               << report.aggregateForceL2[0] << ','
               << report.aggregateForceL2[1] << ','
@@ -1173,7 +1151,7 @@ int main(int argc, char **argv)
                    report.sourceKeyedScatterVerified &&
                    forceBalanceContract &&
                    report.finiteDifferenceVerified &&
-                   report.legacyVolumeForceMismatchObserved;
+                   report.fullDivergenceVolumeConjugacyVerified;
         };
         const bool passed = sciencePassed(tetra) &&
                             sciencePassed(asymmetric) &&
@@ -1189,7 +1167,8 @@ int main(int argc, char **argv)
                   << ",\"production_mesh_mutated\":false"
                   << ",\"existing_slimed_energy_force_algebra_executed\":true"
                   << ",\"volume_force_checked_against_full_divergence_functional\":true"
-                  << ",\"legacy_x_only_volume_mismatch_is_a_production_blocker\":true"
+                  << ",\"full_divergence_volume_energy_force_conjugate\":true"
+                  << ",\"legacy_x_only_volume_mismatch_resolved_for_valence3\":true"
                   << ",\"fixtures\":[";
         print_report(tetra);
         std::cout << ',';
