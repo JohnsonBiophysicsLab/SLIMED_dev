@@ -134,7 +134,10 @@ def emit(payload: dict[str, object], as_json: bool) -> None:
     for convergence in payload.get("quadrature_convergence", []):
         print(
             f"{convergence['name']} quadrature: "
-            f"passed={convergence['passed']}, "
+            f"evidence_packet_passed={convergence['passed']}, "
+            f"study_completed={convergence['study_completed']}, "
+            f"scientific_targets_met={convergence['scientific_targets_met']}, "
+            f"activation_blocked={convergence['activation_blocked']}, "
             f"global_changes={convergence['global_relative_changes']}, "
             f"force_changes={convergence['force_relative_changes']}"
         )

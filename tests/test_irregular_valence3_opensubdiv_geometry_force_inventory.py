@@ -173,6 +173,9 @@ def test_phase5_human_runner_reports_quadrature_blocker():
             {
                 "name": "asymmetric_valence3_triangular_bipyramid",
                 "passed": True,
+                "study_completed": True,
+                "scientific_targets_met": False,
+                "activation_blocked": True,
                 "global_relative_changes": [2.3e-4],
                 "force_relative_changes": [1.5e-2],
             }
@@ -184,5 +187,9 @@ def test_phase5_human_runner_reports_quadrature_blocker():
     rendered = output.getvalue()
     assert "status: passed" in rendered
     assert "asymmetric_valence3_triangular_bipyramid quadrature" in rendered
+    assert "evidence_packet_passed=True" in rendered
+    assert "study_completed=True" in rendered
+    assert "scientific_targets_met=False" in rendered
+    assert "activation_blocked=True" in rendered
     assert "global_changes=[0.00023]" in rendered
     assert "force_changes=[0.015]" in rendered
