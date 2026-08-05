@@ -43,10 +43,94 @@ constexpr int kRowCount = 7;
 constexpr int kAxisCount = 3;
 constexpr double kVolumeQuadratureFactor = 1.0 / 6.0;
 constexpr double kRowTolerance = 1.0e-12;
+constexpr double kStudyKCurv = 47.5;
+constexpr double kStudyUSurf = 130.0;
+constexpr double kStudyUVol = 65.0;
+constexpr double kStudySpontaneousCurvature = 0.17;
+constexpr double kStudyArea0 = 0.95;
+constexpr double kStudyVol0 = 0.09;
+constexpr double kStudyGlobalChangeTarget = 1.0e-6;
+constexpr double kStudyForceChangeTarget = 1.0e-5;
+constexpr int kStudyAdaptiveIsolationLevel = 5;
+constexpr int kStudyMaximumDepth = 4;
 constexpr std::array<double, kSampleCount> kS{{
     1.0 / 6.0, 1.0 / 6.0, 4.0 / 6.0}};
 constexpr std::array<double, kSampleCount> kT{{
     1.0 / 6.0, 4.0 / 6.0, 1.0 / 6.0}};
+
+struct QuadraturePlan
+{
+    int depth = 0;
+    std::vector<double> s;
+    std::vector<double> t;
+    std::vector<double> weights;
+};
+
+struct ParametricTriangle
+{
+    std::array<double, 2> a;
+    std::array<double, 2> b;
+    std::array<double, 2> c;
+};
+
+std::array<double, 2> midpoint(const std::array<double, 2> &left,
+                               const std::array<double, 2> &right)
+{
+    return {{0.5 * (left[0] + right[0]),
+             0.5 * (left[1] + right[1])}};
+}
+
+QuadraturePlan nested_quadrature_plan(const int depth)
+{
+    if (depth < 0)
+    {
+        throw std::invalid_argument("quadrature depth must be nonnegative");
+    }
+    std::vector<ParametricTriangle> triangles{{
+        {{{0.0, 0.0}}, {{1.0, 0.0}}, {{0.0, 1.0}}},
+    }};
+    for (int level = 0; level < depth; ++level)
+    {
+        std::vector<ParametricTriangle> refined;
+        refined.reserve(triangles.size() * 4u);
+        for (const ParametricTriangle &triangle : triangles)
+        {
+            const auto ab = midpoint(triangle.a, triangle.b);
+            const auto bc = midpoint(triangle.b, triangle.c);
+            const auto ca = midpoint(triangle.c, triangle.a);
+            refined.push_back({triangle.a, ab, ca});
+            refined.push_back({ab, triangle.b, bc});
+            refined.push_back({ca, bc, triangle.c});
+            refined.push_back({ab, bc, ca});
+        }
+        triangles = std::move(refined);
+    }
+
+    QuadraturePlan plan;
+    plan.depth = depth;
+    plan.s.reserve(triangles.size() * kSampleCount);
+    plan.t.reserve(triangles.size() * kSampleCount);
+    plan.weights.reserve(triangles.size() * kSampleCount);
+    const double subtriangleWeight =
+        1.0 / static_cast<double>(triangles.size());
+    for (const ParametricTriangle &triangle : triangles)
+    {
+        for (int sample = 0; sample < kSampleCount; ++sample)
+        {
+            const double localS = kS[sample];
+            const double localT = kT[sample];
+            const double localU = 1.0 - localS - localT;
+            plan.s.push_back(localU * triangle.a[0] +
+                             localS * triangle.b[0] +
+                             localT * triangle.c[0]);
+            plan.t.push_back(localU * triangle.a[1] +
+                             localS * triangle.b[1] +
+                             localT * triangle.c[1]);
+            plan.weights.push_back(subtriangleWeight / kSampleCount);
+        }
+    }
+    return plan;
+}
 
 struct FixtureReport
 {
@@ -271,17 +355,35 @@ double maximum_source_keyed_scatter_relative_residual(
 
 bool finite_row_package(const std::vector<SourceKeyedFaceRows> &rows,
                         const int faceCount,
-                        const int sourceCount)
+                        const int sourceCount,
+                        const int sampleCount = kSampleCount,
+                        const double invariantTolerance = kRowTolerance,
+                        double *maximumInvariantResidual = nullptr)
 {
+    if (maximumInvariantResidual)
+    {
+        *maximumInvariantResidual = 0.0;
+    }
     if (static_cast<int>(rows.size()) != faceCount)
     {
+        if (maximumInvariantResidual)
+        {
+            *maximumInvariantResidual =
+                std::numeric_limits<double>::infinity();
+        }
         return false;
     }
     for (int face = 0; face < faceCount; ++face)
     {
         if (rows[face].faceIndex != face ||
-            rows[face].samples.size() != kSampleCount)
+            rows[face].samples.size() !=
+                static_cast<std::size_t>(sampleCount))
         {
+            if (maximumInvariantResidual)
+            {
+                *maximumInvariantResidual =
+                    std::numeric_limits<double>::infinity();
+            }
             return false;
         }
         for (const SourceKeyedSampleRows &sample : rows[face].samples)
@@ -299,13 +401,24 @@ bool finite_row_package(const std::vector<SourceKeyedFaceRows> &rows,
                                      return std::isfinite(value);
                                  }))
                 {
+                    if (maximumInvariantResidual)
+                    {
+                        *maximumInvariantResidual =
+                            std::numeric_limits<double>::infinity();
+                    }
                     return false;
                 }
-                const double sum = std::accumulate(
-                    actual.coefficients.begin(),
-                    actual.coefficients.end(), 0.0);
-                if (std::abs(sum - (row == 0 ? 1.0 : 0.0)) >
-                    kRowTolerance)
+                const long double sum = std::accumulate(
+                    actual.coefficients.begin(), actual.coefficients.end(),
+                    static_cast<long double>(0.0));
+                const double residual = static_cast<double>(std::abs(
+                    sum - static_cast<long double>(row == 0 ? 1.0 : 0.0)));
+                if (maximumInvariantResidual)
+                {
+                    *maximumInvariantResidual = std::max(
+                        *maximumInvariantResidual, residual);
+                }
+                if (residual > invariantTolerance)
                 {
                     return false;
                 }
@@ -313,6 +426,11 @@ bool finite_row_package(const std::vector<SourceKeyedFaceRows> &rows,
             if (sample.rows[5].sourceIds != sample.rows[6].sourceIds ||
                 sample.rows[5].coefficients != sample.rows[6].coefficients)
             {
+                if (maximumInvariantResidual)
+                {
+                    *maximumInvariantResidual =
+                        std::numeric_limits<double>::infinity();
+                }
                 return false;
             }
         }
@@ -421,8 +539,16 @@ struct DeleteConst
 };
 
 std::vector<SourceKeyedFaceRows> build_proof_rows(
-    const Mesh &mesh, const int adaptiveIsolationLevel)
+    const Mesh &mesh,
+    const int adaptiveIsolationLevel,
+    const QuadraturePlan &quadrature)
 {
+    if (quadrature.s.empty() ||
+        quadrature.s.size() != quadrature.t.size() ||
+        quadrature.s.size() != quadrature.weights.size())
+    {
+        throw std::invalid_argument("invalid proof quadrature plan");
+    }
     using Descriptor = Far::TopologyDescriptor;
     std::vector<int> verticesPerFace(mesh.faces.size(), 3);
     std::vector<int> vertexIndices;
@@ -463,16 +589,16 @@ std::vector<SourceKeyedFaceRows> build_proof_rows(
     }
 
     using Factory = Far::LimitStencilTableFactoryReal<double>;
-    std::vector<std::array<double, kSampleCount>> sByFace(
-        mesh.faces.size(), kS);
-    std::vector<std::array<double, kSampleCount>> tByFace(
-        mesh.faces.size(), kT);
+    std::vector<std::vector<double>> sByFace(
+        mesh.faces.size(), quadrature.s);
+    std::vector<std::vector<double>> tByFace(
+        mesh.faces.size(), quadrature.t);
     Factory::LocationArrayVec locations;
     for (std::size_t face = 0; face < mesh.faces.size(); ++face)
     {
         Factory::LocationArray location;
         location.ptexIdx = static_cast<int>(face);
-        location.numLocations = kSampleCount;
+        location.numLocations = static_cast<int>(quadrature.s.size());
         location.s = sByFace[face].data();
         location.t = tByFace[face].data();
         locations.push_back(location);
@@ -485,7 +611,8 @@ std::vector<SourceKeyedFaceRows> build_proof_rows(
         stencils(Factory::Create(
             *refiner, locations, nullptr, nullptr, stencilOptions));
     if (!stencils || stencils->GetNumStencils() !=
-                         static_cast<int>(mesh.faces.size()) * kSampleCount)
+                         static_cast<int>(mesh.faces.size() *
+                                          quadrature.s.size()))
     {
         throw std::runtime_error("OpenSubdiv stencil plan incomplete");
     }
@@ -499,18 +626,20 @@ std::vector<SourceKeyedFaceRows> build_proof_rows(
         faceRows.faceIndex = static_cast<int>(face);
         std::copy_n(mesh.faces[face].adjacentVertices.begin(), 3,
                     faceRows.orientedFaceVertices.begin());
-        faceRows.samples.resize(kSampleCount);
-        for (int sample = 0; sample < kSampleCount; ++sample)
+        faceRows.samples.resize(quadrature.s.size());
+        for (int sample = 0;
+             sample < static_cast<int>(quadrature.s.size()); ++sample)
         {
             const Far::PatchMap::Handle *handle = patchMap.FindPatch(
-                static_cast<int>(face), kS[sample], kT[sample]);
+                static_cast<int>(face), quadrature.s[sample],
+                quadrature.t[sample]);
             if (!handle || patchTable->GetPatchParam(*handle).GetFaceId() !=
                                static_cast<int>(face))
             {
                 throw std::runtime_error("OpenSubdiv sample left Ptex face");
             }
             const auto stencil = stencils->GetLimitStencil(
-                static_cast<int>(face) * kSampleCount + sample);
+                static_cast<int>(face * quadrature.s.size()) + sample);
             const std::array<const double *, kRowCount> weights{{
                 stencil.GetWeights(), stencil.GetDuWeights(),
                 stencil.GetDvWeights(), stencil.GetDuuWeights(),
@@ -547,6 +676,13 @@ std::vector<SourceKeyedFaceRows> build_proof_rows(
         result.push_back(std::move(faceRows));
     }
     return result;
+}
+
+std::vector<SourceKeyedFaceRows> build_proof_rows(
+    const Mesh &mesh, const int adaptiveIsolationLevel)
+{
+    return build_proof_rows(
+        mesh, adaptiveIsolationLevel, nested_quadrature_plan(0));
 }
 #endif
 
@@ -668,6 +804,320 @@ std::array<double, 3> evaluate_total_energies(
         std::pow(volume - evaluator.param.vol0, 2);
     return {{bending, areaEnergy, volumeEnergy}};
 }
+
+struct QuadratureEvaluation
+{
+    int depth = 0;
+    int samplesPerFace = 0;
+    bool planValidated = false;
+    bool rowsStructurallyValid = false;
+    bool rowsValid = false;
+    double maximumRowInvariantResidual = 0.0;
+    bool finite = false;
+    double area = 0.0;
+    double volume = 0.0;
+    double bendingEnergy = 0.0;
+    double totalEnergy = 0.0;
+    std::vector<SourceForceKinds> forces;
+};
+
+struct QuadratureConvergenceReport
+{
+    std::string name;
+    std::vector<QuadratureEvaluation> levels;
+    std::vector<double> globalRelativeChanges;
+    std::vector<double> forceRelativeChanges;
+    bool allPlansValidated = false;
+    bool allRowsStructurallyValid = false;
+    bool allRowsValid = false;
+    bool allFinite = false;
+    bool twoSuccessiveGlobalTargetsMet = false;
+    bool twoSuccessiveForceTargetsMet = false;
+    bool scientificTargetsMet = false;
+    bool activationBlocked = false;
+    bool studyCompleted = false;
+    bool passed = false;
+};
+
+bool quadrature_plan_valid(const QuadraturePlan &plan)
+{
+    std::size_t expectedSamples = kSampleCount;
+    for (int level = 0; level < plan.depth; ++level)
+    {
+        expectedSamples *= 4u;
+    }
+    if (plan.s.size() != expectedSamples ||
+        plan.t.size() != expectedSamples ||
+        plan.weights.size() != expectedSamples)
+    {
+        return false;
+    }
+    double weightSum = 0.0;
+    for (std::size_t sample = 0; sample < expectedSamples; ++sample)
+    {
+        if (!std::isfinite(plan.s[sample]) ||
+            !std::isfinite(plan.t[sample]) ||
+            !std::isfinite(plan.weights[sample]) ||
+            plan.s[sample] <= 0.0 || plan.t[sample] <= 0.0 ||
+            plan.s[sample] + plan.t[sample] >= 1.0 ||
+            plan.weights[sample] <= 0.0)
+        {
+            return false;
+        }
+        weightSum += plan.weights[sample];
+    }
+    return std::abs(weightSum - 1.0) <= 2.0e-14;
+}
+
+#ifdef USE_OPENSUBDIV_VALENCE3
+QuadratureEvaluation evaluate_quadrature(
+    const Mesh &mesh,
+    const QuadraturePlan &plan)
+{
+    QuadratureEvaluation evaluation;
+    evaluation.depth = plan.depth;
+    evaluation.samplesPerFace = static_cast<int>(plan.s.size());
+    evaluation.planValidated = quadrature_plan_valid(plan);
+    const std::vector<SourceKeyedFaceRows> rows =
+        build_proof_rows(mesh, kStudyAdaptiveIsolationLevel, plan);
+    evaluation.rowsStructurallyValid = finite_row_package(
+        rows, static_cast<int>(mesh.faces.size()),
+        static_cast<int>(mesh.vertices.size()),
+        static_cast<int>(plan.s.size()),
+        std::numeric_limits<double>::infinity(),
+        &evaluation.maximumRowInvariantResidual);
+    evaluation.rowsValid = evaluation.rowsStructurallyValid &&
+        evaluation.maximumRowInvariantResidual <= kRowTolerance;
+
+    std::vector<Matrix> coordinates;
+    coordinates.reserve(mesh.vertices.size());
+    for (const Vertex &vertex : mesh.vertices)
+    {
+        coordinates.push_back(vertex.coord);
+    }
+    for (const SourceKeyedFaceRows &faceRows : rows)
+    {
+        for (std::size_t sample = 0;
+             sample < faceRows.samples.size(); ++sample)
+        {
+            const auto position =
+                evaluate_row(faceRows.samples[sample].rows[0], mesh);
+            const auto du =
+                evaluate_row(faceRows.samples[sample].rows[1], mesh);
+            const auto dv =
+                evaluate_row(faceRows.samples[sample].rows[2], mesh);
+            const auto areaVector = cross(du, dv);
+            const double weight = plan.weights[sample];
+            evaluation.area += 0.5 * weight * norm(areaVector);
+            evaluation.volume += kVolumeQuadratureFactor * weight *
+                (position[0] * areaVector[0] +
+                 position[1] * areaVector[1] +
+                 position[2] * areaVector[2]);
+        }
+    }
+
+    Param forceParam;
+    forceParam.VERBOSE_MODE = false;
+    forceParam.boundaryCondition = BoundaryType::Fixed;
+    forceParam.kCurv = kStudyKCurv;
+    forceParam.uSurf = kStudyUSurf;
+    forceParam.uVol = kStudyUVol;
+    forceParam.area = evaluation.area;
+    forceParam.vol = evaluation.volume;
+    forceParam.area0 = kStudyArea0;
+    forceParam.vol0 = kStudyVol0;
+    Mesh evaluator(forceParam);
+    evaluator.param.gaussQuadratureCoeff =
+        Matrix(static_cast<int>(plan.weights.size()), 1, true);
+    for (int sample = 0;
+         sample < static_cast<int>(plan.weights.size()); ++sample)
+    {
+        evaluator.param.gaussQuadratureCoeff.set(
+            sample, 0, plan.weights[sample]);
+    }
+
+    evaluation.forces.resize(mesh.vertices.size());
+    bool finite = evaluation.planValidated &&
+                  evaluation.rowsStructurallyValid &&
+                  std::isfinite(evaluation.area) &&
+                  std::isfinite(evaluation.volume) &&
+                  evaluation.area > 0.0;
+    for (const SourceKeyedFaceRows &faceRows : rows)
+    {
+        std::vector<Matrix> shapeFunctions;
+        shapeFunctions.reserve(faceRows.samples.size());
+        for (const SourceKeyedSampleRows &sample : faceRows.samples)
+        {
+            Matrix matrix(kRowCount,
+                          static_cast<int>(mesh.vertices.size()), true);
+            for (int row = 0; row < kRowCount; ++row)
+            {
+                for (int source = 0;
+                     source < static_cast<int>(mesh.vertices.size());
+                     ++source)
+                {
+                    matrix.set(row, source,
+                               sample.rows[row].coefficients[source]);
+                }
+            }
+            shapeFunctions.push_back(std::move(matrix));
+        }
+
+        Face face;
+        face.index = faceRows.faceIndex;
+        face.spontCurvature = kStudySpontaneousCurvature;
+        double meanCurvature = 0.0;
+        double bendingEnergy = 0.0;
+        Matrix normal = mat_calloc(3, 1);
+        Matrix fBend = mat_calloc(
+            static_cast<int>(mesh.vertices.size()), 3);
+        Matrix fArea = mat_calloc(
+            static_cast<int>(mesh.vertices.size()), 3);
+        Matrix fVolume = mat_calloc(
+            static_cast<int>(mesh.vertices.size()), 3);
+        evaluator.element_energy_force_regular(
+            coordinates, face, face.spontCurvature, meanCurvature, normal,
+            bendingEnergy, fBend, fArea, fVolume, false, &shapeFunctions);
+        evaluation.bendingEnergy += bendingEnergy;
+        finite = finite && std::isfinite(meanCurvature) &&
+                 std::isfinite(bendingEnergy);
+        const std::array<const Matrix *, 3> forceMatrices{{
+            &fBend, &fArea, &fVolume}};
+        for (int source = 0;
+             source < static_cast<int>(mesh.vertices.size()); ++source)
+        {
+            for (int kind = 0; kind < 3; ++kind)
+            {
+                for (int axis = 0; axis < 3; ++axis)
+                {
+                    const double value =
+                        forceMatrices[kind]->get(source, axis);
+                    finite = finite && std::isfinite(value);
+                    evaluation.forces[source][kind][axis] += value;
+                }
+            }
+        }
+    }
+    const double areaEnergy =
+        0.5 * evaluator.param.uSurf / evaluator.param.area0 *
+        std::pow(evaluation.area - evaluator.param.area0, 2);
+    const double volumeEnergy =
+        0.5 * evaluator.param.uVol / evaluator.param.vol0 *
+        std::pow(evaluation.volume - evaluator.param.vol0, 2);
+    evaluation.totalEnergy =
+        evaluation.bendingEnergy + areaEnergy + volumeEnergy;
+    evaluation.finite = finite &&
+                        std::isfinite(evaluation.totalEnergy);
+    return evaluation;
+}
+
+double relative_change(const double left, const double right)
+{
+    return std::abs(left - right) /
+           std::max({1.0e-12, std::abs(left), std::abs(right)});
+}
+
+double global_relative_change(const QuadratureEvaluation &left,
+                              const QuadratureEvaluation &right)
+{
+    return std::max({relative_change(left.area, right.area),
+                     relative_change(left.volume, right.volume),
+                     relative_change(left.totalEnergy, right.totalEnergy)});
+}
+
+double force_relative_change(const QuadratureEvaluation &left,
+                             const QuadratureEvaluation &right)
+{
+    if (left.forces.size() != right.forces.size())
+    {
+        return std::numeric_limits<double>::infinity();
+    }
+    double maximum = 0.0;
+    for (std::size_t source = 0; source < left.forces.size(); ++source)
+    {
+        for (int kind = 0; kind < 3; ++kind)
+        {
+            for (int axis = 0; axis < 3; ++axis)
+            {
+                maximum = std::max(
+                    maximum,
+                    std::abs(left.forces[source][kind][axis] -
+                             right.forces[source][kind][axis]) /
+                        std::max({1.0,
+                                  std::abs(left.forces[source][kind][axis]),
+                                  std::abs(right.forces[source][kind][axis])}));
+            }
+        }
+    }
+    return maximum;
+}
+
+QuadratureConvergenceReport evaluate_quadrature_convergence(
+    const std::string &name,
+    const std::string &verticesPath,
+    const std::string &facesPath)
+{
+    QuadratureConvergenceReport report;
+    report.name = name;
+    Param setupParam;
+    setupParam.VERBOSE_MODE = false;
+    setupParam.boundaryCondition = BoundaryType::Fixed;
+    Mesh mesh(setupParam);
+    mesh.setup_from_vertices_faces(read_data_from_csv<double>(verticesPath),
+                                   read_data_from_csv<int>(facesPath));
+    for (int depth = 0; depth <= kStudyMaximumDepth; ++depth)
+    {
+        report.levels.push_back(
+            evaluate_quadrature(mesh, nested_quadrature_plan(depth)));
+    }
+    for (std::size_t level = 1; level < report.levels.size(); ++level)
+    {
+        report.globalRelativeChanges.push_back(global_relative_change(
+            report.levels[level - 1], report.levels[level]));
+        report.forceRelativeChanges.push_back(force_relative_change(
+            report.levels[level - 1], report.levels[level]));
+    }
+    report.allPlansValidated = std::all_of(
+        report.levels.begin(), report.levels.end(),
+        [](const QuadratureEvaluation &level) {
+            return level.planValidated;
+        });
+    report.allRowsValid = std::all_of(
+        report.levels.begin(), report.levels.end(),
+        [](const QuadratureEvaluation &level) { return level.rowsValid; });
+    report.allRowsStructurallyValid = std::all_of(
+        report.levels.begin(), report.levels.end(),
+        [](const QuadratureEvaluation &level) {
+            return level.rowsStructurallyValid;
+        });
+    report.allFinite = std::all_of(
+        report.levels.begin(), report.levels.end(),
+        [](const QuadratureEvaluation &level) { return level.finite; });
+    const std::size_t changeCount = report.globalRelativeChanges.size();
+    report.twoSuccessiveGlobalTargetsMet = changeCount >= 2u &&
+        report.globalRelativeChanges[changeCount - 2u] <=
+            kStudyGlobalChangeTarget &&
+        report.globalRelativeChanges[changeCount - 1u] <=
+            kStudyGlobalChangeTarget;
+    report.twoSuccessiveForceTargetsMet = changeCount >= 2u &&
+        report.forceRelativeChanges[changeCount - 2u] <=
+            kStudyForceChangeTarget &&
+        report.forceRelativeChanges[changeCount - 1u] <=
+            kStudyForceChangeTarget;
+    report.scientificTargetsMet = report.allRowsValid &&
+        report.twoSuccessiveGlobalTargetsMet &&
+        report.twoSuccessiveForceTargetsMet;
+    report.activationBlocked = !report.scientificTargetsMet;
+    report.studyCompleted = report.allPlansValidated &&
+                            report.allRowsStructurallyValid &&
+                            report.allFinite;
+    // This Phase-5 slice is an evidence packet, not activation. It passes
+    // only when the study completes and the measured scientific blocker is
+    // represented explicitly rather than hidden by wider tolerances.
+    report.passed = report.studyCompleted && report.activationBlocked;
+    return report;
+}
+#endif
 
 FixtureReport evaluate_fixture(const std::string &name,
                                const std::string &verticesPath,
@@ -1149,15 +1599,110 @@ void print_report(const FixtureReport &report)
                       ? "true" : "false");
     std::cout << '}';
 }
+
+void print_doubles(const std::vector<double> &values)
+{
+    std::cout << '[';
+    for (std::size_t index = 0; index < values.size(); ++index)
+    {
+        if (index)
+        {
+            std::cout << ',';
+        }
+        std::cout << values[index];
+    }
+    std::cout << ']';
+}
+
+void print_quadrature_convergence(
+    const QuadratureConvergenceReport &report)
+{
+    std::cout << "{\"name\":\"" << report.name << "\"";
+    std::cout << ",\"levels\":[";
+    for (std::size_t index = 0; index < report.levels.size(); ++index)
+    {
+        if (index)
+        {
+            std::cout << ',';
+        }
+        const QuadratureEvaluation &level = report.levels[index];
+        std::cout << "{\"depth\":" << level.depth
+                  << ",\"samples_per_face\":" << level.samplesPerFace
+                  << ",\"plan_validated\":"
+                  << (level.planValidated ? "true" : "false")
+                  << ",\"rows_structurally_valid\":"
+                  << (level.rowsStructurallyValid ? "true" : "false")
+                  << ",\"rows_valid\":"
+                  << (level.rowsValid ? "true" : "false")
+                  << ",\"maximum_row_invariant_residual\":"
+                  << level.maximumRowInvariantResidual
+                  << ",\"finite\":"
+                  << (level.finite ? "true" : "false")
+                  << ",\"area\":" << level.area
+                  << ",\"full_divergence_volume\":" << level.volume
+                  << ",\"bending_energy\":" << level.bendingEnergy
+                  << ",\"total_energy\":" << level.totalEnergy << '}';
+    }
+    std::cout << "]";
+    std::cout << ",\"global_relative_changes\":";
+    print_doubles(report.globalRelativeChanges);
+    std::cout << ",\"force_relative_changes\":";
+    print_doubles(report.forceRelativeChanges);
+    std::cout << ",\"all_plans_validated\":"
+              << (report.allPlansValidated ? "true" : "false");
+    std::cout << ",\"all_rows_structurally_valid\":"
+              << (report.allRowsStructurallyValid ? "true" : "false");
+    std::cout << ",\"all_rows_valid\":"
+              << (report.allRowsValid ? "true" : "false");
+    std::cout << ",\"all_finite\":"
+              << (report.allFinite ? "true" : "false");
+    std::cout << ",\"two_successive_global_targets_met\":"
+              << (report.twoSuccessiveGlobalTargetsMet ? "true" : "false");
+    std::cout << ",\"two_successive_force_targets_met\":"
+              << (report.twoSuccessiveForceTargetsMet ? "true" : "false");
+    std::cout << ",\"scientific_targets_met\":"
+              << (report.scientificTargetsMet ? "true" : "false");
+    std::cout << ",\"activation_blocked\":"
+              << (report.activationBlocked ? "true" : "false");
+    std::cout << ",\"study_completed\":"
+              << (report.studyCompleted ? "true" : "false");
+    std::cout << ",\"passed\":" << (report.passed ? "true" : "false")
+              << '}';
+}
+
+void print_quadrature_study_contract()
+{
+    std::cout << "{\"k_curv\":" << kStudyKCurv
+              << ",\"u_surf\":" << kStudyUSurf
+              << ",\"u_vol\":" << kStudyUVol
+              << ",\"spontaneous_curvature\":"
+              << kStudySpontaneousCurvature
+              << ",\"area0\":" << kStudyArea0
+              << ",\"vol0\":" << kStudyVol0
+              << ",\"adaptive_isolation_level\":"
+              << kStudyAdaptiveIsolationLevel
+              << ",\"maximum_depth\":" << kStudyMaximumDepth
+              << ",\"global_change_target\":"
+              << kStudyGlobalChangeTarget
+              << ",\"force_change_target\":"
+              << kStudyForceChangeTarget
+              << ",\"row_invariant_target\":" << kRowTolerance
+              << ",\"global_change_denominator\":"
+              << "\"max(1e-12,abs(previous),abs(current))\""
+              << ",\"force_change_denominator\":"
+              << "\"max(1,abs(previous),abs(current))\"}";
+}
 } // namespace
 
 int main(int argc, char **argv)
 {
-    if (argc != 7)
+    if (argc != 9)
     {
         std::cerr << "usage: " << argv[0]
                   << " TETRA_VERTICES TETRA_FACES MIXED_VERTICES MIXED_FACES"
-                  << " BIPYRAMID_VERTICES BIPYRAMID_FACES\n";
+                  << " BIPYRAMID_VERTICES BIPYRAMID_FACES"
+                  << " ASYMMETRIC_BIPYRAMID_VERTICES"
+                  << " ASYMMETRIC_BIPYRAMID_FACES\n";
         return 2;
     }
 
@@ -1193,8 +1738,15 @@ int main(int argc, char **argv)
             "closed_valence3_triangular_bipyramid", argv[5], argv[6], true,
             false, Valence3TopologyKind::TriangularBipyramid344);
         const FixtureReport asymmetricBipyramid = evaluate_fixture(
-            "asymmetric_valence3_triangular_bipyramid", argv[5], argv[6],
-            true, true, Valence3TopologyKind::TriangularBipyramid344);
+            "asymmetric_valence3_triangular_bipyramid", argv[7], argv[8],
+            true, false, Valence3TopologyKind::TriangularBipyramid344);
+        const QuadratureConvergenceReport bipyramidConvergence =
+            evaluate_quadrature_convergence(
+                "closed_valence3_triangular_bipyramid", argv[5], argv[6]);
+        const QuadratureConvergenceReport asymmetricBipyramidConvergence =
+            evaluate_quadrature_convergence(
+                "asymmetric_valence3_triangular_bipyramid",
+                argv[7], argv[8]);
         const bool tetraValence3 =
             tetra.valences == std::vector<int>({3, 3, 3, 3});
         const std::set<int> mixedValences(
@@ -1230,7 +1782,9 @@ int main(int argc, char **argv)
                             sciencePassed(asymmetricBipyramid) &&
                             tetraValence3 && mixedValenceSet &&
                             mixed.mixed345FacePresent &&
-                            bipyramidValences && bipyramid.allFacesAre344;
+                            bipyramidValences && bipyramid.allFacesAre344 &&
+                            bipyramidConvergence.passed &&
+                            asymmetricBipyramidConvergence.passed;
         std::cout << std::setprecision(17);
         std::cout << "{\"status\":\"" << (passed ? "passed" : "failed")
                   << "\",\"proof_only\":true"
@@ -1242,6 +1796,17 @@ int main(int argc, char **argv)
                   << ",\"volume_force_checked_against_full_divergence_functional\":true"
                   << ",\"full_divergence_volume_energy_force_conjugate\":true"
                   << ",\"legacy_x_only_volume_mismatch_resolved_for_valence3\":true"
+                  << ",\"broader_topology_quadrature_targets_met\":"
+                  << (bipyramidConvergence.scientificTargetsMet &&
+                              asymmetricBipyramidConvergence.scientificTargetsMet
+                          ? "true" : "false")
+                  << ",\"broader_topology_activation_blocked\":"
+                  << (bipyramidConvergence.activationBlocked &&
+                              asymmetricBipyramidConvergence.activationBlocked
+                          ? "true" : "false")
+                  << ",\"quadrature_study_contract\":";
+        print_quadrature_study_contract();
+        std::cout
                   << ",\"fixtures\":[";
         print_report(tetra);
         std::cout << ',';
@@ -1252,6 +1817,10 @@ int main(int argc, char **argv)
         print_report(bipyramid);
         std::cout << ',';
         print_report(asymmetricBipyramid);
+        std::cout << "],\"quadrature_convergence\":[";
+        print_quadrature_convergence(bipyramidConvergence);
+        std::cout << ',';
+        print_quadrature_convergence(asymmetricBipyramidConvergence);
         std::cout << "]}\n";
         return passed ? 0 : 4;
     }

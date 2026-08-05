@@ -7,6 +7,7 @@ on:
       - "data/fixtures/candidates/closed_valence3_tetrahedron/**"
       - "data/fixtures/candidates/closed_mixed_valence345/**"
       - "data/fixtures/candidates/closed_valence3_triangular_bipyramid/**"
+      - "data/fixtures/candidates/asymmetric_valence3_triangular_bipyramid/**"
       - "experiments/irregular_valence3_opensubdiv_geometry_force.cpp"
       - "experiments/irregular_valence3_opensubdiv_face_loop.cpp"
       - "include/energy_force/Valence3_opensubdiv_face_loop.hpp"
