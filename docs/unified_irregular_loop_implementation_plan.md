@@ -75,7 +75,7 @@ resolved.
 | D5: legacy 11-control matrix | After WP1.1a evidence, quarantine all-valence-5 misuse. Treat intended `5/6/6` support as net-new work because the current all-`5/5/5` predicate never admitted it. | Explicit user decision after WP1.1a; any `5/6/6` implementation needs a separate scientific gate | WP1.1b |
 | D6: dependency policy | Default builds remain OpenSubdiv-free through proof and opt-in phases. | Existing project policy | All packages |
 | D7: CUDA timing | No CUDA implementation changes before the dedicated compatibility package. | Existing user instruction | WP8 |
-| D8: performance budget | Candidate same-binary ceilings: generic coordinate-only median `<=1.10x` current cached regular route and every case `<=2.00x` direct analytic route; preparation once per epoch and reported separately. | Reproduced benchmark evidence plus explicit user approval | WP3.3 PASS, WP6.3 |
+| D8: performance budget | Under the same-binary protocol, `generic_vs_cached_regular_median <= TBD` remains pending the named measurement and approval; the direct-route candidate is `generic_vs_direct_regular_each_case <= 2.00`. Preparation occurs once per epoch and is reported separately. | Reproduced benchmark evidence plus explicit user approval | WP3.3 PASS, WP6.3 |
 
 If an answer changes, update this table and every downstream prompt before
 starting another package.
@@ -448,14 +448,15 @@ Frozen candidate D8 inputs:
 
 - protocol: same binary/compiler/OpenSubdiv build/fixture/thread count,
   alternating direct/cached/generic ordering, warmup, at least three repeats;
-- `generic_vs_cached_regular_median <= 1.10`;
+- `generic_vs_cached_regular_median <= TBD` pending the named D8 measurement;
 - `generic_vs_direct_regular_each_case <= 2.00`;
 - topology preparation and memory are reported separately, with exactly one
   preparation per topology epoch.
 
-The numeric ceilings are decision inputs derived from the published corrected
-cached-route range (`1.15x` to `1.95x` direct); they do not become acceptance
-criteria until D8 is explicitly approved.
+The direct-route numeric ceiling is a decision input. The cached-route median
+ceiling remains explicitly pending; no number replaces `TBD` until the named
+D8 measurement and approval. Neither becomes an acceptance criterion until D8
+is explicitly approved.
 
 ### WP0.2 - PR 176/182 stack evidence disposition
 
@@ -772,8 +773,9 @@ Gate:
 - exactly one preparation per topology epoch;
 - zero refiner/patch/stencil construction during coordinate-only evaluation;
 - no stale package acceptance;
-- after D8 approval, coordinate-only generic median is `<=1.10x` the cached
-  regular route and every frozen case is `<=2.00x` the direct analytic route;
+- after D8 approval, the coordinate-only generic median satisfies the approved
+  numeric ceiling that replaces `TBD`, and every frozen case is `<=2.00x` the
+  direct analytic route;
 - technical reviewer PASS.
 
 ### WP4.1 - variable-cardinality face-kernel extraction
