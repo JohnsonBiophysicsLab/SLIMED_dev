@@ -1,0 +1,34 @@
+name: Unified Loop baseline inventory
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  # Required negative evidence runs the same read-only job on a scratch branch.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inventory:
+    runs-on: macos-26
+    steps:
+      - name: Check out the exact event commit with full history
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Select Python 3.14.6
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.14.6"
+
+      - name: Check the unified Loop baseline inventory
+        run: python3 scripts/inventory_unified_loop_baseline.py --check --json
+
+      - name: Run focused inventory tests
+        run: python3 -m unittest -v tests.test_unified_loop_baseline_inventory
