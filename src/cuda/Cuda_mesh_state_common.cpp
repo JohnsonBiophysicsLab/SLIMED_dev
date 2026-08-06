@@ -46,6 +46,8 @@ const char *transfer_reason_name(TransferReason reason) noexcept
     case TransferReason::CandidateCoordinates: return "candidate_coordinates";
     case TransferReason::CandidateGeometry: return "candidate_geometry";
     case TransferReason::GeometryDiagnostics: return "geometry_diagnostics";
+    case TransferReason::CandidateMembrane: return "candidate_membrane";
+    case TransferReason::MembraneDiagnostics: return "membrane_diagnostics";
     case TransferReason::Count: break;
     }
     return "unknown";
@@ -280,6 +282,7 @@ struct MeshStateCore::Impl
     BufferGroup coordinates;
     BufferGroup reference;
     BufferGroup geometry;
+    BufferGroup membrane;
     BufferGroup deferredCleanup;
     std::uint64_t vertexCount = 0;
     std::uint64_t faceCount = 0;
@@ -398,6 +401,49 @@ struct MeshStateCore::Impl
         result[1].bytes = faces * sizeof(double);
         result[2].bytes = sizeof(std::int32_t);
         result[3].bytes = 2 * sizeof(double);
+        return result;
+    }
+
+    std::vector<HostView> membrane_views(const RegularMeshPack &pack,
+                                         bool &ok) const
+    {
+        std::vector<HostView> result(9);
+        std::uint64_t faceDoubles = 0;
+        std::uint64_t occurrenceCount = 0;
+        std::uint64_t occurrenceDoubles = 0;
+        std::uint64_t sampleCount = 0;
+        std::uint64_t sampleVectorDoubles = 0;
+        ok = multiply(pack.faceCount, sizeof(double), faceDoubles) &&
+             multiply(pack.evaluatedFaceCount, kRegularControlCount,
+                      occurrenceCount) &&
+             multiply(occurrenceCount, 9U, occurrenceDoubles) &&
+             multiply(occurrenceDoubles, sizeof(double), occurrenceDoubles) &&
+             multiply(pack.evaluatedFaceCount, kQuadratureSampleCount,
+                      sampleCount) &&
+             multiply(sampleCount, 3U, sampleVectorDoubles) &&
+             multiply(sampleVectorDoubles, sizeof(double),
+                      sampleVectorDoubles) &&
+             faceDoubles <= std::numeric_limits<std::size_t>::max() &&
+             occurrenceDoubles <= std::numeric_limits<std::size_t>::max() &&
+             sampleCount <= std::numeric_limits<std::size_t>::max() /
+                                sizeof(double) &&
+             sampleVectorDoubles <= std::numeric_limits<std::size_t>::max();
+        ok = ok && faceDoubles <=
+                       std::numeric_limits<std::size_t>::max() / 3U;
+        if (!ok)
+            return result;
+        const std::size_t faces = static_cast<std::size_t>(faceDoubles);
+        const std::size_t samples =
+            static_cast<std::size_t>(sampleCount) * sizeof(double);
+        result[0].bytes = faces;
+        result[1].bytes = faces;
+        result[2].bytes = faces * 3U;
+        result[3].bytes = static_cast<std::size_t>(occurrenceDoubles);
+        result[4].bytes = samples;
+        result[5].bytes = samples;
+        result[6].bytes = static_cast<std::size_t>(sampleVectorDoubles);
+        result[7].bytes = samples;
+        result[8].bytes = 3U * sizeof(std::int32_t);
         return result;
     }
 
@@ -583,7 +629,8 @@ struct MeshStateCore::Impl
     {
         report.residentBytes = group_bytes(topology) + group_bytes(numericalPlan) +
                                group_bytes(parameters) + group_bytes(coordinates) +
-                               group_bytes(reference) + group_bytes(geometry);
+                               group_bytes(reference) + group_bytes(geometry) +
+                               group_bytes(membrane);
         report.capacityBytes[static_cast<std::size_t>(TransferReason::Topology)] =
             group_bytes(topology);
         report.capacityBytes[static_cast<std::size_t>(
@@ -601,6 +648,8 @@ struct MeshStateCore::Impl
                 : 0;
         report.capacityBytes[static_cast<std::size_t>(
             TransferReason::CandidateGeometry)] = group_bytes(geometry);
+        report.capacityBytes[static_cast<std::size_t>(
+            TransferReason::CandidateMembrane)] = group_bytes(membrane);
     }
 };
 
@@ -683,6 +732,10 @@ DeviceStateError MeshStateCore::ensure_resident(const RegularMeshPack &pack)
         pending.push_back({&s.geometry, {},
                            TransferReason::CandidateGeometry,
                            s.geometry_views(pack, viewsOk)});
+    if (topologyChanged)
+        pending.push_back({&s.membrane, {},
+                           TransferReason::CandidateMembrane,
+                           s.membrane_views(pack, viewsOk)});
     if (!viewsOk)
         return s.record(error(DeviceStateErrorCode::ArithmeticOverflow,
                               "ensure_resident", "host buffer byte count overflowed"));
@@ -931,6 +984,266 @@ GeometryCandidateResult MeshStateCore::compute_candidate_geometry()
     return result;
 }
 
+MembraneCandidateResult MeshStateCore::compute_candidate_membrane()
+{
+    auto &s = *impl_;
+    MembraneCandidateResult result;
+    result.coordinateGeneration = s.report.candidateGeneration;
+    s.report.lastDirtyGroups.fill(false);
+    if (s.report.phase != TransactionPhase::CandidatePrepared ||
+        s.topology.buffers.size() < 7 || s.parameters.buffers.size() < 3 ||
+        s.numericalPlan.buffers.size() < 3 ||
+        s.coordinates.buffers.size() != 3 || s.geometry.buffers.size() != 4 ||
+        s.membrane.buffers.size() != 9)
+    {
+        result.error = error(DeviceStateErrorCode::InvalidTransition,
+                             "compute_candidate_membrane",
+                             "membrane evaluation requires a prepared candidate and complete resident buffers");
+        s.record(result.error);
+        return result;
+    }
+    if (!s.operations.computeMembrane)
+    {
+        result.error = error(DeviceStateErrorCode::InvalidConfiguration,
+                             "compute_candidate_membrane",
+                             "the device driver does not provide the Step-5 membrane operation");
+        s.record(result.error);
+        return result;
+    }
+    if (s.report.cleanupPending)
+    {
+        result.error = s.cleanup_blocked("compute_candidate_membrane");
+        s.record(result.error);
+        return result;
+    }
+
+    s.report.phase = TransactionPhase::Computing;
+    s.report.lastDirtyGroups[static_cast<std::size_t>(
+        TransferReason::CandidateMembrane)] = true;
+    const MembraneLaunch launch{
+        s.topology.buffers[4].handle,
+        s.topology.buffers[6].handle,
+        s.parameters.buffers[1].handle,
+        s.parameters.buffers[2].handle,
+        s.numericalPlan.buffers[1].handle,
+        s.numericalPlan.buffers[2].handle,
+        s.coordinates.buffers[s.report.candidateCoordinateSlot].handle,
+        s.geometry.buffers[0].handle,
+        s.geometry.buffers[1].handle,
+        s.geometry.buffers[3].handle,
+        s.membrane.buffers[0].handle,
+        s.membrane.buffers[1].handle,
+        s.membrane.buffers[2].handle,
+        s.membrane.buffers[3].handle,
+        s.membrane.buffers[4].handle,
+        s.membrane.buffers[5].handle,
+        s.membrane.buffers[6].handle,
+        s.membrane.buffers[7].handle,
+        s.membrane.buffers[8].handle,
+        s.vertexCount,
+        s.faceCount,
+        s.evaluatedFaceCount,
+    };
+    DriverStatus driverStatus = s.operations.computeMembrane(launch);
+    if (!driverStatus.success)
+    {
+        result.error = error(DeviceStateErrorCode::CandidateFailed,
+                             driverStatus.operation.empty()
+                                 ? "compute_membrane"
+                                 : driverStatus.operation,
+                             driverStatus.message, driverStatus.nativeCode);
+        s.report.phase = TransactionPhase::Failed;
+        s.report.lastOutcome = TransactionOutcome::Failed;
+        s.record(result.error);
+        return result;
+    }
+    driverStatus = s.operations.synchronize();
+    if (!driverStatus.success)
+    {
+        result.error = error(DeviceStateErrorCode::SynchronizationFailed,
+                             driverStatus.operation.empty()
+                                 ? "synchronize_membrane"
+                                 : driverStatus.operation,
+                             driverStatus.message, driverStatus.nativeCode);
+        s.report.phase = TransactionPhase::Failed;
+        s.report.lastOutcome = TransactionOutcome::Failed;
+        s.record(result.error);
+        return result;
+    }
+    ++s.report.synchronizations;
+
+    const std::size_t faces = static_cast<std::size_t>(s.faceCount);
+    const std::size_t evaluated =
+        static_cast<std::size_t>(s.evaluatedFaceCount);
+    result.faceAreas.resize(faces);
+    result.faceVolumes.resize(faces);
+    result.faceBendingEnergies.resize(faces);
+    result.faceMeanCurvatures.resize(faces);
+    result.faceNormals.resize(faces * 3U);
+    result.occurrenceForces.resize(evaluated * kRegularControlCount * 9U);
+    result.sampleSurfaceMeasures.resize(evaluated * kQuadratureSampleCount);
+    result.sampleMeanCurvatures.resize(evaluated * kQuadratureSampleCount);
+    result.sampleNormals.resize(evaluated * kQuadratureSampleCount * 3U);
+    result.sampleBendingEnergies.resize(evaluated * kQuadratureSampleCount);
+    double totals[2]{};
+    std::int32_t diagnostics[3]{};
+    auto &counter = s.report.transfers[static_cast<std::size_t>(
+        TransferReason::MembraneDiagnostics)];
+    std::uint64_t completedOperations = 0;
+    std::uint64_t diagnosticBytes = 0;
+    const auto copy = [&](void *destination, DeviceBufferHandle source,
+                          std::size_t bytes) -> bool {
+        if (bytes == 0)
+            return true;
+        ++counter.attemptedOperations;
+        counter.attemptedBytes += bytes;
+        const DriverStatus copied =
+            s.operations.copyDeviceToHost(destination, source, bytes);
+        if (!copied.success)
+        {
+            result.error = error(
+                DeviceStateErrorCode::TransferFailed,
+                copied.operation.empty() ? "copy_membrane_diagnostic"
+                                         : copied.operation,
+                copied.message, copied.nativeCode);
+            return false;
+        }
+        ++completedOperations;
+        diagnosticBytes += bytes;
+        return true;
+    };
+    const std::size_t faceBytes = faces * sizeof(double);
+    if (!copy(result.faceAreas.data(), s.geometry.buffers[0].handle,
+              faceBytes) ||
+        !copy(result.faceVolumes.data(), s.geometry.buffers[1].handle,
+              faceBytes) ||
+        !copy(totals, s.geometry.buffers[3].handle, sizeof(totals)) ||
+        !copy(result.faceBendingEnergies.data(), s.membrane.buffers[0].handle,
+              faceBytes) ||
+        !copy(result.faceMeanCurvatures.data(), s.membrane.buffers[1].handle,
+              faceBytes) ||
+        !copy(result.faceNormals.data(), s.membrane.buffers[2].handle,
+              result.faceNormals.size() * sizeof(double)) ||
+        !copy(result.occurrenceForces.data(), s.membrane.buffers[3].handle,
+              result.occurrenceForces.size() * sizeof(double)) ||
+        !copy(result.sampleSurfaceMeasures.data(),
+              s.membrane.buffers[4].handle,
+              result.sampleSurfaceMeasures.size() * sizeof(double)) ||
+        !copy(result.sampleMeanCurvatures.data(),
+              s.membrane.buffers[5].handle,
+              result.sampleMeanCurvatures.size() * sizeof(double)) ||
+        !copy(result.sampleNormals.data(), s.membrane.buffers[6].handle,
+              result.sampleNormals.size() * sizeof(double)) ||
+        !copy(result.sampleBendingEnergies.data(),
+              s.membrane.buffers[7].handle,
+              result.sampleBendingEnergies.size() * sizeof(double)) ||
+        !copy(diagnostics, s.membrane.buffers[8].handle,
+              sizeof(diagnostics)))
+    {
+        s.report.phase = TransactionPhase::Failed;
+        s.report.lastOutcome = TransactionOutcome::Failed;
+        s.record(result.error);
+        return result;
+    }
+    driverStatus = s.operations.synchronize();
+    if (!driverStatus.success)
+    {
+        result.error = error(DeviceStateErrorCode::SynchronizationFailed,
+                             driverStatus.operation.empty()
+                                 ? "synchronize_membrane_diagnostic"
+                                 : driverStatus.operation,
+                             driverStatus.message, driverStatus.nativeCode);
+        s.report.phase = TransactionPhase::Failed;
+        s.report.lastOutcome = TransactionOutcome::Failed;
+        s.record(result.error);
+        return result;
+    }
+    ++s.report.synchronizations;
+    counter.completedOperations += completedOperations;
+    counter.completedBytes += diagnosticBytes;
+    result.totalArea = totals[0];
+    result.totalVolume = totals[1];
+    result.status = static_cast<MembraneStatusCode>(diagnostics[0]);
+    result.failedEvaluatedFace = diagnostics[1] < 0
+                                     ? 0U
+                                     : static_cast<std::uint64_t>(diagnostics[1]);
+    result.failedSample = diagnostics[2] < 0
+                              ? 0U
+                              : static_cast<std::uint32_t>(diagnostics[2]);
+    const auto allFinite = [](const std::vector<double> &values) {
+        return std::all_of(values.begin(), values.end(),
+                           [](double value) { return std::isfinite(value); });
+    };
+    const auto normalsValid = [](const std::vector<double> &values,
+                                 bool allowZero) {
+        if (values.size() % 3U != 0U)
+            return false;
+        for (std::size_t index = 0; index < values.size(); index += 3U)
+        {
+            const double squared = values[index] * values[index] +
+                                   values[index + 1U] * values[index + 1U] +
+                                   values[index + 2U] * values[index + 2U];
+            if (allowZero && squared == 0.0)
+                continue;
+            if (!std::isfinite(squared) || std::abs(squared - 1.0) > 1.0e-10)
+                return false;
+        }
+        return true;
+    };
+    double summedArea = 0.0;
+    double summedVolume = 0.0;
+    for (std::size_t face = 0; face < result.faceAreas.size(); ++face)
+    {
+        summedArea += result.faceAreas[face];
+        summedVolume += result.faceVolumes[face];
+    }
+    const auto totalMatches = [](double actual, double expected) {
+        return std::abs(actual - expected) <=
+               1.0e-12 * std::max(1.0, std::abs(expected));
+    };
+    const bool valid =
+        result.status == MembraneStatusCode::None &&
+        allFinite(result.faceAreas) &&
+        std::all_of(result.faceAreas.begin(), result.faceAreas.end(),
+                    [](double value) { return value >= 0.0; }) &&
+        allFinite(result.faceVolumes) &&
+        allFinite(result.faceBendingEnergies) &&
+        std::all_of(result.faceBendingEnergies.begin(),
+                    result.faceBendingEnergies.end(),
+                    [](double value) { return value >= 0.0; }) &&
+        allFinite(result.faceMeanCurvatures) && allFinite(result.faceNormals) &&
+        normalsValid(result.faceNormals, true) &&
+        allFinite(result.occurrenceForces) &&
+        allFinite(result.sampleSurfaceMeasures) &&
+        std::all_of(result.sampleSurfaceMeasures.begin(),
+                    result.sampleSurfaceMeasures.end(),
+                    [](double value) { return value > 0.0; }) &&
+        allFinite(result.sampleMeanCurvatures) &&
+        allFinite(result.sampleNormals) &&
+        normalsValid(result.sampleNormals, false) &&
+        allFinite(result.sampleBendingEnergies) &&
+        std::all_of(result.sampleBendingEnergies.begin(),
+                    result.sampleBendingEnergies.end(),
+                    [](double value) { return value >= 0.0; }) &&
+        std::isfinite(result.totalArea) && result.totalArea >= 0.0 &&
+        std::isfinite(result.totalVolume) &&
+        totalMatches(result.totalArea, summedArea) &&
+        totalMatches(result.totalVolume, summedVolume);
+    if (!valid)
+    {
+        result.error = error(DeviceStateErrorCode::CandidateFailed,
+                             "validate_candidate_membrane",
+                             "device membrane evaluation reported a degeneracy or nonfinite output");
+        s.report.phase = TransactionPhase::Failed;
+        s.report.lastOutcome = TransactionOutcome::Failed;
+        s.record(result.error);
+        return result;
+    }
+    s.report.phase = TransactionPhase::Validated;
+    s.clear_error();
+    return result;
+}
+
 DeviceStateError MeshStateCore::mark_computing()
 {
     auto &s = *impl_;
@@ -1076,7 +1389,7 @@ DeviceStateError MeshStateCore::close()
     auto &s = *impl_;
     if (!s.closing)
     {
-        for (BufferGroup *group : {&s.geometry, &s.reference, &s.coordinates, &s.parameters,
+        for (BufferGroup *group : {&s.membrane, &s.geometry, &s.reference, &s.coordinates, &s.parameters,
                                    &s.numericalPlan, &s.topology})
         {
             for (auto &buffer : group->buffers)
@@ -1237,6 +1550,20 @@ GeometryCandidateResult CudaMeshState::compute_candidate_geometry()
         return result;
     }
     result = impl_->core->compute_candidate_geometry();
+    impl_->refresh();
+    return result;
+}
+
+MembraneCandidateResult CudaMeshState::compute_candidate_membrane()
+{
+    MembraneCandidateResult result;
+    DeviceStateError blocked = impl_->guard("compute_candidate_membrane");
+    if (!blocked.ok())
+    {
+        result.error = blocked;
+        return result;
+    }
+    result = impl_->core->compute_candidate_membrane();
     impl_->refresh();
     return result;
 }

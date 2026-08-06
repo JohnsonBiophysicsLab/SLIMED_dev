@@ -102,6 +102,16 @@ struct FakeDevice
         NonFiniteTotals,
     };
 
+    enum class MembraneCorruption
+    {
+        None,
+        Status,
+        NonFiniteOccurrence,
+        ZeroSurfaceMeasure,
+        NonUnitNormal,
+        MismatchedTotals,
+    };
+
     static constexpr int kInjected = 73;
     std::unordered_map<DeviceBufferHandle, std::vector<std::uint8_t>> memory;
     DeviceBufferHandle nextHandle = 1;
@@ -111,15 +121,18 @@ struct FakeDevice
     std::uint64_t copyCalls = 0;
     std::uint64_t copyToHostCalls = 0;
     std::uint64_t geometryCalls = 0;
+    std::uint64_t membraneCalls = 0;
     std::uint64_t synchronizeCalls = 0;
     std::uint64_t releaseCalls = 0;
     std::uint64_t failAllocationCall = 0;
     std::uint64_t failCopyCall = 0;
     std::uint64_t failCopyToHostCall = 0;
     std::uint64_t failGeometryCall = 0;
+    std::uint64_t failMembraneCall = 0;
     std::uint64_t failSynchronizeCall = 0;
     std::uint64_t failReleaseCall = 0;
     GeometryCorruption geometryCorruption = GeometryCorruption::None;
+    MembraneCorruption membraneCorruption = MembraneCorruption::None;
 
     DeviceOperations operations()
     {
@@ -279,6 +292,80 @@ struct FakeDevice
             case GeometryCorruption::NonFiniteTotals:
                 write_double(launch.totals, 1,
                              std::numeric_limits<double>::infinity());
+                break;
+            }
+            return DriverStatus{};
+        };
+        ops.computeMembrane = [this](const MembraneLaunch &launch) {
+            ++membraneCalls;
+            if (membraneCalls == failMembraneCall)
+                return DriverStatus{false, kInjected,
+                                    "fake_compute_membrane",
+                                    "injected membrane failure"};
+            const auto clear = [this](DeviceBufferHandle handle) {
+                std::fill(memory.at(handle).begin(), memory.at(handle).end(),
+                          0);
+            };
+            const auto write_double = [this](DeviceBufferHandle handle,
+                                             std::size_t index,
+                                             double value) {
+                std::memcpy(memory.at(handle).data() + index * sizeof(value),
+                            &value, sizeof(value));
+            };
+            const auto write_i32 = [this](DeviceBufferHandle handle,
+                                          std::size_t index,
+                                          std::int32_t value) {
+                std::memcpy(memory.at(handle).data() + index * sizeof(value),
+                            &value, sizeof(value));
+            };
+            for (const DeviceBufferHandle handle : {
+                     launch.faceAreas,
+                     launch.faceVolumes,
+                     launch.geometryTotals,
+                     launch.faceBendingEnergies,
+                     launch.faceMeanCurvatures,
+                     launch.faceNormals,
+                     launch.occurrenceForces,
+                     launch.sampleSurfaceMeasures,
+                     launch.sampleMeanCurvatures,
+                     launch.sampleNormals,
+                     launch.sampleBendingEnergies,
+                     launch.statusDiagnostics})
+                clear(handle);
+            const std::size_t sampleCount =
+                static_cast<std::size_t>(launch.evaluatedFaceCount) *
+                kQuadratureSampleCount;
+            for (std::size_t sample = 0; sample < sampleCount; ++sample)
+            {
+                write_double(launch.sampleSurfaceMeasures, sample, 1.0);
+                write_double(launch.sampleNormals, sample * 3U + 2U, 1.0);
+            }
+            for (std::size_t face = 0;
+                 face < static_cast<std::size_t>(launch.faceCount); ++face)
+                write_double(launch.faceNormals, face * 3U + 2U, 1.0);
+            switch (membraneCorruption)
+            {
+            case MembraneCorruption::None:
+                break;
+            case MembraneCorruption::Status:
+                write_i32(launch.statusDiagnostics, 0,
+                          static_cast<std::int32_t>(
+                              MembraneStatusCode::NonFiniteIntermediate));
+                write_i32(launch.statusDiagnostics, 1, 0);
+                write_i32(launch.statusDiagnostics, 2, 1);
+                break;
+            case MembraneCorruption::NonFiniteOccurrence:
+                write_double(launch.occurrenceForces, 0,
+                             std::numeric_limits<double>::quiet_NaN());
+                break;
+            case MembraneCorruption::ZeroSurfaceMeasure:
+                write_double(launch.sampleSurfaceMeasures, 0, 0.0);
+                break;
+            case MembraneCorruption::NonUnitNormal:
+                write_double(launch.sampleNormals, 2, 2.0);
+                break;
+            case MembraneCorruption::MismatchedTotals:
+                write_double(launch.geometryTotals, 0, 1.0);
                 break;
             }
             return DriverStatus{};
@@ -652,6 +739,105 @@ TEST(CudaMeshStateCoreTest,
         EXPECT_EQ(state->report().residentGenerations.acceptedCoordinates, 1u);
         EXPECT_EQ(device.memory.at(acceptedHandle), acceptedBytes);
     }
+}
+
+TEST(CudaMeshStateCoreTest,
+     CandidateMembraneReturnsUnscatteredDiagnosticsAndCanRollback)
+{
+    FakeDevice device;
+    const RegularMeshPack pack = make_geometry_pack();
+    auto created = create_mesh_state_core(device.operations(), pack);
+    ASSERT_NE(created.state, nullptr);
+    auto state = CudaMeshStateFactory::create(
+        std::move(created.state), created.report,
+        []() { return DriverStatus{}; });
+    ASSERT_TRUE(state->prepare_candidate(pack.acceptedCoordinates, 2).ok());
+    const MembraneCandidateResult result =
+        state->compute_candidate_membrane();
+    ASSERT_TRUE(result.ok()) << result.error.message;
+    EXPECT_EQ(result.faceAreas.size(), pack.faceCount);
+    EXPECT_EQ(result.faceBendingEnergies.size(), pack.faceCount);
+    EXPECT_EQ(result.faceNormals.size(), pack.faceCount * 3U);
+    EXPECT_EQ(result.occurrenceForces.size(),
+              pack.evaluatedFaceCount * kRegularControlCount * 9U);
+    EXPECT_EQ(result.sampleSurfaceMeasures.size(),
+              pack.evaluatedFaceCount * kQuadratureSampleCount);
+    EXPECT_EQ(state->report().phase, TransactionPhase::Validated);
+    EXPECT_TRUE(state->rollback().ok());
+    EXPECT_EQ(state->report().phase, TransactionPhase::IdleAccepted);
+}
+
+TEST(CudaMeshStateCoreTest,
+     CandidateMembraneFailuresAndMalformedOutputsPreserveAcceptedState)
+{
+    const std::vector<FakeDevice::MembraneCorruption> corruptions{
+        FakeDevice::MembraneCorruption::Status,
+        FakeDevice::MembraneCorruption::NonFiniteOccurrence,
+        FakeDevice::MembraneCorruption::ZeroSurfaceMeasure,
+        FakeDevice::MembraneCorruption::NonUnitNormal,
+        FakeDevice::MembraneCorruption::MismatchedTotals,
+    };
+    for (const FakeDevice::MembraneCorruption corruption : corruptions)
+    {
+        SCOPED_TRACE(static_cast<int>(corruption));
+        FakeDevice device;
+        const RegularMeshPack pack = make_geometry_pack();
+        auto created = create_mesh_state_core(device.operations(), pack);
+        ASSERT_NE(created.state, nullptr);
+        const DeviceBufferHandle acceptedHandle =
+            created.state->accepted_coordinate_handle_for_testing();
+        const std::vector<std::uint8_t> acceptedBytes =
+            device.memory.at(acceptedHandle);
+        auto state = CudaMeshStateFactory::create(
+            std::move(created.state), created.report,
+            []() { return DriverStatus{}; });
+        ASSERT_TRUE(state->prepare_candidate(pack.acceptedCoordinates, 2).ok());
+        device.membraneCorruption = corruption;
+        const MembraneCandidateResult failed =
+            state->compute_candidate_membrane();
+        EXPECT_EQ(failed.error.code, DeviceStateErrorCode::CandidateFailed);
+        if (corruption == FakeDevice::MembraneCorruption::Status)
+        {
+            EXPECT_EQ(failed.status,
+                      MembraneStatusCode::NonFiniteIntermediate);
+            EXPECT_EQ(failed.failedSample, 1u);
+        }
+        EXPECT_EQ(state->report().phase, TransactionPhase::Failed);
+        EXPECT_EQ(state->report().lastOutcome, TransactionOutcome::Failed);
+        EXPECT_EQ(device.memory.at(acceptedHandle), acceptedBytes);
+        ASSERT_TRUE(state->recover().ok());
+        EXPECT_EQ(state->report().phase, TransactionPhase::IdleAccepted);
+        EXPECT_EQ(device.memory.at(acceptedHandle), acceptedBytes);
+    }
+
+    FakeDevice device;
+    const RegularMeshPack pack = make_geometry_pack();
+    auto created = create_mesh_state_core(device.operations(), pack);
+    ASSERT_NE(created.state, nullptr);
+    auto state = CudaMeshStateFactory::create(
+        std::move(created.state), created.report,
+        []() { return DriverStatus{}; });
+    ASSERT_TRUE(state->prepare_candidate(pack.acceptedCoordinates, 2).ok());
+    device.failMembraneCall = device.membraneCalls + 1;
+    MembraneCandidateResult failed = state->compute_candidate_membrane();
+    EXPECT_EQ(failed.error.code, DeviceStateErrorCode::CandidateFailed);
+    ASSERT_TRUE(state->recover().ok());
+
+    ASSERT_TRUE(state->prepare_candidate(pack.acceptedCoordinates, 2).ok());
+    device.failMembraneCall = 0;
+    device.failCopyToHostCall = device.copyToHostCalls + 1;
+    failed = state->compute_candidate_membrane();
+    EXPECT_EQ(failed.error.code, DeviceStateErrorCode::TransferFailed);
+    ASSERT_TRUE(state->recover().ok());
+
+    ASSERT_TRUE(state->prepare_candidate(pack.acceptedCoordinates, 2).ok());
+    device.failCopyToHostCall = 0;
+    device.failSynchronizeCall = device.synchronizeCalls + 1;
+    failed = state->compute_candidate_membrane();
+    EXPECT_EQ(failed.error.code,
+              DeviceStateErrorCode::SynchronizationFailed);
+    EXPECT_EQ(state->report().phase, TransactionPhase::Failed);
+    ASSERT_TRUE(state->recover().ok());
 }
 
 TEST(CudaMeshStateCoreTest, UpdateAllocationFailurePreservesResidentState)

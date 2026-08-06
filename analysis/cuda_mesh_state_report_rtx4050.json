@@ -1,5 +1,5 @@
 {
-  "allocation_epoch": 6,
+  "allocation_epoch": 12,
   "allocation_free_balance": true,
   "available": true,
   "build": {
@@ -27,7 +27,7 @@
   "compiled": true,
   "cuda_required": true,
   "device_ordinal": 0,
-  "final_allocations": 138,
+  "final_allocations": 384,
   "final_resident_bytes": 0,
   "geometry_cases": {
     "boundary_ghost": {
@@ -94,24 +94,116 @@
     "name": "NVIDIA GeForce RTX 4050 Laptop GPU"
   },
   "iterations": 20,
+  "membrane_cases": {
+    "boundary_ghost": {
+      "cpu_parity": true,
+      "max_abs_error": 0,
+      "pass": true,
+      "permutation_equal": true,
+      "recoverable": true,
+      "repeatable": true,
+      "structured_degeneracy": true
+    },
+    "curved": {
+      "cpu_parity": true,
+      "max_abs_error": 0,
+      "pass": true,
+      "permutation_equal": true,
+      "recoverable": true,
+      "repeatable": true,
+      "structured_degeneracy": true
+    },
+    "degenerate": {
+      "cpu_parity": true,
+      "max_abs_error": 0,
+      "pass": true,
+      "permutation_equal": true,
+      "recoverable": true,
+      "repeatable": true,
+      "structured_degeneracy": true
+    },
+    "natural": {
+      "cpu_parity": true,
+      "max_abs_error": 0,
+      "pass": true,
+      "permutation_equal": true,
+      "recoverable": true,
+      "repeatable": true,
+      "structured_degeneracy": true
+    },
+    "permuted": {
+      "cpu_parity": true,
+      "max_abs_error": 0,
+      "pass": true,
+      "permutation_equal": true,
+      "recoverable": true,
+      "repeatable": true,
+      "structured_degeneracy": true
+    },
+    "production_cpu": {
+      "cpu_parity": true,
+      "max_abs_error": 3.1086244689504383e-15,
+      "pass": true,
+      "permutation_equal": true,
+      "recoverable": true,
+      "repeatable": true,
+      "structured_degeneracy": true
+    }
+  },
+  "membrane_degeneracy_handled": true,
+  "membrane_max_abs_error": 3.1086244689504383e-15,
+  "membrane_repeatable": true,
+  "membrane_transactions": 120,
   "memory_budget_bytes": 2659713024,
   "no_warm_allocations": true,
-  "resident_bytes": 5504,
+  "resident_bytes": 7104,
   "rollbacks": 60,
   "status": "pass",
-  "successful_frees": 138,
-  "total_transactions": 120,
-  "transaction_epoch": 120,
+  "successful_frees": 384,
+  "total_transactions": 240,
+  "transaction_epoch": 240,
   "transfers": {
-    "accepted_coordinates": {"bytes": 3456, "operations": 12},
-    "candidate_coordinates": {"bytes": 34560, "operations": 120},
-    "candidate_geometry": {"bytes": 0, "operations": 0},
-    "geometry_diagnostics": {"bytes": 4640, "operations": 480},
-    "numerical_plan": {"bytes": 12672, "operations": 18},
-    "parameters": {"bytes": 822, "operations": 18},
-    "reference_coordinates": {"bytes": 1728, "operations": 6},
-    "topology": {"bytes": 1742, "operations": 54}
+    "accepted_coordinates": {
+      "bytes": 6912,
+      "operations": 24
+    },
+    "candidate_coordinates": {
+      "bytes": 69120,
+      "operations": 240
+    },
+    "candidate_geometry": {
+      "bytes": 0,
+      "operations": 0
+    },
+    "candidate_membrane": {
+      "bytes": 0,
+      "operations": 0
+    },
+    "geometry_diagnostics": {
+      "bytes": 4640,
+      "operations": 480
+    },
+    "membrane_diagnostics": {
+      "bytes": 132160,
+      "operations": 1440
+    },
+    "numerical_plan": {
+      "bytes": 25344,
+      "operations": 36
+    },
+    "parameters": {
+      "bytes": 1644,
+      "operations": 36
+    },
+    "reference_coordinates": {
+      "bytes": 3456,
+      "operations": 12
+    },
+    "topology": {
+      "bytes": 3484,
+      "operations": 108
+    }
   },
   "transfers_complete": true,
-  "warmed_allocations": 138
+  "warmed_allocations": 384
 }
