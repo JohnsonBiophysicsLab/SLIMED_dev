@@ -1,0 +1,1180 @@
+# Bfr Loop limit-surface backend plan (macOS)
+
+Status: draft, non-authorizing. No package below is authorized to start.
+
+Date: 2026-08-06
+
+Authoritative base: `main@f8e76ea5bb444ba447a5ae9178a309545f2533ba`
+
+## 1. Purpose and relationship to the existing plan
+
+This document adds one evaluator-selection lane and one legacy-disposition
+lane to the existing programme. It does **not** replace
+[`unified_irregular_loop_implementation_plan.md`](unified_irregular_loop_implementation_plan.md)
+(the "unified plan") or
+[`adr_unified_loop_backend.md`](adr_unified_loop_backend.md) (the "ADR").
+
+Division of authority between the documents:
+
+| Concern | Owning document |
+| --- | --- |
+| Rules S1-S7, A1-A9, C1-C7, P1-P10 | unified plan section 3 |
+| Decisions D0-D8 | ADR decision ledger |
+| Package lifecycle, command profiles V0-V5, review tiers | unified plan sections 4-5 |
+| Frozen tolerance and fixture ledger | ADR |
+| Bfr evaluator qualification and activation | **this document**, D9a-D11 |
+| Legacy stratum disposition | **this document**, section 6 |
+| Face kernel, quadrature, shadow route, production, CUDA | unified plan WP4-WP8 |
+
+Rules are cited by ID and never restated here. Where this document replaces a
+unified-plan package it says so explicitly; every other unified-plan package
+remains in force unchanged.
+
+**Rationale.** The unified plan commits WP3.2 to the Far pipeline
+(`TopologyRefiner` -> adaptive refinement -> `PatchTable` ->
+`LimitStencilTableFactory` -> source-keyed rows). OpenSubdiv 3.5 introduced
+`Bfr`, whose `Surface<double>::EvaluateStencil()` returns position, first, and
+both pure plus mixed second-derivative stencils keyed by original mesh vertex
+indices, with no patch table, stencil table, or Ptex coordination. That maps
+almost exactly onto the WP3.1 six-row contract.
+
+Per the user decision of 2026-08-06, **`bfr-surface` is the production target for
+the generic backend** and Far is retained only as a regression comparator and
+proof-time cross-check. That is a scope decision, not an evidence-free
+assumption: Bfr must still pass its own qualification gate before any production
+code is written, and a Bfr failure blocks the lane rather than silently falling
+back to Far. Far and Bfr are two different approximations of the irregular Loop
+limit surface, so qualifying Bfr is a scientific act requiring its own evidence
+and gate.
+
+## 2. Current state of the world
+
+Exact references. Any change invalidates the packages below.
+
+| Object | Exact reference | State |
+| --- | --- | --- |
+| Authoritative base | `f8e76ea5bb444ba447a5ae9178a309545f2533ba` | merged PR 184 |
+| Prior ADR base | `e9af3ddad494fc073040ee82bdf07944b9fee8cf` | merged PR 183 |
+| PR 175 CUDA Step 5 | `3328068bd4dbab84d0b29c8ec607906559716c86` | open, frozen under D7 |
+| PR 176 Valence-3 stack root | `46c06080fb663bcb43f38cf32fc1b45daa8732e8` | open, production code |
+| PR 182 Valence-3 evidence leaf | `9587e3dce4509029e611e2937bac570b410193c3` | open, stacked on PR 176 |
+| PR 185 fixture archive | `6fe58e86117280d6df440739b3bb05eb5a17d320` | open, D0 extraction |
+| PR 186 linearity guard fix | `b09d87eefe27c50a32985a59dcea0bb4ac59d125` | open; user chose option (b): superseded by B0a, close on instruction |
+
+### 2.0 Decisions resolved since the ADR was written
+
+**Provenance.** The three items below were stated by the user directly in the
+chat session that authored this plan, on 2026-08-06, in a message beginning
+"Accept option (b)" and continuing "I approve D1" and "I approve D2". The scope
+limits are quoted from that message, not paraphrased. A reviewer who cannot see
+that session should treat this subsection as the citation and ask the user to
+re-confirm rather than assume inference; a reviewer must not silently downgrade
+these to pending.
+
+A **fourth** decision was taken in the same session later that day, after an
+external review recommended it: this is a **Bfr production lane**. D9a is a Bfr
+qualification gate rather than a Far-versus-Bfr selection, Far cannot be admitted
+as a production evaluator, and adopting Far later would require a new explicit
+architecture decision and package rather than a configuration change. This is
+compatible with D1's "does not select Far versus Bfr" limit: D1 governs the
+*scheme*, and the evaluator scope was set separately and explicitly.
+
+Nothing beyond these four items was approved.
+
+The approvals are recorded in the ADR by B0c; until B0c merges, the ADR still
+reads "proposed" and the inventory still expects that phrasing.
+
+- **D1 approved**: stock OpenSubdiv 3.7.0 Loop semantics are the forward-looking
+  CPU **proof** baseline; rows are not modified to reproduce legacy masks. Does
+  not select Far versus Bfr, does not change the production default, does not
+  approve arbitrary production inputs.
+- **D2 approved**: initial generic proof scope is complete, closed, consistently
+  oriented, two-manifold triangular meshes; boundaries, holes, ghosts,
+  non-triangles, non-manifold incidence, and inconsistent orientation fail before
+  mutation. Does not decide D2b, does not authorize production activation.
+
+D1's approval makes the OpenSubdiv version pin **exactly 3.7.0**, not a `>= 3.5`
+availability floor. D2's approval sets B2p's fixture generation scope: every new
+fixture must be closed, oriented, and two-manifold, and the rejection fixtures
+exist to prove failure before mutation.
+
+### 2.1 Blocking defect: main fails its own inventory
+
+At the authoritative base:
+
+```text
+python3 scripts/inventory_unified_loop_baseline.py --check --json
+-> "errors": ["unexpected merge commit in WP0 branch"], "status": "failed"
+```
+
+The linearity guard counts merge commits in `BASE_SHA..HEAD`. PR 184 advanced
+`BASE_SHA` to the PR 183 merge, so PR 184's own merge commit now falls inside
+the range. The invariant is self-defeating and re-breaks on every future merge.
+Every branch cut from main inherits the failure.
+
+A second, independent inconsistency exists in the same files: the ADR now
+records `generic_vs_cached_regular_median <= TBD`, while
+`scripts/inventory_unified_loop_baseline.py` still expects the numeric `1.10`.
+
+Consequence: **the V0 command profile cannot pass anywhere.** No package in
+either document can produce clean evidence until this is repaired. B0a below is
+therefore an unconditional prerequisite for every other package here.
+
+The repository has three workflows, `ci.yml`, `cpp_maketest.yml`, and
+`valence3_opensubdiv_proof.yml`, and none of them runs
+`scripts/inventory_unified_loop_baseline.py` or its focused test. That is why
+the defect reached `main` unnoticed. Repairing the logic and closing the CI hole
+are two different changes with two different review surfaces, so they are two
+packages: B0a and B0b.
+
+### 2.2 Uncommitted working-tree state
+
+The shared checkout carries uncommitted edits to
+`docs/adr_unified_loop_backend.md`,
+`docs/unified_irregular_loop_implementation_plan.md`,
+`scripts/inventory_unified_loop_baseline.py`, and
+`tests/test_unified_loop_baseline_inventory.py` that implement the `TBD`
+pending-ceiling parse and its mutation tests. This is B0a content, not unrelated
+work, and the coordinator dispositions it in B0a.
+
+The untracked `analysis/cuda_benchmark_graphs/` and
+`scripts/plot_cuda_benchmark_comparison.py` are unrelated user files. They are
+preserved and never staged (**P3**).
+
+## 3. New decisions
+
+These extend the ADR ledger and do not modify D0-D8.
+
+| ID | Status | Proposed rule | Required authority / evidence |
+| --- | --- | --- | --- |
+| D9a | Proposed - pending B2 evidence and explicit user scientific decision | **Qualify `bfr-surface`.** Pass/fail on Bfr alone: is it scientifically and operationally adequate to carry the generic backend? Far is **not a candidate** and cannot be admitted; it is a regression comparator only. A Bfr failure blocks the lane and escalates to a new explicit architecture decision; there is no automatic Far fallback and no configuration path to one. | B2 evidence, technical review, independent scientific review, explicit user decision. |
+| D9b | Deferred - not decidable before WP5.2 | **Bfr production-activation acceptance.** D9a qualifies Bfr's rows; D9b accepts Bfr for production. The deciding quantity is convergence of the integrated bending energy and per-source forces under the *selected* quadrature rule, which does not exist until WP5.2. This is not a Far-versus-Bfr selection. | WP5.2 quadrature selection, then integrated-functional evidence, independent scientific review, and explicit user decision. |
+| D10 | Pending - frozen by B2p before B2 runs | Declare frozen irregular row targets. The existing ledger has no irregular accuracy tolerance; `valence{3,4,5}_row_invariants = 1.0e-12` are row sum-rule invariants, not accuracy. | **B2p** declares names, values, rationale, and owning gate, and commits them before B2 exists, so **S5** compliance is provable from commit order. Explicit user D10 approval. Widening after results is a blocker, not a fix. |
+| D11 | Proposed - pending explicit user decision after D9a | Legacy per-valence OpenSubdiv routes are frozen as regression comparators, not ported to Bfr, and retired only through the unified plan's WP7 sequence after the generic route is accepted. | Explicit user decision. Extends, and does not replace, D5. |
+
+Nothing in D9a-D11 may be inferred from D1. D1 governs the *scheme* (stock Loop
+masks). D9a and D9b govern whether **Bfr** is qualified to extract rows for that
+scheme and then activated in production. A D1 approval is not a D9a approval, and
+the 2026-08-06 scope decision that this is a Bfr lane is not a D9a approval
+either: it fixes the target, not the evidence.
+
+### 3.1 Why qualification and activation are split, and what B2 can settle
+
+Because Far is not a production candidate, B2 is not a selection study. It is a
+Bfr qualification study that uses Far as one of several cross-checks. The
+constraints below are why qualification (D9a) and activation (D9b) cannot be
+decided together.
+
+**Parity against Far is not a qualification criterion.** OpenSubdiv ships its own Bfr-versus-Far comparison
+harness at `regression/bfr_evaluate/` (`bfrSurfaceEvaluator` against
+`farPatchEvaluator`, covering catmark, loop, and bilinear, with position, first,
+and second derivatives). Its defaults are `relTolerance(0.00005f)` with
+`d1Tol = pTol * 5.0` and `d2Tol = d1Tol * 5.0`, relative to bounding-box
+extent: roughly `1.25e-3` relative slack on second derivatives, with exact
+agreement explicitly not expected. Bending energy is a second-derivative
+functional, so a parity test would either fail or be passed by widening a
+tolerance, which **S5** forbids.
+
+**Pointwise accuracy at an extraordinary vertex is not a well-posed comparison
+either.** The classical Loop limit surface is generally `C^1` but not `C^2` at an
+extraordinary vertex, so a unique pointwise second derivative is **not reliably
+defined or continuous** there. Whether curvature is bounded is valence- and
+eigenstructure-dependent, not universally divergent: with
+`rho := |mu| / lambda^2` from the subdivision matrix, principal curvatures tend
+to zero for `rho < 1`, diverge for `rho > 1`, and are bounded for `rho = 1` when
+`mu` is simple.
+
+An earlier draft of this plan claimed second derivatives are "generally
+unbounded" for every `N != 6`. That is too strong and is withdrawn; the correct
+statement is that no single pointwise reference value can be claimed, which is
+what justifies the inner-radius exclusion regardless of which regime a given
+valence falls into.
+
+The same analysis supplies the positive result this plan depends on: Loop's
+principal curvatures are **square integrable**, which is precisely the condition
+that makes a bending-energy integral well defined even where the pointwise
+curvature is not. See
+[Reif and Schroder, *Curvature Integrability of Subdivision Surfaces*](https://multires.caltech.edu/pubs/h2.pdf).
+That is why the integrated functional, not the pointwise row, is the quantity
+that can ultimately discriminate between candidates.
+
+Two consequences follow, and they are the reason a single D9 was over-scoped:
+
+1. the irregular comparison must be reported as a **trend over a sequence of
+   radii** approaching the extraordinary vertex, not as one pointwise error;
+   and
+2. the quantity SLIMED actually consumes is not a row but the **integrated**
+   bending energy and per-source forces, which folds in the quadrature rule
+   that WP5.1/WP5.2 have not yet selected. Selecting an API on integrated
+   evidence before the rule exists would be circular.
+
+**What B2 can therefore settle** — all of it well-posed and none of it
+dependent on the unselected quadrature rule:
+
+- **Bfr disqualification.** Failure of the regular `5.0e-6` gate, of the
+  `1.0e-12` row sum-rule invariants, of unambiguous original-source
+  reconstruction, of internal refinement convergence, or of the preparation
+  cost, memory, and threading budgets. These are pass/fail and they decide D9a.
+- **Engineering equivalence on the well-posed region.** Position and first
+  derivatives, and second derivatives outside a declared radius of any
+  extraordinary vertex, against an independent exact oracle.
+- **Internal refinement convergence.** For each candidate independently, do its
+  own rows converge as its own approximation setting is raised? This needs no
+  external oracle, is fully well-posed, and disqualifies a candidate whose rows
+  never stabilise.
+- **The near-vertex disagreement magnitude, as a measured fact** rather than an
+  error: "Far and Bfr differ by X on `duu` within radius r of a valence-N
+  vertex at matched preparation cost." This number is an input to WP5.1.
+- **Cost, memory, threading, and flip-pair row locality.** Pure engineering.
+
+**What B2 cannot settle**, and must explicitly decline to claim: whether Bfr or
+Far is "more accurate" at an extraordinary vertex, and anything requiring the
+integrated functional. Production acceptance is D9b, after WP5.2.
+
+### 3.2 The independent oracle
+
+Uniform subdivision alone is an inadequate oracle here. Limit masks give exact
+positions and tangents at *vertices*, but SLIMED samples face interiors, and
+refining until a vertex lands on a sample point only works for dyadic-rational
+parametric coordinates.
+
+B2 therefore uses **Stam's eigenanalysis evaluation of Loop surfaces** as the
+primary oracle. It evaluates position, derivatives, and curvature at arbitrary
+parameter values for a patch with one isolated extraordinary vertex, by
+subdividing in closed form via eigenvalue powers until the sample lies inside a
+regular patch whose box-spline evaluation is exact. It is therefore exact for
+any parametric location other than the extraordinary vertex itself, which is
+precisely the well-posed domain identified above:
+
+- [Jos Stam, *Evaluation of Loop Subdivision Surfaces*](https://www.cs.cmu.edu/afs/cs/academic/class/15456-f15/RelatedWork/Loop-by-Stam.pdf)
+- [Persson et al., *On the Use of Loop Subdivision Surfaces for Surrogate Geometry*](https://persson.berkeley.edu/pub/persson06subdiv.pdf)
+
+The oracle is **not** an implementation detail left to B2. Every item below is
+frozen by **B2p** before B2 runs, because an oracle specified after results are
+visible is not an oracle (**S5**, **S6**).
+
+**Independence.** The oracle translation unit must not link or include
+OpenSubdiv. It may not call `Far`, `Bfr`, `Osd`, `Sdc`, or `Vtr`, and may not
+reuse SLIMED's existing providers. A compile-time or link-time check must prove
+this, because an oracle that shares code with a candidate cannot falsify it.
+
+**Precision and convergence.** Declare the working precision (`double`
+minimum; state whether extended precision is used for the eigen-decomposition).
+Declare the depth or eigenvalue-power convergence criterion and demonstrate it:
+successive refinements must change the reported value by less than a stated
+fraction of the target tolerance, so the oracle's own error is provably smaller
+than the differences it is used to measure.
+
+**Parametric remapping and derivative rescaling.** This is the most likely
+silent error in the whole package. The three parameterizations are not
+interchangeable: Far addresses samples by Ptex face plus `(s,t)`; Bfr uses
+`Bfr::Parameterization` with `(u,v)` for a triangle; Stam's evaluation uses a
+per-patch local frame whose sub-patch depth changes with proximity to the
+extraordinary vertex. B2p must state, and B2 must verify on a regular face where
+the answer is known exactly:
+
+- the corner correspondence and orientation of each parameterization;
+- the affine map between them;
+- the **Jacobian rescaling applied to each derivative order** — first
+  derivatives scale by the map's Jacobian, second derivatives by its square,
+  plus the depth-dependent factor Stam's closed-form subdivision introduces.
+
+Comparing `duu` across two parameterizations without this rescaling produces a
+number that looks like an accuracy result and is not one.
+
+**Norms.** Declare per derivative order whether the reported quantity is
+absolute or geometry-normalized, and if normalized, by exactly what length
+scale. A single relative tolerance across position, first, and second
+derivatives is not defensible when the quantities have different physical
+dimensions.
+
+**Extraordinary-vertex policy.** Declare the inner radius below which no
+comparison is claimed, and the radius sequence used for the trend. Second
+derivatives are generally unbounded at the extraordinary vertex for valence
+`N != 6`, so no pointwise value is claimed there.
+
+**Coverage limits, reported not assumed.** The oracle requires an **isolated**
+extraordinary vertex per patch, so fixtures with adjacent extraordinary corners
+are covered only after enough refinement to isolate them; report which fixtures
+reach isolation. Eigenbasis handling must be verified per valence rather than
+assumed, since a defective or near-defective eigenstructure needs explicit
+treatment; an unverified valence is reported as uncovered, not as passing.
+
+**Validation.** Uniform-subdivision limit masks remain an independent
+cross-check at vertices, so the oracle is validated rather than trusted. If the
+oracle fails that cross-check on a fixture, the fixture is oracle-uncovered. An
+uncovered fixture is not evidence for either candidate.
+
+## 4. Bfr implementation facts to be pinned
+
+Recorded so that reviewers can check the implementation against the library
+rather than against an agent's summary. Every item must be re-verified against
+the installed headers in B1 and pinned in B3.
+
+1. `Bfr` was introduced in OpenSubdiv 3.5, so `>= 3.5` is the availability
+   floor — but availability is not qualification. D1 approves stock **3.7.0**
+   Loop semantics, and the ADR records that arbitrary ambient versions are not
+   qualified. The check is therefore an **exact pin**,
+   `OPENSUBDIV_VERSION_NUMBER == 30700`, matching the existing Valence-3
+   provider, not a `>= 30500` floor. Valence 4 and 5 pin nothing today, which is
+   a gap the generic backend must not inherit. Widening the pin later requires
+   re-running the qualification evidence, not editing a comparison operator.
+2. `bfr/surface.cpp` explicitly instantiates `template class Surface<double>;`,
+   so double precision is available without a private build.
+3. `Bfr::Surface<REAL>` provides three `EvaluateStencil` overloads: position;
+   position plus `sDu`, `sDv`; and position plus `sDu`, `sDv`, `sDuu`, `sDuv`,
+   `sDvv`. Weights are a linear combination of the **control** points and are
+   sized by `GetNumControlPoints()`, not `GetNumPatchPoints()`.
+4. `GetControlPointIndices()` returns original mesh vertex indices. This
+   satisfies **A3**/**A4** directly and removes the `PatchMap` Ptex-identity
+   check, `aggregate_row()`, and `exact_source_mapping()` machinery that each
+   existing provider carries.
+5. Exactly one mixed-derivative stencil is returned, matching **A5**.
+6. `Bfr::SurfaceFactory::Options` defaults to `_approxLevelSmooth(2)` and
+   `_approxLevelSharp(6)`. The existing providers use
+   `Far::PatchTableFactory::Options patchOptions(5)`. The Bfr default is
+   therefore *coarser* than current behaviour and must be set explicitly.
+7. `SetApproxLevelSmooth(int)` assigns into an `unsigned char` with no
+   clamping. SLIMED must validate the range and reject before use (**C1**);
+   recording an unvalidated value in the topology key protects nothing.
+8. Far's isolation level and Bfr's `approxLevelSmooth` are **not** the same
+   quantity. Setting both to 5 is a confound, not a control. B2 sweeps both.
+9. `Bfr::RefinerSurfaceFactory<CACHE_TYPE>` adapts a `Far::TopologyRefiner`
+   with no custom adapter. Thread safety comes from
+   `SurfaceFactoryCacheThreaded<MUTEX_TYPE, READ_LOCK, WRITE_LOCK>`. With
+   caching disabled the factory is thread-safe but, per the documentation, far
+   less efficient on irregular surfaces, which is SLIMED's entire case.
+10. `SurfaceFactoryMeshAdapter` requires a *connected* mesh representation that
+    can efficiently identify the incident faces of any vertex, ordered
+    counter-clockwise for manifold vertices. SLIMED's per-vertex face order is
+    currently derived from `nFaceX`/`nFaceY` grid arithmetic, so a custom
+    adapter is **not** available until real connectivity ownership exists.
+11. `FaceHasLimitSurface()` and `isFaceHole()` exist; initialization failure is
+    expected for holes and some boundary interpolation options. That is a
+    rejection path, not a fallback (**C2**).
+
+### 4.1 Two-phase benefit attribution
+
+The remeshing cost benefit and the API simplification benefit arrive in
+different phases and must not be claimed together.
+
+- **Phase 1 (B1-B4, `RefinerSurfaceFactory`)**: the mesh *is* a
+  `Far::TopologyRefiner`, so a topology change still rebuilds the refiner.
+  Claimable: API simplification, direct source IDs, one mixed row, whatever
+  accuracy and cost result B2 measures. **Not** claimable: localized
+  invalidation or a remeshing cost win.
+- **Phase 2 (deferred, custom adapter)**: localized per-face invalidation
+  becomes possible. Blocked on connectivity ownership, which is the same
+  prerequisite as edge flipping itself, which is L7 in section 6. The adapter
+  itself is L8 and is optional.
+
+B2 quantifies the Phase-2 ceiling without implementing it, per B2 step 6.
+
+## 5. Work packages
+
+Lifecycle, review tiers, and command profiles are the unified plan's. Every
+package is default-off, adds no production caller unless stated, and obeys
+**C3**, **C5**, and **C7**.
+
+### B0a - baseline inventory logic repair
+
+Objective: make the V0 command profile pass at the authoritative base so that
+every later package can produce clean evidence.
+
+Tier: T1. Dependencies: none. Replaces nothing.
+
+Allowed files, and nothing else:
+
+- `scripts/inventory_unified_loop_baseline.py`
+- `tests/test_unified_loop_baseline_inventory.py`
+- `docs/adr_unified_loop_backend.md` and
+  `docs/unified_irregular_loop_implementation_plan.md`, only where the two
+  documents and the inventory disagree
+- this plan
+
+Forbidden: `src/**`, `include/**`, `Makefile`, `.github/**`, CUDA paths,
+fixtures, tolerances, route flags, PR 176/182 source.
+
+Steps:
+
+1. Measure branch linearity from the **mainline fork point**
+   (`git merge-base --fork-point` or an equivalent first-parent walk) rather
+   than from a fixed `BASE_SHA..HEAD` range, so a completed package's own merge
+   commit cannot violate the invariant.
+2. Accept `TBD` as an explicit pending value for
+   `generic_vs_cached_regular_median` and fail closed if any number, including
+   the superseded `1.10`, is substituted without the named D8 measurement.
+3. Add a mutation test proving that a future merge commit on main does not
+   reintroduce the failure.
+
+Evidence: `python3 scripts/inventory_unified_loop_baseline.py --check --json`
+returns `"status": "ok"` at the exact PR head and at a synthetic
+merge-commit-bearing descendant; focused mutation tests pass; `git diff --check`
+clean; no forbidden-path diff.
+
+Stop conditions: the guard can only be satisfied by deleting the linearity
+invariant; or repairing it requires changing a frozen tolerance or fixture.
+
+**PR 186 overlap.** PR 186 already implements step 1, and the uncommitted
+working tree already implements step 2. Both touch the same two files. The
+coordinator must present this choice to the user before writing code and may
+not decide it:
+
+- **(a)** merge PR 186 first on explicit instruction, then land steps 2-3 on
+  top as B0a; or
+- **(b)** supersede PR 186 with one combined B0a PR, then close PR 186 on
+  explicit instruction.
+
+Option (b) is recommended: one exact-head review of one coherent change. Either
+way, PR 186 is not merged, closed, or retargeted without explicit user
+instruction.
+
+### B0b - inventory CI enforcement
+
+Objective: make the repaired inventory a gate rather than a script nobody runs.
+
+Tier: T1. Dependencies: **B0a merged and green.** Ordering is not cosmetic: a
+workflow that enforces a still-broken invariant turns `main` red for every
+contributor.
+
+Rationale for the split: B0a changes Python invariant logic; B0b changes
+repository automation, with its own review surface (trigger conditions, runner
+image, Python version, workflow permissions, required-check configuration).
+Bundling them would give one PR two primary claims, which **P1** forbids, and
+would make a red CI indistinguishable from a wrong fix.
+
+Allowed files, and nothing else:
+
+- one workflow under `.github/workflows/`, either a new file or a minimal
+  addition to the existing `ci.yml`
+- this plan
+
+Forbidden: `src/**`, `include/**`, `Makefile`, `scripts/**`, `tests/**`,
+CUDA paths, fixtures, tolerances, route flags, and any change to
+`cpp_maketest.yml` or `valence3_opensubdiv_proof.yml`.
+
+Steps:
+
+1. Run `python3 scripts/inventory_unified_loop_baseline.py --check --json` and
+   the focused inventory test module on pull requests and on pushes to `main`.
+2. Pin the runner image and Python version explicitly; the inventory must not
+   silently change behaviour with an ambient interpreter upgrade.
+3. Grant the job read-only repository permissions. It is a checker, not a
+   writer.
+4. Require no OpenSubdiv and no C++ build, so the job stays inside **C3**
+   dependency isolation and cannot be blocked by an unrelated build failure.
+
+Evidence: the workflow passes at the exact PR head; a deliberately mutated
+policy anchor pushed to a scratch branch makes the job fail; the job does not
+install OpenSubdiv; existing workflows are unchanged.
+
+Stop conditions: enforcing the inventory requires relaxing an invariant to keep
+CI green; or the job cannot run without a compiler or OpenSubdiv.
+
+### B0c - record the D1 and D2 approvals
+
+Objective: move D1 and D2 from proposed to approved in the decision record, with
+the inventory's expected status strings updated in the same commit.
+
+Tier: T1. Dependencies: B0a merged. May be scheduled before or after B0b; the
+coordinator serializes shared-worktree writes either way (**P2**).
+
+Why it is its own package: `scripts/inventory_unified_loop_baseline.py` asserts
+the exact D0-D8 status phrases, so an ADR status change and an inventory
+expectation change must land together or the inventory fails closed. Bundling
+that with B0a's linearity repair would give one PR two primary claims (**P1**).
+
+User decision of 2026-08-06, to be recorded verbatim in scope and limits:
+
+- **D1 approved.** Stock OpenSubdiv 3.7.0 Loop semantics are the
+  forward-looking CPU **proof** baseline. Completed rows are not modified to
+  reproduce legacy masks. This does **not** select Far versus Bfr, does **not**
+  change the production default, and does **not** approve arbitrary production
+  inputs.
+- **D2 approved.** The initial generic proof scope is complete, closed,
+  consistently oriented, two-manifold triangular meshes. Boundaries, holes,
+  ghosts, non-triangles, non-manifold incidence, and inconsistent orientation
+  must fail before mutation. This does **not** decide D2b and does **not**
+  authorize production activation.
+
+Allowed files, and nothing else:
+
+- `docs/adr_unified_loop_backend.md`, D1 and D2 ledger rows and the execution-gate
+  list only
+- `scripts/inventory_unified_loop_baseline.py`, expected status strings only
+- `tests/test_unified_loop_baseline_inventory.py`
+- this plan
+
+Forbidden: `src/**`, `include/**`, `Makefile`, `.github/**`, any other decision
+row, any tolerance, any fixture, route flags, CUDA.
+
+Steps:
+
+1. Update the D1 and D2 rows to an approved status that records the scope limits
+   above verbatim, including the explicit non-approvals.
+2. Update the inventory's expected status strings and add a mutation test proving
+   that a status change unaccompanied by the recorded limits fails closed.
+3. Leave D0, D2b, D3, D4, D5, D8 statuses untouched, and add a test asserting
+   they are unchanged, so this package cannot silently advance another decision.
+
+Evidence: inventory `--check --json` returns `"status": "ok"`; the mutation test
+rejects a D1 or D2 status change that drops a scope limit; the diff touches no
+other decision row.
+
+Stop conditions: recording D1 or D2 requires changing a tolerance, fixture, or
+another decision's status; or the approved scope cannot be stated without
+implying D2b, D9a, or a production default.
+
+### B1 - topology key and row contract amendment
+
+Objective: make the backend-neutral contract able to express which API produced
+a row set and at what approximation setting, before either API is implemented.
+
+Tier: T1. Dependencies: **B0a, B0b, and B0c all merged**; D1 and D2 approved,
+exactly as the unified plan's WP3.1 already requires. B0b and B0c may land in
+either order after B0a; B1 waits for all three.
+
+Relationship: this **replaces the unified plan's WP3.1 required-contract list**
+with that list plus the additions below. Every WP3.1 test requirement and stop
+condition stays in force.
+
+Additions to the **production** `LoopTopologyKey`:
+
+- `evaluatorApi`: retained for diagnostics and cache identity, but **production
+  construction must reject any value other than `bfr-surface`**, before any
+  mutation (**C1**). A prepared package is never served to a request carrying a
+  different value.
+- `bfrApproxLevelSmooth` and `bfrApproxLevelSharp`: validated integers,
+  range-checked before use because the library setter assigns into an
+  `unsigned char` without clamping.
+- `bfrCacheMode`: which `SurfaceFactoryCache` configuration produced the rows,
+  since threaded and serial caching are qualified separately.
+- `opensubdivVersion`: already required by **A6**. B1 treats this as **plain
+  data**: an integer field carried in the key, with an unpopulated or zero
+  value rejected before use (**C1**).
+
+**No Far settings enter the production key.** `farIsolationLevel` and every other
+Far configuration live only in B2's proof-only configuration under
+`experiments/`. An earlier draft placed `far-limit-stencils` and
+`farIsolationLevel` in the production key, which preserved a latent Far
+production route reachable by configuration rather than by decision. That is
+withdrawn. Correspondingly:
+
+- **no production code may construct `Far::PatchTable`, `Far::PatchMap`, or
+  `Far::LimitStencilTableFactory`**, and a test must prove it;
+- `Far::TopologyRefiner` **is** permitted in production as the base-mesh adapter
+  for `Bfr::RefinerSurfaceFactory`. That is the officially provided bridge and
+  Bfr still owns surface construction and evaluation, so it does not make this a
+  Far evaluator lane;
+- adopting Far later requires a new explicit architecture decision and its own
+  package, never a configuration change.
+
+**B1 contains no OpenSubdiv include, type, or `static_assert`.** An earlier
+draft of this plan asked B1 for a compile-time version-floor assertion, which
+directly contradicts **A3** and WP3.1's own test that public headers contain no
+OpenSubdiv include: a `static_assert` on `OPENSUBDIV_VERSION_NUMBER` requires
+including `opensubdiv/version.h`. The version floor is a **backend**
+responsibility and is owned in two places, both of which already link
+OpenSubdiv:
+
+- B2 carries a proof-local floor check inside its `experiments/` code;
+- B3 carries the production floor assertion inside the backend translation
+  unit, as B3 step 5 already states.
+
+B1's only obligation is that the contract can *represent and validate* a
+version, not that it can check one.
+
+Tests: a prepared package with a different `evaluatorApi` or approximation
+level must miss the cache; an out-of-range approximation level must be rejected
+before any mutation (**C1**); an unpopulated version field must be rejected;
+public headers still contain no OpenSubdiv type or include, proven by the
+existing WP3.1 compile-time test.
+
+### B2p - B2 preflight: freeze targets, fixtures, and oracle contract
+
+Objective: create every input B2 must not be free to choose after seeing
+results. B2p produces no comparison result and reaches no conclusion.
+
+Tier: **T2**. Freezing a scientific target and hashing new fixtures is a
+baseline-affecting act even though no measurement is taken.
+
+Dependencies: **B0a, B0b, B0c, and B1 all merged**; D1 and D2 approved. B1 comes
+first because B2p's fixture and target work is written against B1's contract.
+
+Rationale for existing at all: B2's allowlist deliberately excludes this plan
+and the ADR, so B2 cannot record its own frozen targets or fixture hashes
+without editing files it does not own. An earlier draft required B2 to do
+exactly that, which was unexecutable. Splitting the freeze into its own
+package also makes **S5** compliance provable from commit order rather than
+from an author's assurance.
+
+Allowed files, and nothing else:
+
+- this plan, sections 3.2 and 7 and the tolerance additions
+- `docs/adr_unified_loop_backend.md`, tolerance ledger and fixture-hash table
+- `data/fixtures/candidates/**`, new fixtures only
+- `scripts/`, one fixture generator and the inventory expectation update
+- `tests/`, focused fixture and inventory tests
+
+Forbidden: `src/**`, `include/**`, `experiments/**`, any existing tolerance
+value, any existing fixture byte, CUDA, route flags, PR 176/182 source.
+
+Steps:
+
+1. Declare the D10 irregular target names, values, rationale, and owning gate.
+   Add them to this plan and to the ADR tolerance ledger in the same commit.
+2. Write the complete section 3.2 oracle contract as a specification: the
+   independence check, precision, convergence criterion, parametric remapping
+   and per-order Jacobian rescaling, norms, inner radius, radius sequence, and
+   coverage-reporting rules.
+3. Generate the section 7 fixtures — the single-flip pair family, the valence
+   7/8/9 mesh, and the adjacent-extraordinary mesh — each with a
+   `candidate_metadata.json` recording generator, parameters, and closure and
+   orientation validation.
+4. Add SHA-256 hashes for every new fixture file to the ADR fixture table and
+   extend the inventory to check them, so a later silent fixture edit fails
+   closed.
+5. Define **stable face correspondence** between the members of each flip pair:
+   which faces are the same face, which are the two rewritten faces, and the
+   identity rule used. Without this, the B2 locality metric is not computable.
+6. Define the numeric row-comparison tolerance used to decide whether a face's
+   rows "changed" between pair members, separately from the accuracy targets.
+
+Evidence: the inventory passes and rejects a mutated or missing new fixture
+hash; each fixture's closure, orientation, and manifoldness are validated by
+test; no measurement or comparison result appears anywhere in the diff.
+
+Gate: technical PASS; scientific PASS confirming the targets are defensible
+*a priori* and the oracle contract is complete enough to be implemented by
+someone who did not write it; explicit user D10 approval.
+
+Stop conditions: a target can only be stated by reference to a measurement that
+does not exist yet; the oracle contract cannot specify the derivative rescaling;
+or a fixture's orientation or closure is ambiguous.
+
+Suggested branch: `codex/bfr-far-preflight-targets`.
+
+### B2 - Bfr qualification proof, with Far as regression comparator
+
+Objective: produce the evidence for **D9a**, the Bfr qualification gate. B2
+decides whether Bfr is adequate, not whether Bfr beats Far and not whether Bfr is
+activated in production. Far runs only as a regression comparator. Proof only:
+no production caller, no default change, no route.
+
+Tier: **T2** (separate implementer, verification agent, technical reviewer,
+scientific reviewer, gatekeeper). Qualifying an irregular surface representation
+is baseline-affecting and cannot be reviewed as mechanical work.
+
+Dependencies: B0a, B0b, B0c, B1, **and B2p all merged**, plus explicit user D10
+approval of B2p's frozen targets. B2 cannot start on unfrozen inputs; that is the
+whole point of B2p existing. Volume semantics are excluded, so D3/D4 are not
+required.
+
+Allowed files, and nothing else:
+
+- new proof code under `experiments/`
+- one new runner under `scripts/`
+- focused tests
+- `docs/bfr_qualification_evidence.md`
+
+Forbidden: production geometry, energy, or force code; existing expected values;
+route flags; CUDA; changes to any existing frozen tolerance; **and any write to
+`data/fixtures/**`, to B2p's D10 targets, to the oracle contract, to fixture
+metadata, or to fixture hashes.** B2 has read-only access to every B2p output.
+Creating a new fixture inside B2 would defeat the freeze that makes **S5**
+compliance provable from commit order.
+
+Steps:
+
+1. Build Bfr and the Far comparator from the **same** full base-mesh
+   `Far::TopologyRefiner`, so topology construction is not a confound. Use
+   `Bfr::RefinerSurfaceFactory`; do not write a custom mesh adapter.
+2. Consume the D10 targets, oracle contract, fixtures, face correspondence, and
+   row-comparison tolerance **as frozen by B2p**. B2 may not restate, reinterpret,
+   or adjust any of them; this plan and the ADR are outside B2's allowlist
+   precisely so that it cannot. If a frozen input turns out to be wrong, stop and
+   return it to B2p for a reviewed amendment rather than working around it.
+3. Regular gate: for canonical `6/6/6` faces, evaluate each candidate against
+   `SlimedLoopLimitSurfaceEvaluator` within the existing frozen
+   `regular_row_and_route_parity = 5.0e-6` on position, first, pure second, and
+   mixed second rows, and on the area and legacy-volume integrands. The analytic
+   regular evaluator is the exact box-spline, so it is a genuine oracle for this
+   case and the tolerance is not negotiable. The two failures are **not
+   symmetric**:
+   - **Bfr fails** -> blocking for the lane.
+   - **Far fails** -> Far is disqualified as a regression comparator, and the
+     failure is itself a severity-1 finding about the existing prototypes that
+     must be reported and escalated. It does **not** veto a Bfr result that
+     passes on its own, because Bfr's qualification is measured against the
+     analytic evaluator and the Stam oracle, not against Far.
+   An earlier draft made failure of *either* candidate blocking, which would have
+   let a defect in the legacy implementation block migration away from it.
+4. Irregular oracle: implement the section 3.2 Stam eigenanalysis oracle,
+   validated at vertices against uniform-subdivision limit masks. Report each
+   candidate's error against that oracle **as a trend over a declared sequence
+   of radii approaching the extraordinary vertex**, never as a single pointwise
+   value at the vertex. Declare the inner radius below which no comparison is
+   claimed, and state per fixture whether the oracle achieved isolation and
+   which valences have a verified eigenbasis. Do not compare the candidates to
+   each other as if one were truth.
+4a. Internal refinement convergence: for each candidate independently, raise
+   only its own approximation setting and show that its rows converge. This
+   needs no external oracle. A candidate whose rows do not stabilise is
+   disqualified regardless of how it compares to the other.
+5. Approximation sweep: sweep Far isolation level and Bfr
+   `approxLevelSmooth` independently and publish error-versus-cost curves.
+   State explicitly that the two knobs are not commensurable, so "both set to
+   5" is a confound rather than a control.
+6. Cost and locality: measure preparation wall time, row memory, and
+   concurrent-preparation behaviour for both. For each flip-pair fixture, using
+   B2p's stable face correspondence and row-comparison tolerance, report **two
+   distinct quantities**:
+   - `changed_faces`: faces whose rows differ between the pair members. This is
+     the set that must be **recomputed** after a flip.
+   - `reusable_faces = comparable_faces - changed_faces`: the maximum set a
+     Phase-2 custom adapter could **reuse**.
+   The saving is `reusable_faces`, not `changed_faces`. An earlier draft of this
+   plan inverted this. Report both as a projection for Phase 2, never as a
+   delivered benefit, and state `comparable_faces` explicitly so the ratio is
+   reconstructible.
+7. Threading: run Bfr with caching disabled and with
+   `SurfaceFactoryCacheThreaded`. Threaded caching may be claimed as supported
+   **only** with a ThreadSanitizer-instrumented OpenSubdiv build; a TSan run
+   against an uninstrumented library covers SLIMED's translation units only and
+   must not be reported as library coverage. If a race is detected in the
+   library cache, threaded caching is recorded as **unsupported and blocking**
+   for that configuration, and serial preparation becomes the only qualified
+   mode. A detected race is not downgraded to a performance trade-off. If no
+   instrumented build is available, report threaded caching as **unqualified**,
+   not as passing.
+8. Emit complete JSON with independent schema validation and mutation tests for
+   missing rows, nonfinite coefficients, dropped derivative order, swapped
+   candidate labels, and accidental success.
+
+Fixtures: every row of the unified plan's section 8 matrix, **plus** the new
+rows in section 7 below. The flip-pair family is mandatory, not optional.
+
+Gate:
+
+- D10 targets were frozen before results, evidenced by commit order;
+- the report states Bfr PASS or FAIL against every D9a criterion, naming the
+  specific failing criterion on FAIL, publishes Far's comparator results
+  alongside, and explicitly declines to rank Bfr against Far on near-vertex
+  accuracy;
+- scientific reviewer confirms oracle independence, oracle validation against
+  the vertex cross-check, and that no candidate was advantaged by an unmatched
+  approximation setting;
+- technical reviewer reproduces every fixture from a clean state.
+
+Stop conditions:
+
+- a D10 target is widened, reordered, or selectively omitted after results;
+- the report claims a remeshing benefit for Phase 1;
+- the report claims a near-vertex accuracy ranking, or claims D9b;
+- an oracle-uncovered fixture is counted as evidence for a candidate.
+
+### B2 outcomes
+
+Exactly one of these is the deliverable. Both are valid results under **P9**.
+
+1. **Bfr qualified.** Bfr passes the regular `5.0e-6` gate, the `1.0e-12` row
+   invariants, source-ID reconstruction, internal refinement convergence, the
+   frozen D10 irregular targets, and the cost, memory, and threading budgets.
+   D9a passes and B3 implements Bfr. Far remains a regression comparator.
+   Production activation stays deferred to D9b after WP5.2.
+2. **Bfr not qualified.** The specific failing criterion is named and published.
+   This **blocks the lane**. It does **not** promote Far. Escalate to a new
+   explicit architecture decision whose options include the unified plan's WP5.1
+   patch-domain candidate, a different representation, or a separately gated
+   package to harden Far. No agent may select any of those by inference, and no
+   configuration change may route production to Far.
+
+Far's own measured results are published either way, as comparator evidence. If
+Far fails the regular gate that is a severity-1 finding about the existing
+prototypes and is escalated on its own, but it neither qualifies nor
+disqualifies Bfr.
+
+In both outcomes, the measured near-vertex Far-Bfr disagreement magnitude is a
+required deliverable in its own right, reported strictly as **observed
+inter-method spread**.
+
+It is **not** a floor on achievable irregular row accuracy, and must never be
+described as one. Far and Bfr share an approximation *strategy* — local
+subdivision plus a Gregory-style end cap — so their errors are expected to be
+correlated. Correlated errors make the spread small while both methods are
+inaccurate, so agreement is weak evidence of accuracy and the spread bounds
+neither method's error. Any WP5.1 accuracy limit must be derived from converged
+independent-oracle error, or left unresolved. An earlier draft of this plan
+asserted the invalid floor interpretation; it is withdrawn.
+
+Suggested branch: `codex/bfr-qualification-proof`.
+
+### B3 - Bfr full-mesh provider
+
+Objective: implement the generic interface for proof-only full-mesh topology
+using `bfr-surface`. There is no API branch: Bfr is the only production
+evaluator this plan authorizes.
+
+Tier: **T2.** B3 creates the row source for the generic irregular backend, which
+is baseline-affecting under the unified plan's tier rules. T1 is available only
+if a separately reviewed classification establishes that the diff is purely
+mechanical relative to an already-merged provider.
+
+Dependencies: B1 and B2 merged; explicit user D9a pass and D10 approval; D1 and
+D2 approved. The closed proof may proceed while D2b is pending, with the same
+scope restriction the unified plan's WP3.2 states.
+
+B3 must not describe Bfr as scientifically preferred over Far. D9a establishes
+that Bfr is *adequate*; the production-target decision was a scope choice, and
+production *activation* remains D9b after WP5.2. B3's PR body states both.
+
+Relationship: this **replaces the unified plan's WP3.2 steps 1-3** with the
+sequence below. WP3.2 steps 4-9, its evidence list, and all of its stop
+conditions remain in force verbatim, including the `5.0e-6` regular equivalence
+stop condition and the D2b requirement.
+
+Steps:
+
+1. One `Far::TopologyRefiner` from complete oriented triangle connectivity with
+   explicitly reviewed Loop and boundary options, then one
+   `Bfr::RefinerSurfaceFactory` over it.
+2. Per physical face, `InitVertexSurface()`, then `GetControlPointIndices()`
+   for the per-face union source list, then `EvaluateStencil()` at each
+   approved sample for all six rows.
+3. Reject rather than fall back when `FaceHasLimitSurface()` is false or
+   initialization fails (**C2**).
+4. Pin and emit the OpenSubdiv version, `approxLevelSmooth`,
+   `approxLevelSharp`, cache mode, and every scheme option into the topology
+   key and diagnostics.
+5. Add the exact-version compile-time pin
+   `OPENSUBDIV_VERSION_NUMBER == 30700` inside the backend translation unit.
+   This is the only place in the B lane that includes an OpenSubdiv header for
+   version purposes; B1 carries the version as data only.
+
+Production seam tests, all mandatory:
+
+- no production translation unit constructs `Far::PatchTable`, `Far::PatchMap`,
+  or `Far::LimitStencilTableFactory`;
+- production key construction rejects any `evaluatorApi` other than
+  `bfr-surface` before mutation;
+- an out-of-range `bfrApproxLevelSmooth` or `bfrApproxLevelSharp` is rejected
+  before mutation.
+
+Build gate: one new flag `USE_OPENSUBDIV_LOOP`. B3 adds **no** new runtime
+selector; production selection remains the unified plan's single
+`SLIMED_SUBDIVISION_BACKEND` in WP6.2. The repository must not grow a fourth
+per-valence route (**A1**, **A9**).
+
+### B4 - topology epoch cache and invalidation
+
+Objective: unchanged from the unified plan's WP3.3.
+
+Relationship: WP3.3 applies verbatim with three additions.
+
+1. The cache key is B1's extended `LoopTopologyKey`. A changed `evaluatorApi`
+   or approximation level must miss.
+2. Where Bfr runs with `SurfaceFactoryCacheThreaded`, WP3.3
+   step 5's race-focused harness covers the library cache as well as SLIMED's,
+   and the serial-preparation fallback is exercised.
+3. WP3.3 step 7 additionally reports the flip-pair re-preparation cost measured
+   in B2 step 6, so the D8 discussion has a number for topology-change cost
+   rather than only coordinate-only cost.
+
+Note: the unified plan's D8 bounds coordinate-only evaluation and reports
+preparation separately, with exactly one preparation per epoch. That is correct
+for static topology. Under remeshing an epoch occurs per remesh step, and no
+approved ceiling exists for re-preparation. B4 produces the measurement; the
+ceiling itself is a later explicit user decision.
+
+### B5 and later
+
+The unified plan's WP4.1, WP4.2, WP5.1, WP5.2, WP6.1, WP6.2, WP6.3, WP7, WP8,
+and WP9 apply unchanged, with two substitutions:
+
+- read "WP3.1" as "WP3.1 as amended by B1";
+- read "WP3.2/WP3.3" as "B3/B4".
+
+WP4.1 and WP4.2 are deliberately backend-agnostic and require no Bfr-specific
+change: they consume source-keyed rows, not OpenSubdiv objects.
+
+Two unified-plan additions are required and are recorded here rather than
+duplicated:
+
+- **WP5.1 step 2** must include the section 7 fixtures below. The reassessment
+  required testing "valences beyond 3/4/5 and randomized legal edge-flip
+  topologies"; that requirement was lost when the reassessment was compressed
+  into WP5.1 and is restored here.
+- **WP5.1** must separate the two contributions to any post-flip energy change:
+  the limit surface changed, and, for a graded quadrature candidate, the sample
+  plan changed with valence. Conflating them makes the WP9 energy-discontinuity
+  policy unverifiable.
+
+## 6. Legacy disposition
+
+The existing implementation is not one thing. Each stratum has a different
+evidential value and therefore a different disposition. The governing principle
+is that **no package in this plan modifies strata L1-L3 except to freeze or
+label them.** The new route is built alongside; retirement is a separate PR
+sequence after acceptance (**C7**, unified plan WP7).
+
+### L1 - pre-OpenSubdiv legacy subdivision matrix
+
+Artifacts: [`Mesh_setup_geometry.cpp:279`](../src/mesh/Mesh_setup_geometry.cpp:279)
+`set_one_ring_vertices_sorted()`, and `get_subdivision_matrices()` in
+[`Gauss_quadrature.cpp`](../src/mesh/Gauss_quadrature.cpp).
+
+Facts: the predicate admits only all-`6/6/6` and all-`5/5/5` corner valences
+and leaves `oneRingVertices` empty otherwise; the matrix it feeds describes one
+valence-5 and two valence-6 corners; `d4`, `d7`, and `d8` are declared before
+the branch that assigns them and remain uninitialized when no corner has
+exactly five adjacent faces.
+
+Disposition: **repair unconditionally, never extend.** The unified plan's
+WP1.1a is the correct package and is unchanged by this plan; it may proceed in
+parallel with B0a-B2 because file ownership is disjoint. Quarantine waits for
+D5 (WP1.1b). This stratum is the oldest and least safe layer in the repository
+and is the one place where work should start before D9a is decided.
+
+### L2 - regular OpenSubdiv evaluator and row cache
+
+Artifacts: [`OpenSubdiv_regular_evaluator.cpp`](../src/mesh/OpenSubdiv_regular_evaluator.cpp)
+(1334 lines), [`Regular_limit_surface_row_cache.hpp`](../include/mesh/Regular_limit_surface_row_cache.hpp),
+flag `USE_OPENSUBDIV_REGULAR`, selector `SLIMED_USE_OPENSUBDIV_REGULAR`.
+
+Disposition: **keep, freeze, retire last.** This is load-bearing evidence, not
+legacy debt. It is the exact analytic box-spline for regular faces, so it is a
+genuine **oracle for that case**, and it anchors B2 step 3 and B3's `5.0e-6` stop
+condition, and the performance baseline for D8's cached-route comparison. It
+must not be modified, refactored, or renamed by any package here. Retiring it
+before the generic route is accepted would destroy the only independent
+regular-face check the programme has.
+
+### L3 - exact per-valence production routes
+
+Artifacts: [`Valence4_face_loop_route_preflight.cpp`](../src/energy_force/Valence4_face_loop_route_preflight.cpp)
+(1880 lines), [`Valence5_opensubdiv_face_loop.cpp`](../src/energy_force/Valence5_opensubdiv_face_loop.cpp)
+(725), [`Valence4_topology_source_mapping.cpp`](../src/mesh/Valence4_topology_source_mapping.cpp),
+`OpenSubdiv_valence{3,4,5}_row_provider.cpp` (382/375/405), flags
+`USE_OPENSUBDIV_VALENCE3` and `USE_OPENSUBDIV_VALENCE5`, selectors
+`SLIMED_USE_OPENSUBDIV_VALENCE4`, `SLIMED_USE_OPENSUBDIV_VALENCE5`, and
+`SLIMED_USE_OPENSUBDIV_VALENCE5_PHASE2`.
+
+Disposition: **freeze as fixture-bound regression comparators; do not port to the
+Bfr; retire through WP7 only after the generic route is accepted.**
+D11 records this. Concretely:
+
+- no package here adds a valence, generalizes a guard, or ports one of these
+  providers to Bfr;
+- the octahedron and icosahedron routes remain regression cross-checks for those
+  fixtures in B2 and B3. They are comparators, not oracles: they share
+  OpenSubdiv machinery and approximation strategy with the candidates, so
+  agreement with them is not evidence of accuracy. Only the Stam evaluator
+  (irregular) and the analytic box-spline route (regular) are oracles;
+- the accepted narrow Valence-5 scientific result stays scoped to its fixture
+  and never becomes evidence for the generic backend;
+- deletion is mechanical, staged, and separate from activation, per WP7.
+
+### L4 - unmerged Valence-3 stack
+
+Artifacts: PR 176 root `46c06080`, PR 182 leaf `9587e3dc`, PR 185 fixture
+archive `6fe58e86`.
+
+Disposition: **finish the extraction already in flight, then supersede.** PR
+185 implements the unified plan's WP0.2 option 1 by archiving the symmetric and
+asymmetric bipyramid fixtures plus an archival note. Recommended sequence,
+each step on explicit user instruction only:
+
+1. review and merge PR 185, which preserves the scientifically useful evidence;
+2. confirm the archived fixtures reproduce PR 182's recorded negative
+   convergence result from `main` alone;
+3. close PR 176 and PR 182 as superseded, recording their SHAs in the archival
+   note so the negative result stays citable.
+
+No agent closes, retargets, or merges either PR. PR 182 cannot reach `main`
+independently of PR 176. The Valence-3 provider is not the target architecture
+and its full-divergence volume must not be adopted implicitly by merging the
+stack; that is D3's decision.
+
+### L5 - assets to carry forward
+
+These are not legacy debt and must be reused rather than reimplemented:
+
+- [`Source_keyed_kernel_call.cpp`](../src/energy_force/Source_keyed_kernel_call.cpp):
+  variable-cardinality source IDs with range, uniqueness, cardinality, and
+  finiteness checks. Its seven-row compatibility sample stays the only place a
+  mixed row is duplicated (**A5**).
+- [`Adaptive_edge_flip_quality.hpp`](../include/mesh/Adaptive_edge_flip_quality.hpp):
+  a clean, side-effect-free hinge predicate. Reused unchanged by WP9; it is the
+  one piece of the flipping lane that already exists.
+- the fixture corpus and its SHA-256 ledger in the ADR;
+- the adversarial test patterns: fail-before-mutation, atomic rollback,
+  serial/OpenMP envelopes, and JSON mutation testing.
+
+### L6 - CUDA
+
+Artifacts: `src/cuda`, `include/cuda`, PR 175 `3328068b`.
+
+Disposition: **frozen** under D7 and **C5**. No package here touches CUDA.
+B2 and B3 may read CUDA's x-only volume anchors for compatibility
+characterization only. Whether CUDA can consume Bfr's rows is the
+unified plan's WP8 question and is not prejudged by D9.
+
+### L7 - required prerequisite: topology ownership and rebuild transaction
+
+**Mandatory, and it must precede WP9 rather than follow its gate.** An earlier
+draft of this plan merged this with the optional Bfr adapter below and sequenced
+both after WP9's feasibility gate. That was wrong in two ways: WP9's own gate
+already presumes transactional mutation, exact rollback, epoch increments, and
+label and state preservation, so it cannot be *satisfied* without this work; and
+making a mandatory prerequisite inseparable from an optional optimisation left
+the prerequisite unowned.
+
+Current state: SLIMED has no edge or halfedge ownership
+([`Mesh.hpp:135`](../include/mesh/Mesh.hpp:135) is commented out),
+`set_adjacent_faces_of_vertices_sorted()` derives per-vertex face order from
+`nFaceX`/`nFaceY` grid arithmetic rather than connectivity, and
+`set_one_ring_vertices_sorted()` recognises only all-`6/6/6` and all-`5/5/5`
+corner valences.
+
+Required content, drawn from Gate B and Gate E of
+[`adaptive_edge_flipping_feasibility_2026-08-03.md`](../analysis/adaptive_edge_flipping_feasibility_2026-08-03.md),
+which the unified plan's WP9 compressed away:
+
+1. unique undirected-edge ownership keyed by `(min(u,v), max(u,v))` with its two
+   incident faces, or an active halfedge representation if flips will be
+   frequent;
+2. one connectivity-derived adjacency and orientation rebuild that does not
+   consult grid indices, validating a connected orientable two-manifold before
+   commit;
+3. a monotonically increasing `topologyGeneration` keying all derived topology
+   state, which is the concrete mechanism **A6** and **A8** already require;
+4. atomic stage, validate, commit, rollback, with exact restoration on
+   rejection;
+5. topology-aware checkpoint and restart: `SLIMED_RESTART_V2`
+   ([`output.cpp:225`](../src/io/output.cpp:225)) stores no connectivity, so a
+   run containing flips would restart on the input mesh's topology while loading
+   observables computed on a different one;
+6. periodic image pairing, since flipping one image of a periodic edge
+   desynchronises the band, and insertion, material, layer, ghost, and boundary
+   label transfer policy;
+7. optimizer and dynamics consequences: NCG reset and line-search history
+   invalidation, and rebuild of `DynamicMesh::mesh2surface` /
+   `surface2mesh`, which hardcode the valence-6 weight
+   ([`Dynamic_mesh.cpp:93`](../src/dynamics/Dynamic_mesh.cpp:93)) and are built
+   through a dense inverse.
+
+Sequencing: L7 is a prerequisite of WP9 and is independent of D9a, D9b, and
+every B package. It may be scheduled in parallel with the B lane because its
+file ownership is disjoint, and it must not be scheduled *after* WP9's gate.
+It is not authorized by this plan; it needs its own package, reviewers, and
+explicit user instruction.
+
+### L8 - optional, later: custom Bfr mesh adapter
+
+Optional and strictly downstream of L7. A `SurfaceFactoryMeshAdapter` over
+`Mesh` requires a connected representation that can efficiently identify the
+incident faces of any vertex, counter-clockwise ordered for manifold vertices —
+which is exactly what L7 delivers. L8 is the only route to the Phase-2 localized
+invalidation quantified by B2 step 6.
+
+L8 is an optimisation, not a prerequisite for anything. If it is never
+implemented, the B lane still works and WP9 is still reachable through L7. Do
+not make L7 wait for L8.
+
+## 7. Fixture additions
+
+These rows are added to the unified plan's section 8 matrix and are mandatory
+for B2, B3, and WP5.1. They exist because every current fixture stops at
+valence 6, so no existing evidence covers what remeshing produces.
+
+| Fixture/class | Topology purpose | Required checks |
+| --- | --- | --- |
+| Single-flip pair family: one closed triangulation plus N variants each differing by exactly one legal edge flip | Post-remeshing topology without needing mutation code; row locality measurement | Rows, source coverage, error versus oracle, changed-face count between pair members |
+| Closed mesh containing valence 7, 8, and 9 corners | Coverage above valence 6, which no current fixture reaches | Rows, derivative sum rules, error versus oracle, force conjugacy |
+| Adjacent extraordinary corners sharing an edge | Interacting irregular regions, not isolated ones | Rows, oracle error, quadrature sensitivity |
+
+The flip-pair family is generated offline as static fixtures with documented
+provenance and hashes. It requires no `Mesh` mutation, no edge ownership, and
+no WP9 dependency, which is precisely why it can run now.
+
+## 8. Gate sequence
+
+```text
+B0a inventory logic repair              (blocks everything; may start now)
+  |
+  +-- B0b inventory CI enforcement      (after B0a merges GREEN)
+  +-- B0c record D1 + D2 approvals      (after B0a; D1/D2 approved 2026-08-06)
+  |
+  +-- WP1.1a legacy index safety        (L1; disjoint files; may run parallel)
+  |
+  +-- B1 topology key / row contract amendment   (no OpenSubdiv include at all)
+        |
+        +-- B2p preflight: freeze D10, oracle contract, fixtures, face
+        |     correspondence, row-comparison tolerance     [T2]
+        |     + explicit user D10 approval
+        |
+        +-- B2 Bfr qualification proof against the frozen inputs   [T2]
+              |     (Far runs only as a regression comparator)
+              |
+              +-- explicit user D9a: Bfr PASS or FAIL
+                    |          \
+                    |           `-- FAIL: lane BLOCKS, escalate to a new
+                    |               architecture decision. No Far fallback.
+                    |
+                    +-- B3 Bfr full-mesh provider   [T2]
+                          |   (owns the exact-version 30700 pin)
+                          +-- B4 topology epoch cache and invalidation
+                                |
+                                +-- unified plan WP4 -> WP5
+                                      |
+                                      +-- WP5.2 quadrature selected
+                                            |
+                                            +-- D9b Bfr production activation
+                                            +-- WP6 -> WP7  (WP8 CUDA by
+                                                separate explicit instruction)
+
+Independent lanes, neither blocked by nor blocking the B lane:
+
+L4 stack disposition (PR 185 -> close 176/182), on explicit user instruction.
+
+L7 topology ownership and rebuild transaction  --> REQUIRED BEFORE WP9
+  (disjoint files; may run parallel with the whole B lane)
+      |
+      +-- WP9 adaptive edge flipping   (separate explicit instruction)
+      +-- L8 optional custom Bfr mesh adapter, Phase-2 localized invalidation
+
+B2 outcome 2 (Bfr not qualified) blocks B3. It routes to a new explicit
+architecture decision - options include WP5.1's patch-domain candidate, a
+different representation, or a separately gated package to harden Far - and never
+to an automatic Far fallback or a configuration change.
+```
+
+D3, D4, D5, D2b, and D8 keep the authority the ADR already assigns them.
+Nothing in this plan decides them.
+
+## 9. Checkpoint ledger
+
+| Checkpoint | Deliverable | Status | Required approvals |
+| --- | --- | --- | --- |
+| KB0a | Baseline inventory passes at main and at a merge-bearing descendant | Ready; user chose option (b), supersede PR 186 | T1 technical |
+| KB0c | D1 and D2 recorded as approved with their scope limits | Pending KB0a | T1 technical |
+| KB0b | Inventory enforced by a CI workflow, OpenSubdiv-free and read-only | Pending KB0a green | T1 technical |
+| KB1 | Extended `LoopTopologyKey` and row contract, no OpenSubdiv include | Pending B0a, B0b, B0c | T1 technical |
+| KB2p | Frozen D10 targets, oracle contract, new fixtures and hashes, face correspondence | Pending B1 | T2 + explicit user D10 |
+| KB2 | Bfr qualification evidence against B2p's frozen inputs; Far comparator results published | Pending KB2p | T2: verification + technical + scientific + gatekeeper + user D9a |
+| KB3 | Bfr full-mesh provider; owns the exact 30700 pin and the no-Far-in-production tests | Pending D9a PASS | T2 |
+| KB4 | Topology epoch cache, invalidation, flip-pair re-preparation cost | Pending B3 | Technical |
+| KB9b | D9b Bfr production-activation acceptance on integrated-functional evidence | Deferred to after WP5.2 | Scientific + explicit user |
+| KL1 | WP1.1a merged; L1 quarantine still pending D5 | Ready now | T1, then T2 for WP1.1b |
+| KL4 | PR 185 merged, PR 176/182 closed as superseded, D0 resolved | Pending explicit user instruction | User |
+| KL7 | Topology ownership and rebuild transaction; **required before WP9** | Not started; independent of the B lane | T2 + explicit user |
+| KL8 | Optional custom Bfr adapter, Phase-2 localized invalidation | Optional, strictly after KL7 | User |
+
+## 10. What this plan does not authorize
+
+Production activation; a new scientific baseline; a default backend change;
+merging or closing PR 175, 176, 182, 185, or 186; deleting any legacy route;
+changing CUDA; deciding D0 through D8; deciding D9a or D9b; ranking Bfr against
+Far on near-vertex accuracy; promoting Far to a production evaluator by any means
+short of a new explicit architecture decision and package; implementing a custom
+Bfr mesh adapter; or any edge-flip mutation of `Mesh`.
