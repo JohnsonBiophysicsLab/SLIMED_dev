@@ -18,6 +18,11 @@ INVENTORY = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(INVENTORY)
 
 
+def replace_last(text: str, old: str, new: str) -> str:
+    prefix, separator, suffix = text.rpartition(old)
+    return prefix + new + suffix if separator else text
+
+
 class UnifiedLoopBaselineInventoryTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
@@ -99,10 +104,16 @@ class UnifiedLoopBaselineInventoryTest(unittest.TestCase):
                 "/* evaluate_guarded_valence5_opensubdiv_production_route(*this) */\n"
                 "            evaluate_guarded_valence5_route_removed(*this)", 1))
 
-    def test_C_current_main_and_pr182_remain_separate(self) -> None:
+    def test_C_current_main_and_pr176_pr182_stack_remain_separate(self) -> None:
+        self.assert_mutation_rejected(
+            lambda r: r["baseline"].update(
+                {"pr176_current_main_production": True}))
         self.assert_mutation_rejected(
             lambda r: r["baseline"].update(
                 {"pr182_current_main_production": True}))
+        self.assert_mutation_rejected(
+            lambda r: r["baseline"].update(
+                {"observed_pr182_pr176_merge_base": "0" * 40}))
         self.assert_mutation_rejected(
             lambda r: r["C_valence3_ancestry"].update(
                 {"runtime_selector_absent_on_current_main": False}))
@@ -117,6 +128,11 @@ class UnifiedLoopBaselineInventoryTest(unittest.TestCase):
             lambda args: args[:2] == ("diff", "--name-only")
             and args[-1].endswith("..HEAD"),
             "\n".join(INVENTORY.EXPECTED_WP0_PATHS + ["src/mesh/Mesh.cpp"]),
+        )
+        self.assert_git_output_mutation_rejected(
+            lambda args: args[:2] == ("diff", "--name-only")
+            and args[-1].endswith("..HEAD"),
+            "\n".join(INVENTORY.EXPECTED_WP0_PATHS[:-1]),
         )
 
     def test_D_topology_face_order_count_valence_and_one_ring(self) -> None:
@@ -233,6 +249,76 @@ class UnifiedLoopBaselineInventoryTest(unittest.TestCase):
             lambda r: r["I_tolerances_fixtures"]["fixture_sha256"]
             .update({fixture: "0" * 64}))
 
+    def test_I2_periodic_scope_n6_equivalence_and_performance_budget(self) -> None:
+        self.assert_mutation_rejected(
+            lambda r: r["I2_scope_performance"]["primary_workload"].update(
+                {"boundary_type": "Free"}))
+        self.assert_mutation_rejected(
+            lambda r: r["I2_scope_performance"]["primary_workload"].update(
+                {"mixed_valence_ghost_faces": 0}))
+        self.assert_mutation_rejected(
+            lambda r: r["I2_scope_performance"]["regular_n6_masks_coincide"]
+            .update({"center": 0.0}))
+        self.assert_mutation_rejected(
+            lambda r: r["I2_scope_performance"]["performance_budget"].update(
+                {"generic_vs_cached_regular_median": 1.20}))
+        self.assert_text_mutation_rejected(
+            "docs/adr_unified_loop_backend.md",
+            lambda text: text.replace(
+                "generic_vs_cached_regular_median <= 1.10",
+                "generic_vs_cached_regular_median <= 1.20", 1))
+        self.assert_text_mutation_rejected(
+            "docs/adr_unified_loop_backend.md",
+            lambda text: text.replace(
+                "generic_vs_direct_regular_each_case <= 2.00",
+                "generic_vs_direct_regular_each_case <= 2.20", 1))
+        self.assert_text_mutation_rejected(
+            "tests/test_surface_geometry_characterization.cpp",
+            lambda text: text.replace(
+                "EXPECT_EQ(ghostMixedValenceFaces, 336)",
+                "EXPECT_EQ(ghostMixedValenceFaces, 0)", 1))
+        self.assert_text_mutation_rejected(
+            "tests/test_surface_geometry_characterization.cpp",
+            lambda text: text.replace(
+                "    EXPECT_EQ(ghostMixedValenceFaces, 336);",
+                "    // EXPECT_EQ(ghostMixedValenceFaces, 336);", 1))
+        self.assert_text_mutation_rejected(
+            "tests/test_irregular_fixture_inventory.py",
+            lambda text: text.replace(
+                "        self.assertEqual(sum(flags), 960)",
+                "        # self.assertEqual(sum(flags), 960)", 1))
+        self.assert_text_mutation_rejected(
+            "tests/test_irregular_fixture_inventory.py",
+            lambda text: text.replace(
+                "        self.assertEqual(sum(flags), 960)",
+                '        """self.assertEqual(sum(flags), 960)"""', 1))
+        for protocol_anchor in (
+                "coordinate-only\nsteady state",
+                "same-binary",
+                "alternating-order",
+                "warmup-plus-repeat",
+                "Topology preparation is reported separately",
+                "reviewed\nfor platform variance"):
+            with self.subTest(protocol_anchor=protocol_anchor):
+                self.assert_text_mutation_rejected(
+                    "docs/adr_unified_loop_backend.md",
+                    lambda text, anchor=protocol_anchor:
+                    replace_last(text, anchor, "protocol-anchor-removed"))
+        self.assert_text_mutation_rejected(
+            "docs/adr_unified_loop_backend.md",
+            lambda text: text.replace(
+                "Proposed D8 performance budgets are frozen",
+                "<!-- Proposed D8 performance budgets are frozen", 1).replace(
+                "gates.\n\nAuthoritative fixture hashes:",
+                "gates. -->\n\nAuthoritative fixture hashes:", 1))
+        self.assert_text_mutation_rejected(
+            "docs/adr_unified_loop_backend.md",
+            lambda text: text.replace(
+                "Proposed D8 performance budgets are frozen",
+                "```text\nProposed D8 performance budgets are frozen", 1).replace(
+                "gates.\n\nAuthoritative fixture hashes:",
+                "gates.\n```\n\nAuthoritative fixture hashes:", 1))
+
     def test_J_csv_checkpoint_order_precision_atomicity_and_metadata(self) -> None:
         self.assert_mutation_rejected(
             lambda r: r["J_output_checkpoint"]["energy_csv_fields"].reverse())
@@ -272,12 +358,18 @@ class UnifiedLoopBaselineInventoryTest(unittest.TestCase):
             .append("full_divergence_volume"))
         self.assert_mutation_rejected(lambda r: r.pop("G_volume_functionals"))
         self.assert_mutation_rejected(lambda r: r.update({"schema_version": 2}))
-        self.assert_text_mutation_rejected(
-            "docs/unified_irregular_loop_implementation_plan.md",
-            lambda text: text.replace(
-                "| D5: legacy 11-control matrix | Immediately quarantine all-valence-5 misuse; retain only as an explicit compatibility path if its intended topology is proven. | Explicit user decision |",
-                "| D5: legacy 11-control matrix | Immediately quarantine all-valence-5 misuse; retain only as an explicit compatibility path if its intended topology is proven. | Maintainer decision |",
-                1))
+        for decision, authority, replacement in (
+                ("D2b", "Explicit user production-scope decision",
+                 "Maintainer production-scope decision"),
+                ("D5", "Explicit user decision after WP1.1a; any `5/6/6` implementation needs a separate scientific gate",
+                 "Maintainer decision"),
+                ("D8", "Reproduced benchmark evidence plus explicit user approval",
+                 "Benchmark evidence only")):
+            with self.subTest(decision=decision):
+                self.assert_text_mutation_rejected(
+                    "docs/unified_irregular_loop_implementation_plan.md",
+                    lambda text, old=authority, new=replacement:
+                    text.replace(old, new, 1))
         original_corpus = INVENTORY._source_corpus()
         with mock.patch.object(
                 INVENTORY, "_source_corpus",
