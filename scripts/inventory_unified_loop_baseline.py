@@ -29,6 +29,10 @@ ORIGINAL_WP01_BASE_SHA = "906a7850d2c1ceec3ffdda9bf0ce44a437f6aa4a"
 PR176_SHA = "46c06080fb663bcb43f38cf32fc1b45daa8732e8"
 PR182_SHA = "9587e3dce4509029e611e2937bac570b410193c3"
 PR182_MERGE_BASE = "6d9213e260c90c74c72e831deab1a2ec2d67e1d3"
+# Mainline ref used to locate the fork point for the package-branch linearity
+# check. BASE_SHA alone cannot serve: once a package merges, its own merge
+# commit lands in BASE_SHA..HEAD and the check can never pass again on main.
+MAINLINE_REF = "origin/main"
 
 EXPECTED_BUILD_FLAGS = [
     "USE_OPENSUBDIV_REGULAR",
@@ -353,6 +357,17 @@ def collect_inventory() -> dict[str, Any]:
         r"\b(?:legacy[_-]?x[_-]?volume|full[_-]?divergence[_-]?volume|"
         r"volume[_-]?functional|volume[_-]?mode)\b", corpus,
         flags=re.IGNORECASE)))
+    # Package-branch linearity is measured from the fork point with mainline,
+    # not from the frozen BASE_SHA. On mainline the fork point is HEAD, so the
+    # range is empty and a package's own merge commit is not miscounted. On an
+    # unmerged package branch the range is exactly that branch's commits, so a
+    # stray merge of mainline into the branch is still caught.
+    mainline_resolved = _git_success("rev-parse", "--verify", f"{MAINLINE_REF}^{{commit}}")
+    linearity_ref = MAINLINE_REF if mainline_resolved else BASE_SHA
+    linearity_base = _git_output("merge-base", linearity_ref, "HEAD")
+    merge_commits_after_base = list(filter(None, _git_output(
+        "rev-list", "--min-parents=2", f"{linearity_base}..HEAD").splitlines()))
+
     pr176_face_loop = _git_output(
         "show", f"{PR176_SHA}:src/energy_force/Valence3_opensubdiv_face_loop.cpp")
     pr182_face_loop = _git_output(
@@ -477,8 +492,10 @@ def collect_inventory() -> dict[str, Any]:
             "base_is_ancestor": _git_success(
                 "merge-base", "--is-ancestor", BASE_SHA, "HEAD"),
             "commits_after_base": commit_count,
-            "merge_commits_after_base": list(filter(None, _git_output(
-                "rev-list", "--min-parents=2", f"{BASE_SHA}..HEAD").splitlines())),
+            "linearity_ref": linearity_ref,
+            "mainline_ref_resolved": mainline_resolved,
+            "linearity_base_is_head": linearity_base == observed_head,
+            "merge_commits_after_base": merge_commits_after_base,
             "changed_paths_from_base": changed_paths,
             "allowed_wp0_paths": EXPECTED_WP0_PATHS,
             "pr176_stack_root": PR176_SHA,
@@ -741,6 +758,12 @@ def validate_inventory(report: dict[str, Any], check_adr: bool = True) -> list[s
                 "HEAD/base merge ancestry drift")
         require(baseline["base_is_ancestor"], "pinned base is not an ancestor of HEAD")
         require(baseline["commits_after_base"] > 0, "WP0 commit sequence missing")
+        require(baseline["mainline_ref_resolved"],
+                f"{MAINLINE_REF} is unresolvable, so package-branch linearity "
+                "cannot be measured; fetch mainline (fetch-depth: 0) before "
+                "running the inventory")
+        require(baseline["linearity_ref"] == MAINLINE_REF,
+                "linearity reference drift")
         require(not baseline["merge_commits_after_base"],
                 "unexpected merge commit in WP0 branch")
         require(baseline["allowed_wp0_paths"] == EXPECTED_WP0_PATHS,

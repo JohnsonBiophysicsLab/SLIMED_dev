@@ -119,6 +119,17 @@ class UnifiedLoopBaselineInventoryTest(unittest.TestCase):
                 {"runtime_selector_absent_on_current_main": False}))
         self.assert_mutation_rejected(
             lambda r: r["baseline"].update({"observed_head": "0" * 40}))
+        # A stray merge on a package branch must still be caught, and a
+        # degraded linearity reference must fail loudly rather than silently
+        # weakening the check.
+        self.assert_mutation_rejected(
+            lambda r: r["baseline"].update(
+                {"merge_commits_after_base": ["0" * 40]}))
+        self.assert_mutation_rejected(
+            lambda r: r["baseline"].update({"mainline_ref_resolved": False}))
+        self.assert_mutation_rejected(
+            lambda r: r["baseline"].update(
+                {"linearity_ref": INVENTORY.BASE_SHA}))
         self.assert_git_output_mutation_rejected(
             lambda args: args[:2] == ("merge-base", INVENTORY.BASE_SHA)
             and args[-1] == "HEAD",
