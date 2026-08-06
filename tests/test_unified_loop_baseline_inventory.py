@@ -66,6 +66,28 @@ class UnifiedLoopBaselineInventoryTest(unittest.TestCase):
             "collection-layer Git drift unexpectedly passed",
         )
 
+    def collect_linearity(self, mainline_head, fork_point, merge_commits):
+        def git_output(*arguments):
+            if arguments == (
+                    "rev-parse", "--verify",
+                    f"{INVENTORY.MAINLINE_REF}^{{commit}}"):
+                return mainline_head
+            if arguments == (
+                    "merge-base", INVENTORY.MAINLINE_REF, "HEAD"):
+                return fork_point
+            if arguments == (
+                    "rev-list", "--min-parents=2", f"{fork_point}..HEAD"):
+                return "\n".join(merge_commits)
+            if arguments == (
+                    "rev-list", "--min-parents=2",
+                    f"{INVENTORY.BASE_SHA}..HEAD"):
+                return mainline_head
+            raise AssertionError(f"unexpected Git query: {arguments}")
+
+        with mock.patch.object(INVENTORY, "_git_output", side_effect=git_output), \
+                mock.patch.object(INVENTORY, "_git_success", return_value=True):
+            return INVENTORY._collect_package_linearity()
+
     def test_A_build_flags_dependency_and_macro_coupling(self) -> None:
         self.assert_mutation_rejected(
             lambda r: r["A_build_dependency"]["build_flags"].append(
@@ -119,21 +141,112 @@ class UnifiedLoopBaselineInventoryTest(unittest.TestCase):
                 {"runtime_selector_absent_on_current_main": False}))
         self.assert_mutation_rejected(
             lambda r: r["baseline"].update({"observed_head": "0" * 40}))
+        self.assert_mutation_rejected(
+            lambda r: r["baseline"].update(
+                {"linearity_ref": INVENTORY.BASE_SHA}))
+        self.assert_mutation_rejected(
+            lambda r: r["baseline"].update({"mainline_ref_resolved": False}))
+        self.assert_mutation_rejected(
+            lambda r: r["baseline"].update(
+                {"observed_mainline_head": "unavailable"}))
+        self.assert_mutation_rejected(
+            lambda r: r["baseline"].update(
+                {"linearity_fork_point": "unavailable"}))
+        self.assert_mutation_rejected(
+            lambda r: r["baseline"].update(
+                {"linearity_fork_is_ancestor": False}))
+        self.assert_mutation_rejected(
+            lambda r: r["baseline"].update(
+                {"merge_commits_after_fork": ["0" * 40]}))
+        self.assert_mutation_rejected(
+            lambda r: r["baseline"].update(
+                {"wp0_reviewed_endpoint": "0" * 40}))
+        self.assert_mutation_rejected(
+            lambda r: r["baseline"].update(
+                {"observed_wp0_reviewed_endpoint_commit": "unavailable"}))
+        self.assert_mutation_rejected(
+            lambda r: r["baseline"].update(
+                {"wp0_base_is_ancestor_of_endpoint": False}))
+        self.assert_mutation_rejected(
+            lambda r: r["baseline"].update(
+                {"wp0_endpoint_is_ancestor_of_head": False}))
         self.assert_git_output_mutation_rejected(
             lambda args: args[:2] == ("merge-base", INVENTORY.BASE_SHA)
             and args[-1] == "HEAD",
             "0" * 40,
         )
         self.assert_git_output_mutation_rejected(
+            lambda args: args == (
+                "rev-parse", "--verify",
+                f"{INVENTORY.WP0_REVIEWED_ENDPOINT_SHA}^{{commit}}"),
+            "unavailable",
+        )
+        self.assert_git_output_mutation_rejected(
+            lambda args: args == (
+                "rev-parse", "--verify",
+                f"{INVENTORY.MAINLINE_REF}^{{commit}}"),
+            "unavailable",
+        )
+        self.assert_git_output_mutation_rejected(
+            lambda args: args == (
+                "merge-base", INVENTORY.MAINLINE_REF, "HEAD"),
+            "unavailable",
+        )
+        self.assert_git_output_mutation_rejected(
+            lambda args: args == (
+                "merge-base", INVENTORY.BASE_SHA,
+                INVENTORY.WP0_REVIEWED_ENDPOINT_SHA),
+            "0" * 40,
+        )
+        self.assert_git_output_mutation_rejected(
             lambda args: args[:2] == ("diff", "--name-only")
-            and args[-1].endswith("..HEAD"),
+            and args[-1] == (
+                f"{INVENTORY.BASE_SHA}.."
+                f"{INVENTORY.WP0_REVIEWED_ENDPOINT_SHA}"),
             "\n".join(INVENTORY.EXPECTED_WP0_PATHS + ["src/mesh/Mesh.cpp"]),
         )
         self.assert_git_output_mutation_rejected(
             lambda args: args[:2] == ("diff", "--name-only")
-            and args[-1].endswith("..HEAD"),
+            and args[-1] == (
+                f"{INVENTORY.BASE_SHA}.."
+                f"{INVENTORY.WP0_REVIEWED_ENDPOINT_SHA}"),
             "\n".join(INVENTORY.EXPECTED_WP0_PATHS[:-1]),
         )
+        self.assert_text_mutation_rejected(
+            "docs/adr_unified_loop_backend.md",
+            lambda text: text.replace(
+                INVENTORY.WP0_REVIEWED_ENDPOINT_SHA, "0" * 40, 1))
+
+    def test_C_future_main_merge_is_outside_package_linearity_range(self) -> None:
+        # Model HEAD as a merge commit already incorporated into origin/main.
+        # A BASE_SHA..HEAD query would return that merge, while the package
+        # range starts at HEAD and is therefore correctly empty.
+        future_main_merge = "f" * 40
+        linearity = self.collect_linearity(
+            future_main_merge, future_main_merge, [])
+        self.assertEqual(linearity["linearity_fork_point"], future_main_merge)
+        self.assertEqual(linearity["merge_commits_after_fork"], [])
+
+        candidate = copy.deepcopy(self.baseline)
+        candidate["baseline"].update(linearity)
+        candidate["baseline"].update({
+            "observed_head": future_main_merge,
+            "observed_head_commit": future_main_merge,
+        })
+        self.assertFalse(
+            INVENTORY.validate_inventory(candidate, check_adr=False),
+            "a merge commit already incorporated into mainline was misclassified",
+        )
+
+    def test_C_merge_on_unmerged_package_branch_is_rejected(self) -> None:
+        mainline_head = "a" * 40
+        package_merge = "b" * 40
+        linearity = self.collect_linearity(
+            mainline_head, mainline_head, [package_merge])
+        candidate = copy.deepcopy(self.baseline)
+        candidate["baseline"].update(linearity)
+        errors = INVENTORY.validate_inventory(candidate, check_adr=False)
+        self.assertIn("unexpected merge commit in package branch", errors)
 
     def test_D_topology_face_order_count_valence_and_one_ring(self) -> None:
         self.assert_mutation_rejected(
@@ -261,12 +374,17 @@ class UnifiedLoopBaselineInventoryTest(unittest.TestCase):
             .update({"center": 0.0}))
         self.assert_mutation_rejected(
             lambda r: r["I2_scope_performance"]["performance_budget"].update(
-                {"generic_vs_cached_regular_median": 1.20}))
+                {"generic_vs_cached_regular_median": 1.10}))
         self.assert_text_mutation_rejected(
             "docs/adr_unified_loop_backend.md",
             lambda text: text.replace(
-                "generic_vs_cached_regular_median <= 1.10",
-                "generic_vs_cached_regular_median <= 1.20", 1))
+                "generic_vs_cached_regular_median <= TBD",
+                "generic_vs_cached_regular_median <= 1.10", 1))
+        self.assert_text_mutation_rejected(
+            "docs/unified_irregular_loop_implementation_plan.md",
+            lambda text: text.replace(
+                "generic_vs_cached_regular_median <= TBD",
+                "generic_vs_cached_regular_median <= 1.10", 1))
         self.assert_text_mutation_rejected(
             "docs/adr_unified_loop_backend.md",
             lambda text: text.replace(
@@ -307,15 +425,15 @@ class UnifiedLoopBaselineInventoryTest(unittest.TestCase):
         self.assert_text_mutation_rejected(
             "docs/adr_unified_loop_backend.md",
             lambda text: text.replace(
-                "Proposed D8 performance budgets are frozen",
-                "<!-- Proposed D8 performance budgets are frozen", 1).replace(
+                "Proposed D8 performance inputs are frozen",
+                "<!-- Proposed D8 performance inputs are frozen", 1).replace(
                 "gates.\n\nAuthoritative fixture hashes:",
                 "gates. -->\n\nAuthoritative fixture hashes:", 1))
         self.assert_text_mutation_rejected(
             "docs/adr_unified_loop_backend.md",
             lambda text: text.replace(
-                "Proposed D8 performance budgets are frozen",
-                "```text\nProposed D8 performance budgets are frozen", 1).replace(
+                "Proposed D8 performance inputs are frozen",
+                "```text\nProposed D8 performance inputs are frozen", 1).replace(
                 "gates.\n\nAuthoritative fixture hashes:",
                 "gates.\n```\n\nAuthoritative fixture hashes:", 1))
 

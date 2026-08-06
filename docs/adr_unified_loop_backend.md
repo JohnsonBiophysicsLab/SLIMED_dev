@@ -6,8 +6,11 @@ Date: 2026-08-05
 
 Package: WP0.1 plus post-merge external-review amendment
 
-Authoritative current-main base:
+Reviewed WP0 aggregate audit base:
 `e9af3ddad494fc073040ee82bdf07944b9fee8cf`
+
+Reviewed WP0 aggregate audit endpoint:
+`f8e76ea5bb444ba447a5ae9178a309545f2533ba`
 
 Original WP0.1 base:
 `906a7850d2c1ceec3ffdda9bf0ce44a437f6aa4a`
@@ -57,7 +60,7 @@ The exact status phrases below are checked by
 | D5 | Pending WP1.1a evidence and explicit user approval | Reject the current all-Valence-5 11-control predicate before matrix evaluation or publication. The intended `5/6/6` class has never been admitted by the all-`5/5/5` predicate; implementing it would be net-new work, not retained compatibility, and requires its own reviewed scientific gate. | WP1.1a may remove unconditional undefined behavior without deciding D5. Quarantine of the accepted all-Valence-5 fixture and any new `5/6/6` implementation require explicit user approval after WP1.1a evidence. |
 | D6 | Restated existing project policy | Default builds and tests remain OpenSubdiv-free throughout proof and opt-in work. Every OpenSubdiv build remains explicit and requires `OPENSUBDIV_ROOT`. | WP0.1 makes no new decision; later changes require a separate dependency decision. |
 | D7 | Restated existing user instruction | WP0-WP7 do not change `src/cuda`, `include/cuda`, CUDA targets, or CUDA scientific baselines. CUDA work is deferred to its backward-compatibility lane. | WP0.1 makes no new decision; expansion requires explicit user authority. |
-| D8 | Proposed - pending explicit user performance-budget approval | Freeze the same-binary alternating-order regular benchmark. Candidate ceilings: generic coordinate-only steady-state median no slower than `1.10x` the current cached OpenSubdiv regular route and no case above `2.00x` the direct analytic route; topology preparation is reported separately and occurs once per epoch. | Reproduce the benchmark protocol, review platform variance, then obtain explicit user approval before WP3.3 performance PASS or WP6 default selection. |
+| D8 | Proposed - pending explicit user performance-budget approval | Freeze the same-binary alternating-order regular benchmark. The `generic_vs_cached_regular_median <= TBD` ceiling remains explicitly pending the named D8 measurement and approval; the candidate direct-route bound is `generic_vs_direct_regular_each_case <= 2.00`. Topology preparation is reported separately and occurs once per epoch. | Reproduce the benchmark protocol, review platform variance, then obtain explicit user approval before WP3.3 performance PASS or WP6 default selection. |
 
 D3 and D4 remain pending WP2.1, independent scientific review, and explicit
 user decisions. D2b, D5, and D8 also remain pending their named evidence and
@@ -209,15 +212,15 @@ for the future generic backend.
 | `valence5_reviewed_production_parity` | `1.0e-10` | Valence-5 reviewed face/force parity. |
 | `irregular_serial_openmp_envelope` | `1.0e-10` | Existing irregular scalar/force reduction characterization. |
 
-Proposed D8 performance budgets are frozen as decision inputs, not silently
-activated thresholds: `generic_vs_cached_regular_median <= 1.10` and
+Proposed D8 performance inputs are frozen as decision inputs, not silently
+activated thresholds: `generic_vs_cached_regular_median <= TBD` and
 `generic_vs_direct_regular_each_case <= 2.00`, measured as coordinate-only
 steady state with the existing same-binary, alternating-order,
 warmup-plus-repeat protocol. Topology preparation is reported separately and
-occurs once per epoch. These derive from the corrected cached-route
-characterization (`1.15x` to `1.95x` direct), and must be reproduced, reviewed
-for platform variance, and explicitly approved before they become acceptance
-gates.
+occurs once per epoch. The cached-route median remains pending until the named
+D8 measurement is reproduced and reviewed
+for platform variance. Any numeric ceiling replacing `TBD`, and the direct-route
+candidate bound, require explicit approval before they become acceptance gates.
 
 Authoritative fixture hashes:
 

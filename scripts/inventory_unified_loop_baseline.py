@@ -24,11 +24,15 @@ from typing import Any
 
 
 ROOT = Path(__file__).resolve().parents[1]
+# Immutable historical range for the reviewed WP0 ownership audit. Package
+# linearity is deliberately measured from MAINLINE_REF instead.
 BASE_SHA = "e9af3ddad494fc073040ee82bdf07944b9fee8cf"
 ORIGINAL_WP01_BASE_SHA = "906a7850d2c1ceec3ffdda9bf0ce44a437f6aa4a"
+WP0_REVIEWED_ENDPOINT_SHA = "f8e76ea5bb444ba447a5ae9178a309545f2533ba"
 PR176_SHA = "46c06080fb663bcb43f38cf32fc1b45daa8732e8"
 PR182_SHA = "9587e3dce4509029e611e2937bac570b410193c3"
 PR182_MERGE_BASE = "6d9213e260c90c74c72e831deab1a2ec2d67e1d3"
+MAINLINE_REF = "origin/main"
 
 EXPECTED_BUILD_FLAGS = [
     "USE_OPENSUBDIV_REGULAR",
@@ -122,8 +126,16 @@ EXPECTED_PLAN_AUTHORITIES = {
 }
 
 EXPECTED_PERFORMANCE_BUDGET = {
-    "generic_vs_cached_regular_median": 1.10,
+    "generic_vs_cached_regular_median": "TBD",
     "generic_vs_direct_regular_each_case": 2.00,
+}
+EXPECTED_D8_PENDING_ANCHOR_COUNTS = {
+    "docs/adr_unified_loop_backend.md": 2,
+    "docs/unified_irregular_loop_implementation_plan.md": 2,
+}
+EXPECTED_D8_DIRECT_ANCHOR_COUNTS = {
+    "docs/adr_unified_loop_backend.md": 2,
+    "docs/unified_irregular_loop_implementation_plan.md": 2,
 }
 
 EXPECTED_ENERGY_FIELDS = [
@@ -283,6 +295,14 @@ def _source_float(text: str, pattern: str) -> float:
     return float(match.group(1)) if match else float("nan")
 
 
+def _source_pending_or_float(text: str, pattern: str) -> str | float:
+    match = re.search(pattern, text)
+    if not match:
+        return "missing"
+    value = match.group(1)
+    return value if value == "TBD" else float(value)
+
+
 def _source_int(text: str, pattern: str) -> int:
     match = re.search(pattern, text)
     return int(match.group(1)) if match else -1
@@ -305,6 +325,35 @@ def _git_success(*arguments: str) -> bool:
         return True
     except (OSError, subprocess.CalledProcessError):
         return False
+
+
+def _is_commit_sha(value: str) -> bool:
+    return bool(re.fullmatch(r"[0-9a-f]{40}", value))
+
+
+def _collect_package_linearity() -> dict[str, Any]:
+    """Measure only commits introduced after this package left mainline."""
+    mainline_head = _git_output(
+        "rev-parse", "--verify", f"{MAINLINE_REF}^{{commit}}")
+    fork_point = _git_output("merge-base", MAINLINE_REF, "HEAD")
+    fork_is_ancestor = (
+        _is_commit_sha(fork_point)
+        and _git_success("merge-base", "--is-ancestor", fork_point, "HEAD")
+    )
+    merge_commits: list[str] | None = None
+    if fork_is_ancestor:
+        output = _git_output(
+            "rev-list", "--min-parents=2", f"{fork_point}..HEAD")
+        if output != "unavailable":
+            merge_commits = list(filter(None, output.splitlines()))
+    return {
+        "linearity_ref": MAINLINE_REF,
+        "observed_mainline_head": mainline_head,
+        "mainline_ref_resolved": _is_commit_sha(mainline_head),
+        "linearity_fork_point": fork_point,
+        "linearity_fork_is_ancestor": fork_is_ancestor,
+        "merge_commits_after_fork": merge_commits,
+    }
 
 
 def collect_inventory() -> dict[str, Any]:
@@ -336,11 +385,15 @@ def collect_inventory() -> dict[str, Any]:
     corpus = _source_corpus()
 
     observed_head = _git_output("rev-parse", "HEAD")
+    wp0_reviewed_endpoint_commit = _git_output(
+        "rev-parse", "--verify", f"{WP0_REVIEWED_ENDPOINT_SHA}^{{commit}}")
     changed_paths = sorted(filter(None, _git_output(
-        "diff", "--name-only", f"{BASE_SHA}..HEAD").splitlines()))
+        "diff", "--name-only",
+        f"{BASE_SHA}..{WP0_REVIEWED_ENDPOINT_SHA}").splitlines()))
     commit_count_text = _git_output("rev-list", "--count", f"{BASE_SHA}..HEAD")
     commit_count = (int(commit_count_text)
                     if commit_count_text.isdigit() else -1)
+    package_linearity = _collect_package_linearity()
 
     build_flags = sorted(set(re.findall(
         r"^(USE_OPENSUBDIV_[A-Z0-9_]+)\s*\?=", makefile, re.MULTILINE)))
@@ -359,14 +412,30 @@ def collect_inventory() -> dict[str, Any]:
         "show", f"{PR182_SHA}:src/energy_force/Valence3_opensubdiv_face_loop.cpp")
 
     d8_paragraph = _active_markdown_paragraph(
-        adr, "Proposed D8 performance budgets are frozen")
+        adr, "Proposed D8 performance inputs are frozen")
     performance_budget = {
-        "generic_vs_cached_regular_median": _source_float(
+        "generic_vs_cached_regular_median": _source_pending_or_float(
             d8_paragraph,
-            r"generic_vs_cached_regular_median\s*<=\s*([0-9.]+)"),
+            r"generic_vs_cached_regular_median\s*<=\s*(TBD|[0-9.]+)"),
         "generic_vs_direct_regular_each_case": _source_float(
             d8_paragraph,
             r"generic_vs_direct_regular_each_case\s*<=\s*([0-9.]+)"),
+    }
+    d8_pending_anchor_counts = {
+        relative: _text(relative).count(
+            "generic_vs_cached_regular_median <= TBD")
+        for relative in EXPECTED_D8_PENDING_ANCHOR_COUNTS
+    }
+    d8_numeric_substitutions = {
+        relative: re.findall(
+            r"generic_vs_cached_regular_median\s*<=\s*([0-9.]+)",
+            _text(relative))
+        for relative in EXPECTED_D8_PENDING_ANCHOR_COUNTS
+    }
+    d8_direct_anchor_counts = {
+        relative: _text(relative).count(
+            "generic_vs_direct_regular_each_case <= 2.00")
+        for relative in EXPECTED_D8_DIRECT_ANCHOR_COUNTS
     }
     performance_protocol = {
         "coordinate_only_steady_state": "coordinate-only\nsteady state" in d8_paragraph,
@@ -468,7 +537,7 @@ def collect_inventory() -> dict[str, Any]:
         "schema_version": 1,
         "status": "pending",
         "baseline": {
-            "authoritative_current_main": BASE_SHA,
+            "reviewed_wp0_base": BASE_SHA,
             "original_wp01_base": ORIGINAL_WP01_BASE_SHA,
             "observed_head": observed_head,
             "observed_head_commit": _git_output(
@@ -477,9 +546,19 @@ def collect_inventory() -> dict[str, Any]:
             "base_is_ancestor": _git_success(
                 "merge-base", "--is-ancestor", BASE_SHA, "HEAD"),
             "commits_after_base": commit_count,
-            "merge_commits_after_base": list(filter(None, _git_output(
-                "rev-list", "--min-parents=2", f"{BASE_SHA}..HEAD").splitlines())),
-            "changed_paths_from_base": changed_paths,
+            **package_linearity,
+            "wp0_reviewed_endpoint": WP0_REVIEWED_ENDPOINT_SHA,
+            "observed_wp0_reviewed_endpoint_commit":
+                wp0_reviewed_endpoint_commit,
+            "wp0_base_is_ancestor_of_endpoint": _git_success(
+                "merge-base", "--is-ancestor", BASE_SHA,
+                WP0_REVIEWED_ENDPOINT_SHA),
+            "wp0_endpoint_is_ancestor_of_head": _git_success(
+                "merge-base", "--is-ancestor", WP0_REVIEWED_ENDPOINT_SHA,
+                "HEAD"),
+            "observed_wp0_reviewed_merge_base": _git_output(
+                "merge-base", BASE_SHA, WP0_REVIEWED_ENDPOINT_SHA),
+            "changed_paths_in_reviewed_wp0_range": changed_paths,
             "allowed_wp0_paths": EXPECTED_WP0_PATHS,
             "pr176_stack_root": PR176_SHA,
             "pr176_object_available": pr176_face_loop != "unavailable",
@@ -673,6 +752,9 @@ def collect_inventory() -> dict[str, Any]:
             },
             "performance_budget": performance_budget,
             "performance_protocol": performance_protocol,
+            "pending_cached_median_anchor_counts": d8_pending_anchor_counts,
+            "numeric_cached_median_substitutions": d8_numeric_substitutions,
+            "direct_case_anchor_counts": d8_direct_anchor_counts,
             "performance_budget_status": "candidate pending reproduction and explicit user approval",
         },
         "J_output_checkpoint": {
@@ -730,7 +812,8 @@ def validate_inventory(report: dict[str, Any], check_adr: bool = True) -> list[s
     try:
         require(report["schema_version"] == 1, "schema version drift")
         baseline = report["baseline"]
-        require(baseline["authoritative_current_main"] == BASE_SHA, "base SHA drift")
+        require(baseline["reviewed_wp0_base"] == BASE_SHA,
+                "reviewed WP0 base SHA drift")
         require(baseline["original_wp01_base"] == ORIGINAL_WP01_BASE_SHA,
                 "original WP0.1 base drift")
         require(baseline["observed_head"] not in {"unavailable", BASE_SHA},
@@ -741,12 +824,34 @@ def validate_inventory(report: dict[str, Any], check_adr: bool = True) -> list[s
                 "HEAD/base merge ancestry drift")
         require(baseline["base_is_ancestor"], "pinned base is not an ancestor of HEAD")
         require(baseline["commits_after_base"] > 0, "WP0 commit sequence missing")
-        require(not baseline["merge_commits_after_base"],
-                "unexpected merge commit in WP0 branch")
+        require(baseline["linearity_ref"] == MAINLINE_REF,
+                "linearity reference drift")
+        require(baseline["mainline_ref_resolved"] and
+                _is_commit_sha(baseline["observed_mainline_head"]),
+                f"{MAINLINE_REF} is missing or unresolvable; fetch mainline "
+                "history before checking package linearity")
+        require(_is_commit_sha(baseline["linearity_fork_point"]),
+                "mainline fork point missing or unresolvable")
+        require(baseline["linearity_fork_is_ancestor"],
+                "mainline fork point is not an ancestor of HEAD")
+        require(baseline["merge_commits_after_fork"] == [],
+                "unexpected merge commit in package branch")
+        require(baseline["wp0_reviewed_endpoint"] == WP0_REVIEWED_ENDPOINT_SHA,
+                "WP0 reviewed endpoint drift")
+        require(baseline["observed_wp0_reviewed_endpoint_commit"] ==
+                WP0_REVIEWED_ENDPOINT_SHA,
+                "WP0 reviewed endpoint missing or unresolvable")
+        require(baseline["wp0_base_is_ancestor_of_endpoint"],
+                "WP0 reviewed endpoint/base ancestry drift")
+        require(baseline["wp0_endpoint_is_ancestor_of_head"],
+                "WP0 reviewed endpoint is not an ancestor of HEAD")
+        require(baseline["observed_wp0_reviewed_merge_base"] == BASE_SHA,
+                "WP0 reviewed range merge-base drift")
         require(baseline["allowed_wp0_paths"] == EXPECTED_WP0_PATHS,
                 "WP0 path allowlist drift")
-        require(baseline["changed_paths_from_base"] == EXPECTED_WP0_PATHS,
-                "WP0 aggregate diff path drift")
+        require(baseline["changed_paths_in_reviewed_wp0_range"] ==
+                EXPECTED_WP0_PATHS,
+                "reviewed WP0 aggregate diff path drift")
         require(baseline["pr176_stack_root"] == PR176_SHA,
                 "PR 176 root SHA drift")
         require(baseline["pr176_object_available"] and
@@ -880,6 +985,16 @@ def validate_inventory(report: dict[str, Any], check_adr: bool = True) -> list[s
                 }, "primary periodic/ghost workload scope drift")
         require(i2["performance_budget"] == EXPECTED_PERFORMANCE_BUDGET,
                 "candidate D8 performance budget drift")
+        require(i2["pending_cached_median_anchor_counts"] ==
+                EXPECTED_D8_PENDING_ANCHOR_COUNTS,
+                "pending D8 cached-median anchor drift")
+        require(i2["numeric_cached_median_substitutions"] == {
+                    relative: []
+                    for relative in EXPECTED_D8_PENDING_ANCHOR_COUNTS
+                }, "numeric D8 cached-median ceiling appeared before approval")
+        require(i2["direct_case_anchor_counts"] ==
+                EXPECTED_D8_DIRECT_ANCHOR_COUNTS,
+                "candidate D8 direct-case ceiling anchor drift")
         require(i2["performance_protocol"] == {
                     "coordinate_only_steady_state": True,
                     "same_binary": True,
@@ -947,7 +1062,8 @@ def validate_inventory(report: dict[str, Any], check_adr: bool = True) -> list[s
             for decision, status in EXPECTED_DECISIONS.items():
                 if f"| {decision} | {status} |" not in adr:
                     errors.append(f"ADR/inventory disagreement for {decision}")
-            for anchor in (BASE_SHA, ORIGINAL_WP01_BASE_SHA, PR176_SHA, PR182_SHA,
+            for anchor in (BASE_SHA, ORIGINAL_WP01_BASE_SHA,
+                           WP0_REVIEWED_ENDPOINT_SHA, PR176_SHA, PR182_SHA,
                            "D3 and D4 remain pending WP2.1, independent scientific review"):
                 if anchor not in adr:
                     errors.append(f"ADR anchor missing: {anchor}")
@@ -962,7 +1078,7 @@ def main() -> int:
 
     report = collect_inventory()
     errors = validate_inventory(report)
-    report["status"] = "passed" if not errors else "failed"
+    report["status"] = "ok" if not errors else "failed"
     report["errors"] = errors
 
     if arguments.json:
