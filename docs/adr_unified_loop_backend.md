@@ -52,8 +52,8 @@ The exact status phrases below are checked by
 | ID | Status | Proposed or existing rule | Required authority / evidence |
 | --- | --- | --- | --- |
 | D0 | Proposed - pending explicit user stack disposition | Decide PR 176, the production-code root, and PR 182, its negative-evidence leaf, as one stack. Recommended: do not merge PR 176 as a production milestone; extract the symmetric/asymmetric bipyramid fixtures and scoped convergence record before closing or superseding the stack. | Explicit user decision before either PR is merged, closed, retargeted, or extracted. PR 176 is the blocking decision; PR 182 cannot reach `main` independently. |
-| D1 | Proposed - pending explicit user scientific approval | Use stock OpenSubdiv Loop semantics as the forward-looking CPU baseline. The stock and historical `3/(8N)` smooth masks coincide exactly at `N=6` (`1/16` neighbor, `5/8` center); the checked-in `data/example` physical faces are regular, so that workload has no physical-face mask rebaseline. No claim is made for arbitrary production inputs. Do not modify completed rows to imitate the legacy mask. | Explicit user scientific approval. Prior acceptance applies only to the narrow Valence-5 lane; D2b still governs the periodic ghost-band representation. |
-| D2 | Proposed - pending explicit user approval | Initial proof scope is a complete closed, consistently oriented, two-manifold triangular mesh. Reject boundaries, holes, ghosts, non-triangles, non-manifold incidence, and inconsistent orientation before mutation. | Explicit user approval before the closed-mesh WP3 proofs. This does not authorize a production default. |
+| D1 | Approved - Stock OpenSubdiv 3.7.0 Loop semantics are the forward-looking CPU proof baseline. Completed rows are not modified to reproduce legacy masks. This does not select Far versus Bfr, does not change the production default, and does not approve arbitrary production inputs. | Stock OpenSubdiv 3.7.0 Loop semantics are the forward-looking CPU proof baseline. Completed rows are not modified to reproduce legacy masks. This does not select Far versus Bfr, does not change the production default, and does not approve arbitrary production inputs. | Explicit user scientific approval on 2026-08-06. Prior acceptance applies only to the narrow Valence-5 lane; D2b still governs the periodic ghost-band representation. |
+| D2 | Approved - The initial generic proof scope is complete, closed, consistently oriented, two-manifold triangular meshes. Boundaries, holes, ghosts, non-triangles, non-manifold incidence, and inconsistent orientation must fail before mutation. This does not decide D2b and does not authorize production activation. | The initial generic proof scope is complete, closed, consistently oriented, two-manifold triangular meshes. Boundaries, holes, ghosts, non-triangles, non-manifold incidence, and inconsistent orientation must fail before mutation. This does not decide D2b and does not authorize production activation. | Explicit user approval on 2026-08-06 for the closed-mesh proof scope only. |
 | D2b | Proposed - pending explicit user production-scope approval | The primary flat/periodic workload has 2,720 regular physical faces and a 960-face ghost band containing all 336 mixed-valence faces. Recommended: require an explicit periodic/ghost topology, Ptex/source-ID, and physical-face evaluation policy in WP3.2; otherwise declare that workload permanently legacy-only. | Explicit user decision before WP3.2 final scope and before any WP6 production/default claim. |
 | D3 | Pending post-WP2.1 oracle, independent scientific review, and user decision | Candidate canonical functional is full-divergence signed volume with exact `1/6` when triangle weights sum to one. | Independent WP2.1 oracle, technical review, independent scientific review, and explicit user baseline decision. |
 | D4 | Pending post-WP2.1 characterization, independent scientific review, and user decision | Candidate compatibility behavior is a named `legacy-x-volume` mode that reproduces the x-only literal `0.16666666666`, never selected by valence. Its default, metadata, and retirement date are undecided. | WP2.1 characterization, independent scientific review, and explicit user compatibility decision. |
@@ -275,16 +275,18 @@ anchors to characterize compatibility but makes no CUDA edit.
 1. Technical and scientific reviewers verify this ADR and the fail-closed
    inventory at the exact PR head; their PASS validates evidence completeness
    but does not decide D0-D5, D2b, or D8.
-2. The user explicitly decides the PR 176/182 stack under D0 and approves or
-   rejects D1 and D2. D2b and D8 remain named production/performance choices.
+2. D1 and D2 were explicitly approved by the user on 2026-08-06 with the
+   proof-only scope limits recorded above. D0 remains pending explicit user
+   stack disposition; D2b and D8 remain named production/performance choices.
    D6 and D7 remain existing constraints.
 3. WP1.1a unconditional safety work and WP2.1 characterization may proceed.
    WP1.1b remains blocked on WP1.1a evidence and D5; neither package decides
    D3/D4.
 4. D3/D4 remain blocked until WP2.1, independent scientific review, and the
    named explicit user decisions.
-5. WP3 closed proofs remain blocked until D1 and D2. WP3.2 production-scope
-   completion additionally requires D2b; performance PASS requires D8.
+5. WP3 closed proofs may proceed under the approved D1 and D2 proof-only scope.
+   WP3.2 production-scope completion additionally requires D2b; performance
+   PASS requires D8.
 6. Any changed source anchor, fixture byte, tolerance, selector, functional
    name, output/checkpoint contract, or follow-up commit invalidates the
    inventory/review and requires a new exact-head run.

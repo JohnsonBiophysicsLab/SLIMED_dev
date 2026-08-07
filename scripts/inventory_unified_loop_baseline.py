@@ -101,8 +101,8 @@ EXPECTED_FIXTURE_HASHES = {
 
 EXPECTED_DECISIONS = {
     "D0": "Proposed - pending explicit user stack disposition",
-    "D1": "Proposed - pending explicit user scientific approval",
-    "D2": "Proposed - pending explicit user approval",
+    "D1": "Approved - Stock OpenSubdiv 3.7.0 Loop semantics are the forward-looking CPU proof baseline. Completed rows are not modified to reproduce legacy masks. This does not select Far versus Bfr, does not change the production default, and does not approve arbitrary production inputs.",
+    "D2": "Approved - The initial generic proof scope is complete, closed, consistently oriented, two-manifold triangular meshes. Boundaries, holes, ghosts, non-triangles, non-manifold incidence, and inconsistent orientation must fail before mutation. This does not decide D2b and does not authorize production activation.",
     "D2b": "Proposed - pending explicit user production-scope approval",
     "D3": "Pending post-WP2.1 oracle, independent scientific review, and user decision",
     "D4": "Pending post-WP2.1 characterization, independent scientific review, and user decision",
