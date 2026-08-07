@@ -1,0 +1,75 @@
+{
+  "declared_valence_vertices": {
+    "7": 0,
+    "8": 10,
+    "9": 19
+  },
+  "fixture_id": "b2p_closed_valence789",
+  "generator": {
+    "id": "scripts/generate_b2p_loop_fixtures.py",
+    "parameters": {
+      "component_valences": [
+        7,
+        8,
+        9
+      ],
+      "connector_faces_per_component": [
+        1,
+        2,
+        1
+      ],
+      "gluing_orientation": "second boundary cycle reversed"
+    },
+    "version": 1
+  },
+  "proof_only": true,
+  "schema_version": 1,
+  "scientifically_approved": false,
+  "source_identity": "oriented connected sum of deterministic triangular bipyramids",
+  "status": "candidate_only",
+  "topology": {
+    "all_vertices_referenced": true,
+    "closed_two_face_edge_manifold": true,
+    "connected_degree2_vertex_links": true,
+    "contains_valences": [
+      7,
+      8,
+      9
+    ],
+    "duplicate_faces_absent": true,
+    "edge_count": 78,
+    "face_count": 52,
+    "opposite_edge_orientation": true,
+    "valence_by_vertex": [
+      7,
+      8,
+      6,
+      8,
+      4,
+      4,
+      4,
+      4,
+      4,
+      6,
+      8,
+      10,
+      4,
+      4,
+      6,
+      8,
+      4,
+      4,
+      6,
+      9,
+      10,
+      4,
+      4,
+      4,
+      4,
+      4,
+      4,
+      4
+    ],
+    "vertex_count": 28
+  }
+}

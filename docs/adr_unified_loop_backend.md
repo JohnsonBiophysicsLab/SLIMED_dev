@@ -212,6 +212,28 @@ for the future generic backend.
 | `valence5_reviewed_production_parity` | `1.0e-10` | Valence-5 reviewed face/force parity. |
 | `irregular_serial_openmp_envelope` | `1.0e-10` | Existing irregular scalar/force reduction characterization. |
 
+### Frozen B2p / D10 proposal (not approved)
+
+B2p freezes the following a-priori proposal before any B2 candidate run. D10
+remains pending explicit user approval; these rows do not qualify Bfr, do not
+rank Bfr against Far, and do not change any existing tolerance above.
+
+| Name | Value | Dimension / norm | Rationale | Owning gate |
+| --- | ---: | --- | --- | --- |
+| `irregular_position_row_accuracy` | `5.0e-6` | Maximum source-union coefficient `l1` and geometry-normalized Cartesian `l-infinity`; position order. | Inherits the already-frozen regular row scale before irregular output exists. | D10 / B2 D9a irregular-oracle gate. |
+| `irregular_first_derivative_row_accuracy` | `2.5e-5` | Same paired norms for `du`,`dv`; per canonical parameter. | Fixed upstream derivative-order ratio of five from the existing regular-scale position anchor. | D10 / B2 D9a irregular-oracle gate. |
+| `irregular_second_derivative_row_accuracy` | `1.25e-4` | Same paired norms for `duu`,`duv`,`dvv`; per canonical parameter squared. | Fixed second upstream ratio of five, declared before candidate output; applies only at or outside the frozen inner radius. | D10 / B2 D9a irregular-oracle gate. |
+| `flip_pair_row_changed_linf` | `1.0e-12` | Absolute coefficient `l-infinity` on the source-ID union, missing coefficient zero. | Locality classifier at the existing invariant scale; explicitly not an accuracy tolerance. | B2 flip-pair locality report. |
+
+For the geometric cross-check, the scale is the finite positive maximum
+control-edge length `L_M` computed once per checked-in fixture. Position has
+units `L`, first derivatives `L / canonical-parameter`, and second derivatives
+`L / canonical-parameter^2`. Position sum one and derivative sum zero retain
+their separate existing `1.0e-12` invariant; an invariant cannot satisfy an
+accuracy row. Oracle arithmetic, mapping, inner-radius, and coverage rules are
+authoritatively specified in section 3.2 of
+`docs/bfr_loop_backend_plan_macos.md` and are inventoried with these values.
+
 Proposed D8 performance inputs are frozen as decision inputs, not silently
 activated thresholds: `generic_vs_cached_regular_median <= TBD` and
 `generic_vs_direct_regular_each_case <= 2.00`, measured as coordinate-only
@@ -237,6 +259,25 @@ Authoritative fixture hashes:
 | `data/fixtures/candidates/closed_mixed_valence345/candidate_metadata.json` | `74ae00951e6ea20021722a45a887d0c47530d4d7248cb69f553cb1a66a60f14b` |
 | `data/fixtures/candidates/closed_mixed_valence345/faces.csv` | `bc1db1bf7fb29e4e4bc7b41f93ea9c206fe80a022736f1f02d22063c0b800233` |
 | `data/fixtures/candidates/closed_mixed_valence345/vertices.csv` | `affa93eec68b8de9d5dcd12d31bf1d7222410722b0cca44c58495c558e3d7287` |
+| `data/fixtures/candidates/b2p_single_flip_family/base/candidate_metadata.json` | `011d35a38687ea0febf6efe43927328e86ef1ac2ee19101bfaa91f316fae7d44` |
+| `data/fixtures/candidates/b2p_single_flip_family/base/faces.csv` | `561b3ec0c4aa6b1e684ef87c2738d8c20a474225bd4960a4a672d306a3e70327` |
+| `data/fixtures/candidates/b2p_single_flip_family/base/vertices.csv` | `61d4284b454c6716903861135fdbc0b6c4e28a6203b3cc59ef41294199bcc11a` |
+| `data/fixtures/candidates/b2p_single_flip_family/family_metadata.json` | `5fdacd87fafaec7bfd8f90a6988300a6116d1e32a0238bbad69c4558e242740b` |
+| `data/fixtures/candidates/b2p_single_flip_family/flip_000/candidate_metadata.json` | `c622099e930d54660aac51571fbfb74f058e1376002cf609458f066dd5b4b078` |
+| `data/fixtures/candidates/b2p_single_flip_family/flip_000/faces.csv` | `b11ece5a396d30d09a26ae243d79d784cdda02c94d281077300d43295f9f6a1e` |
+| `data/fixtures/candidates/b2p_single_flip_family/flip_000/vertices.csv` | `61d4284b454c6716903861135fdbc0b6c4e28a6203b3cc59ef41294199bcc11a` |
+| `data/fixtures/candidates/b2p_single_flip_family/flip_001/candidate_metadata.json` | `86fec088750fd1a82891003be29b195f1f6b337b5f63ef06b5deaaf7007bb25c` |
+| `data/fixtures/candidates/b2p_single_flip_family/flip_001/faces.csv` | `2f7bd0c70f416ecd29c444b41fc8c3e1621d448cf48145cc60f398ab9ff2afc0` |
+| `data/fixtures/candidates/b2p_single_flip_family/flip_001/vertices.csv` | `61d4284b454c6716903861135fdbc0b6c4e28a6203b3cc59ef41294199bcc11a` |
+| `data/fixtures/candidates/b2p_single_flip_family/flip_002/candidate_metadata.json` | `a2aac3a97abcd523e184fcf281532b189d5de56d401446033d592440578d7c61` |
+| `data/fixtures/candidates/b2p_single_flip_family/flip_002/faces.csv` | `c0e7abaa1ec7f9bfae0c371401ee9775a40c34ff76193b3ca4a847110b7e37f1` |
+| `data/fixtures/candidates/b2p_single_flip_family/flip_002/vertices.csv` | `61d4284b454c6716903861135fdbc0b6c4e28a6203b3cc59ef41294199bcc11a` |
+| `data/fixtures/candidates/b2p_valence789/candidate_metadata.json` | `2c2969fad3c3efd96961eca2f97e8b463a55ca9e5e5229d231494a57c52918f5` |
+| `data/fixtures/candidates/b2p_valence789/faces.csv` | `429061ae1e0d983e678031ed464d6cfc8d35d67118217fe95e26bb67355d03db` |
+| `data/fixtures/candidates/b2p_valence789/vertices.csv` | `3685c89b4dd2500511c33d4de7cd373729da83726b89a9274034f02bb6c11c57` |
+| `data/fixtures/candidates/b2p_adjacent_extraordinary/candidate_metadata.json` | `05f133445d17524398e7a8e5fa8c93f3c1e95b0b970f8257056c1c070e791b61` |
+| `data/fixtures/candidates/b2p_adjacent_extraordinary/faces.csv` | `1ecbe26328311f99b2e55ccdc7e1d614947099fe1fff124cfca83dc62f5dddbb` |
+| `data/fixtures/candidates/b2p_adjacent_extraordinary/vertices.csv` | `b650ff4c1aed263701d25305d846f520933a2deb457655558f17a855e65c88b7` |
 
 Expected scientific values stored with a fixture are regression locks only.
 They cannot be the sole WP2 or quadrature oracle.

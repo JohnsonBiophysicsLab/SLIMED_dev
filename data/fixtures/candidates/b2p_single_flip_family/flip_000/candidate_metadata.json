@@ -1,0 +1,333 @@
+{
+  "family": {
+    "correspondence": {
+      "base_member": "base",
+      "comparable_face_ids": [
+        "base-face-0000",
+        "base-face-0003",
+        "base-face-0004",
+        "base-face-0005",
+        "base-face-0006",
+        "base-face-0007",
+        "base-face-0008",
+        "base-face-0009",
+        "base-face-0010",
+        "base-face-0011",
+        "base-face-0012",
+        "base-face-0013",
+        "base-face-0014",
+        "base-face-0015",
+        "base-face-0016",
+        "base-face-0017",
+        "base-face-0018",
+        "base-face-0019"
+      ],
+      "identity_rule": "A face is identical only when its base-face ID, CSV row, and oriented vertex triple are all unchanged; each of the two rewritten rows receives a variant-local ID and has no base-face identity.",
+      "member": "flip_000",
+      "rewritten": {
+        "base_face_ids": [
+          "base-face-0001",
+          "base-face-0002"
+        ],
+        "base_oriented_faces": [
+          [
+            0,
+            5,
+            1
+          ],
+          [
+            0,
+            1,
+            7
+          ]
+        ],
+        "member_face_ids": [
+          "flip_000-rewritten-0",
+          "flip_000-rewritten-1"
+        ],
+        "member_oriented_faces": [
+          [
+            5,
+            1,
+            7
+          ],
+          [
+            5,
+            7,
+            0
+          ]
+        ],
+        "new_edge": [
+          5,
+          7
+        ],
+        "old_edge": [
+          0,
+          1
+        ],
+        "quad_boundary_cycle": [
+          0,
+          5,
+          1,
+          7
+        ],
+        "rewritten_base_rows": [
+          1,
+          2
+        ],
+        "rewritten_member_rows": [
+          1,
+          2
+        ]
+      },
+      "unchanged": [
+        {
+          "base_row": 0,
+          "face_id": "base-face-0000",
+          "member_row": 0,
+          "oriented_vertices": [
+            0,
+            11,
+            5
+          ]
+        },
+        {
+          "base_row": 3,
+          "face_id": "base-face-0003",
+          "member_row": 3,
+          "oriented_vertices": [
+            0,
+            7,
+            10
+          ]
+        },
+        {
+          "base_row": 4,
+          "face_id": "base-face-0004",
+          "member_row": 4,
+          "oriented_vertices": [
+            0,
+            10,
+            11
+          ]
+        },
+        {
+          "base_row": 5,
+          "face_id": "base-face-0005",
+          "member_row": 5,
+          "oriented_vertices": [
+            1,
+            5,
+            9
+          ]
+        },
+        {
+          "base_row": 6,
+          "face_id": "base-face-0006",
+          "member_row": 6,
+          "oriented_vertices": [
+            5,
+            11,
+            4
+          ]
+        },
+        {
+          "base_row": 7,
+          "face_id": "base-face-0007",
+          "member_row": 7,
+          "oriented_vertices": [
+            11,
+            10,
+            2
+          ]
+        },
+        {
+          "base_row": 8,
+          "face_id": "base-face-0008",
+          "member_row": 8,
+          "oriented_vertices": [
+            10,
+            7,
+            6
+          ]
+        },
+        {
+          "base_row": 9,
+          "face_id": "base-face-0009",
+          "member_row": 9,
+          "oriented_vertices": [
+            7,
+            1,
+            8
+          ]
+        },
+        {
+          "base_row": 10,
+          "face_id": "base-face-0010",
+          "member_row": 10,
+          "oriented_vertices": [
+            3,
+            9,
+            4
+          ]
+        },
+        {
+          "base_row": 11,
+          "face_id": "base-face-0011",
+          "member_row": 11,
+          "oriented_vertices": [
+            3,
+            4,
+            2
+          ]
+        },
+        {
+          "base_row": 12,
+          "face_id": "base-face-0012",
+          "member_row": 12,
+          "oriented_vertices": [
+            3,
+            2,
+            6
+          ]
+        },
+        {
+          "base_row": 13,
+          "face_id": "base-face-0013",
+          "member_row": 13,
+          "oriented_vertices": [
+            3,
+            6,
+            8
+          ]
+        },
+        {
+          "base_row": 14,
+          "face_id": "base-face-0014",
+          "member_row": 14,
+          "oriented_vertices": [
+            3,
+            8,
+            9
+          ]
+        },
+        {
+          "base_row": 15,
+          "face_id": "base-face-0015",
+          "member_row": 15,
+          "oriented_vertices": [
+            4,
+            9,
+            5
+          ]
+        },
+        {
+          "base_row": 16,
+          "face_id": "base-face-0016",
+          "member_row": 16,
+          "oriented_vertices": [
+            2,
+            4,
+            11
+          ]
+        },
+        {
+          "base_row": 17,
+          "face_id": "base-face-0017",
+          "member_row": 17,
+          "oriented_vertices": [
+            6,
+            2,
+            10
+          ]
+        },
+        {
+          "base_row": 18,
+          "face_id": "base-face-0018",
+          "member_row": 18,
+          "oriented_vertices": [
+            8,
+            6,
+            7
+          ]
+        },
+        {
+          "base_row": 19,
+          "face_id": "base-face-0019",
+          "member_row": 19,
+          "oriented_vertices": [
+            9,
+            8,
+            1
+          ]
+        }
+      ]
+    },
+    "face_ids_by_row": [
+      "base-face-0000",
+      "flip_000-rewritten-0",
+      "flip_000-rewritten-1",
+      "base-face-0003",
+      "base-face-0004",
+      "base-face-0005",
+      "base-face-0006",
+      "base-face-0007",
+      "base-face-0008",
+      "base-face-0009",
+      "base-face-0010",
+      "base-face-0011",
+      "base-face-0012",
+      "base-face-0013",
+      "base-face-0014",
+      "base-face-0015",
+      "base-face-0016",
+      "base-face-0017",
+      "base-face-0018",
+      "base-face-0019"
+    ],
+    "family_id": "b2p_single_flip_family",
+    "member": "flip_000"
+  },
+  "fixture_id": "b2p_single_flip_flip_000",
+  "generator": {
+    "id": "scripts/generate_b2p_loop_fixtures.py",
+    "parameters": {
+      "base_member": "base",
+      "edge": [
+        0,
+        1
+      ],
+      "member": "flip_000"
+    },
+    "version": 1
+  },
+  "proof_only": true,
+  "schema_version": 1,
+  "scientifically_approved": false,
+  "source_identity": "one deterministic legal edge flip from b2p_single_flip_base",
+  "status": "candidate_only",
+  "topology": {
+    "all_vertices_referenced": true,
+    "closed_two_face_edge_manifold": true,
+    "connected_degree2_vertex_links": true,
+    "duplicate_faces_absent": true,
+    "edge_count": 30,
+    "face_count": 20,
+    "opposite_edge_orientation": true,
+    "valence_by_vertex": [
+      4,
+      4,
+      5,
+      5,
+      5,
+      6,
+      5,
+      6,
+      5,
+      5,
+      5,
+      5
+    ],
+    "vertex_count": 12
+  }
+}

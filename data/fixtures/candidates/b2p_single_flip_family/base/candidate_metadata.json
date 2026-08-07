@@ -1,0 +1,66 @@
+{
+  "family": {
+    "face_ids_by_row": [
+      "base-face-0000",
+      "base-face-0001",
+      "base-face-0002",
+      "base-face-0003",
+      "base-face-0004",
+      "base-face-0005",
+      "base-face-0006",
+      "base-face-0007",
+      "base-face-0008",
+      "base-face-0009",
+      "base-face-0010",
+      "base-face-0011",
+      "base-face-0012",
+      "base-face-0013",
+      "base-face-0014",
+      "base-face-0015",
+      "base-face-0016",
+      "base-face-0017",
+      "base-face-0018",
+      "base-face-0019"
+    ],
+    "family_id": "b2p_single_flip_family",
+    "member": "base"
+  },
+  "fixture_id": "b2p_single_flip_base",
+  "generator": {
+    "id": "scripts/generate_b2p_loop_fixtures.py",
+    "parameters": {
+      "member": "base",
+      "polyhedron": "icosahedron"
+    },
+    "version": 1
+  },
+  "proof_only": true,
+  "schema_version": 1,
+  "scientifically_approved": false,
+  "source_identity": "embedded OpenSubdiv-style oriented icosahedron control topology",
+  "status": "candidate_only",
+  "topology": {
+    "all_vertices_referenced": true,
+    "closed_two_face_edge_manifold": true,
+    "connected_degree2_vertex_links": true,
+    "duplicate_faces_absent": true,
+    "edge_count": 30,
+    "face_count": 20,
+    "opposite_edge_orientation": true,
+    "valence_by_vertex": [
+      5,
+      5,
+      5,
+      5,
+      5,
+      5,
+      5,
+      5,
+      5,
+      5,
+      5,
+      5
+    ],
+    "vertex_count": 12
+  }
+}

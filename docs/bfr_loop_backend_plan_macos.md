@@ -249,61 +249,188 @@ precisely the well-posed domain identified above:
 - [Jos Stam, *Evaluation of Loop Subdivision Surfaces*](https://www.cs.cmu.edu/afs/cs/academic/class/15456-f15/RelatedWork/Loop-by-Stam.pdf)
 - [Persson et al., *On the Use of Loop Subdivision Surfaces for Surrogate Geometry*](https://persson.berkeley.edu/pub/persson06subdiv.pdf)
 
-The oracle is **not** an implementation detail left to B2. Every item below is
-frozen by **B2p** before B2 runs, because an oracle specified after results are
-visible is not an oracle (**S5**, **S6**).
+The oracle is **not** an implementation detail left to B2. The following
+contract is frozen by **B2p** before B2 runs, because an oracle specified after
+candidate output is visible is not an oracle (**S5**, **S6**). It fixes every
+scientific input; B2 remains free only to choose ordinary implementation
+mechanics that preserve this contract.
 
-**Independence.** The oracle translation unit must not link or include
-OpenSubdiv. It may not call `Far`, `Bfr`, `Osd`, `Sdc`, or `Vtr`, and may not
-reuse SLIMED's existing providers. A compile-time or link-time check must prove
-this, because an oracle that shares code with a candidate cannot falsify it.
+**Independence proof.** The oracle is a separate proof executable whose source,
+generated dependency file, linked libraries, and undefined symbols are scanned
+in CI. Its translation units may not include a path containing `opensubdiv`,
+may not contain an `OpenSubdiv`, `Far`, `Bfr`, `Osd`, `Sdc`, or `Vtr` symbol,
+may not link an OpenSubdiv library, and may not call an existing SLIMED row
+provider. It constructs the Loop subdivision matrix directly from the published
+stock Loop masks and the oriented one-ring. A second, separately coded uniform
+subdivider shares only fixture parsing and scalar/vector containers with the
+eigenanalysis implementation. The build emits the compiler dependency file and
+the link map; a source/dependency scan plus `nm -u` and `otool -L` (or the Linux
+equivalents) is a mandatory B2 check. Any forbidden dependency makes the oracle
+uncovered rather than weakening this check.
 
-**Precision and convergence.** Declare the working precision (`double`
-minimum; state whether extended precision is used for the eigen-decomposition).
-Declare the depth or eigenvalue-power convergence criterion and demonstrate it:
-successive refinements must change the reported value by less than a stated
-fraction of the target tolerance, so the oracle's own error is provably smaller
-than the differences it is used to measure.
+**Arithmetic, eigendecomposition, and convergence.** Matrix construction,
+eigendecomposition, box-spline evaluation, chain-rule transforms, and error
+norms use `boost::multiprecision::cpp_dec_float_100` throughout (at least 100
+decimal digits); conversion to `double` occurs only when serializing the final
+report. Each valence is verified separately. For every real eigenpair or real
+invariant block, the normalized residual is at most `1.0e-70`; the assembled
+basis and inverse satisfy both infinity-norm identity residuals at most
+`1.0e-70`; the constant mode is one; the two-dimensional tangent block agrees
+with `lambda = (3 + 2*cos(2*pi/N))/8` to `1.0e-70`; and the basis condition
+number is at most `1.0e12`. Repeated eigenvalues are verified as invariant
+blocks, not forced into arbitrary scalar eigenvectors. Failure of any check
+marks that valence uncovered.
 
-**Parametric remapping and derivative rescaling.** This is the most likely
-silent error in the whole package. The three parameterizations are not
-interchangeable: Far addresses samples by Ptex face plus `(s,t)`; Bfr uses
-`Bfr::Parameterization` with `(u,v)` for a triangle; Stam's evaluation uses a
-per-patch local frame whose sub-patch depth changes with proximity to the
-extraordinary vertex. B2p must state, and B2 must verify on a regular face where
-the answer is known exactly:
+For each order and sample, let `delta_d` be the normalized infinity difference
+between depths `d` and `d+1`. Depths are tried in the fixed range 4 through 30.
+Three consecutive ratios must be finite and at most `q = 0.75`, which is above
+the largest smooth Loop subdominant eigenvalue (`< 0.625`) without being chosen
+from a fixture run, and the
+conservative tail bound `delta_d / (1 - q)` must be at most one tenth of that
+order's D10 target. The first depth satisfying all orders is recorded; no depth
+or fraction is adjusted per candidate. Failure by depth 30 is oracle-uncovered.
+Thus the permitted oracle uncertainty is fixed at `0.1 * target`, rather than
+being fitted to a candidate difference.
 
-- the corner correspondence and orientation of each parameterization;
-- the affine map between them;
-- the **Jacobian rescaling applied to each derivative order** — first
-  derivatives scale by the map's Jacobian, second derivatives by its square,
-  plus the depth-dependent factor Stam's closed-form subdivision introduces.
+**Canonical face coordinates.** For every oriented base triangle
+`(v0,v1,v2)`, the only public comparison frame is
 
-Comparing `duu` across two parameterizations without this rescaling produces a
-number that looks like an accuracy result and is not one.
+```text
+q = (u,v),  barycentric(q) = (1-u-v, u, v),
+v0 = (0,0), v1 = (1,0), v2 = (0,1).
+```
 
-**Norms.** Declare per derivative order whether the reported quantity is
-absolute or geometry-normalized, and if normalized, by exactly what length
-scale. A single relative tolerance across position, first, and second
-derivatives is not defensible when the quantities have different physical
-dimensions.
+This is exactly OpenSubdiv 3.7.0 Bfr's triangle convention in
+[`Bfr::Parameterization::GetVertexCoord`](https://github.com/PixarAnimationStudios/OpenSubdiv/blob/v3_7_0/opensubdiv/bfr/parameterization.cpp)
+at tagged commit `9dab8a47bfbb1388ec8388fe61f5f916e6123f38`.
+For Loop, a coarse triangle is regular, so
+[`Far::PtexIndices`](https://github.com/PixarAnimationStudios/OpenSubdiv/blob/v3_7_0/opensubdiv/far/ptexIndices.cpp)
+assigns one Ptex face and the upstream 3.7.0
+[`bfr_evaluate` Far comparator](https://github.com/PixarAnimationStudios/OpenSubdiv/blob/v3_7_0/regression/bfr_evaluate/farPatchEvaluator.cpp)
+passes the same pair unchanged to `PatchMap::FindPatch`. Therefore the frozen
+coarse maps are `q_Bfr = q_Far = q`; no axis swap or reflection is permitted.
+B2 must nevertheless prove the three corners, the center `(1/3,1/3)`, and the
+three directed edge midpoints on a known regular face against the analytic
+box-spline route before using an irregular comparison.
 
-**Extraordinary-vertex policy.** Declare the inner radius below which no
-comparison is claimed, and the radius sequence used for the trend. Second
-derivatives are generally unbounded at the extraordinary vertex for valence
-`N != 6`, so no pointwise value is claimed there.
+For Stam evaluation with extraordinary corner `vk`, the oriented local corner
+triple is `(E,A,B) = (vk,v(k+1 mod 3),v(k+2 mod 3))`, and `x=(xi,eta)` stores
+the barycentric weights of `(A,B)`. The complete affine maps `x = Jk*q + ck`
+are
 
-**Coverage limits, reported not assumed.** The oracle requires an **isolated**
-extraordinary vertex per patch, so fixtures with adjacent extraordinary corners
-are covered only after enough refinement to isolate them; report which fixtures
-reach isolation. Eigenbasis handling must be verified per valence rather than
-assumed, since a defective or near-defective eigenstructure needs explicit
-treatment; an unverified valence is reported as uncovered, not as passing.
+```text
+k=0: J0 = [[ 1, 0],[ 0, 1]], c0 = [0,0]
+k=1: J1 = [[ 0, 1],[-1,-1]], c1 = [0,1]
+k=2: J2 = [[-1,-1],[ 1, 0]], c2 = [1,0].
+```
 
-**Validation.** Uniform-subdivision limit masks remain an independent
-cross-check at vertices, so the oracle is validated rather than trusted. If the
-oracle fails that cross-check on a fixture, the fixture is oracle-uncovered. An
-uncovered fixture is not evidence for either candidate.
+They are orientation preserving (`det(Jk)=1`) and choose no new corner order.
+
+**Sub-patch maps and derivative rescaling.** At each midpoint subdivision, a
+parent triangle in coordinates `x` is mapped to child-local coordinates `y`
+by exactly one of
+
+```text
+T0(x) = (2*xi,                 2*eta)
+T1(x) = (2*xi - 1,             2*eta)
+T2(x) = (2*xi,                 2*eta - 1)
+Tc(x) = (2*xi + 2*eta - 1, 1 - 2*xi).
+```
+
+The selected child sequence is emitted for every sample. Composing it gives
+`y = A_d*x + b_d`, and the complete map from canonical coordinates is
+`y = B*q + b`, with `B = A_d*Jk`. If the exact regular box-spline patch returns
+the column pair `G_y=[X_y0 X_y1]` and component Hessian `H_y`, the values to
+compare are
+
+```text
+G_q = G_y * B
+H_q = transpose(B) * H_y * B.
+```
+
+This supplies the first-order factor `2^d`, the second-order factor `4^d`, and
+all rotations/reflections from center children without a scalar shortcut.
+The eigenvalue powers transform control data only; they are not an additional
+derivative factor.
+
+Far's internal sub-patch affine map is frozen directly from OpenSubdiv 3.7.0
+[`PatchParam::NormalizeTriangle`](https://github.com/PixarAnimationStudios/OpenSubdiv/blob/v3_7_0/opensubdiv/far/patchParam.h):
+unrotated `y=2^d*q-(U,V)` and rotated
+`y=(2^d-U,2^d-V)-2^d*q`. Its
+[`EvaluatePatchBasis`](https://github.com/PixarAnimationStudios/OpenSubdiv/blob/v3_7_0/opensubdiv/far/patchBasis.cpp)
+already applies the corresponding depth and rotation signs to first and second
+rows. B2 consumes those returned rows in the coarse `q` frame and must not
+rescale them a second time. It records `PatchParam` depth/rotation and verifies
+both an unrotated and a rotated sub-patch against the analytic regular face.
+Bfr `EvaluateStencil()` similarly returns derivatives in the face
+`Parameterization` frame and receives no extra depth factor.
+
+**Order norms and dimensions.** Source rows are aligned on the sorted union of
+original source IDs, with a missing coefficient treated as zero. For derivative
+order `r`, the primary error is the coefficient `l1` norm. The geometric
+cross-check is the Cartesian `l-infinity` norm after applying the row difference
+to fixture positions, divided by `L_M`, the maximum Euclidean length of any
+control-mesh edge in that fixture. `L_M` is computed once from checked-in bytes
+and must be finite and positive. Position has units `L`; first derivatives have
+units `L / canonical-parameter`; second derivatives have units
+`L / canonical-parameter^2`. Their row norms are respectively dimensionless,
+per-parameter, and per-parameter-squared. Both the row norm and normalized
+geometric cross-check must satisfy the order's D10 target. Position-row sum one
+and derivative-row sum zero remain the separate `1.0e-12` invariants; satisfying
+a sum rule cannot satisfy an accuracy target.
+
+**Extraordinary-vertex sampling.** In the Stam frame define the dimensionless
+radius `r = xi + eta = 1 - barycentric(E)`. No accuracy comparison is claimed
+for `r < 2^-8`. The fixed trend radii are `r = 2^-1, 2^-2, ..., 2^-8`, and each
+radius uses the three fixed rays `(xi,eta) = r*(1/4,3/4)`,
+`r*(1/2,1/2)`, and `r*(3/4,1/4)`. No value at `r=0` is requested. Results are
+grouped by fixture, oriented face, extraordinary corner, valence, radius, ray,
+and derivative order; no single-radius summary may replace the trend.
+
+**Isolation and coverage.** A corner is isolated only when, after applying the
+recorded midpoint child sequence, its evaluation patch contains exactly one
+non-valence-6 vertex and every other vertex in the patch's required one-ring is
+valence 6. B2 tests depths 0 through 12 and records the first isolating depth.
+No isolation by depth 12, a failed eigenbasis check, a failed parametric-map
+check, or a failed uniform cross-check marks that fixture/corner/valence
+oracle-uncovered. Adjacent-extraordinary fixtures are never assumed covered at
+depth zero. An uncovered item supplies no evidence for or against either
+candidate.
+
+**Independent uniform-subdivision cross-check.** The separate 100-digit
+uniform subdivider applies the stock even/odd Loop masks directly for depths 0
+through 30. At every original extraordinary vertex and at the dyadic interior
+vertices reached by `(1/4,1/4)`, `(1/2,1/4)`, and `(1/4,1/2)`, it compares the
+converged vertex position with the eigenanalysis oracle. Its own tail uses the
+same three-ratio `q<=0.75` bound, and the oracle-versus-uniform normalized
+position difference must be at most `0.1 * irregular_position_row_accuracy`.
+The extraordinary tangent eigenspace is also compared as a projection matrix;
+its infinity-norm difference must be at most `1.0e-20` in 100-digit arithmetic.
+These checks validate the oracle; they are not candidate accuracy rows.
+
+### 3.3 Frozen D10 proposal (approval still pending)
+
+B2p fixes the following values before B2 exists. They are defensible a priori:
+the position value inherits the already frozen regular-row gate, while the
+first- and second-order values apply fixed factors of five per derivative order.
+That order ratio is the pre-existing upstream OpenSubdiv regression policy
+already recorded in section 3.1; B2p uses the repository's stricter existing
+`5.0e-6` regular scale as its position anchor rather than importing an upstream
+candidate observation. No Bfr or Far output from this repository contributes to
+any value. These are proposed scientific gates only. D10 remains pending
+explicit user approval, and any later widening is a blocker under **S5**.
+
+| Name | Numeric value | Dimension and norm | A-priori rationale | Owning gate |
+| --- | ---: | --- | --- | --- |
+| `irregular_position_row_accuracy` | `5.0e-6` | Max over samples of source-union coefficient `l1` and geometry-normalized Cartesian `l-infinity`; position order. | Existing frozen regular-row scale. | D10 / B2 D9a irregular-oracle gate. |
+| `irregular_first_derivative_row_accuracy` | `2.5e-5` | Same paired norms for each of `du`,`dv`; per canonical parameter. | One fixed upstream derivative-order factor of five. | D10 / B2 D9a irregular-oracle gate. |
+| `irregular_second_derivative_row_accuracy` | `1.25e-4` | Same paired norms for each of `duu`,`duv`,`dvv`; per canonical parameter squared. | Two fixed upstream derivative-order factors of five. | D10 / B2 D9a irregular-oracle gate outside the inner radius. |
+| `flip_pair_row_changed_linf` | `1.0e-12` | Absolute coefficient `l-infinity` over the source-ID union; missing source is zero. | Existing invariant scale, well above double roundoff; locality only, not accuracy. | B2 locality report, not D9a accuracy. |
+
+A flip-pair face is `changed` when any approved sample and any of its six rows
+exceeds `flip_pair_row_changed_linf`; otherwise it is reusable. The value is
+fixed near the existing row-sum invariant scale, far above double roundoff and
+far below every accuracy target, without reference to a candidate run.
 
 ## 4. Bfr implementation facts to be pinned
 
@@ -1096,6 +1223,30 @@ valence 6, so no existing evidence covers what remeshing produces.
 The flip-pair family is generated offline as static fixtures with documented
 provenance and hashes. It requires no `Mesh` mutation, no edge ownership, and
 no WP9 dependency, which is precisely why it can run now.
+
+B2p freezes the concrete corpus as follows. The single-flip family is an
+oriented 12-vertex/20-face icosahedral base plus three members, each replacing
+exactly the two incident faces of one legal edge and introducing one previously
+absent diagonal. `family_metadata.json` is authoritative for locality. An
+unchanged face retains `base-face-NNNN` only when its CSV row and oriented
+vertex triple are byte-for-byte the base values. Each rewritten row receives a
+variant-local ID and is explicitly non-identical; inventing correspondence
+between the two different triangular domains is forbidden. The metadata lists
+the old/new edge, quadrilateral boundary cycle, both rewritten rows and faces,
+and every unchanged base/member row pair. B2 compares rows only for the listed
+unchanged IDs at the same approved `(u,v)` sample.
+
+The valence-7/8/9 fixture is one oriented connected sum of three triangular
+bipyramid components. Its metadata names the exact retained apex for each
+required valence and records all vertex valences. The adjacent-extraordinary
+fixture is the closed oriented octahedral sphere after one legal flip; the new
+edge joins two recorded valence-5 vertices. All members are generated by
+`scripts/generate_b2p_loop_fixtures.py` using only the Python standard library.
+Each metadata file records generator/version/parameters, source identity,
+vertex/edge/face counts, valence facts, complete vertex use, duplicate-face
+absence, exact two-face edge incidence, opposite edge directions, and connected
+degree-2 vertex links. Checked-in files must reproduce byte-for-byte in a fresh
+temporary output root.
 
 ## 8. Gate sequence
 

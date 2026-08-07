@@ -1,0 +1,75 @@
+{
+  "adjacent_extraordinary": {
+    "shared_edge": [
+      3,
+      5
+    ],
+    "valences": [
+      5,
+      5
+    ],
+    "vertices": [
+      3,
+      5
+    ]
+  },
+  "construction_flip": {
+    "new_edge": [
+      3,
+      5
+    ],
+    "old_edge": [
+      0,
+      2
+    ],
+    "quad_boundary_cycle": [
+      2,
+      3,
+      0,
+      5
+    ],
+    "rewritten_base_rows": [
+      0,
+      3
+    ],
+    "rewritten_member_rows": [
+      0,
+      3
+    ]
+  },
+  "fixture_id": "b2p_adjacent_extraordinary",
+  "generator": {
+    "id": "scripts/generate_b2p_loop_fixtures.py",
+    "parameters": {
+      "base": "octahedron",
+      "flipped_edge": [
+        0,
+        2
+      ]
+    },
+    "version": 1
+  },
+  "proof_only": true,
+  "schema_version": 1,
+  "scientifically_approved": false,
+  "source_identity": "one legal edge flip of an oriented octahedral sphere",
+  "status": "candidate_only",
+  "topology": {
+    "all_vertices_referenced": true,
+    "closed_two_face_edge_manifold": true,
+    "connected_degree2_vertex_links": true,
+    "duplicate_faces_absent": true,
+    "edge_count": 12,
+    "face_count": 8,
+    "opposite_edge_orientation": true,
+    "valence_by_vertex": [
+      3,
+      4,
+      3,
+      5,
+      4,
+      5
+    ],
+    "vertex_count": 6
+  }
+}
