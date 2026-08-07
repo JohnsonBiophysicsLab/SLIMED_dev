@@ -398,6 +398,21 @@ class UnifiedLoopBaselineInventoryTest(unittest.TestCase):
         self.assert_mutation_rejected(
             lambda r: r["I3_b2p_frozen_inputs"]["targets"]
             ["irregular_position_row_accuracy"].update({"adr": 6.0e-6}))
+        self.assert_mutation_rejected(
+            lambda r: r["I3_b2p_frozen_inputs"]["locality_sample_manifest"]
+            ["samples"].pop())
+        self.assert_mutation_rejected(
+            lambda r: r["I3_b2p_frozen_inputs"]["locality_sample_manifest"]
+            ["samples"].reverse())
+        self.assert_mutation_rejected(
+            lambda r: r["I3_b2p_frozen_inputs"]["locality_sample_manifest"]
+            ["samples"][0].update({"u_numerator": 2}))
+        self.assert_mutation_rejected(
+            lambda r: r["I3_b2p_frozen_inputs"]["locality_sample_manifest"]
+            ["samples"][0].pop("barycentric_numerators"))
+        self.assert_mutation_rejected(
+            lambda r: r["I3_b2p_frozen_inputs"]["locality_sample_manifest"]
+            ["row_order"].pop())
         self.assert_text_mutation_rejected(
             "docs/adr_unified_loop_backend.md",
             lambda text: text.replace(
@@ -408,6 +423,25 @@ class UnifiedLoopBaselineInventoryTest(unittest.TestCase):
             lambda text: text.replace(
                 "H_q = transpose(B) * H_y * B",
                 "oracle-hessian-map-removed", 1))
+        self.assert_text_mutation_rejected(
+            "docs/bfr_loop_backend_plan_macos.md",
+            lambda text: text.replace(
+                "intersect its five outward-rounded coefficient",
+                "intersect an unspecified coefficient", 1))
+        self.assert_text_mutation_rejected(
+            "docs/bfr_loop_backend_plan_macos.md",
+            lambda text: text.replace(
+                "kappa_infinity(V) = ||V||_infinity * ||V^-1||_infinity",
+                "basis-condition-definition-removed", 1))
+        self.assert_text_mutation_rejected(
+            "docs/bfr_loop_backend_plan_macos.md",
+            lambda text: text.replace(
+                "`mpfr_init2(...,544)`", "unspecified-interval-precision", 1))
+        self.assert_text_mutation_rejected(
+            "docs/bfr_loop_backend_plan_macos.md",
+            lambda text: text.replace(
+                "mandatory primary computation is Stam eigenanalysis",
+                "primary-oracle-role-removed", 1))
         self.assert_text_mutation_rejected(
             "docs/bfr_loop_backend_plan_macos.md",
             lambda text: text + "\n candidate_" + "comparison_result\n")

@@ -268,29 +268,129 @@ the link map; a source/dependency scan plus `nm -u` and `otool -L` (or the Linux
 equivalents) is a mandatory B2 check. Any forbidden dependency makes the oracle
 uncovered rather than weakening this check.
 
-**Arithmetic, eigendecomposition, and convergence.** Matrix construction,
-eigendecomposition, box-spline evaluation, chain-rule transforms, and error
-norms use `boost::multiprecision::cpp_dec_float_100` throughout (at least 100
-decimal digits); conversion to `double` occurs only when serializing the final
-report. Each valence is verified separately. For every real eigenpair or real
-invariant block, the normalized residual is at most `1.0e-70`; the assembled
-basis and inverse satisfy both infinity-norm identity residuals at most
-`1.0e-70`; the constant mode is one; the two-dimensional tangent block agrees
-with `lambda = (3 + 2*cos(2*pi/N))/8` to `1.0e-70`; and the basis condition
-number is at most `1.0e12`. Repeated eigenvalues are verified as invariant
-blocks, not forced into arbitrary scalar eigenvectors. Failure of any check
-marks that valence uncovered.
+**Arithmetic, eigendecomposition, and rigorous row enclosure.** All numeric
+oracle operations use a repository-owned `MpfrInterval` containing two
+independent `mpfr_t` endpoints, `lo` and `hi`, each initialized by
+`mpfr_init2(...,544)` to an exact 544-bit significand (more than 160 decimal
+digits). The implementation uses the MPFR C API from exactly MPFR 4.2.2; both
+compile-time `MPFR_VERSION_STRING` and runtime `mpfr_get_version()` must equal
+`4.2.2`, and the strings, resolved library path, and library SHA-256 are emitted
+in the report. A version mismatch or unavailable MPFR is oracle-uncovered. The
+scalar Boost MPFR wrapper is not an interval implementation and is forbidden on
+the proof path.
 
-For each order and sample, let `delta_d` be the normalized infinity difference
-between depths `d` and `d+1`. Depths are tried in the fixed range 4 through 30.
-Three consecutive ratios must be finite and at most `q = 0.75`, which is above
-the largest smooth Loop subdominant eigenvalue (`< 0.625`) without being chosen
-from a fixture run, and the
-conservative tail bound `delta_d / (1 - q)` must be at most one tenth of that
-order's D10 target. The first depth satisfying all orders is recorded; no depth
-or fraction is adjusted per candidate. Failure by depth 30 is oracle-uncovered.
-Thus the permitted oracle uncertainty is fixed at `0.1 * target`, rather than
-being fitted to a candidate difference.
+Every primitive names its rounding direction explicitly. Addition uses
+`mpfr_add(lo,a.lo,b.lo,MPFR_RNDD)` and
+`mpfr_add(hi,a.hi,b.hi,MPFR_RNDU)`; subtraction pairs `a.lo-b.hi` downward and
+`a.hi-b.lo` upward. Multiplication evaluates all four endpoint products into
+544-bit temporaries, downward for the minimum and upward for the maximum.
+Division first rejects a denominator interval containing zero, then forms its
+reciprocal with `1/b.hi` downward and `1/b.lo` upward and uses interval
+multiplication. Square root rejects a negative lower endpoint and calls
+`mpfr_sqrt` downward on `lo` and upward on `hi`. Decimal fixture fields and
+targets are parsed as exact decimal strings into downward/upward endpoints;
+integers and rationals use exact MPFR setters.
+
+The only transcendental required by the stock masks is `cos(2*pi/N)`. Its
+argument interval is built from
+`mpfr_const_pi(...,MPFR_RNDD/MPFR_RNDU)` and directed interval arithmetic. The
+code must certify `0 <= angle.lo <= angle.hi <= pi.lo`, where cosine is
+monotone decreasing, then call `mpfr_cos(angle.hi,MPFR_RNDD)` for the lower
+endpoint and `mpfr_cos(angle.lo,MPFR_RNDU)` for the upper endpoint. Any other
+cosine domain is rejected rather than passed to an unproved endpoint rule.
+Matrix multiplication, dot products, norms, Gram-Schmidt, box-spline rows,
+affine chain rules, edge lengths, and error bounds are composed term by term
+only from these primitives; no nearest-rounded scalar, unchecked fused
+operation, or process-global default rounding mode is a proof bound. The wrapper
+clears MPFR status flags before each primitive; afterward, NaN, infinity,
+invalid, divide-by-zero, overflow, underflow, and range flags fail closed. An
+inexact flag is expected and does not weaken the directed enclosure. Any branch
+whose ordering is not certified by disjoint endpoints is oracle-uncovered.
+
+B2's audit scans source and symbols so proof code can call MPFR only through
+this interval module, rejects `mpfr_float_backend` and any MPFR arithmetic call
+without a literal `MPFR_RNDD` or `MPFR_RNDU`, checks the linked MPFR identity
+above, and runs containment tests for every primitive and matrix operation.
+Mutation tests replace one downward/upward mode at a time and must fail. This
+audit is part of coverage, not advisory. Conversion to `double` occurs only
+when serializing a midpoint after its interval has passed every bound below.
+
+The ambient coordinates are original source IDs in increasing numeric order,
+with the Euclidean inner product. For a simple real eigenvalue, its eigenvector
+has Euclidean norm one; among components of maximum absolute value, the
+smallest source ID is the pivot, and its component is positive. For a repeated
+real eigenvalue, the implementation first encloses its spectral projector,
+then scans the ambient unit vectors in source-ID order, projects them, and
+applies deterministic modified Gram-Schmidt. A projected vector is accepted
+only when its interval lower bound on Euclidean residual norm exceeds
+`1.0e-60`; it is then normalized and signed by the same smallest-source-ID
+pivot rule. Blocks are ordered by decreasing real eigenvalue, then increasing
+block dimension; vectors inside a block retain scan order. These rules, rather
+than a library solver's arbitrary rotation, define `V`. The condition number is
+exactly `kappa_infinity(V) = ||V||_infinity * ||V^-1||_infinity`.
+
+Each valence is verified separately. Every eigenvalue must have an interval
+imaginary part containing only zero; otherwise that valence is uncovered. For
+every simple eigenpair or repeated real invariant block, the normalized
+infinity residual
+`||S*V - V*Lambda||_infinity /
+max(1,||S||_infinity*||V||_infinity)` is at most `1.0e-70`; the assembled basis
+and inverse satisfy both infinity-norm identity residuals at most `1.0e-70`;
+the constant mode is one; the two-dimensional tangent block agrees with
+`lambda = (3 + 2*cos(2*pi/N))/8` to `1.0e-70`; and
+`kappa_infinity(V) <= 1.0e12`. Let `Q` be the two tangent columns produced by
+the repeated-block procedure. The tangent comparison is the ambient,
+source-ID-ordered Euclidean projector `P = Q*transpose(Q)`, not a comparison
+of individual tangent vectors. Failure of any check marks that valence
+uncovered. Any eigenvalue ordering, pivot maximum, or Gram-Schmidt acceptance
+comparison not certified by the fixed interval endpoints also marks it
+uncovered rather than invoking a solver-dependent tie break.
+
+The mandatory primary computation is Stam eigenanalysis, not uniform
+subdivision. For the ordered local control vector it constructs the published
+stock-mask subdivision matrix `S`, certifies interval enclosures of `V`,
+`Lambda`, and `V^-1` (including repeated invariant blocks), and computes the
+depth power as `S^d = V*Lambda^d*V^-1`. A floating candidate decomposition is
+only a seed: interval Krawczyk inclusion and the invariant-block residual and
+separation checks must certify the enclosures before they can contribute to a
+row. Failure is oracle-uncovered.
+
+Every original control source enters that local vector as its basis row `e_i`.
+For the sample's child sequence, the exact extraction matrix `R_path,d` selects
+the regular controls after the eigenpower, so the depth-`d` Stam row is the
+regular box-spline row times `R_path,d * V*Lambda^d*V^-1`. Powers of a repeated
+block are matrix-block powers, never independently powered arbitrary vectors.
+On a child boundary, test the closed child domains in the fixed order
+`T0,T1,T2,Tc` and take the first match. Let `d0` be the first depth at which
+the selected triangle has the complete regular 12-control box-spline support.
+At each of the five depths `d = d0,d0+1,...,d0+4`, the primary Stam route
+evaluates all six exact regular-patch source rows
+`position,du,dv,duu,duv,dvv` and transforms them to the canonical coarse frame
+with `B = A_d*Jk`. The maximum allowed depth is fixed: `d0+4 <= 30`.
+
+For one row and source `i`, intersect its five outward-rounded coefficient
+intervals. Every intersection must be nonempty. The serialized coefficient is
+the intersection midpoint and `h_i` is its half-width. The rigorous coefficient
+error bound is `sum_i h_i`. For fixture coordinate component `a`, the rigorous
+geometry bound is `sum_i h_i*abs(P_i[a]) / lower(L_M)`, and the reported bound
+is the maximum over the three components. Here `L_M` is an outward-rounded
+enclosure of the exact maximum control-edge Euclidean length and its lower
+endpoint must be positive. Each bound, separately for each of the six rows,
+must be at most one tenth of that row's D10 target. An exact singleton interval
+has `h_i=0`; an exactly zero row difference therefore has bound zero. No ratio
+or division by a row difference is performed, so a zero sequence cannot create
+`0/0`. An empty intersection, missing regular support by depth 30, nonpositive
+`lower(L_M)`, or failed bound is oracle-uncovered.
+
+The mathematical justification is the Loop refinement identity: after the
+complete regular support is reached, the exact Stam eigenpower followed by
+exact box-spline evaluation represents the same six coarse-frame linear
+functionals at every later depth. Thus the five primary interval rows enclose
+one basis-invariant functional even though the mandatory algorithm computes it
+through the canonical eigendecomposition. A position-mode eigenvalue heuristic
+is never applied to derivative rows. Direct stock-mask propagation is the
+separate cross-check below; it may neither replace the primary Stam rows nor
+turn a failed eigendecomposition into coverage.
 
 **Canonical face coordinates.** For every oriented base triangle
 `(v0,v1,v2)`, the only public comparison frame is
@@ -397,16 +497,31 @@ oracle-uncovered. Adjacent-extraordinary fixtures are never assumed covered at
 depth zero. An uncovered item supplies no evidence for or against either
 candidate.
 
-**Independent uniform-subdivision cross-check.** The separate 100-digit
-uniform subdivider applies the stock even/odd Loop masks directly for depths 0
-through 30. At every original extraordinary vertex and at the dyadic interior
-vertices reached by `(1/4,1/4)`, `(1/2,1/4)`, and `(1/4,1/2)`, it compares the
-converged vertex position with the eigenanalysis oracle. Its own tail uses the
-same three-ratio `q<=0.75` bound, and the oracle-versus-uniform normalized
-position difference must be at most `0.1 * irregular_position_row_accuracy`.
-The extraordinary tangent eigenspace is also compared as a projection matrix;
-its infinity-norm difference must be at most `1.0e-20` in 100-digit arithmetic.
-These checks validate the oracle; they are not candidate accuracy rows.
+**Independent uniform-subdivision cross-check.** The separately coded MPFR
+interval uniform subdivider applies the stock even/odd Loop masks directly for
+depths 0 through 30. It starts the complete coarse mesh from original-source
+basis rows, recursively expands the exact backward mask-dependency closure for
+the requested refined controls, and memoizes only that sparse closure; this is
+algebraically identical to full uniform refinement without materializing
+`4^d` faces. It uses its own stock-mask and refined-index code and may not call
+the primary `S`, eigenvalue, eigenvector, matrix-power, or extraction
+implementation. For every primary sample and each of its five depths, it
+evaluates the same regular box-spline functional after direct propagation.
+Every direct coefficient interval must overlap the corresponding primary Stam
+interval source by source, and its independently intersected five-depth rows
+must satisfy the same coefficient and normalized geometry uncertainty bounds.
+
+Additionally, at every original extraordinary vertex it constructs the
+published exact Loop vertex-limit position row directly; at the dyadic interior
+vertices reached by `(1/4,1/4)`, `(1/2,1/4)`, and `(1/4,1/2)` it constructs the
+five-depth position-row intersection. These position intervals must overlap the
+primary position intervals source by source, and the resulting coefficient and
+normalized geometry bounds must each be at most
+`0.1 * irregular_position_row_accuracy`. The extraordinary tangent eigenspace
+is compared as the source-ID-ordered Euclidean projection matrix defined
+above; `||P_eigen-P_uniform||_infinity <= 1.0e-20` in interval arithmetic.
+These checks validate the primary Stam oracle; they are not candidate accuracy
+rows, and uniform success cannot supply coverage when the primary route fails.
 
 ### 3.3 Frozen D10 proposal (approval still pending)
 
@@ -427,10 +542,12 @@ explicit user approval, and any later widening is a blocker under **S5**.
 | `irregular_second_derivative_row_accuracy` | `1.25e-4` | Same paired norms for each of `duu`,`duv`,`dvv`; per canonical parameter squared. | Two fixed upstream derivative-order factors of five. | D10 / B2 D9a irregular-oracle gate outside the inner radius. |
 | `flip_pair_row_changed_linf` | `1.0e-12` | Absolute coefficient `l-infinity` over the source-ID union; missing source is zero. | Existing invariant scale, well above double roundoff; locality only, not accuracy. | B2 locality report, not D9a accuracy. |
 
-A flip-pair face is `changed` when any approved sample and any of its six rows
-exceeds `flip_pair_row_changed_linf`; otherwise it is reusable. The value is
-fixed near the existing row-sum invariant scale, far above double roundoff and
-far below every accuracy target, without reference to a candidate run.
+A flip-pair face is `changed` when any entry in the hash-covered section 7
+`locality_sample_manifest` and any of its six rows exceeds
+`flip_pair_row_changed_linf`; otherwise it is reusable. Omitting, reordering, or
+altering a manifest entry or row name is fixture drift. The value is fixed near
+the existing row-sum invariant scale, far above double roundoff and far below
+every accuracy target, without reference to a candidate run.
 
 ## 4. Bfr implementation facts to be pinned
 
@@ -1224,29 +1341,62 @@ The flip-pair family is generated offline as static fixtures with documented
 provenance and hashes. It requires no `Mesh` mutation, no edge ownership, and
 no WP9 dependency, which is precisely why it can run now.
 
-B2p freezes the concrete corpus as follows. The single-flip family is an
-oriented 12-vertex/20-face icosahedral base plus three members, each replacing
-exactly the two incident faces of one legal edge and introducing one previously
-absent diagonal. `family_metadata.json` is authoritative for locality. An
-unchanged face retains `base-face-NNNN` only when its CSV row and oriented
-vertex triple are byte-for-byte the base values. Each rewritten row receives a
-variant-local ID and is explicitly non-identical; inventing correspondence
-between the two different triangular domains is forbidden. The metadata lists
-the old/new edge, quadrilateral boundary cycle, both rewritten rows and faces,
-and every unchanged base/member row pair. B2 compares rows only for the listed
-unchanged IDs at the same approved `(u,v)` sample.
+B2p freezes the concrete corpus as follows. The single-flip base is the
+oriented 13-vertex/22-face convex hull produced by Python
+`random.Random(14631)`: draw 13 triples `(a,b,c)` with
+`a,b=randint(-12,12)`, `c=randint(1,12)`, map `x=a/c,y=b/c` to the unit sphere
+by `(2x,2y,x^2+y^2-1)/(x^2+y^2+1)`, and enumerate the strict hull with exact
+`Fraction` side tests. The accepted triples and every strict-side count are in
+the hash-covered metadata. This is an a-priori asymmetric construction, not a
+post-result choice.
 
-The valence-7/8/9 fixture is one oriented connected sum of three triangular
-bipyramid components. Its metadata names the exact retained apex for each
-required valence and records all vertex valences. The adjacent-extraordinary
-fixture is the closed oriented octahedral sphere after one legal flip; the new
-edge joins two recorded valence-5 vertices. All members are generated by
-`scripts/generate_b2p_loop_fixtures.py` using only the Python standard library.
-Each metadata file records generator/version/parameters, source identity,
-vertex/edge/face counts, valence facts, complete vertex use, duplicate-face
-absence, exact two-face edge incidence, opposite edge directions, and connected
-degree-2 vertex links. Checked-in files must reproduce byte-for-byte in a fresh
-temporary output root.
+Legal base edges are scanned lexicographically. An edge is accepted only when
+it is endpoint-disjoint from prior accepted edges, introduces a new sorted
+endpoint-valence pair, and has new radius-1 and radius-2 neighborhood
+signatures; the first three accepted edges are `(0,2)`, `(3,4)`, and `(6,8)`.
+For radius `R`, graph distance is the minimum distance from either endpoint.
+The signature records, for every shell `0..R`, the sorted per-vertex tuple of
+base valence, neighbor counts in every shell, and neighbor count outside the
+radius; it also records edge counts by shell pair, the endpoint valence pair,
+and the two opposite-vertex valences. Each signature is stored in
+`family_metadata.json` and the matching member metadata and is recomputed by
+tests. The three signatures must be pairwise different independently at both
+radii.
+
+Each member replaces exactly the two incident faces of its accepted edge and
+introduces one previously absent diagonal. `family_metadata.json` is
+authoritative for locality. An unchanged face retains `base-face-NNNN` only
+when its CSV row and oriented vertex triple are byte-for-byte the base values.
+Each rewritten row receives a variant-local ID and is explicitly non-identical;
+inventing correspondence between the two different triangular domains is
+forbidden. The metadata lists the old/new edge, quadrilateral boundary cycle,
+both rewritten rows and faces, and every unchanged base/member row pair.
+
+The hash-covered `locality_sample_manifest` contains exactly ten interior
+points. Its denominator is 6; enumerate total numerator `s=2,3,4,5`, then
+`i=1,...,s-1`, set `j=s-i`, and use
+`(u,v)=(i/6,j/6)` with barycentric numerators `(6-i-j,i,j)`. The sample ID is
+`tri-l6-sSS-uII-vJJ` with two-digit numerators. This order is mandatory, as is
+the row order `position,du,dv,duu,duv,dvv`. Every listed comparable unchanged
+face uses every sample exactly once at the same oriented face-local `(u,v)` in
+base and member; there is no corner permutation and no per-corner duplication.
+
+The valence-7/8/9 fixture reuses the seeded embedded convex hull and declares
+vertices 2, 4, and 0 for valences 7, 8, and 9 respectively. Its frozen,
+scale-invariant triangle quality is
+`Q=4*sqrt(3)*area/(a^2+b^2+c^2)` with `min(Q) >= 0.24`; generation and an
+independent test require finite coordinates, positive triangle areas, and zero
+intersections between triangles with disjoint vertex sets. Metadata records the
+observed minimum and intersection count. The adjacent-extraordinary fixture is
+the closed oriented octahedral sphere after one legal flip; the new edge joins
+two recorded valence-5 vertices.
+
+All members are generated by `scripts/generate_b2p_loop_fixtures.py` using only
+the Python standard library. Each metadata file records generator/version/
+parameters, source identity, vertex/edge/face counts, valence facts, complete
+vertex use, duplicate-face absence, exact two-face edge incidence, opposite
+edge directions, and connected degree-2 vertex links. Checked-in files must
+reproduce byte-for-byte in a fresh temporary output root.
 
 ## 8. Gate sequence
 

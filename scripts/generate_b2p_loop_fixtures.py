@@ -12,14 +12,20 @@ import argparse
 import csv
 import io
 import json
+import math
+import random
 from collections import defaultdict, deque
 from dataclasses import dataclass
+from fractions import Fraction
 from pathlib import Path
 from typing import Any, Iterable
 
 
 GENERATOR_ID = "scripts/generate_b2p_loop_fixtures.py"
-GENERATOR_VERSION = 1
+GENERATOR_VERSION = 2
+GEOMETRY_SEED = 14631
+GEOMETRY_VERTEX_COUNT = 13
+MIN_TRIANGLE_QUALITY = 0.24
 
 
 @dataclass(frozen=True)
@@ -28,27 +34,29 @@ class Mesh:
     faces: tuple[tuple[int, int, int], ...]
 
 
-ICOSAHEDRON_VERTICES = (
-    (-1.0, 1.6180339887498948482, 0.0),
-    (1.0, 1.6180339887498948482, 0.0),
-    (-1.0, -1.6180339887498948482, 0.0),
-    (1.0, -1.6180339887498948482, 0.0),
-    (0.0, -1.0, 1.6180339887498948482),
-    (0.0, 1.0, 1.6180339887498948482),
-    (0.0, -1.0, -1.6180339887498948482),
-    (0.0, 1.0, -1.6180339887498948482),
-    (1.6180339887498948482, 0.0, -1.0),
-    (1.6180339887498948482, 0.0, 1.0),
-    (-1.6180339887498948482, 0.0, -1.0),
-    (-1.6180339887498948482, 0.0, 1.0),
-)
-
-ICOSAHEDRON_FACES = (
-    (0, 11, 5), (0, 5, 1), (0, 1, 7), (0, 7, 10), (0, 10, 11),
-    (1, 5, 9), (5, 11, 4), (11, 10, 2), (10, 7, 6), (7, 1, 8),
-    (3, 9, 4), (3, 4, 2), (3, 2, 6), (3, 6, 8), (3, 8, 9),
-    (4, 9, 5), (2, 4, 11), (6, 2, 10), (8, 6, 7), (9, 8, 1),
-)
+LOCALITY_SAMPLE_MANIFEST = {
+    "applicability": "every comparable unchanged face in every listed variant",
+    "coordinate_rule": (
+        "Use the same oriented face-local (u,v) coordinate in base and member; "
+        "do not permute corners and do not duplicate samples per corner."
+    ),
+    "lattice_denominator": 6,
+    "order_rule": (
+        "Increasing i+j from 2 through 5, then increasing i; j=(i+j)-i."
+    ),
+    "row_order": ["position", "du", "dv", "duu", "duv", "dvv"],
+    "samples": [
+        {
+            "barycentric_numerators": [6 - i - j, i, j],
+            "id": f"tri-l6-s{i + j:02d}-u{i:02d}-v{j:02d}",
+            "u_numerator": i,
+            "v_numerator": j,
+        }
+        for total in range(2, 6)
+        for i in range(1, total)
+        for j in (total - i,)
+    ],
+}
 
 
 def _json_text(value: Any) -> str:
@@ -215,15 +223,303 @@ def flip_edge(mesh: Mesh, edge: tuple[int, int]) -> tuple[Mesh, dict[str, Any]]:
     }
 
 
+def _fraction_sub(left: tuple[Fraction, Fraction, Fraction],
+                  right: tuple[Fraction, Fraction, Fraction]
+                  ) -> tuple[Fraction, Fraction, Fraction]:
+    return tuple(a - b for a, b in zip(left, right))  # type: ignore[return-value]
+
+
+def _fraction_cross(left: tuple[Fraction, Fraction, Fraction],
+                    right: tuple[Fraction, Fraction, Fraction]
+                    ) -> tuple[Fraction, Fraction, Fraction]:
+    return (
+        left[1] * right[2] - left[2] * right[1],
+        left[2] * right[0] - left[0] * right[2],
+        left[0] * right[1] - left[1] * right[0],
+    )
+
+
+def _fraction_dot(left: tuple[Fraction, Fraction, Fraction],
+                  right: tuple[Fraction, Fraction, Fraction]) -> Fraction:
+    return sum((a * b for a, b in zip(left, right)), Fraction(0))
+
+
+def _asymmetric_convex_mesh() -> tuple[Mesh, dict[str, Any]]:
+    """Return the seeded rational construction and its exact convex hull."""
+    generator = random.Random(GEOMETRY_SEED)
+    parameters = tuple(
+        (generator.randint(-12, 12), generator.randint(-12, 12),
+         generator.randint(1, 12))
+        for _ in range(GEOMETRY_VERTEX_COUNT)
+    )
+    exact_vertices: list[tuple[Fraction, Fraction, Fraction]] = []
+    for a, b, c in parameters:
+        x, y = Fraction(a, c), Fraction(b, c)
+        denominator = x * x + y * y + 1
+        exact_vertices.append((
+            2 * x / denominator,
+            2 * y / denominator,
+            (x * x + y * y - 1) / denominator,
+        ))
+
+    faces: list[tuple[int, int, int]] = []
+    strict_side_checks = 0
+    for i in range(len(exact_vertices)):
+        for j in range(i + 1, len(exact_vertices)):
+            for k in range(j + 1, len(exact_vertices)):
+                normal = _fraction_cross(
+                    _fraction_sub(exact_vertices[j], exact_vertices[i]),
+                    _fraction_sub(exact_vertices[k], exact_vertices[i]),
+                )
+                sides = [
+                    _fraction_dot(
+                        normal,
+                        _fraction_sub(exact_vertices[other], exact_vertices[i]),
+                    )
+                    for other in range(len(exact_vertices))
+                    if other not in (i, j, k)
+                ]
+                if all(side < 0 for side in sides):
+                    faces.append((i, j, k))
+                    strict_side_checks += len(sides)
+                elif all(side > 0 for side in sides):
+                    faces.append((i, k, j))
+                    strict_side_checks += len(sides)
+
+    mesh = Mesh(
+        tuple(tuple(float(value) for value in vertex)
+              for vertex in exact_vertices),  # type: ignore[arg-type]
+        tuple(faces),
+    )
+    topology = validate_mesh(mesh)
+    if topology["vertex_count"] != GEOMETRY_VERTEX_COUNT:
+        raise ValueError("seeded hull dropped a generated vertex")
+    geometry = validate_geometry(mesh)
+    if geometry["minimum_triangle_quality"] < MIN_TRIANGLE_QUALITY:
+        raise ValueError("seeded hull missed the frozen triangle-quality floor")
+    if geometry["nonadjacent_triangle_intersection_count"] != 0:
+        raise ValueError("seeded hull is not embedded")
+    return mesh, {
+        "accepted_stereographic_integer_triples": [list(item) for item in parameters],
+        "convex_hull": {
+            "algorithm": (
+                "enumerate vertex triples in lexicographic order with exact Fraction "
+                "arithmetic; retain iff every other vertex lies strictly on one side; "
+                "orient retained faces outward"
+            ),
+            "all_generated_vertices_retained": True,
+            "strict_rational_side_checks": strict_side_checks,
+        },
+        "geometry_validation": geometry,
+        "random_draw_contract": (
+            "Python random.Random(seed); for each of 13 vertices draw a,b with "
+            "randint(-12,12) and c with randint(1,12)"
+        ),
+        "seed": GEOMETRY_SEED,
+        "stereographic_map": (
+            "x=a/c, y=b/c; vertex=(2x,2y,x^2+y^2-1)/(x^2+y^2+1)"
+        ),
+    }
+
+
+def _vsub(left: tuple[float, float, float], right: tuple[float, float, float]
+          ) -> tuple[float, float, float]:
+    return tuple(a - b for a, b in zip(left, right))  # type: ignore[return-value]
+
+
+def _cross(left: tuple[float, float, float], right: tuple[float, float, float]
+           ) -> tuple[float, float, float]:
+    return (
+        left[1] * right[2] - left[2] * right[1],
+        left[2] * right[0] - left[0] * right[2],
+        left[0] * right[1] - left[1] * right[0],
+    )
+
+
+def _dot(left: tuple[float, float, float],
+         right: tuple[float, float, float]) -> float:
+    return sum(a * b for a, b in zip(left, right))
+
+
+def _segment_triangle_intersects(
+        start: tuple[float, float, float], end: tuple[float, float, float],
+        triangle: tuple[tuple[float, float, float], ...]) -> bool:
+    epsilon = 1.0e-12
+    direction = _vsub(end, start)
+    edge1 = _vsub(triangle[1], triangle[0])
+    edge2 = _vsub(triangle[2], triangle[0])
+    pvec = _cross(direction, edge2)
+    determinant = _dot(edge1, pvec)
+    if abs(determinant) <= epsilon:
+        return False
+    inverse = 1.0 / determinant
+    tvec = _vsub(start, triangle[0])
+    u = _dot(tvec, pvec) * inverse
+    if u < -epsilon or u > 1.0 + epsilon:
+        return False
+    qvec = _cross(tvec, edge1)
+    v = _dot(direction, qvec) * inverse
+    if v < -epsilon or u + v > 1.0 + epsilon:
+        return False
+    distance = _dot(edge2, qvec) * inverse
+    return -epsilon <= distance <= 1.0 + epsilon
+
+
+def _triangles_intersect(
+        left: tuple[tuple[float, float, float], ...],
+        right: tuple[tuple[float, float, float], ...]) -> bool:
+    # The exact hull construction excludes coplanar disjoint facets.  Testing
+    # all six boundary segments therefore covers every possible intersection.
+    for triangle, other in ((left, right), (right, left)):
+        for index in range(3):
+            if _segment_triangle_intersects(
+                    triangle[index], triangle[(index + 1) % 3], other):
+                return True
+    return False
+
+
+def validate_geometry(mesh: Mesh) -> dict[str, Any]:
+    if any(not math.isfinite(value) for vertex in mesh.vertices for value in vertex):
+        raise ValueError("fixture has a non-finite coordinate")
+    qualities: list[float] = []
+    triangles = [tuple(mesh.vertices[index] for index in face)
+                 for face in mesh.faces]
+    for triangle in triangles:
+        edge_vectors = (
+            _vsub(triangle[1], triangle[0]),
+            _vsub(triangle[2], triangle[1]),
+            _vsub(triangle[0], triangle[2]),
+        )
+        doubled_area = math.sqrt(_dot(_cross(edge_vectors[0],
+                                                   _vsub(triangle[2], triangle[0])),
+                                           _cross(edge_vectors[0],
+                                                  _vsub(triangle[2], triangle[0]))))
+        if doubled_area <= 0.0:
+            raise ValueError("fixture has a zero-area triangle")
+        denominator = sum(_dot(edge, edge) for edge in edge_vectors)
+        qualities.append(2.0 * math.sqrt(3.0) * doubled_area / denominator)
+
+    intersections = 0
+    for left_index, left_face in enumerate(mesh.faces):
+        for right_index in range(left_index + 1, len(mesh.faces)):
+            if set(left_face).isdisjoint(mesh.faces[right_index]) and \
+                    _triangles_intersect(triangles[left_index], triangles[right_index]):
+                intersections += 1
+    return {
+        "all_coordinates_finite": True,
+        "minimum_triangle_quality": min(qualities),
+        "minimum_triangle_quality_bound": MIN_TRIANGLE_QUALITY,
+        "nonadjacent_triangle_intersection_count": intersections,
+        "positive_triangle_areas": True,
+        "triangle_quality_definition": "4*sqrt(3)*area/(a^2+b^2+c^2)",
+    }
+
+
+def _mesh_adjacency(mesh: Mesh) -> list[set[int]]:
+    adjacency = [set() for _ in mesh.vertices]
+    for face in mesh.faces:
+        for index in range(3):
+            left, right = face[index], face[(index + 1) % 3]
+            adjacency[left].add(right)
+            adjacency[right].add(left)
+    return adjacency
+
+
+def _neighborhood_signature(mesh: Mesh, edge: tuple[int, int], radius: int
+                            ) -> dict[str, Any]:
+    adjacency = _mesh_adjacency(mesh)
+    distances = {edge[0]: 0, edge[1]: 0}
+    pending = deque(edge)
+    while pending:
+        current = pending.popleft()
+        if distances[current] == radius:
+            continue
+        for neighbor in sorted(adjacency[current]):
+            if neighbor not in distances:
+                distances[neighbor] = distances[current] + 1
+                pending.append(neighbor)
+
+    shell_records: list[dict[str, Any]] = []
+    for shell in range(radius + 1):
+        records = []
+        for vertex in sorted(item for item, distance in distances.items()
+                             if distance == shell):
+            counts = [sum(distances.get(neighbor) == target
+                          for neighbor in adjacency[vertex])
+                      for target in range(radius + 1)]
+            outside = sum(neighbor not in distances for neighbor in adjacency[vertex])
+            records.append([len(adjacency[vertex]), *counts, outside])
+        shell_records.append({"distance": shell, "records": sorted(records)})
+
+    edge_counts = {(left, right): 0 for left in range(radius + 1)
+                   for right in range(left, radius + 1)}
+    for left, neighbors in enumerate(adjacency):
+        for right in neighbors:
+            if left < right and left in distances and right in distances:
+                pair = tuple(sorted((distances[left], distances[right])))
+                edge_counts[pair] += 1
+
+    incident = _edge_incident_faces(mesh.faces, edge)
+    return {
+        "edge_shell_counts": [
+            {"count": edge_counts[pair], "shells": list(pair)}
+            for pair in sorted(edge_counts)
+        ],
+        "endpoint_valences": sorted(len(adjacency[vertex]) for vertex in edge),
+        "opposite_valences": sorted(len(adjacency[item[3]]) for item in incident),
+        "radius": radius,
+        "shell_vertex_records": shell_records,
+    }
+
+
+def _selected_flip_edges(mesh: Mesh) -> list[tuple[int, int]]:
+    adjacency = _mesh_adjacency(mesh)
+    edge_set = {
+        tuple(sorted((face[index], face[(index + 1) % 3])))
+        for face in mesh.faces for index in range(3)
+    }
+    accepted: list[tuple[int, int]] = []
+    endpoint_pairs: set[tuple[int, int]] = set()
+    signatures = {1: set(), 2: set()}
+    for edge in sorted(edge_set):
+        incident = _edge_incident_faces(mesh.faces, edge)
+        if len(incident) != 2:
+            continue
+        new_edge = tuple(sorted((incident[0][3], incident[1][3])))
+        if incident[0][3] == incident[1][3] or new_edge in edge_set:
+            continue
+        endpoint_pair = tuple(sorted(len(adjacency[item]) for item in edge))
+        candidates = {
+            radius: json.dumps(_neighborhood_signature(mesh, edge, radius),
+                               sort_keys=True, separators=(",", ":"))
+            for radius in (1, 2)
+        }
+        if set(edge).intersection(item for accepted_edge in accepted
+                                  for item in accepted_edge):
+            continue
+        if endpoint_pair in endpoint_pairs:
+            continue
+        if any(candidates[radius] in signatures[radius] for radius in (1, 2)):
+            continue
+        accepted.append(edge)
+        endpoint_pairs.add(endpoint_pair)
+        for radius in (1, 2):
+            signatures[radius].add(candidates[radius])
+        if len(accepted) == 3:
+            return accepted
+    raise ValueError("seeded hull did not provide three diverse legal flips")
+
+
 def generate_flip_family(root: Path) -> None:
     family_root = root / "data/fixtures/candidates/b2p_single_flip_family"
-    base = Mesh(ICOSAHEDRON_VERTICES, ICOSAHEDRON_FACES)
+    base, construction = _asymmetric_convex_mesh()
     base_face_ids = [f"base-face-{index:04d}" for index in range(len(base.faces))]
     base_metadata = _base_metadata(
         "b2p_single_flip_base", base,
-        "embedded OpenSubdiv-style oriented icosahedron control topology",
-        {"member": "base", "polyhedron": "icosahedron"},
+        "seeded exact-rational stereographic convex hull",
+        {"construction": construction, "member": "base"},
     )
+    base_metadata["geometry"] = construction["geometry_validation"]
     base_metadata["family"] = {
         "face_ids_by_row": base_face_ids,
         "family_id": "b2p_single_flip_family",
@@ -232,7 +528,7 @@ def generate_flip_family(root: Path) -> None:
     _write_member(family_root / "base", base, base_metadata)
 
     variants: list[dict[str, Any]] = []
-    selected_edges = ((0, 1), (2, 3), (4, 5))
+    selected_edges = tuple(_selected_flip_edges(base))
     for variant_index, edge in enumerate(selected_edges):
         name = f"flip_{variant_index:03d}"
         variant, flip = flip_edge(base, edge)
@@ -252,6 +548,10 @@ def generate_flip_family(root: Path) -> None:
                 "rewritten rows receives a variant-local ID and has no base-face identity."
             ),
             "member": name,
+            "neighborhood_signatures": {
+                "radius_1": _neighborhood_signature(base, edge, 1),
+                "radius_2": _neighborhood_signature(base, edge, 2),
+            },
             "rewritten": {
                 **flip,
                 "base_face_ids": [base_face_ids[row] for row in rewritten],
@@ -272,7 +572,17 @@ def generate_flip_family(root: Path) -> None:
         metadata = _base_metadata(
             f"b2p_single_flip_{name}", variant,
             "one deterministic legal edge flip from b2p_single_flip_base",
-            {"base_member": "base", "edge": list(edge), "member": name},
+            {
+                "base_member": "base",
+                "base_seed": GEOMETRY_SEED,
+                "edge": list(edge),
+                "member": name,
+                "selection_contract": (
+                    "lexicographically scan legal base edges; require endpoint-disjoint "
+                    "accepted edges, a new sorted endpoint-valence pair, and new exact "
+                    "radius-1 and radius-2 signatures; accept the first three"
+                ),
+            },
         )
         metadata["family"] = {
             "correspondence": correspondence,
@@ -287,10 +597,14 @@ def generate_flip_family(root: Path) -> None:
         "base_member": "base",
         "comparison_contract": {
             "coefficient_norm": "linf over the source-ID union, missing coefficient equals zero",
-            "derivative_orders": ["position", "du", "dv", "duu", "duv", "dvv"],
+            "derivative_orders": LOCALITY_SAMPLE_MANIFEST["row_order"],
             "row_changed_tolerance": 1.0e-12,
-            "sample_identity": "same approved face-local (u,v) coordinate",
+            "sample_identity": (
+                "the exact ordered locality_sample_manifest entry, evaluated at the "
+                "same oriented face-local (u,v) coordinate"
+            ),
         },
+        "construction_provenance": construction,
         "family_id": "b2p_single_flip_family",
         "generator": {"id": GENERATOR_ID, "version": GENERATOR_VERSION},
         "identity_rule": (
@@ -298,118 +612,33 @@ def generate_flip_family(root: Path) -> None:
             "rows are recorded but are not assigned a false same-domain identity."
         ),
         "schema_version": 1,
+        "locality_sample_manifest": LOCALITY_SAMPLE_MANIFEST,
+        "selected_flip_edges": [list(edge) for edge in selected_edges],
+        "selection_contract": (
+            "lexicographically scan legal base edges; require endpoint-disjoint accepted "
+            "edges, a new sorted endpoint-valence pair, and new exact radius-1 and "
+            "radius-2 signatures; accept the first three"
+        ),
         "variants": variants,
     }
     _write(family_root / "family_metadata.json", _json_text(family_metadata))
 
 
-def _bipyramid_component(valence: int, connector_face_indices: tuple[int, ...],
-                         x_offset: float) -> tuple[Mesh, list[tuple[int, int, int]], int]:
-    vertices: list[tuple[float, float, float]] = [
-        (x_offset, 0.0, 1.0),
-        (x_offset, 0.0, -1.0),
-    ]
-    # Rational deterministic coordinates are sufficient for this topology-only
-    # preflight fixture; B2 normalizes by the checked-in maximum edge length.
-    for index in range(valence):
-        vertices.append((x_offset + float(index), float(index * index + 1), 0.0))
-    faces: list[tuple[int, int, int]] = []
-    for index in range(valence):
-        current = 2 + index
-        following = 2 + ((index + 1) % valence)
-        faces.append((0, current, following))
-        faces.append((1, following, current))
-
-    connectors: list[tuple[int, int, int]] = []
-    for face_index in sorted(connector_face_indices, reverse=True):
-        row = 2 * face_index + 1
-        a, b, c = faces[row]
-        center = len(vertices)
-        vertices.append((
-            (vertices[a][0] + vertices[b][0] + vertices[c][0]) / 3.0,
-            (vertices[a][1] + vertices[b][1] + vertices[c][1]) / 3.0,
-            (vertices[a][2] + vertices[b][2] + vertices[c][2]) / 3.0,
-        ))
-        replacement = [(a, b, center), (b, c, center), (c, a, center)]
-        faces[row:row + 1] = replacement
-        connectors.append(replacement[1])
-    connectors.reverse()
-    mesh = Mesh(tuple(vertices), tuple(faces))
-    validate_mesh(mesh)
-    return mesh, connectors, 0
-
-
-class _UnionFind:
-    def __init__(self, count: int) -> None:
-        self.parent = list(range(count))
-
-    def find(self, item: int) -> int:
-        while self.parent[item] != item:
-            self.parent[item] = self.parent[self.parent[item]]
-            item = self.parent[item]
-        return item
-
-    def union(self, left: int, right: int) -> None:
-        left_root, right_root = self.find(left), self.find(right)
-        if left_root != right_root:
-            self.parent[max(left_root, right_root)] = min(left_root, right_root)
-
-
 def generate_valence789(root: Path) -> None:
-    specifications = ((7, (0,), 0.0), (8, (0, 4), 20.0), (9, (0,), 50.0))
-    components = [_bipyramid_component(*spec) for spec in specifications]
-    offsets: list[int] = []
-    vertices: list[tuple[float, float, float]] = []
-    faces: list[tuple[int, int, int]] = []
-    connectors: list[list[tuple[int, int, int]]] = []
-    target_apexes: list[int] = []
-    for mesh, local_connectors, local_target in components:
-        offset = len(vertices)
-        offsets.append(offset)
-        vertices.extend(mesh.vertices)
-        faces.extend(tuple(offset + vertex for vertex in face) for face in mesh.faces)
-        connectors.append([
-            tuple(offset + vertex for vertex in face)
-            for face in local_connectors
-        ])
-        target_apexes.append(offset + local_target)
-
-    union = _UnionFind(len(vertices))
-    glue_pairs = ((connectors[0][0], connectors[1][0]),
-                  (connectors[1][1], connectors[2][0]))
-    removed = {tuple(face) for pair in glue_pairs for face in pair}
-    for left, right in glue_pairs:
-        for left_vertex, right_vertex in zip(left, (right[0], right[2], right[1])):
-            union.union(left_vertex, right_vertex)
-
-    remaining_faces = [face for face in faces if face not in removed]
-    roots = sorted({union.find(vertex) for face in remaining_faces for vertex in face})
-    root_to_new = {root: index for index, root in enumerate(roots)}
-    final_vertices = tuple(vertices[root] for root in roots)
-    final_faces = tuple(
-        tuple(root_to_new[union.find(vertex)] for vertex in face)
-        for face in remaining_faces
-    )
-    mesh = Mesh(final_vertices, final_faces)
+    mesh, construction = _asymmetric_convex_mesh()
     validation = validate_mesh(mesh)
-    targets = {
-        str(valence): root_to_new[union.find(apex)]
-        for valence, apex in zip((7, 8, 9), target_apexes)
-    }
+    targets = {"7": 2, "8": 4, "9": 0}
     for expected, vertex in targets.items():
         if validation["valence_by_vertex"][vertex] != int(expected):
             raise ValueError(f"target vertex {vertex} did not retain valence {expected}")
 
     metadata = _base_metadata(
         "b2p_closed_valence789", mesh,
-        "oriented connected sum of deterministic triangular bipyramids",
-        {
-            "component_valences": [7, 8, 9],
-            "connector_faces_per_component": [1, 2, 1],
-            "gluing_orientation": "second boundary cycle reversed",
-        },
+        "seeded exact-rational stereographic convex hull",
+        {"construction": construction},
     )
     metadata["declared_valence_vertices"] = targets
+    metadata["geometry"] = construction["geometry_validation"]
     metadata["topology"]["contains_valences"] = [7, 8, 9]
     _write_member(root / "data/fixtures/candidates/b2p_valence789", mesh, metadata)
 
@@ -455,7 +684,9 @@ def generate(output_root: Path) -> None:
         Path("data/fixtures/candidates/b2p_adjacent_extraordinary"),
     )
     existing = [relative for relative in relative_roots
-                if (output_root / relative).exists()]
+                if (output_root / relative).exists()
+                and any(path.is_file() for path in
+                        (output_root / relative).rglob("*"))]
     if existing:
         joined = ", ".join(str(path) for path in existing)
         raise FileExistsError(

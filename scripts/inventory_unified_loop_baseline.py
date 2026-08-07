@@ -101,39 +101,39 @@ EXPECTED_FIXTURE_HASHES = {
 
 EXPECTED_B2P_FIXTURE_HASHES = {
     "data/fixtures/candidates/b2p_single_flip_family/base/candidate_metadata.json":
-        "011d35a38687ea0febf6efe43927328e86ef1ac2ee19101bfaa91f316fae7d44",
+        "66c9ab55624afb0f7fc8b444e6e5d9479bde356483bb11a73e0d5c6ce3edd35d",
     "data/fixtures/candidates/b2p_single_flip_family/base/faces.csv":
-        "561b3ec0c4aa6b1e684ef87c2738d8c20a474225bd4960a4a672d306a3e70327",
+        "bcc295b8c7e972982676afedb7ead94bbddfd4702f6d638a070630c9f32f7672",
     "data/fixtures/candidates/b2p_single_flip_family/base/vertices.csv":
-        "61d4284b454c6716903861135fdbc0b6c4e28a6203b3cc59ef41294199bcc11a",
+        "b538595170eca52b4b648cbc3c91e6f63ff6b0a40fc16a6f2a786d5b464c4f52",
     "data/fixtures/candidates/b2p_single_flip_family/family_metadata.json":
-        "5fdacd87fafaec7bfd8f90a6988300a6116d1e32a0238bbad69c4558e242740b",
+        "c8ac7ea89681b72508a29b2bca8f8b97ef2c65acab6aebe19445ae8eb7136fa2",
     "data/fixtures/candidates/b2p_single_flip_family/flip_000/candidate_metadata.json":
-        "c622099e930d54660aac51571fbfb74f058e1376002cf609458f066dd5b4b078",
+        "226312a46cb6f611efa54866b37787a01b68aa783d614936982b407bf0dc55d9",
     "data/fixtures/candidates/b2p_single_flip_family/flip_000/faces.csv":
-        "b11ece5a396d30d09a26ae243d79d784cdda02c94d281077300d43295f9f6a1e",
+        "744b5a91acbdf6926890eb378dd7410a580155bd84ffb583c49d63a6a56fca76",
     "data/fixtures/candidates/b2p_single_flip_family/flip_000/vertices.csv":
-        "61d4284b454c6716903861135fdbc0b6c4e28a6203b3cc59ef41294199bcc11a",
+        "b538595170eca52b4b648cbc3c91e6f63ff6b0a40fc16a6f2a786d5b464c4f52",
     "data/fixtures/candidates/b2p_single_flip_family/flip_001/candidate_metadata.json":
-        "86fec088750fd1a82891003be29b195f1f6b337b5f63ef06b5deaaf7007bb25c",
+        "b0315a513777cad7fb5f5ba9eed395959e3bce6848283c07cf7d7f0fccde974e",
     "data/fixtures/candidates/b2p_single_flip_family/flip_001/faces.csv":
-        "2f7bd0c70f416ecd29c444b41fc8c3e1621d448cf48145cc60f398ab9ff2afc0",
+        "58d78e761bcfb8172eff55084ad99968c14089ba08b2af78f3504ba621c9bc74",
     "data/fixtures/candidates/b2p_single_flip_family/flip_001/vertices.csv":
-        "61d4284b454c6716903861135fdbc0b6c4e28a6203b3cc59ef41294199bcc11a",
+        "b538595170eca52b4b648cbc3c91e6f63ff6b0a40fc16a6f2a786d5b464c4f52",
     "data/fixtures/candidates/b2p_single_flip_family/flip_002/candidate_metadata.json":
-        "a2aac3a97abcd523e184fcf281532b189d5de56d401446033d592440578d7c61",
+        "a66f2872f64ca861ca6648118aa4981482fc5f247742c5c189ecc906288f934e",
     "data/fixtures/candidates/b2p_single_flip_family/flip_002/faces.csv":
-        "c0e7abaa1ec7f9bfae0c371401ee9775a40c34ff76193b3ca4a847110b7e37f1",
+        "7ee844bfaec6aad97892673d63c7a00522e141db3dc707b6615be6852fd83727",
     "data/fixtures/candidates/b2p_single_flip_family/flip_002/vertices.csv":
-        "61d4284b454c6716903861135fdbc0b6c4e28a6203b3cc59ef41294199bcc11a",
+        "b538595170eca52b4b648cbc3c91e6f63ff6b0a40fc16a6f2a786d5b464c4f52",
     "data/fixtures/candidates/b2p_valence789/candidate_metadata.json":
-        "2c2969fad3c3efd96961eca2f97e8b463a55ca9e5e5229d231494a57c52918f5",
+        "f6a88b98adec1a90f4d591b9711aa20fd724b14755beadf064e42af8328a381b",
     "data/fixtures/candidates/b2p_valence789/faces.csv":
-        "429061ae1e0d983e678031ed464d6cfc8d35d67118217fe95e26bb67355d03db",
+        "bcc295b8c7e972982676afedb7ead94bbddfd4702f6d638a070630c9f32f7672",
     "data/fixtures/candidates/b2p_valence789/vertices.csv":
-        "3685c89b4dd2500511c33d4de7cd373729da83726b89a9274034f02bb6c11c57",
+        "b538595170eca52b4b648cbc3c91e6f63ff6b0a40fc16a6f2a786d5b464c4f52",
     "data/fixtures/candidates/b2p_adjacent_extraordinary/candidate_metadata.json":
-        "05f133445d17524398e7a8e5fa8c93f3c1e95b0b970f8257056c1c070e791b61",
+        "de6bf74052e24f26049c3d194570a081d47bd5dcd278ad9b34c6b1cf39973d1b",
     "data/fixtures/candidates/b2p_adjacent_extraordinary/faces.csv":
         "1ecbe26328311f99b2e55ccdc7e1d614947099fe1fff124cfca83dc62f5dddbb",
     "data/fixtures/candidates/b2p_adjacent_extraordinary/vertices.csv":
@@ -148,10 +148,29 @@ EXPECTED_B2P_TARGETS = {
 }
 
 EXPECTED_B2P_ORACLE_ANCHORS = [
-    "cpp_dec_float_100",
+    "repository-owned `MpfrInterval`",
+    "`mpfr_init2(...,544)`",
+    "exactly MPFR 4.2.2",
+    "MPFR_RNDD",
+    "MPFR_RNDU",
+    "mpfr_const_pi",
+    "scalar Boost MPFR wrapper is not an interval implementation",
     "1.0e-70",
-    "delta_d / (1 - q)",
-    "one tenth of that\norder's D10 target",
+    "kappa_infinity(V) = ||V||_infinity * ||V^-1||_infinity",
+    "smallest source ID is the pivot",
+    "spectral projector",
+    "d = d0,d0+1,...,d0+4",
+    "d0+4 <= 30",
+    "intersect its five outward-rounded coefficient",
+    "sum_i h_i",
+    "lower(L_M)",
+    "An exact singleton interval",
+    "0/0",
+    "Loop refinement identity",
+    "mandatory primary computation is Stam eigenanalysis",
+    "S^d = V*Lambda^d*V^-1",
+    "interval Krawczyk inclusion",
+    "uniform success cannot supply coverage when the primary route fails",
     "q_Bfr = q_Far = q",
     "J0 = [[ 1, 0],[ 0, 1]]",
     "J1 = [[ 0, 1],[-1,-1]]",
@@ -164,6 +183,30 @@ EXPECTED_B2P_ORACLE_ANCHORS = [
     "uniform subdivider applies the stock even/odd Loop masks",
     "1.0e-20",
 ]
+
+EXPECTED_B2P_LOCALITY_SAMPLE_MANIFEST = {
+    "applicability": "every comparable unchanged face in every listed variant",
+    "coordinate_rule": (
+        "Use the same oriented face-local (u,v) coordinate in base and member; "
+        "do not permute corners and do not duplicate samples per corner."
+    ),
+    "lattice_denominator": 6,
+    "order_rule": (
+        "Increasing i+j from 2 through 5, then increasing i; j=(i+j)-i."
+    ),
+    "row_order": ["position", "du", "dv", "duu", "duv", "dvv"],
+    "samples": [
+        {
+            "barycentric_numerators": [6 - i - j, i, j],
+            "id": f"tri-l6-s{i + j:02d}-u{i:02d}-v{j:02d}",
+            "u_numerator": i,
+            "v_numerator": j,
+        }
+        for total in range(2, 6)
+        for i in range(1, total)
+        for j in (total - i,)
+    ],
+}
 
 FORBIDDEN_B2P_CLAIM_TOKENS = [
     "candidate_" + "comparison_result",
@@ -575,6 +618,12 @@ def collect_inventory() -> dict[str, Any]:
         path: _sha256(path) for path in EXPECTED_B2P_FIXTURE_HASHES
         if (ROOT / path).is_file()
     }
+    b2p_family_metadata_path = (
+        "data/fixtures/candidates/b2p_single_flip_family/family_metadata.json")
+    b2p_family_metadata = json.loads(_text(b2p_family_metadata_path)) \
+        if (ROOT / b2p_family_metadata_path).is_file() else {}
+    b2p_locality_sample_manifest = b2p_family_metadata.get(
+        "locality_sample_manifest", {})
     b2p_targets = {
         name: {
             "adr": _markdown_named_float(adr, name),
@@ -858,6 +907,9 @@ def collect_inventory() -> dict[str, Any]:
             "expected_targets": EXPECTED_B2P_TARGETS,
             "fixture_sha256": b2p_fixtures,
             "expected_fixture_sha256": EXPECTED_B2P_FIXTURE_HASHES,
+            "locality_sample_manifest": b2p_locality_sample_manifest,
+            "expected_locality_sample_manifest":
+                EXPECTED_B2P_LOCALITY_SAMPLE_MANIFEST,
             "oracle_contract": b2p_oracle_contract,
             "forbidden_claim_tokens": b2p_forbidden_claim_tokens,
             "expected_forbidden_claim_tokens": [],
@@ -1129,6 +1181,12 @@ def validate_inventory(report: dict[str, Any], check_adr: bool = True) -> list[s
                 "B2p fixture-hash expectation drift")
         require(i3["fixture_sha256"] == EXPECTED_B2P_FIXTURE_HASHES,
                 "B2p fixture missing or SHA256 drift")
+        require(i3["expected_locality_sample_manifest"] ==
+                EXPECTED_B2P_LOCALITY_SAMPLE_MANIFEST,
+                "B2p locality-manifest expectation drift")
+        require(i3["locality_sample_manifest"] ==
+                EXPECTED_B2P_LOCALITY_SAMPLE_MANIFEST,
+                "B2p locality sample manifest drift")
         oracle = i3["oracle_contract"]
         require(oracle["all_required_fields_present"] and
                 all(oracle["anchors"].values()),
