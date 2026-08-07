@@ -496,6 +496,60 @@ class UnifiedLoopBaselineInventoryTest(unittest.TestCase):
             candidate = INVENTORY.collect_inventory()
         self.assertTrue(INVENTORY.validate_inventory(candidate, check_adr=False))
 
+    def test_M_D1_D2_approved_scope_limits_fail_closed(self) -> None:
+        required_status_fragments = {
+            "D1": (
+                "Stock OpenSubdiv 3.7.0 Loop semantics",
+                "forward-looking CPU proof baseline",
+                "Completed rows are not modified to reproduce legacy masks",
+                "does not select Far versus Bfr",
+                "does not change the production default",
+                "does not approve arbitrary production inputs",
+            ),
+            "D2": (
+                "complete",
+                "closed",
+                "consistently oriented",
+                "two-manifold triangular meshes",
+                "Boundaries",
+                "holes",
+                "ghosts",
+                "non-triangles",
+                "non-manifold incidence",
+                "inconsistent orientation",
+                "must fail before mutation",
+                "does not decide D2b",
+                "does not authorize production activation",
+            ),
+        }
+        for decision, fragments in required_status_fragments.items():
+            status = INVENTORY.EXPECTED_DECISIONS[decision]
+            for fragment in fragments:
+                with self.subTest(decision=decision, fragment=fragment):
+                    self.assertIn(fragment, status)
+                    reduced_status = status.replace(fragment, "scope-limit-dropped", 1)
+                    self.assert_text_mutation_rejected(
+                        "docs/adr_unified_loop_backend.md",
+                        lambda text, key=decision, old=status,
+                        new=reduced_status: text.replace(
+                            f"| {key} | {old} |",
+                            f"| {key} | {new} |", 1),
+                    )
+
+    def test_M_other_decision_statuses_remain_frozen(self) -> None:
+        frozen_statuses = {
+            "D0": "Proposed - pending explicit user stack disposition",
+            "D2b": "Proposed - pending explicit user production-scope approval",
+            "D3": "Pending post-WP2.1 oracle, independent scientific review, and user decision",
+            "D4": "Pending post-WP2.1 characterization, independent scientific review, and user decision",
+            "D5": "Pending WP1.1a evidence and explicit user approval",
+            "D8": "Proposed - pending explicit user performance-budget approval",
+        }
+        for decision, status in frozen_statuses.items():
+            with self.subTest(decision=decision):
+                self.assertEqual(INVENTORY.EXPECTED_DECISIONS[decision], status)
+                self.assertEqual(self.baseline["decisions"][decision], status)
+
 
 if __name__ == "__main__":
     unittest.main()
