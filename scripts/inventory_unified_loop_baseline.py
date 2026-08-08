@@ -81,6 +81,18 @@ EXPECTED_FIXTURE_HASHES = {
         "acfbd18a1922e465052f6badf5aa2567faa282add3edc7867f3bca7493e6e1aa",
     "data/fixtures/candidates/closed_valence3_tetrahedron/vertices.csv":
         "4a82e312830953d67731970042f5cf7d174e6af9f8844b7cd2b321209e51b898",
+    "data/fixtures/candidates/closed_valence3_triangular_bipyramid/candidate_metadata.json":
+        "10e219c89c7ae662c5e6d0125b6b0e818da363d10eb9a59b389107f1f49c0420",
+    "data/fixtures/candidates/closed_valence3_triangular_bipyramid/faces.csv":
+        "8015f9a4f4cb658390149c9fa06104e5eb5936dfffa0f99b919fe0aee05a1203",
+    "data/fixtures/candidates/closed_valence3_triangular_bipyramid/vertices.csv":
+        "d48ab492eb43ec7b208dc112079f5818aef1a8104fb5d873ba43faa0d9641f2b",
+    "data/fixtures/candidates/asymmetric_valence3_triangular_bipyramid/candidate_metadata.json":
+        "4c3c2a8f66ad63a42c8c39b38d5fa776b2abff82fdaef9e8345fce3ee90b77c1",
+    "data/fixtures/candidates/asymmetric_valence3_triangular_bipyramid/faces.csv":
+        "8015f9a4f4cb658390149c9fa06104e5eb5936dfffa0f99b919fe0aee05a1203",
+    "data/fixtures/candidates/asymmetric_valence3_triangular_bipyramid/vertices.csv":
+        "a94f9f70e8a3932e96dfc4169b2da3825a27ba62c387b7c5a1c68847752d9705",
     "data/fixtures/candidates/closed_valence4_octahedron/candidate_metadata.json":
         "2109779d724d924ac416a127fa4a376cf1a72fbe9fa1391223995ebbccb60b74",
     "data/fixtures/candidates/closed_valence4_octahedron/faces.csv":

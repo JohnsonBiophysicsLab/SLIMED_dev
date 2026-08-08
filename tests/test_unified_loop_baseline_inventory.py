@@ -361,6 +361,12 @@ class UnifiedLoopBaselineInventoryTest(unittest.TestCase):
         self.assert_mutation_rejected(
             lambda r: r["I_tolerances_fixtures"]["fixture_sha256"]
             .update({fixture: "0" * 64}))
+        archived_fixture = (
+            "data/fixtures/candidates/asymmetric_valence3_triangular_bipyramid/"
+            "vertices.csv")
+        self.assert_mutation_rejected(
+            lambda r: r["I_tolerances_fixtures"]["fixture_sha256"]
+            .update({archived_fixture: "0" * 64}))
 
     def test_I2_periodic_scope_n6_equivalence_and_performance_budget(self) -> None:
         self.assert_mutation_rejected(
