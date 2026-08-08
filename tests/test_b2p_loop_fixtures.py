@@ -405,6 +405,31 @@ class B2pLoopFixturesTest(unittest.TestCase):
             self.assertTrue(all(value > 0
                                 for value in sample["barycentric_numerators"]))
 
+    def test_C5_shared_hull_identity_and_coverage_risk_are_explicit(self) -> None:
+        family_base = ROOT / FIXTURE_ROOTS[0] / "base"
+        valence789 = ROOT / FIXTURE_ROOTS[1]
+        for filename in ("vertices.csv", "faces.csv"):
+            with self.subTest(filename=filename):
+                self.assertEqual(
+                    (family_base / filename).read_bytes(),
+                    (valence789 / filename).read_bytes())
+
+        topology = validate_topology(
+            read_vertices(family_base / "vertices.csv"),
+            read_faces(family_base / "faces.csv"))
+        self.assertEqual(
+            sorted(topology["valence_by_vertex"]),
+            [3, 3, 4, 4, 4, 4, 5, 5, 5, 5, 7, 8, 9])
+        self.assertNotIn(6, topology["valence_by_vertex"])
+
+        plan = (ROOT / "docs/bfr_loop_backend_plan_macos.md").read_text()
+        self.assertIn(
+            "must not count the two directory names as independent mesh-level",
+            plan)
+        self.assertIn(
+            "frozen negative-evidence risk to accept explicitly with D10",
+            plan)
+
     def test_D_adjacent_extraordinary_vertices_share_declared_edge(self) -> None:
         member = ROOT / FIXTURE_ROOTS[2]
         metadata = json.loads((member / "candidate_metadata.json").read_text())

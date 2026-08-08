@@ -431,6 +431,16 @@ class UnifiedLoopBaselineInventoryTest(unittest.TestCase):
         self.assert_text_mutation_rejected(
             "docs/bfr_loop_backend_plan_macos.md",
             lambda text: text.replace(
+                "explicit `MPFR_ROOT` and `OPENSUBDIV_ROOT` values",
+                "ambient proof dependencies", 1))
+        self.assert_text_mutation_rejected(
+            "docs/bfr_loop_backend_plan_macos.md",
+            lambda text: text.replace(
+                "must not count the two directory names as independent mesh-level",
+                "may count the two directory names as independent mesh-level", 1))
+        self.assert_text_mutation_rejected(
+            "docs/bfr_loop_backend_plan_macos.md",
+            lambda text: text.replace(
                 "kappa_infinity(V) = ||V||_infinity * ||V^-1||_infinity",
                 "basis-condition-definition-removed", 1))
         self.assert_text_mutation_rejected(

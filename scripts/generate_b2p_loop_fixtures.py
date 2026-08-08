@@ -80,7 +80,11 @@ def _csv_text(rows: Iterable[Iterable[Any]], floats: bool = False) -> str:
 
 def _write(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(text, encoding="utf-8", newline="")
+    # Path.write_text() did not accept ``newline`` until Python 3.10.  Use the
+    # underlying text stream so the byte contract is identical on the system
+    # Python 3.9 profile and the CI-pinned Python 3.14 profile.
+    with path.open("w", encoding="utf-8", newline="") as stream:
+        stream.write(text)
 
 
 def validate_mesh(mesh: Mesh) -> dict[str, Any]:
@@ -338,7 +342,9 @@ def _cross(left: tuple[float, float, float], right: tuple[float, float, float]
 
 def _dot(left: tuple[float, float, float],
          right: tuple[float, float, float]) -> float:
-    return sum(a * b for a, b in zip(left, right))
+    # Python 3.12 changed float summation.  fsum gives both supported profiles
+    # the same accurately rounded result and keeps generated metadata stable.
+    return math.fsum(a * b for a, b in zip(left, right))
 
 
 def _segment_triangle_intersects(
@@ -396,7 +402,7 @@ def validate_geometry(mesh: Mesh) -> dict[str, Any]:
                                                   _vsub(triangle[2], triangle[0]))))
         if doubled_area <= 0.0:
             raise ValueError("fixture has a zero-area triangle")
-        denominator = sum(_dot(edge, edge) for edge in edge_vectors)
+        denominator = math.fsum(_dot(edge, edge) for edge in edge_vectors)
         qualities.append(2.0 * math.sqrt(3.0) * doubled_area / denominator)
 
     intersections = 0

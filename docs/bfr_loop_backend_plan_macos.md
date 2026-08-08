@@ -268,6 +268,35 @@ the link map; a source/dependency scan plus `nm -u` and `otool -L` (or the Linux
 equivalents) is a mandatory B2 check. Any forbidden dependency makes the oracle
 uncovered rather than weakening this check.
 
+**Dependency and CI ownership.** B2 owns exactly one dedicated workflow,
+`.github/workflows/bfr_qualification.yml`, in addition to its proof code,
+runner, tests, and evidence document. This narrow ownership is part of the B2
+qualification claim: it is not permission to edit the `Makefile`, an existing
+workflow, or a default build. The workflow runs on `macos-26`, checks out the
+exact pull-request head, and provisions MPFR 4.2.2, its GMP dependency, and
+OpenSubdiv 3.7.0 under the runner temporary directory from upstream release
+archives whose versions, URLs, and SHA-256 checksums are literal workflow
+inputs. It records the GMP version and archive hash as build provenance; MPFR
+itself remains fixed scientifically and operationally at exactly 4.2.2. A
+package-manager `latest`, an ambient Homebrew keg, or an unverified download is
+forbidden.
+
+The B2 runner accepts explicit `MPFR_ROOT` and `OPENSUBDIV_ROOT` values and may
+not download dependencies or search ambient prefixes. It compiles the oracle
+with `-I$MPFR_ROOT/include`, `-L$MPFR_ROOT/lib`, an rpath to that library
+directory, and `-lmpfr -lgmp`; it separately locates the OpenSubdiv proof
+libraries below `OPENSUBDIV_ROOT`. The compile-time/runtime version equality,
+resolved-library containment below the declared roots, library hashes,
+dependency file, link map, source scan, `nm -u`, and `otool -L` checks are all
+performed by the runner. Its `--require-proof-dependencies` mode exits nonzero
+for a missing root, version mismatch, library escaping either root, forbidden
+symbol, or missing audit artifact; the dedicated workflow must use that mode
+and is not allowed to report `skipped`. Local absence may be recorded as
+pending evidence, but B2 cannot pass its gate until this exact-head workflow is
+green. Thus dependency provisioning belongs to the workflow, dependency use
+and auditing belong to the B2 runner, and neither responsibility leaks into the
+production build.
+
 **Arithmetic, eigendecomposition, and rigorous row enclosure.** All numeric
 oracle operations use a repository-owned `MpfrInterval` containing two
 independent `mpfr_t` endpoints, `lo` and `hi`, each initialized by
@@ -534,6 +563,11 @@ already recorded in section 3.1; B2p uses the repository's stricter existing
 candidate observation. No Bfr or Far output from this repository contributes to
 any value. These are proposed scientific gates only. D10 remains pending
 explicit user approval, and any later widening is a blocker under **S5**.
+Approval also accepts the frozen coverage challenge recorded in section 7: the
+seeded hull has no coarse valence-6 vertex and contains valence-3 corners, so an
+honest B2 run may leave items oracle-uncovered or may fail a target. Approval
+does not predict success and does not authorize a later fixture or tolerance
+change in response to those results.
 
 | Name | Numeric value | Dimension and norm | A-priori rationale | Owning gate |
 | --- | ---: | --- | --- | --- |
@@ -854,7 +888,8 @@ from an author's assurance.
 
 Allowed files, and nothing else:
 
-- this plan, sections 3.2 and 7 and the tolerance additions
+- this plan, sections 3.2 and 7, the tolerance additions, and the narrow B2
+  dependency/CI ownership needed to execute section 3.2
 - `docs/adr_unified_loop_backend.md`, tolerance ledger and fixture-hash table
 - `data/fixtures/candidates/**`, new fixtures only
 - `scripts/`, one fixture generator and the inventory expectation update
@@ -920,13 +955,17 @@ Allowed files, and nothing else:
 - one new runner under `scripts/`
 - focused tests
 - `docs/bfr_qualification_evidence.md`
+- one new dedicated workflow, `.github/workflows/bfr_qualification.yml`, only
+  for checksum-pinned proof dependencies and the exact-head B2 audit
 
 Forbidden: production geometry, energy, or force code; existing expected values;
 route flags; CUDA; changes to any existing frozen tolerance; **and any write to
 `data/fixtures/**`, to B2p's D10 targets, to the oracle contract, to fixture
 metadata, or to fixture hashes.** B2 has read-only access to every B2p output.
 Creating a new fixture inside B2 would defeat the freeze that makes **S5**
-compliance provable from commit order.
+compliance provable from commit order. The `Makefile`, every existing workflow,
+and every other `.github/**` path remain forbidden; the dedicated workflow may
+not alter or become a dependency of default builds.
 
 Steps:
 
@@ -1001,6 +1040,9 @@ rows in section 7 below. The flip-pair family is mandatory, not optional.
 Gate:
 
 - D10 targets were frozen before results, evidenced by commit order;
+- `.github/workflows/bfr_qualification.yml` is green at the exact reviewed B2
+  head in `--require-proof-dependencies` mode and publishes the dependency
+  identities plus the complete independence audit;
 - the report states Bfr PASS or FAIL against every D9a criterion, naming the
   specific failing criterion on FAIL, publishes Far's comparator results
   alongside, and explicitly declines to rank Bfr against Far on near-vertex
@@ -1013,6 +1055,8 @@ Gate:
 Stop conditions:
 
 - a D10 target is widened, reordered, or selectively omitted after results;
+- exact MPFR 4.2.2 cannot be provisioned by the owned workflow, the proof only
+  runs against an ambient dependency, or the independence audit is local-only;
 - the report claims a remeshing benefit for Phase 1;
 - the report claims a near-vertex accuracy ranking, or claims D9b;
 - an oracle-uncovered fixture is counted as evidence for a candidate.
@@ -1390,6 +1434,24 @@ intersections between triangles with disjoint vertex sets. Metadata records the
 observed minimum and intersection count. The adjacent-extraordinary fixture is
 the closed oriented octahedral sphere after one legal flip; the new edge joins
 two recorded valence-5 vertices.
+
+That reuse is byte identity, not independent corroboration: the
+`b2p_valence789` `vertices.csv` and `faces.csv` are deliberately byte-for-byte
+identical to the single-flip family's base files. The shared hull supplies one
+mesh-level oracle/geometry observation. The valence-7/8/9 label identifies the
+declared high-valence corners, while the family contributes three distinct
+topological interventions for locality. B2 must expose the shared content
+hashes and must not count the two directory names as independent mesh-level
+corroboration in any aggregate, sample count, or conclusion.
+
+The shared hull deliberately has valences
+`[3,3,4,4,4,4,5,5,5,5,7,8,9]` and therefore no valence-6 vertex at depth zero.
+Consequently none of its coarse corners satisfies section 3.2's isolation rule;
+coverage depends on recorded refinement reaching isolation by depth 12, and a
+miss remains oracle-uncovered. Its valence-3 corners also retain the difficulty
+surfaced by the archived PR 182 evidence rather than selecting it away. This is
+a frozen negative-evidence risk to accept explicitly with D10, not grounds to
+weaken a target, replace the fixture after results, or count an uncovered item.
 
 All members are generated by `scripts/generate_b2p_loop_fixtures.py` using only
 the Python standard library. Each metadata file records generator/version/

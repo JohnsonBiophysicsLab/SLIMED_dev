@@ -184,6 +184,17 @@ EXPECTED_B2P_ORACLE_ANCHORS = [
     "1.0e-20",
 ]
 
+EXPECTED_B2P_EXECUTION_AND_EVIDENCE_ANCHORS = [
+    "`.github/workflows/bfr_qualification.yml`",
+    "explicit `MPFR_ROOT` and `OPENSUBDIV_ROOT` values",
+    "`-lmpfr -lgmp`",
+    "`--require-proof-dependencies` mode exits nonzero",
+    "not allowed to report `skipped`",
+    "must not count the two directory names as independent mesh-level",
+    "therefore no valence-6 vertex at depth zero",
+    "frozen negative-evidence risk to accept explicitly with D10",
+]
+
 EXPECTED_B2P_LOCALITY_SAMPLE_MANIFEST = {
     "applicability": "every comparable unchanged face in every listed variant",
     "coordinate_rule": (
@@ -648,6 +659,10 @@ def collect_inventory() -> dict[str, Any]:
         "official_opensubdiv_tag_commit": (
             bfr_plan.count("9dab8a47bfbb1388ec8388fe61f5f916e6123f38") == 1
         ),
+        "execution_and_evidence_anchors": {
+            anchor: anchor in bfr_plan
+            for anchor in EXPECTED_B2P_EXECUTION_AND_EVIDENCE_ANCHORS
+        },
     }
     b2p_claim_scan_text = "\n".join([
         bfr_plan,
@@ -1191,6 +1206,8 @@ def validate_inventory(report: dict[str, Any], check_adr: bool = True) -> list[s
         require(oracle["all_required_fields_present"] and
                 all(oracle["anchors"].values()),
                 "B2p oracle contract incomplete")
+        require(all(oracle["execution_and_evidence_anchors"].values()),
+                "B2p execution or evidence-deduplication contract incomplete")
         require(oracle["d10_plan_status"] ==
                 "Pending - frozen by B2p before B2 runs",
                 "D10 plan status drift or premature approval")
