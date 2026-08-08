@@ -362,6 +362,114 @@ class UnifiedLoopBaselineInventoryTest(unittest.TestCase):
             lambda r: r["I_tolerances_fixtures"]["fixture_sha256"]
             .update({fixture: "0" * 64}))
 
+    def test_I3_B2p_inputs_fail_closed_on_required_mutations(self) -> None:
+        fixture = next(iter(INVENTORY.EXPECTED_B2P_FIXTURE_HASHES))
+
+        original_is_file = Path.is_file
+
+        def missing_file(path):
+            if Path(path).resolve() == (ROOT / fixture).resolve():
+                return False
+            return original_is_file(path)
+
+        with mock.patch.object(Path, "is_file", missing_file):
+            candidate = INVENTORY.collect_inventory()
+        self.assertIn(
+            "B2p fixture missing or SHA256 drift",
+            INVENTORY.validate_inventory(candidate, check_adr=False),
+        )
+
+        original_sha256 = INVENTORY._sha256
+
+        def altered_byte_digest(path):
+            return "0" * 64 if path == fixture else original_sha256(path)
+
+        with mock.patch.object(
+                INVENTORY, "_sha256", side_effect=altered_byte_digest):
+            candidate = INVENTORY.collect_inventory()
+        self.assertIn(
+            "B2p fixture missing or SHA256 drift",
+            INVENTORY.validate_inventory(candidate, check_adr=False),
+        )
+
+        self.assert_mutation_rejected(
+            lambda r: r["I3_b2p_frozen_inputs"]["expected_fixture_sha256"]
+            .update({fixture: "f" * 64}))
+        self.assert_mutation_rejected(
+            lambda r: r["I3_b2p_frozen_inputs"]["targets"]
+            ["irregular_position_row_accuracy"].update({"adr": 6.0e-6}))
+        self.assert_mutation_rejected(
+            lambda r: r["I3_b2p_frozen_inputs"]["locality_sample_manifest"]
+            ["samples"].pop())
+        self.assert_mutation_rejected(
+            lambda r: r["I3_b2p_frozen_inputs"]["locality_sample_manifest"]
+            ["samples"].reverse())
+        self.assert_mutation_rejected(
+            lambda r: r["I3_b2p_frozen_inputs"]["locality_sample_manifest"]
+            ["samples"][0].update({"u_numerator": 2}))
+        self.assert_mutation_rejected(
+            lambda r: r["I3_b2p_frozen_inputs"]["locality_sample_manifest"]
+            ["samples"][0].pop("barycentric_numerators"))
+        self.assert_mutation_rejected(
+            lambda r: r["I3_b2p_frozen_inputs"]["locality_sample_manifest"]
+            ["row_order"].pop())
+        self.assert_text_mutation_rejected(
+            "docs/adr_unified_loop_backend.md",
+            lambda text: text.replace(
+                "| `irregular_position_row_accuracy` | `5.0e-6` |",
+                "| `irregular_position_row_accuracy` | `6.0e-6` |", 1))
+        self.assert_text_mutation_rejected(
+            "docs/bfr_loop_backend_plan_macos.md",
+            lambda text: text.replace(
+                "H_q = transpose(B) * H_y * B",
+                "oracle-hessian-map-removed", 1))
+        self.assert_text_mutation_rejected(
+            "docs/bfr_loop_backend_plan_macos.md",
+            lambda text: text.replace(
+                "intersect its five outward-rounded coefficient",
+                "intersect an unspecified coefficient", 1))
+        self.assert_text_mutation_rejected(
+            "docs/bfr_loop_backend_plan_macos.md",
+            lambda text: text.replace(
+                "explicit `MPFR_ROOT` and `OPENSUBDIV_ROOT` values",
+                "ambient proof dependencies", 1))
+        self.assert_text_mutation_rejected(
+            "docs/bfr_loop_backend_plan_macos.md",
+            lambda text: text.replace(
+                "must not count the two directory names as independent mesh-level",
+                "may count the two directory names as independent mesh-level", 1))
+        self.assert_text_mutation_rejected(
+            "docs/bfr_loop_backend_plan_macos.md",
+            lambda text: text.replace(
+                "kappa_infinity(V) = ||V||_infinity * ||V^-1||_infinity",
+                "basis-condition-definition-removed", 1))
+        self.assert_text_mutation_rejected(
+            "docs/bfr_loop_backend_plan_macos.md",
+            lambda text: text.replace(
+                "`mpfr_init2(...,544)`", "unspecified-interval-precision", 1))
+        self.assert_text_mutation_rejected(
+            "docs/bfr_loop_backend_plan_macos.md",
+            lambda text: text.replace(
+                "mandatory primary computation is Stam eigenanalysis",
+                "primary-oracle-role-removed", 1))
+        self.assert_text_mutation_rejected(
+            "docs/bfr_loop_backend_plan_macos.md",
+            lambda text: text + "\n candidate_" + "comparison_result\n")
+        self.assert_text_mutation_rejected(
+            "docs/bfr_loop_backend_plan_macos.md",
+            lambda text: text.replace(
+                "Pending - frozen by B2p before B2 runs",
+                "Approved", 1))
+
+        self.assertEqual(
+            self.baseline["I_tolerances_fixtures"]["tolerances"],
+            INVENTORY.EXPECTED_TOLERANCES,
+        )
+        self.assertEqual(
+            self.baseline["I_tolerances_fixtures"]["fixture_sha256"],
+            INVENTORY.EXPECTED_FIXTURE_HASHES,
+        )
+
     def test_I2_periodic_scope_n6_equivalence_and_performance_budget(self) -> None:
         self.assert_mutation_rejected(
             lambda r: r["I2_scope_performance"]["primary_workload"].update(

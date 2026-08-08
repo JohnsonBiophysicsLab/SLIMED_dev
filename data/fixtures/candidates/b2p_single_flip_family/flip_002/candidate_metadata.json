@@ -1,0 +1,606 @@
+{
+  "family": {
+    "correspondence": {
+      "base_member": "base",
+      "comparable_face_ids": [
+        "base-face-0000",
+        "base-face-0001",
+        "base-face-0002",
+        "base-face-0003",
+        "base-face-0004",
+        "base-face-0005",
+        "base-face-0006",
+        "base-face-0007",
+        "base-face-0008",
+        "base-face-0009",
+        "base-face-0010",
+        "base-face-0011",
+        "base-face-0012",
+        "base-face-0013",
+        "base-face-0014",
+        "base-face-0015",
+        "base-face-0016",
+        "base-face-0017",
+        "base-face-0018",
+        "base-face-0021"
+      ],
+      "identity_rule": "A face is identical only when its base-face ID, CSV row, and oriented vertex triple are all unchanged; each of the two rewritten rows receives a variant-local ID and has no base-face identity.",
+      "member": "flip_002",
+      "neighborhood_signatures": {
+        "radius_1": {
+          "edge_shell_counts": [
+            {
+              "count": 1,
+              "shells": [
+                0,
+                0
+              ]
+            },
+            {
+              "count": 8,
+              "shells": [
+                0,
+                1
+              ]
+            },
+            {
+              "count": 6,
+              "shells": [
+                1,
+                1
+              ]
+            }
+          ],
+          "endpoint_valences": [
+            5,
+            5
+          ],
+          "opposite_valences": [
+            5,
+            8
+          ],
+          "radius": 1,
+          "shell_vertex_records": [
+            {
+              "distance": 0,
+              "records": [
+                [
+                  5,
+                  1,
+                  4,
+                  0
+                ],
+                [
+                  5,
+                  1,
+                  4,
+                  0
+                ]
+              ]
+            },
+            {
+              "distance": 1,
+              "records": [
+                [
+                  4,
+                  1,
+                  2,
+                  1
+                ],
+                [
+                  4,
+                  1,
+                  2,
+                  1
+                ],
+                [
+                  5,
+                  2,
+                  2,
+                  1
+                ],
+                [
+                  8,
+                  2,
+                  2,
+                  4
+                ],
+                [
+                  9,
+                  2,
+                  4,
+                  3
+                ]
+              ]
+            }
+          ]
+        },
+        "radius_2": {
+          "edge_shell_counts": [
+            {
+              "count": 1,
+              "shells": [
+                0,
+                0
+              ]
+            },
+            {
+              "count": 8,
+              "shells": [
+                0,
+                1
+              ]
+            },
+            {
+              "count": 0,
+              "shells": [
+                0,
+                2
+              ]
+            },
+            {
+              "count": 6,
+              "shells": [
+                1,
+                1
+              ]
+            },
+            {
+              "count": 10,
+              "shells": [
+                1,
+                2
+              ]
+            },
+            {
+              "count": 5,
+              "shells": [
+                2,
+                2
+              ]
+            }
+          ],
+          "endpoint_valences": [
+            5,
+            5
+          ],
+          "opposite_valences": [
+            5,
+            8
+          ],
+          "radius": 2,
+          "shell_vertex_records": [
+            {
+              "distance": 0,
+              "records": [
+                [
+                  5,
+                  1,
+                  4,
+                  0,
+                  0
+                ],
+                [
+                  5,
+                  1,
+                  4,
+                  0,
+                  0
+                ]
+              ]
+            },
+            {
+              "distance": 1,
+              "records": [
+                [
+                  4,
+                  1,
+                  2,
+                  1,
+                  0
+                ],
+                [
+                  4,
+                  1,
+                  2,
+                  1,
+                  0
+                ],
+                [
+                  5,
+                  2,
+                  2,
+                  1,
+                  0
+                ],
+                [
+                  8,
+                  2,
+                  2,
+                  4,
+                  0
+                ],
+                [
+                  9,
+                  2,
+                  4,
+                  3,
+                  0
+                ]
+              ]
+            },
+            {
+              "distance": 2,
+              "records": [
+                [
+                  3,
+                  0,
+                  3,
+                  0,
+                  0
+                ],
+                [
+                  4,
+                  0,
+                  1,
+                  2,
+                  1
+                ],
+                [
+                  4,
+                  0,
+                  2,
+                  2,
+                  0
+                ],
+                [
+                  5,
+                  0,
+                  1,
+                  3,
+                  1
+                ],
+                [
+                  7,
+                  0,
+                  3,
+                  3,
+                  1
+                ]
+              ]
+            }
+          ]
+        }
+      },
+      "rewritten": {
+        "base_face_ids": [
+          "base-face-0019",
+          "base-face-0020"
+        ],
+        "base_oriented_faces": [
+          [
+            4,
+            6,
+            8
+          ],
+          [
+            6,
+            7,
+            8
+          ]
+        ],
+        "member_face_ids": [
+          "flip_002-rewritten-0",
+          "flip_002-rewritten-1"
+        ],
+        "member_oriented_faces": [
+          [
+            4,
+            6,
+            7
+          ],
+          [
+            4,
+            7,
+            8
+          ]
+        ],
+        "new_edge": [
+          4,
+          7
+        ],
+        "old_edge": [
+          6,
+          8
+        ],
+        "quad_boundary_cycle": [
+          8,
+          4,
+          6,
+          7
+        ],
+        "rewritten_base_rows": [
+          19,
+          20
+        ],
+        "rewritten_member_rows": [
+          19,
+          20
+        ]
+      },
+      "unchanged": [
+        {
+          "base_row": 0,
+          "face_id": "base-face-0000",
+          "member_row": 0,
+          "oriented_vertices": [
+            0,
+            1,
+            7
+          ]
+        },
+        {
+          "base_row": 1,
+          "face_id": "base-face-0001",
+          "member_row": 1,
+          "oriented_vertices": [
+            0,
+            10,
+            1
+          ]
+        },
+        {
+          "base_row": 2,
+          "face_id": "base-face-0002",
+          "member_row": 2,
+          "oriented_vertices": [
+            0,
+            5,
+            2
+          ]
+        },
+        {
+          "base_row": 3,
+          "face_id": "base-face-0003",
+          "member_row": 3,
+          "oriented_vertices": [
+            0,
+            2,
+            11
+          ]
+        },
+        {
+          "base_row": 4,
+          "face_id": "base-face-0004",
+          "member_row": 4,
+          "oriented_vertices": [
+            0,
+            4,
+            8
+          ]
+        },
+        {
+          "base_row": 5,
+          "face_id": "base-face-0005",
+          "member_row": 5,
+          "oriented_vertices": [
+            0,
+            11,
+            4
+          ]
+        },
+        {
+          "base_row": 6,
+          "face_id": "base-face-0006",
+          "member_row": 6,
+          "oriented_vertices": [
+            0,
+            6,
+            5
+          ]
+        },
+        {
+          "base_row": 7,
+          "face_id": "base-face-0007",
+          "member_row": 7,
+          "oriented_vertices": [
+            0,
+            7,
+            6
+          ]
+        },
+        {
+          "base_row": 8,
+          "face_id": "base-face-0008",
+          "member_row": 8,
+          "oriented_vertices": [
+            0,
+            8,
+            10
+          ]
+        },
+        {
+          "base_row": 9,
+          "face_id": "base-face-0009",
+          "member_row": 9,
+          "oriented_vertices": [
+            1,
+            10,
+            7
+          ]
+        },
+        {
+          "base_row": 10,
+          "face_id": "base-face-0010",
+          "member_row": 10,
+          "oriented_vertices": [
+            2,
+            9,
+            3
+          ]
+        },
+        {
+          "base_row": 11,
+          "face_id": "base-face-0011",
+          "member_row": 11,
+          "oriented_vertices": [
+            2,
+            3,
+            11
+          ]
+        },
+        {
+          "base_row": 12,
+          "face_id": "base-face-0012",
+          "member_row": 12,
+          "oriented_vertices": [
+            2,
+            5,
+            4
+          ]
+        },
+        {
+          "base_row": 13,
+          "face_id": "base-face-0013",
+          "member_row": 13,
+          "oriented_vertices": [
+            2,
+            4,
+            12
+          ]
+        },
+        {
+          "base_row": 14,
+          "face_id": "base-face-0014",
+          "member_row": 14,
+          "oriented_vertices": [
+            2,
+            12,
+            9
+          ]
+        },
+        {
+          "base_row": 15,
+          "face_id": "base-face-0015",
+          "member_row": 15,
+          "oriented_vertices": [
+            3,
+            4,
+            11
+          ]
+        },
+        {
+          "base_row": 16,
+          "face_id": "base-face-0016",
+          "member_row": 16,
+          "oriented_vertices": [
+            3,
+            12,
+            4
+          ]
+        },
+        {
+          "base_row": 17,
+          "face_id": "base-face-0017",
+          "member_row": 17,
+          "oriented_vertices": [
+            3,
+            9,
+            12
+          ]
+        },
+        {
+          "base_row": 18,
+          "face_id": "base-face-0018",
+          "member_row": 18,
+          "oriented_vertices": [
+            4,
+            5,
+            6
+          ]
+        },
+        {
+          "base_row": 21,
+          "face_id": "base-face-0021",
+          "member_row": 21,
+          "oriented_vertices": [
+            7,
+            10,
+            8
+          ]
+        }
+      ]
+    },
+    "face_ids_by_row": [
+      "base-face-0000",
+      "base-face-0001",
+      "base-face-0002",
+      "base-face-0003",
+      "base-face-0004",
+      "base-face-0005",
+      "base-face-0006",
+      "base-face-0007",
+      "base-face-0008",
+      "base-face-0009",
+      "base-face-0010",
+      "base-face-0011",
+      "base-face-0012",
+      "base-face-0013",
+      "base-face-0014",
+      "base-face-0015",
+      "base-face-0016",
+      "base-face-0017",
+      "base-face-0018",
+      "flip_002-rewritten-0",
+      "flip_002-rewritten-1",
+      "base-face-0021"
+    ],
+    "family_id": "b2p_single_flip_family",
+    "member": "flip_002"
+  },
+  "fixture_id": "b2p_single_flip_flip_002",
+  "generator": {
+    "id": "scripts/generate_b2p_loop_fixtures.py",
+    "parameters": {
+      "base_member": "base",
+      "base_seed": 14631,
+      "edge": [
+        6,
+        8
+      ],
+      "member": "flip_002",
+      "selection_contract": "lexicographically scan legal base edges; require endpoint-disjoint accepted edges, a new sorted endpoint-valence pair, and new exact radius-1 and radius-2 signatures; accept the first three"
+    },
+    "version": 2
+  },
+  "proof_only": true,
+  "schema_version": 1,
+  "scientifically_approved": false,
+  "source_identity": "one deterministic legal edge flip from b2p_single_flip_base",
+  "status": "candidate_only",
+  "topology": {
+    "all_vertices_referenced": true,
+    "closed_two_face_edge_manifold": true,
+    "connected_degree2_vertex_links": true,
+    "duplicate_faces_absent": true,
+    "edge_count": 33,
+    "face_count": 22,
+    "opposite_edge_orientation": true,
+    "valence_by_vertex": [
+      9,
+      3,
+      7,
+      5,
+      9,
+      4,
+      4,
+      6,
+      4,
+      3,
+      4,
+      4,
+      4
+    ],
+    "vertex_count": 13
+  }
+}
