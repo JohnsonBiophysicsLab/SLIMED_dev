@@ -398,18 +398,58 @@ evaluates all six exact regular-patch source rows
 with `B = A_d*Jk`. The maximum allowed depth is fixed: `d0+4 <= 30`.
 
 For one row and source `i`, intersect its five outward-rounded coefficient
-intervals. Every intersection must be nonempty. The serialized coefficient is
-the intersection midpoint and `h_i` is its half-width. The rigorous coefficient
-error bound is `sum_i h_i`. For fixture coordinate component `a`, the rigorous
-geometry bound is `sum_i h_i*abs(P_i[a]) / lower(L_M)`, and the reported bound
-is the maximum over the three components. Here `L_M` is an outward-rounded
-enclosure of the exact maximum control-edge Euclidean length and its lower
-endpoint must be positive. Each bound, separately for each of the six rows,
-must be at most one tenth of that row's D10 target. An exact singleton interval
-has `h_i=0`; an exactly zero row difference therefore has bound zero. No ratio
-or division by a row difference is performed, so a zero sequence cannot create
-`0/0`. An empty intersection, missing regular support by depth 30, nonpositive
-`lower(L_M)`, or failed bound is oracle-uncovered.
+intervals to obtain `[lo_i,hi_i]`. Every intersection must be nonempty. The
+diagnostic serialized coefficient `d_i` is the intersection midpoint rounded
+once to finite binary64. It is then imported exactly into a fresh 544-bit MPFR
+value with `mpfr_set_d(...,MPFR_RNDN)`, whose ternary return must be zero. This
+is the required exact binary64 import of `d_i`; an approximate decimal reparse
+is forbidden. Define
+
+```text
+epsilon_i = max(abs(d_i - lo_i), abs(hi_i - d_i))
+E_coeff = sum_i epsilon_i
+E_a = sum_i ([lo_i,hi_i] - d_i) * P_i[a]
+E_geom = max_a(max(abs(lower(E_a)), abs(upper(E_a))) / lower(L_M)).
+```
+
+All subtractions, products, sums, absolute values, maxima, and endpoint reads in
+these definitions use the directed interval primitives above. Fixture decimal
+coordinate `P_i[a]` is its outward-rounded MPFR enclosure. `L_M` is an
+outward-rounded enclosure of the exact maximum control-edge Euclidean length,
+and its lower endpoint must be positive. Both `E_coeff` and `E_geom`, separately
+for each of the six rows, must be at most one tenth of that row's D10 target.
+Thus the bound includes binary64 midpoint serialization; an exact singleton
+interval has zero width but has `epsilon_i=0` only when its value is exactly
+representable by `d_i`. No ratio or division by a row difference is performed,
+so a zero sequence cannot create `0/0`.
+
+Candidate accuracy is decided directly against the certified interval, never
+by adding an informal allowance to a midpoint difference. Each finite candidate
+binary64 coefficient `c_i` is imported exactly into a fresh 544-bit MPFR value
+with the same zero-ternary requirement. This is the
+required exact binary64 import of `c_i`; an approximate decimal reparse is forbidden.
+These exact binary64 imports and the final `mpfr_get_d(...,MPFR_RNDN)` serialization are the
+only nearest-rounding operations permitted on the proof path; the audit still
+requires directed rounding for every arithmetic primitive. On the sorted
+source-ID union, with a missing candidate source represented by exact zero,
+define
+
+```text
+u_i = max(abs(c_i - lo_i), abs(c_i - hi_i))
+U_coeff = sum_i u_i
+D_a = sum_i ([lo_i,hi_i] - c_i) * P_i[a]
+U_geom = max_a(max(abs(lower(D_a)), abs(upper(D_a))) / lower(L_M)).
+```
+
+`U_coeff` is a rigorous upper bound on the coefficient `l1` error for every
+oracle row inside the enclosure, and `U_geom` is the corresponding Cartesian
+`l-infinity` upper bound. Both must satisfy that row order's D10 target at every
+required sample. Pointwise midpoint differences are diagnostic only and may
+not decide PASS. A nonfinite `d_i`, inexact `d_i` import, empty intersection,
+missing regular support by depth 30, nonpositive `lower(L_M)`, or failed
+`E_coeff`/`E_geom` serialization bound is oracle-uncovered. Once that oracle row
+is covered, a nonfinite `c_i`, failed `c_i` import, or `U_coeff`/`U_geom` above
+the D10 target is a candidate FAIL and may never be relabeled oracle-uncovered.
 
 The mathematical justification is the Loop refinement identity: after the
 complete regular support is reached, the exact Stam eigenpower followed by
@@ -504,9 +544,11 @@ and must be finite and positive. Position has units `L`; first derivatives have
 units `L / canonical-parameter`; second derivatives have units
 `L / canonical-parameter^2`. Their row norms are respectively dimensionless,
 per-parameter, and per-parameter-squared. Both the row norm and normalized
-geometric cross-check must satisfy the order's D10 target. Position-row sum one
-and derivative-row sum zero remain the separate `1.0e-12` invariants; satisfying
-a sum rule cannot satisfy an accuracy target.
+geometric cross-check must satisfy the order's D10 target through the rigorous
+`U_coeff` and `U_geom` upper bounds above, not through a serialized midpoint
+difference. Position-row sum one and derivative-row sum zero remain the
+separate `1.0e-12` invariants; satisfying a sum rule cannot satisfy an accuracy
+target.
 
 **Extraordinary-vertex sampling.** In the Stam frame define the dimensionless
 radius `r = xi + eta = 1 - barycentric(E)`. No accuracy comparison is claimed

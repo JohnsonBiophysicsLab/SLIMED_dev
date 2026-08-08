@@ -431,6 +431,61 @@ class UnifiedLoopBaselineInventoryTest(unittest.TestCase):
         self.assert_text_mutation_rejected(
             "docs/bfr_loop_backend_plan_macos.md",
             lambda text: text.replace(
+                "epsilon_i = max(abs(d_i - lo_i), abs(hi_i - d_i))",
+                "epsilon_i = (hi_i - lo_i) / 2", 1))
+        self.assert_text_mutation_rejected(
+            "docs/bfr_loop_backend_plan_macos.md",
+            lambda text: text.replace(
+                "required exact binary64 import of `d_i`",
+                "approximate import of `d_i`", 1))
+        self.assert_text_mutation_rejected(
+            "docs/bfr_loop_backend_plan_macos.md",
+            lambda text: text.replace(
+                "required exact binary64 import of `c_i`",
+                "approximate import of `c_i`", 1))
+        self.assert_text_mutation_rejected(
+            "docs/bfr_loop_backend_plan_macos.md",
+            lambda text: text.replace(
+                "E_coeff = sum_i epsilon_i",
+                "E_coeff = sum_i half_width_i", 1))
+        self.assert_text_mutation_rejected(
+            "docs/bfr_loop_backend_plan_macos.md",
+            lambda text: text.replace(
+                "E_a = sum_i ([lo_i,hi_i] - d_i) * P_i[a]",
+                "E_a = midpoint_serialization_difference", 1))
+        self.assert_text_mutation_rejected(
+            "docs/bfr_loop_backend_plan_macos.md",
+            lambda text: text.replace(
+                "u_i = max(abs(c_i - lo_i), abs(c_i - hi_i))",
+                "u_i = abs(c_i - d_i)", 1))
+        self.assert_text_mutation_rejected(
+            "docs/bfr_loop_backend_plan_macos.md",
+            lambda text: text.replace(
+                "U_coeff = sum_i u_i",
+                "U_coeff = midpoint_l1_difference", 1))
+        self.assert_text_mutation_rejected(
+            "docs/bfr_loop_backend_plan_macos.md",
+            lambda text: text.replace(
+                "D_a = sum_i ([lo_i,hi_i] - c_i) * P_i[a]",
+                "D_a = midpoint_geometry_difference", 1))
+        self.assert_text_mutation_rejected(
+            "docs/bfr_loop_backend_plan_macos.md",
+            lambda text: text.replace(
+                "U_geom = max_a(max(abs(lower(D_a)), abs(upper(D_a))) / lower(L_M))",
+                "U_geom = midpoint_geometry_norm", 1))
+        self.assert_text_mutation_rejected(
+            "docs/bfr_loop_backend_plan_macos.md",
+            lambda text: text.replace(
+                "Pointwise midpoint differences are diagnostic only",
+                "Pointwise midpoint differences decide PASS", 1))
+        self.assert_text_mutation_rejected(
+            "docs/bfr_loop_backend_plan_macos.md",
+            lambda text: text.replace(
+                "is a candidate FAIL and may never be relabeled oracle-uncovered",
+                "is oracle-uncovered", 1))
+        self.assert_text_mutation_rejected(
+            "docs/bfr_loop_backend_plan_macos.md",
+            lambda text: text.replace(
                 "explicit `MPFR_ROOT` and `OPENSUBDIV_ROOT` values",
                 "ambient proof dependencies", 1))
         self.assert_text_mutation_rejected(
