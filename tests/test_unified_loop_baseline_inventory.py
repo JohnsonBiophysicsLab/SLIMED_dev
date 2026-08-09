@@ -362,6 +362,179 @@ class UnifiedLoopBaselineInventoryTest(unittest.TestCase):
             lambda r: r["I_tolerances_fixtures"]["fixture_sha256"]
             .update({fixture: "0" * 64}))
 
+    def test_I3_B2p_inputs_fail_closed_on_required_mutations(self) -> None:
+        fixture = next(iter(INVENTORY.EXPECTED_B2P_FIXTURE_HASHES))
+
+        original_is_file = Path.is_file
+
+        def missing_file(path):
+            if Path(path).resolve() == (ROOT / fixture).resolve():
+                return False
+            return original_is_file(path)
+
+        with mock.patch.object(Path, "is_file", missing_file):
+            candidate = INVENTORY.collect_inventory()
+        self.assertIn(
+            "B2p fixture missing or SHA256 drift",
+            INVENTORY.validate_inventory(candidate, check_adr=False),
+        )
+
+        original_sha256 = INVENTORY._sha256
+
+        def altered_byte_digest(path):
+            return "0" * 64 if path == fixture else original_sha256(path)
+
+        with mock.patch.object(
+                INVENTORY, "_sha256", side_effect=altered_byte_digest):
+            candidate = INVENTORY.collect_inventory()
+        self.assertIn(
+            "B2p fixture missing or SHA256 drift",
+            INVENTORY.validate_inventory(candidate, check_adr=False),
+        )
+
+        self.assert_mutation_rejected(
+            lambda r: r["I3_b2p_frozen_inputs"]["expected_fixture_sha256"]
+            .update({fixture: "f" * 64}))
+        self.assert_mutation_rejected(
+            lambda r: r["I3_b2p_frozen_inputs"]["targets"]
+            ["irregular_position_row_accuracy"].update({"adr": 6.0e-6}))
+        self.assert_mutation_rejected(
+            lambda r: r["I3_b2p_frozen_inputs"]["locality_sample_manifest"]
+            ["samples"].pop())
+        self.assert_mutation_rejected(
+            lambda r: r["I3_b2p_frozen_inputs"]["locality_sample_manifest"]
+            ["samples"].reverse())
+        self.assert_mutation_rejected(
+            lambda r: r["I3_b2p_frozen_inputs"]["locality_sample_manifest"]
+            ["samples"][0].update({"u_numerator": 2}))
+        self.assert_mutation_rejected(
+            lambda r: r["I3_b2p_frozen_inputs"]["locality_sample_manifest"]
+            ["samples"][0].pop("barycentric_numerators"))
+        self.assert_mutation_rejected(
+            lambda r: r["I3_b2p_frozen_inputs"]["locality_sample_manifest"]
+            ["row_order"].pop())
+        self.assert_text_mutation_rejected(
+            "docs/adr_unified_loop_backend.md",
+            lambda text: text.replace(
+                "| `irregular_position_row_accuracy` | `5.0e-6` |",
+                "| `irregular_position_row_accuracy` | `6.0e-6` |", 1))
+        self.assert_text_mutation_rejected(
+            "docs/bfr_loop_backend_plan_macos.md",
+            lambda text: text.replace(
+                "H_q = transpose(B) * H_y * B",
+                "oracle-hessian-map-removed", 1))
+        self.assert_text_mutation_rejected(
+            "docs/bfr_loop_backend_plan_macos.md",
+            lambda text: text.replace(
+                "intersect its five outward-rounded coefficient",
+                "intersect an unspecified coefficient", 1))
+        self.assert_text_mutation_rejected(
+            "docs/bfr_loop_backend_plan_macos.md",
+            lambda text: text.replace(
+                "epsilon_i = max(abs(d_i - lo_i), abs(hi_i - d_i))",
+                "epsilon_i = (hi_i - lo_i) / 2", 1))
+        self.assert_text_mutation_rejected(
+            "docs/bfr_loop_backend_plan_macos.md",
+            lambda text: text.replace(
+                "required exact binary64 import of `d_i`",
+                "approximate import of `d_i`", 1))
+        self.assert_text_mutation_rejected(
+            "docs/bfr_loop_backend_plan_macos.md",
+            lambda text: text.replace(
+                "required exact binary64 import of `c_i`",
+                "approximate import of `c_i`", 1))
+        self.assert_text_mutation_rejected(
+            "docs/bfr_loop_backend_plan_macos.md",
+            lambda text: text.replace(
+                "E_coeff = sum_i epsilon_i",
+                "E_coeff = sum_i half_width_i", 1))
+        self.assert_text_mutation_rejected(
+            "docs/bfr_loop_backend_plan_macos.md",
+            lambda text: text.replace(
+                "E_a = sum_i ([lo_i,hi_i] - d_i) * P_i[a]",
+                "E_a = midpoint_serialization_difference", 1))
+        self.assert_text_mutation_rejected(
+            "docs/bfr_loop_backend_plan_macos.md",
+            lambda text: text.replace(
+                "E_geom = max_a(max(abs(lower(E_a)), abs(upper(E_a))) / lower(L_M))",
+                "E_geom = midpoint_geometry_norm", 1))
+        self.assert_text_mutation_rejected(
+            "docs/bfr_loop_backend_plan_macos.md",
+            lambda text: text.replace(
+                "exactly reimported before `E_coeff` and `E_geom` are evaluated",
+                "converted only after all bounds have passed", 1))
+        self.assert_text_mutation_rejected(
+            "docs/bfr_loop_backend_plan_macos.md",
+            lambda text: text.replace(
+                "u_i = max(abs(c_i - lo_i), abs(c_i - hi_i))",
+                "u_i = abs(c_i - d_i)", 1))
+        self.assert_text_mutation_rejected(
+            "docs/bfr_loop_backend_plan_macos.md",
+            lambda text: text.replace(
+                "U_coeff = sum_i u_i",
+                "U_coeff = midpoint_l1_difference", 1))
+        self.assert_text_mutation_rejected(
+            "docs/bfr_loop_backend_plan_macos.md",
+            lambda text: text.replace(
+                "D_a = sum_i ([lo_i,hi_i] - c_i) * P_i[a]",
+                "D_a = midpoint_geometry_difference", 1))
+        self.assert_text_mutation_rejected(
+            "docs/bfr_loop_backend_plan_macos.md",
+            lambda text: text.replace(
+                "U_geom = max_a(max(abs(lower(D_a)), abs(upper(D_a))) / lower(L_M))",
+                "U_geom = midpoint_geometry_norm", 1))
+        self.assert_text_mutation_rejected(
+            "docs/bfr_loop_backend_plan_macos.md",
+            lambda text: text.replace(
+                "Pointwise midpoint differences are diagnostic only",
+                "Pointwise midpoint differences decide PASS", 1))
+        self.assert_text_mutation_rejected(
+            "docs/bfr_loop_backend_plan_macos.md",
+            lambda text: text.replace(
+                "is a candidate FAIL and may never be relabeled oracle-uncovered",
+                "is oracle-uncovered", 1))
+        self.assert_text_mutation_rejected(
+            "docs/bfr_loop_backend_plan_macos.md",
+            lambda text: text.replace(
+                "explicit `MPFR_ROOT` and `OPENSUBDIV_ROOT` values",
+                "ambient proof dependencies", 1))
+        self.assert_text_mutation_rejected(
+            "docs/bfr_loop_backend_plan_macos.md",
+            lambda text: text.replace(
+                "must not count the two directory names as independent mesh-level",
+                "may count the two directory names as independent mesh-level", 1))
+        self.assert_text_mutation_rejected(
+            "docs/bfr_loop_backend_plan_macos.md",
+            lambda text: text.replace(
+                "kappa_infinity(V) = ||V||_infinity * ||V^-1||_infinity",
+                "basis-condition-definition-removed", 1))
+        self.assert_text_mutation_rejected(
+            "docs/bfr_loop_backend_plan_macos.md",
+            lambda text: text.replace(
+                "`mpfr_init2(...,544)`", "unspecified-interval-precision", 1))
+        self.assert_text_mutation_rejected(
+            "docs/bfr_loop_backend_plan_macos.md",
+            lambda text: text.replace(
+                "mandatory primary computation is Stam eigenanalysis",
+                "primary-oracle-role-removed", 1))
+        self.assert_text_mutation_rejected(
+            "docs/bfr_loop_backend_plan_macos.md",
+            lambda text: text + "\n candidate_" + "comparison_result\n")
+        self.assert_text_mutation_rejected(
+            "docs/bfr_loop_backend_plan_macos.md",
+            lambda text: text.replace(
+                "Pending - frozen by B2p before B2 runs",
+                "Approved", 1))
+
+        self.assertEqual(
+            self.baseline["I_tolerances_fixtures"]["tolerances"],
+            INVENTORY.EXPECTED_TOLERANCES,
+        )
+        self.assertEqual(
+            self.baseline["I_tolerances_fixtures"]["fixture_sha256"],
+            INVENTORY.EXPECTED_FIXTURE_HASHES,
+        )
+
     def test_I2_periodic_scope_n6_equivalence_and_performance_budget(self) -> None:
         self.assert_mutation_rejected(
             lambda r: r["I2_scope_performance"]["primary_workload"].update(

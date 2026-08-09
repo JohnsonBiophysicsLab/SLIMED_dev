@@ -99,6 +99,145 @@ EXPECTED_FIXTURE_HASHES = {
         "d0dae733433503f9e2aba4f8eda80fa2d6842d0f5a7b922d7ffce158f505cb45",
 }
 
+EXPECTED_B2P_FIXTURE_HASHES = {
+    "data/fixtures/candidates/b2p_single_flip_family/base/candidate_metadata.json":
+        "66c9ab55624afb0f7fc8b444e6e5d9479bde356483bb11a73e0d5c6ce3edd35d",
+    "data/fixtures/candidates/b2p_single_flip_family/base/faces.csv":
+        "bcc295b8c7e972982676afedb7ead94bbddfd4702f6d638a070630c9f32f7672",
+    "data/fixtures/candidates/b2p_single_flip_family/base/vertices.csv":
+        "b538595170eca52b4b648cbc3c91e6f63ff6b0a40fc16a6f2a786d5b464c4f52",
+    "data/fixtures/candidates/b2p_single_flip_family/family_metadata.json":
+        "c8ac7ea89681b72508a29b2bca8f8b97ef2c65acab6aebe19445ae8eb7136fa2",
+    "data/fixtures/candidates/b2p_single_flip_family/flip_000/candidate_metadata.json":
+        "226312a46cb6f611efa54866b37787a01b68aa783d614936982b407bf0dc55d9",
+    "data/fixtures/candidates/b2p_single_flip_family/flip_000/faces.csv":
+        "744b5a91acbdf6926890eb378dd7410a580155bd84ffb583c49d63a6a56fca76",
+    "data/fixtures/candidates/b2p_single_flip_family/flip_000/vertices.csv":
+        "b538595170eca52b4b648cbc3c91e6f63ff6b0a40fc16a6f2a786d5b464c4f52",
+    "data/fixtures/candidates/b2p_single_flip_family/flip_001/candidate_metadata.json":
+        "b0315a513777cad7fb5f5ba9eed395959e3bce6848283c07cf7d7f0fccde974e",
+    "data/fixtures/candidates/b2p_single_flip_family/flip_001/faces.csv":
+        "58d78e761bcfb8172eff55084ad99968c14089ba08b2af78f3504ba621c9bc74",
+    "data/fixtures/candidates/b2p_single_flip_family/flip_001/vertices.csv":
+        "b538595170eca52b4b648cbc3c91e6f63ff6b0a40fc16a6f2a786d5b464c4f52",
+    "data/fixtures/candidates/b2p_single_flip_family/flip_002/candidate_metadata.json":
+        "a66f2872f64ca861ca6648118aa4981482fc5f247742c5c189ecc906288f934e",
+    "data/fixtures/candidates/b2p_single_flip_family/flip_002/faces.csv":
+        "7ee844bfaec6aad97892673d63c7a00522e141db3dc707b6615be6852fd83727",
+    "data/fixtures/candidates/b2p_single_flip_family/flip_002/vertices.csv":
+        "b538595170eca52b4b648cbc3c91e6f63ff6b0a40fc16a6f2a786d5b464c4f52",
+    "data/fixtures/candidates/b2p_valence789/candidate_metadata.json":
+        "f6a88b98adec1a90f4d591b9711aa20fd724b14755beadf064e42af8328a381b",
+    "data/fixtures/candidates/b2p_valence789/faces.csv":
+        "bcc295b8c7e972982676afedb7ead94bbddfd4702f6d638a070630c9f32f7672",
+    "data/fixtures/candidates/b2p_valence789/vertices.csv":
+        "b538595170eca52b4b648cbc3c91e6f63ff6b0a40fc16a6f2a786d5b464c4f52",
+    "data/fixtures/candidates/b2p_adjacent_extraordinary/candidate_metadata.json":
+        "de6bf74052e24f26049c3d194570a081d47bd5dcd278ad9b34c6b1cf39973d1b",
+    "data/fixtures/candidates/b2p_adjacent_extraordinary/faces.csv":
+        "1ecbe26328311f99b2e55ccdc7e1d614947099fe1fff124cfca83dc62f5dddbb",
+    "data/fixtures/candidates/b2p_adjacent_extraordinary/vertices.csv":
+        "b650ff4c1aed263701d25305d846f520933a2deb457655558f17a855e65c88b7",
+}
+
+EXPECTED_B2P_TARGETS = {
+    "irregular_position_row_accuracy": 5.0e-6,
+    "irregular_first_derivative_row_accuracy": 2.5e-5,
+    "irregular_second_derivative_row_accuracy": 1.25e-4,
+    "flip_pair_row_changed_linf": 1.0e-12,
+}
+
+EXPECTED_B2P_ORACLE_ANCHORS = [
+    "repository-owned `MpfrInterval`",
+    "`mpfr_init2(...,544)`",
+    "exactly MPFR 4.2.2",
+    "MPFR_RNDD",
+    "MPFR_RNDU",
+    "mpfr_const_pi",
+    "scalar Boost MPFR wrapper is not an interval implementation",
+    "1.0e-70",
+    "kappa_infinity(V) = ||V||_infinity * ||V^-1||_infinity",
+    "smallest source ID is the pivot",
+    "spectral projector",
+    "d = d0,d0+1,...,d0+4",
+    "d0+4 <= 30",
+    "intersect its five outward-rounded coefficient",
+    "required exact binary64 import of `d_i`",
+    "required exact binary64 import of `c_i`",
+    "epsilon_i = max(abs(d_i - lo_i), abs(hi_i - d_i))",
+    "E_coeff = sum_i epsilon_i",
+    "E_a = sum_i ([lo_i,hi_i] - d_i) * P_i[a]",
+    "E_geom = max_a(max(abs(lower(E_a)), abs(upper(E_a))) / lower(L_M))",
+    "exactly reimported before `E_coeff` and `E_geom` are evaluated",
+    "u_i = max(abs(c_i - lo_i), abs(c_i - hi_i))",
+    "U_coeff = sum_i u_i",
+    "D_a = sum_i ([lo_i,hi_i] - c_i) * P_i[a]",
+    "U_geom = max_a(max(abs(lower(D_a)), abs(upper(D_a))) / lower(L_M))",
+    "Pointwise midpoint differences are diagnostic only",
+    "is a candidate FAIL and may never be relabeled oracle-uncovered",
+    "lower(L_M)",
+    "exact singleton",
+    "0/0",
+    "Loop refinement identity",
+    "mandatory primary computation is Stam eigenanalysis",
+    "S^d = V*Lambda^d*V^-1",
+    "interval Krawczyk inclusion",
+    "uniform success cannot supply coverage when the primary route fails",
+    "q_Bfr = q_Far = q",
+    "J0 = [[ 1, 0],[ 0, 1]]",
+    "J1 = [[ 0, 1],[-1,-1]]",
+    "J2 = [[-1,-1],[ 1, 0]]",
+    "G_q = G_y * B",
+    "H_q = transpose(B) * H_y * B",
+    "r < 2^-8",
+    "r = 2^-1, 2^-2, ..., 2^-8",
+    "depths 0 through 12",
+    "uniform subdivider applies the stock even/odd Loop masks",
+    "1.0e-20",
+]
+
+EXPECTED_B2P_EXECUTION_AND_EVIDENCE_ANCHORS = [
+    "`.github/workflows/bfr_qualification.yml`",
+    "explicit `MPFR_ROOT` and `OPENSUBDIV_ROOT` values",
+    "`-lmpfr -lgmp`",
+    "`--require-proof-dependencies` mode exits nonzero",
+    "not allowed to report `skipped`",
+    "must not count the two directory names as independent mesh-level",
+    "therefore no valence-6 vertex at depth zero",
+    "frozen negative-evidence risk to accept explicitly with D10",
+]
+
+EXPECTED_B2P_LOCALITY_SAMPLE_MANIFEST = {
+    "applicability": "every comparable unchanged face in every listed variant",
+    "coordinate_rule": (
+        "Use the same oriented face-local (u,v) coordinate in base and member; "
+        "do not permute corners and do not duplicate samples per corner."
+    ),
+    "lattice_denominator": 6,
+    "order_rule": (
+        "Increasing i+j from 2 through 5, then increasing i; j=(i+j)-i."
+    ),
+    "row_order": ["position", "du", "dv", "duu", "duv", "dvv"],
+    "samples": [
+        {
+            "barycentric_numerators": [6 - i - j, i, j],
+            "id": f"tri-l6-s{i + j:02d}-u{i:02d}-v{j:02d}",
+            "u_numerator": i,
+            "v_numerator": j,
+        }
+        for total in range(2, 6)
+        for i in range(1, total)
+        for j in (total - i,)
+    ],
+}
+
+FORBIDDEN_B2P_CLAIM_TOKENS = [
+    "candidate_" + "comparison_result",
+    "bfr_" + "qual" + "ified",
+    "far_" + "is_more_accurate",
+    "bfr_" + "is_more_accurate",
+]
+
 EXPECTED_DECISIONS = {
     "D0": "Proposed - pending explicit user stack disposition",
     "D1": "Approved - Stock OpenSubdiv 3.7.0 Loop semantics are the forward-looking CPU proof baseline. Completed rows are not modified to reproduce legacy masks. This does not select Far versus Bfr, does not change the production default, and does not approve arbitrary production inputs.",
@@ -290,6 +429,26 @@ def _markdown_row_cells(text: str, decision: str) -> list[str]:
     return []
 
 
+def _markdown_named_row_cells(text: str, name: str) -> list[str]:
+    marker = f"`{name}`"
+    for line in text.splitlines():
+        if line.startswith("|"):
+            cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
+            if cells and cells[0] == marker:
+                return cells
+    return []
+
+
+def _markdown_named_float(text: str, name: str) -> float:
+    cells = _markdown_named_row_cells(text, name)
+    if len(cells) < 2:
+        return float("nan")
+    try:
+        return float(cells[1].strip("`"))
+    except ValueError:
+        return float("nan")
+
+
 def _source_float(text: str, pattern: str) -> float:
     match = re.search(pattern, text)
     return float(match.group(1)) if match else float("nan")
@@ -360,6 +519,7 @@ def collect_inventory() -> dict[str, Any]:
     makefile = _text("Makefile")
     adr = _text("docs/adr_unified_loop_backend.md")
     plan = _text("docs/unified_irregular_loop_implementation_plan.md")
+    bfr_plan = _text("docs/bfr_loop_backend_plan_macos.md")
     compute = _text("src/energy_force/Compute_energy_and_force_on_mesh.cpp")
     regular = _text("src/mesh/OpenSubdiv_regular_evaluator.cpp")
     v3 = _text("src/mesh/OpenSubdiv_valence3_row_provider.cpp")
@@ -477,6 +637,57 @@ def collect_inventory() -> dict[str, Any]:
         r"tolerance envelope is `([0-9.eE+-]+)` absolute")
 
     fixtures = {path: _sha256(path) for path in EXPECTED_FIXTURE_HASHES}
+    b2p_fixtures = {
+        path: _sha256(path) for path in EXPECTED_B2P_FIXTURE_HASHES
+        if (ROOT / path).is_file()
+    }
+    b2p_family_metadata_path = (
+        "data/fixtures/candidates/b2p_single_flip_family/family_metadata.json")
+    b2p_family_metadata = json.loads(_text(b2p_family_metadata_path)) \
+        if (ROOT / b2p_family_metadata_path).is_file() else {}
+    b2p_locality_sample_manifest = b2p_family_metadata.get(
+        "locality_sample_manifest", {})
+    b2p_targets = {
+        name: {
+            "adr": _markdown_named_float(adr, name),
+            "bfr_plan": _markdown_named_float(bfr_plan, name),
+        }
+        for name in EXPECTED_B2P_TARGETS
+    }
+    b2p_oracle_contract = {
+        "all_required_fields_present": _all_present(
+            bfr_plan, EXPECTED_B2P_ORACLE_ANCHORS),
+        "anchors": {
+            anchor: anchor in bfr_plan
+            for anchor in EXPECTED_B2P_ORACLE_ANCHORS
+        },
+        "d10_plan_status": (
+            _markdown_row_cells(bfr_plan, "D10") + ["missing"]
+        )[1],
+        "d10_adr_pending": _all_present(adr, [
+            "Frozen B2p / D10 proposal (not approved)",
+            "remains pending explicit user approval",
+        ]),
+        "official_opensubdiv_tag_commit": (
+            bfr_plan.count("9dab8a47bfbb1388ec8388fe61f5f916e6123f38") == 1
+        ),
+        "execution_and_evidence_anchors": {
+            anchor: anchor in bfr_plan
+            for anchor in EXPECTED_B2P_EXECUTION_AND_EVIDENCE_ANCHORS
+        },
+    }
+    b2p_claim_scan_text = "\n".join([
+        bfr_plan,
+        adr,
+        *[
+            _text(path) for path in EXPECTED_B2P_FIXTURE_HASHES
+            if path.endswith(".json") and (ROOT / path).is_file()
+        ],
+    ]).lower()
+    b2p_forbidden_claim_tokens = [
+        token for token in FORBIDDEN_B2P_CLAIM_TOKENS
+        if token in b2p_claim_scan_text
+    ]
     topology = {
         "valence3_tetrahedron": {
             "vertices": 4, "faces": 4, "valence": 3,
@@ -717,6 +928,23 @@ def collect_inventory() -> dict[str, Any]:
             "fixture_sha256": fixtures,
             "expected_values_policy":
                 "fixture regressions are locks, not independent scientific oracles",
+        },
+        "I3_b2p_frozen_inputs": {
+            "targets": b2p_targets,
+            "expected_targets": EXPECTED_B2P_TARGETS,
+            "fixture_sha256": b2p_fixtures,
+            "expected_fixture_sha256": EXPECTED_B2P_FIXTURE_HASHES,
+            "locality_sample_manifest": b2p_locality_sample_manifest,
+            "expected_locality_sample_manifest":
+                EXPECTED_B2P_LOCALITY_SAMPLE_MANIFEST,
+            "oracle_contract": b2p_oracle_contract,
+            "forbidden_claim_tokens": b2p_forbidden_claim_tokens,
+            "expected_forbidden_claim_tokens": [],
+            "row_invariants_remain_distinct": _all_present(bfr_plan, [
+                "Position-row sum one",
+                "derivative-row sum zero",
+                "separate `1.0e-12` invariants",
+            ]),
         },
         "I2_scope_performance": {
             "regular_n6_masks_coincide": {
@@ -969,6 +1197,42 @@ def validate_inventory(report: dict[str, Any], check_adr: bool = True) -> list[s
         require(i["source_anchors_present"], "named tolerance source anchor drift")
         require(i["fixture_sha256"] == EXPECTED_FIXTURE_HASHES, "fixture SHA256 drift")
 
+        i3 = report["I3_b2p_frozen_inputs"]
+        require(i3["expected_targets"] == EXPECTED_B2P_TARGETS,
+                "B2p target expectation drift")
+        require(i3["targets"] == {
+                    name: {"adr": value, "bfr_plan": value}
+                    for name, value in EXPECTED_B2P_TARGETS.items()
+                }, "B2p D10 target ledger drift")
+        require(i3["expected_fixture_sha256"] == EXPECTED_B2P_FIXTURE_HASHES,
+                "B2p fixture-hash expectation drift")
+        require(i3["fixture_sha256"] == EXPECTED_B2P_FIXTURE_HASHES,
+                "B2p fixture missing or SHA256 drift")
+        require(i3["expected_locality_sample_manifest"] ==
+                EXPECTED_B2P_LOCALITY_SAMPLE_MANIFEST,
+                "B2p locality-manifest expectation drift")
+        require(i3["locality_sample_manifest"] ==
+                EXPECTED_B2P_LOCALITY_SAMPLE_MANIFEST,
+                "B2p locality sample manifest drift")
+        oracle = i3["oracle_contract"]
+        require(oracle["all_required_fields_present"] and
+                all(oracle["anchors"].values()),
+                "B2p oracle contract incomplete")
+        require(all(oracle["execution_and_evidence_anchors"].values()),
+                "B2p execution or evidence-deduplication contract incomplete")
+        require(oracle["d10_plan_status"] ==
+                "Pending - frozen by B2p before B2 runs",
+                "D10 plan status drift or premature approval")
+        require(oracle["d10_adr_pending"],
+                "D10 ADR pending-approval boundary missing")
+        require(oracle["official_opensubdiv_tag_commit"],
+                "B2p OpenSubdiv 3.7.0 source pin drift")
+        require(i3["forbidden_claim_tokens"] ==
+                i3["expected_forbidden_claim_tokens"] == [],
+                "B2p contains a candidate result or qualification claim")
+        require(i3["row_invariants_remain_distinct"],
+                "B2p row invariants conflated with accuracy targets")
+
         i2 = report["I2_scope_performance"]
         require(i2["regular_n6_masks_coincide"] == {
                     "neighbor": 1.0 / 16.0, "center": 5.0 / 8.0},
@@ -1067,6 +1331,13 @@ def validate_inventory(report: dict[str, Any], check_adr: bool = True) -> list[s
                            "D3 and D4 remain pending WP2.1, independent scientific review"):
                 if anchor not in adr:
                     errors.append(f"ADR anchor missing: {anchor}")
+            for name, value in EXPECTED_B2P_TARGETS.items():
+                rendered = format(value, ".15g")
+                if _markdown_named_float(adr, name) != value:
+                    errors.append(f"ADR B2p target missing or changed: {name}={rendered}")
+            for path, digest in EXPECTED_B2P_FIXTURE_HASHES.items():
+                if f"| `{path}` | `{digest}` |" not in adr:
+                    errors.append(f"ADR B2p fixture hash missing: {path}")
     return errors
 
 

@@ -1,0 +1,142 @@
+{
+  "declared_valence_vertices": {
+    "7": 2,
+    "8": 4,
+    "9": 0
+  },
+  "fixture_id": "b2p_closed_valence789",
+  "generator": {
+    "id": "scripts/generate_b2p_loop_fixtures.py",
+    "parameters": {
+      "construction": {
+        "accepted_stereographic_integer_triples": [
+          [
+            11,
+            -7,
+            2
+          ],
+          [
+            -6,
+            -8,
+            4
+          ],
+          [
+            12,
+            3,
+            9
+          ],
+          [
+            9,
+            9,
+            5
+          ],
+          [
+            2,
+            12,
+            8
+          ],
+          [
+            10,
+            -2,
+            10
+          ],
+          [
+            4,
+            -2,
+            5
+          ],
+          [
+            3,
+            -11,
+            10
+          ],
+          [
+            -10,
+            3,
+            9
+          ],
+          [
+            8,
+            10,
+            6
+          ],
+          [
+            -11,
+            -2,
+            8
+          ],
+          [
+            12,
+            7,
+            4
+          ],
+          [
+            3,
+            5,
+            3
+          ]
+        ],
+        "convex_hull": {
+          "algorithm": "enumerate vertex triples in lexicographic order with exact Fraction arithmetic; retain iff every other vertex lies strictly on one side; orient retained faces outward",
+          "all_generated_vertices_retained": true,
+          "strict_rational_side_checks": 220
+        },
+        "geometry_validation": {
+          "all_coordinates_finite": true,
+          "minimum_triangle_quality": 0.24927271436333173,
+          "minimum_triangle_quality_bound": 0.24,
+          "nonadjacent_triangle_intersection_count": 0,
+          "positive_triangle_areas": true,
+          "triangle_quality_definition": "4*sqrt(3)*area/(a^2+b^2+c^2)"
+        },
+        "random_draw_contract": "Python random.Random(seed); for each of 13 vertices draw a,b with randint(-12,12) and c with randint(1,12)",
+        "seed": 14631,
+        "stereographic_map": "x=a/c, y=b/c; vertex=(2x,2y,x^2+y^2-1)/(x^2+y^2+1)"
+      }
+    },
+    "version": 2
+  },
+  "geometry": {
+    "all_coordinates_finite": true,
+    "minimum_triangle_quality": 0.24927271436333173,
+    "minimum_triangle_quality_bound": 0.24,
+    "nonadjacent_triangle_intersection_count": 0,
+    "positive_triangle_areas": true,
+    "triangle_quality_definition": "4*sqrt(3)*area/(a^2+b^2+c^2)"
+  },
+  "proof_only": true,
+  "schema_version": 1,
+  "scientifically_approved": false,
+  "source_identity": "seeded exact-rational stereographic convex hull",
+  "status": "candidate_only",
+  "topology": {
+    "all_vertices_referenced": true,
+    "closed_two_face_edge_manifold": true,
+    "connected_degree2_vertex_links": true,
+    "contains_valences": [
+      7,
+      8,
+      9
+    ],
+    "duplicate_faces_absent": true,
+    "edge_count": 33,
+    "face_count": 22,
+    "opposite_edge_orientation": true,
+    "valence_by_vertex": [
+      9,
+      3,
+      7,
+      5,
+      8,
+      4,
+      5,
+      5,
+      5,
+      3,
+      4,
+      4,
+      4
+    ],
+    "vertex_count": 13
+  }
+}
