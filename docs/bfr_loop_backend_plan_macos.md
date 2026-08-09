@@ -149,7 +149,7 @@ These extend the ADR ledger and do not modify D0-D8.
 | --- | --- | --- | --- |
 | D9a | Proposed - pending B2 evidence and explicit user scientific decision | **Qualify `bfr-surface`.** Pass/fail on Bfr alone: is it scientifically and operationally adequate to carry the generic backend? Far is **not a candidate** and cannot be admitted; it is a regression comparator only. A Bfr failure blocks the lane and escalates to a new explicit architecture decision; there is no automatic Far fallback and no configuration path to one. | B2 evidence, technical review, independent scientific review, explicit user decision. |
 | D9b | Deferred - not decidable before WP5.2 | **Bfr production-activation acceptance.** D9a qualifies Bfr's rows; D9b accepts Bfr for production. The deciding quantity is convergence of the integrated bending energy and per-source forces under the *selected* quadrature rule, which does not exist until WP5.2. This is not a Far-versus-Bfr selection. | WP5.2 quadrature selection, then integrated-functional evidence, independent scientific review, and explicit user decision. |
-| D10 | Pending - frozen by B2p before B2 runs | Declare frozen irregular row targets. The existing ledger has no irregular accuracy tolerance; `valence{3,4,5}_row_invariants = 1.0e-12` are row sum-rule invariants, not accuracy. | **B2p** declares names, values, rationale, and owning gate, and commits them before B2 exists, so **S5** compliance is provable from commit order. Explicit user D10 approval. Widening after results is a blocker, not a fix. |
+| D10 | Approved - Frozen B2p targets and coverage challenge accepted for B2 proof. This does not qualify Bfr, decide D9a or D9b, widen a target, or authorize production. | Declare frozen irregular row targets. The existing ledger has no irregular accuracy tolerance; `valence{3,4,5}_row_invariants = 1.0e-12` are row sum-rule invariants, not accuracy. | **B2p** declared names, values, rationale, and owning gate before B2 existed, so **S5** compliance is provable from commit order. Explicit user D10 approval on 2026-08-08. Widening after results is a blocker, not a fix. |
 | D11 | Proposed - pending explicit user decision after D9a | Legacy per-valence OpenSubdiv routes are frozen as regression comparators, not ported to Bfr, and retired only through the unified plan's WP7 sequence after the generic route is accepted. | Explicit user decision. Extends, and does not replace, D5. |
 
 Nothing in D9a-D11 may be inferred from D1. D1 governs the *scheme* (stock Loop
@@ -597,7 +597,7 @@ above; `||P_eigen-P_uniform||_infinity <= 1.0e-20` in interval arithmetic.
 These checks validate the primary Stam oracle; they are not candidate accuracy
 rows, and uniform success cannot supply coverage when the primary route fails.
 
-### 3.3 Frozen D10 proposal (approval still pending)
+### 3.3 Frozen D10 targets (approved 2026-08-08)
 
 B2p fixes the following values before B2 exists. They are defensible a priori:
 the position value inherits the already frozen regular-row gate, while the
@@ -606,9 +606,10 @@ That order ratio is the pre-existing upstream OpenSubdiv regression policy
 already recorded in section 3.1; B2p uses the repository's stricter existing
 `5.0e-6` regular scale as its position anchor rather than importing an upstream
 candidate observation. No Bfr or Far output from this repository contributes to
-any value. These are proposed scientific gates only. D10 remains pending
-explicit user approval, and any later widening is a blocker under **S5**.
-Approval also accepts the frozen coverage challenge recorded in section 7: the
+any value. The user explicitly approved D10 on 2026-08-08 after B2p froze these
+scientific gates and before B2 began. The approval changes no value; any later
+widening remains a blocker under **S5**. It also accepts the frozen coverage
+challenge recorded in section 7: the
 seeded hull has no coarse valence-6 vertex and contains valence-3 corners, so an
 honest B2 run may leave items oracle-uncovered or may fail a target. Approval
 does not predict success and does not authorize a later fixture or tolerance
@@ -1568,8 +1569,8 @@ Nothing in this plan decides them.
 | KB0c | D1 and D2 recorded as approved with their scope limits | Pending KB0a | T1 technical |
 | KB0b | Inventory enforced by a CI workflow, OpenSubdiv-free and read-only | Pending KB0a green | T1 technical |
 | KB1 | Extended `LoopTopologyKey` and row contract, no OpenSubdiv include | Pending B0a, B0b, B0c | T1 technical |
-| KB2p | Frozen D10 targets, oracle contract, new fixtures and hashes, face correspondence | Pending B1 | T2 + explicit user D10 |
-| KB2 | Bfr qualification evidence against B2p's frozen inputs; Far comparator results published | Pending KB2p | T2: verification + technical + scientific + gatekeeper + user D9a |
+| KB2p | Frozen D10 targets, oracle contract, new fixtures and hashes, face correspondence | Merged as PR 193 at `b8ed8bd2dbbf994a4419695cf490b2a3e6f349a6`; D10 approved 2026-08-08 | T2 + explicit user D10 |
+| KB2 | Bfr qualification evidence against B2p's frozen inputs; Far comparator results published | Ready after the D10 approval record merges; not started | T2: verification + technical + scientific + gatekeeper + user D9a |
 | KB3 | Bfr full-mesh provider; owns the exact 30700 pin and the no-Far-in-production tests | Pending D9a PASS | T2 |
 | KB4 | Topology epoch cache, invalidation, flip-pair re-preparation cost | Pending B3 | Technical |
 | KB9b | D9b Bfr production-activation acceptance on integrated-functional evidence | Deferred to after WP5.2 | Scientific + explicit user |
