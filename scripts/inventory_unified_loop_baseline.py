@@ -664,9 +664,10 @@ def collect_inventory() -> dict[str, Any]:
         "d10_plan_status": (
             _markdown_row_cells(bfr_plan, "D10") + ["missing"]
         )[1],
-        "d10_adr_pending": _all_present(adr, [
-            "Frozen B2p / D10 proposal (not approved)",
-            "remains pending explicit user approval",
+        "d10_adr_approved": _all_present(adr, [
+            "Frozen B2p / D10 targets (approved)",
+            "explicitly approved D10 on 2026-08-08",
+            "Approval accepts the frozen coverage challenge and changes no value",
         ]),
         "official_opensubdiv_tag_commit": (
             bfr_plan.count("9dab8a47bfbb1388ec8388fe61f5f916e6123f38") == 1
@@ -1221,10 +1222,12 @@ def validate_inventory(report: dict[str, Any], check_adr: bool = True) -> list[s
         require(all(oracle["execution_and_evidence_anchors"].values()),
                 "B2p execution or evidence-deduplication contract incomplete")
         require(oracle["d10_plan_status"] ==
-                "Pending - frozen by B2p before B2 runs",
-                "D10 plan status drift or premature approval")
-        require(oracle["d10_adr_pending"],
-                "D10 ADR pending-approval boundary missing")
+                "Approved - Frozen B2p targets and coverage challenge accepted "
+                "for B2 proof. This does not qualify Bfr, decide D9a or D9b, "
+                "widen a target, or authorize production.",
+                "D10 plan approval status drift")
+        require(oracle["d10_adr_approved"],
+                "D10 ADR approval boundary missing")
         require(oracle["official_opensubdiv_tag_commit"],
                 "B2p OpenSubdiv 3.7.0 source pin drift")
         require(i3["forbidden_claim_tokens"] ==

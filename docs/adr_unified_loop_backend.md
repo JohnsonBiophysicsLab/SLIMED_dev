@@ -212,11 +212,13 @@ for the future generic backend.
 | `valence5_reviewed_production_parity` | `1.0e-10` | Valence-5 reviewed face/force parity. |
 | `irregular_serial_openmp_envelope` | `1.0e-10` | Existing irregular scalar/force reduction characterization. |
 
-### Frozen B2p / D10 proposal (not approved)
+### Frozen B2p / D10 targets (approved)
 
-B2p freezes the following a-priori proposal before any B2 candidate run. D10
-remains pending explicit user approval; these rows do not qualify Bfr, do not
-rank Bfr against Far, and do not change any existing tolerance above.
+B2p froze the following a-priori targets before any B2 candidate run. The user
+explicitly approved D10 on 2026-08-08 after that freeze and before B2 began.
+Approval accepts the frozen coverage challenge and changes no value. These rows
+do not qualify Bfr, decide D9a or D9b, rank Bfr against Far, widen any existing
+tolerance, or authorize production.
 
 | Name | Value | Dimension / norm | Rationale | Owning gate |
 | --- | ---: | --- | --- | --- |

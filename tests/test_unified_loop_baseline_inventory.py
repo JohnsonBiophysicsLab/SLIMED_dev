@@ -523,8 +523,15 @@ class UnifiedLoopBaselineInventoryTest(unittest.TestCase):
         self.assert_text_mutation_rejected(
             "docs/bfr_loop_backend_plan_macos.md",
             lambda text: text.replace(
-                "Pending - frozen by B2p before B2 runs",
-                "Approved", 1))
+                "Approved - Frozen B2p targets and coverage challenge accepted "
+                "for B2 proof. This does not qualify Bfr, decide D9a or D9b, "
+                "widen a target, or authorize production.",
+                "Pending - frozen by B2p before B2 runs", 1))
+        self.assert_text_mutation_rejected(
+            "docs/adr_unified_loop_backend.md",
+            lambda text: text.replace(
+                "Frozen B2p / D10 targets (approved)",
+                "Frozen B2p / D10 proposal (not approved)", 1))
 
         self.assertEqual(
             self.baseline["I_tolerances_fixtures"]["tolerances"],
