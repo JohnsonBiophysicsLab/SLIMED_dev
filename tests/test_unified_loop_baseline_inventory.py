@@ -456,6 +456,16 @@ class UnifiedLoopBaselineInventoryTest(unittest.TestCase):
         self.assert_text_mutation_rejected(
             "docs/bfr_loop_backend_plan_macos.md",
             lambda text: text.replace(
+                "E_geom = max_a(max(abs(lower(E_a)), abs(upper(E_a))) / lower(L_M))",
+                "E_geom = midpoint_geometry_norm", 1))
+        self.assert_text_mutation_rejected(
+            "docs/bfr_loop_backend_plan_macos.md",
+            lambda text: text.replace(
+                "exactly reimported before `E_coeff` and `E_geom` are evaluated",
+                "converted only after all bounds have passed", 1))
+        self.assert_text_mutation_rejected(
+            "docs/bfr_loop_backend_plan_macos.md",
+            lambda text: text.replace(
                 "u_i = max(abs(c_i - lo_i), abs(c_i - hi_i))",
                 "u_i = abs(c_i - d_i)", 1))
         self.assert_text_mutation_rejected(

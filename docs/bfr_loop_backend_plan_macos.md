@@ -341,8 +341,11 @@ this interval module, rejects `mpfr_float_backend` and any MPFR arithmetic call
 without a literal `MPFR_RNDD` or `MPFR_RNDU`, checks the linked MPFR identity
 above, and runs containment tests for every primitive and matrix operation.
 Mutation tests replace one downward/upward mode at a time and must fail. This
-audit is part of coverage, not advisory. Conversion to `double` occurs only
-when serializing a midpoint after its interval has passed every bound below.
+audit is part of coverage, not advisory. Conversion to `double` occurs only at
+the diagnostic midpoint-serialization step below, after the five depth
+intervals have been intersected. The serialized value is
+exactly reimported before `E_coeff` and `E_geom` are evaluated; neither it nor any other
+nearest-rounded scalar may replace directed interval proof arithmetic.
 
 The ambient coordinates are original source IDs in increasing numeric order,
 with the Euclidean inner product. For a simple real eigenvalue, its eigenvector

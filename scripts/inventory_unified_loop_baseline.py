@@ -167,6 +167,8 @@ EXPECTED_B2P_ORACLE_ANCHORS = [
     "epsilon_i = max(abs(d_i - lo_i), abs(hi_i - d_i))",
     "E_coeff = sum_i epsilon_i",
     "E_a = sum_i ([lo_i,hi_i] - d_i) * P_i[a]",
+    "E_geom = max_a(max(abs(lower(E_a)), abs(upper(E_a))) / lower(L_M))",
+    "exactly reimported before `E_coeff` and `E_geom` are evaluated",
     "u_i = max(abs(c_i - lo_i), abs(c_i - hi_i))",
     "U_coeff = sum_i u_i",
     "D_a = sum_i ([lo_i,hi_i] - c_i) * P_i[a]",
