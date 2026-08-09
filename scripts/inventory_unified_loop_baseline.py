@@ -147,6 +147,78 @@ EXPECTED_B2P_TARGETS = {
     "flip_pair_row_changed_linf": 1.0e-12,
 }
 
+EXPECTED_B2_READINESS_FIXTURE_HASHES = {
+    "data/fixtures/candidates/b2_readiness_v1/asymmetric_344_bipyramid/candidate_metadata.json":
+        "e92b244806eaecd9230a3f3f9977f61ddeff3875ee6550c2dfbdb211a8e05e04",
+    "data/fixtures/candidates/b2_readiness_v1/asymmetric_344_bipyramid/faces.csv":
+        "c621d95a16a6915ab443bf74f162bddde96a85ee82e06152cbef82f28ef87486",
+    "data/fixtures/candidates/b2_readiness_v1/asymmetric_344_bipyramid/vertices.csv":
+        "b275aac1d1b422a131c3703eb7f56fd4d5bf21230b277835774bc27405d10a4e",
+    "data/fixtures/candidates/b2_readiness_v1/closed_566_refined_icosahedron/candidate_metadata.json":
+        "f974fb5bb1d542561672c1e7d2d52bf5220acc09dd3b5510dc14f1d98343b0b5",
+    "data/fixtures/candidates/b2_readiness_v1/closed_566_refined_icosahedron/faces.csv":
+        "d72e02a882c536643e8a3405efe8bb32c745bc034cbc55dcc1af0d5eba11e1b8",
+    "data/fixtures/candidates/b2_readiness_v1/closed_566_refined_icosahedron/vertices.csv":
+        "cb6c618c254b36bbe27ff354f5dc009222e95277188833a3385a4f3c378b0bd6",
+    "data/fixtures/candidates/b2_readiness_v1/execution_manifest.json":
+        "f043c51e3274b0b2bb998dadb11357d1e1f091c5f0109506921a212456bbf837",
+    "data/fixtures/candidates/b2_readiness_v1/regular_all6_torus/candidate_metadata.json":
+        "11aba5339fced78cab1056b99d03766ecf3b0a7178e1c04c5376f1af01f2cf1c",
+    "data/fixtures/candidates/b2_readiness_v1/regular_all6_torus/faces.csv":
+        "7797a1ded38d99e83707fb85e23a2a193c5857f7425a5f678ceccb1506c67cd0",
+    "data/fixtures/candidates/b2_readiness_v1/regular_all6_torus/vertices.csv":
+        "923914e925eaf0f60eb9a087f0150ad37b9e56bf0191ffc52b5d7fbd91b2903c",
+    "data/fixtures/candidates/b2_readiness_v1/symmetric_344_bipyramid/candidate_metadata.json":
+        "6afd2ec0c0df1cd71a8597fa78889dbf9daea9627d10b97165acec1cd39f9cb0",
+    "data/fixtures/candidates/b2_readiness_v1/symmetric_344_bipyramid/faces.csv":
+        "c621d95a16a6915ab443bf74f162bddde96a85ee82e06152cbef82f28ef87486",
+    "data/fixtures/candidates/b2_readiness_v1/symmetric_344_bipyramid/vertices.csv":
+        "bbce1680eb4006622e14dd5d724134df826471bb55e0332c19a208b5e92429a5",
+}
+
+EXPECTED_B2_READINESS_CRITERIA = {
+    "b2_preparation_median_ms": 1000.000,
+    "b2_preparation_single_run_failstop_ms": 10000.000,
+    "b2_retained_row_payload_bytes_per_face": 98304.0,
+    "b2_preparation_peak_rss_delta_mib": 64.000,
+}
+
+EXPECTED_B2_READINESS_MANIFEST_ROWS = [
+    ["U8-01", "Regular closed/periodic mesh", "b2_readiness_v1/regular_all6_torus"],
+    ["U8-02", "Tetrahedron", "closed_valence3_tetrahedron"],
+    ["U8-03", "Octahedron", "closed_valence4_octahedron"],
+    ["U8-04", "Icosahedron", "closed_valence5"],
+    ["U8-05", "Symmetric 3/4/4 bipyramid", "b2_readiness_v1/symmetric_344_bipyramid"],
+    ["U8-06", "Asymmetric 3/4/4 bipyramid", "b2_readiness_v1/asymmetric_344_bipyramid"],
+    ["U8-07", "Closed mixed 3/4/5", "closed_mixed_valence345"],
+    ["U8-08", "Intended 5/6/6 local patch in a closed mesh", "b2_readiness_v1/closed_566_refined_icosahedron"],
+    ["U8-09", "Non-Platonic closed triangulation", "b2p_valence789"],
+    ["U8-10", "Coordinate-perturbed variants", "mutation:coordinate_perturbation_v1"],
+    ["U8-11", "Reversed/inconsistent winding", "mutation:reverse_face_zero_v1"],
+    ["U8-12", "Open boundary mesh", "mutation:delete_face_zero_v1"],
+    ["U8-13", "Non-manifold/duplicate edge", "mutation:append_face_zero_v1"],
+    ["U8-14", "Topology-mutated/edge-flipped mesh", "b2p_single_flip_family"],
+    ["B7-01", "Single-flip pair family", "b2p_single_flip_family"],
+    ["B7-02", "Closed mesh containing valence 7, 8, and 9 corners", "b2p_valence789"],
+    ["B7-03", "Adjacent extraordinary corners sharing an edge", "b2p_adjacent_extraordinary"],
+]
+
+EXPECTED_B2_READINESS_ANCHORS = [
+    "3 unrecorded warmups followed by 15 measured\npreparations",
+    "ordinary median (the eighth sorted\nvalue)",
+    "Bfr\n`approxLevelSmooth = 2,3,4,5,6,7,8` with `approxLevelSharp = 6`",
+    "Far\nisolation level `2,3,4,5,6,7,8`",
+    "`MACH_TASK_BASIC_INFO.resident_size`",
+    "`UNQUALIFIED_PLATFORM`",
+    "`UNSUPPORTED/BLOCKING`",
+    "both the B2 proof and all\nlinked OpenSubdiv 3.7.0 translation units are TSan-instrumented",
+    "counts `1,2,4`, with 20 complete preparation rounds",
+    "Far has one proof-only uncached\nconstruction mode, recorded as cache mode `not_applicable`",
+    "The TSan build below is a separate\ncategorical threading profile",
+    "12 + 4*U + 72*S + 12*C",
+    "changes no D10 value or oracle input",
+]
+
 EXPECTED_B2P_ORACLE_ANCHORS = [
     "repository-owned `MpfrInterval`",
     "`mpfr_init2(...,544)`",
@@ -249,6 +321,7 @@ EXPECTED_DECISIONS = {
     "D6": "Restated existing project policy",
     "D7": "Restated existing user instruction",
     "D8": "Proposed - pending explicit user performance-budget approval",
+    "D12": "Proposed - pending explicit user approval after technical and scientific review",
 }
 
 EXPECTED_PLAN_AUTHORITIES = {
@@ -689,6 +762,54 @@ def collect_inventory() -> dict[str, Any]:
         token for token in FORBIDDEN_B2P_CLAIM_TOKENS
         if token in b2p_claim_scan_text
     ]
+    readiness_fixtures = {
+        path: _sha256(path) for path in EXPECTED_B2_READINESS_FIXTURE_HASHES
+        if (ROOT / path).is_file()
+    }
+    readiness_manifest_path = (
+        "data/fixtures/candidates/b2_readiness_v1/execution_manifest.json")
+    readiness_manifest = json.loads(_text(readiness_manifest_path)) \
+        if (ROOT / readiness_manifest_path).is_file() else {}
+    readiness_manifest_rows = [
+        [entry.get("id"), entry.get("row"), entry.get("fixture_or_mutation")]
+        for entry in readiness_manifest.get("entries", [])
+    ]
+    readiness_generator = _text("scripts/generate_b2_readiness_fixtures.py")
+    readiness_criteria = {
+        name: {
+            "adr": _markdown_named_float(adr, name),
+            "bfr_plan": _source_float(
+                bfr_plan,
+                rf"`{re.escape(name)}`\s*\|\s*`<=\s*([0-9.]+)"),
+        }
+        for name in EXPECTED_B2_READINESS_CRITERIA
+    }
+    readiness_mutation_ids = [
+        item.get("id") for item in readiness_manifest.get("mutation_rules", [])
+    ]
+    readiness_contract = {
+        "anchors": {anchor: anchor in bfr_plan
+                    for anchor in EXPECTED_B2_READINESS_ANCHORS},
+        "d12_adr_status": (_markdown_row_cells(adr, "D12") + ["missing"])[1],
+        "d12_plan_status": (_markdown_row_cells(bfr_plan, "D12") + ["missing"])[1],
+        "generator_id_present": (
+            'GENERATOR_ID = "scripts/generate_b2_readiness_fixtures.py"'
+            in readiness_generator),
+        "generator_manifest_rows_present": all(
+            all(value in readiness_generator for value in row)
+            for row in EXPECTED_B2_READINESS_MANIFEST_ROWS),
+        "generator_mutations_present": all(
+            mutation in readiness_generator for mutation in [
+                "coordinate_perturbation_v1", "reverse_face_zero_v1",
+                "delete_face_zero_v1", "append_face_zero_v1"]),
+        "manifest_schema_version": readiness_manifest.get("schema_version"),
+        "manifest_status": readiness_manifest.get("status"),
+        "mutation_ids": readiness_mutation_ids,
+        "shared_hull_deduplication": readiness_manifest.get(
+            "shared_hull_deduplication"),
+        "stable_locality_manifest": readiness_manifest.get(
+            "stable_locality_manifest"),
+    }
     topology = {
         "valence3_tetrahedron": {
             "vertices": 4, "faces": 4, "valence": 3,
@@ -946,6 +1067,15 @@ def collect_inventory() -> dict[str, Any]:
                 "derivative-row sum zero",
                 "separate `1.0e-12` invariants",
             ]),
+        },
+        "I4_b2_readiness_pending_inputs": {
+            "contract": readiness_contract,
+            "criteria": readiness_criteria,
+            "expected_criteria": EXPECTED_B2_READINESS_CRITERIA,
+            "expected_fixture_sha256": EXPECTED_B2_READINESS_FIXTURE_HASHES,
+            "expected_manifest_rows": EXPECTED_B2_READINESS_MANIFEST_ROWS,
+            "fixture_sha256": readiness_fixtures,
+            "manifest_rows": readiness_manifest_rows,
         },
         "I2_scope_performance": {
             "regular_n6_masks_coincide": {
@@ -1233,6 +1363,54 @@ def validate_inventory(report: dict[str, Any], check_adr: bool = True) -> list[s
         require(i3["forbidden_claim_tokens"] ==
                 i3["expected_forbidden_claim_tokens"] == [],
                 "B2p contains a candidate result or qualification claim")
+
+        i4 = report["I4_b2_readiness_pending_inputs"]
+        require(i4["expected_criteria"] == EXPECTED_B2_READINESS_CRITERIA,
+                "B2 readiness criterion expectation drift")
+        require(i4["criteria"] == {
+                    name: {"adr": value, "bfr_plan": value}
+                    for name, value in EXPECTED_B2_READINESS_CRITERIA.items()
+                }, "B2 readiness criterion ledger drift")
+        require(i4["expected_fixture_sha256"] ==
+                EXPECTED_B2_READINESS_FIXTURE_HASHES,
+                "B2 readiness fixture-hash expectation drift")
+        require(i4["fixture_sha256"] == EXPECTED_B2_READINESS_FIXTURE_HASHES,
+                "B2 readiness fixture missing or SHA256 drift")
+        require(i4["expected_manifest_rows"] ==
+                EXPECTED_B2_READINESS_MANIFEST_ROWS,
+                "B2 readiness manifest expectation drift")
+        require(i4["manifest_rows"] == EXPECTED_B2_READINESS_MANIFEST_ROWS,
+                "B2 readiness manifest omission or reordering")
+        readiness = i4["contract"]
+        require(all(readiness["anchors"].values()),
+                "B2 readiness protocol incomplete")
+        require(readiness["d12_plan_status"] ==
+                "Proposed - pending explicit user approval after technical and "
+                "scientific review",
+                "D12 plan status drift")
+        require(readiness["d12_adr_status"] ==
+                "Proposed - pending explicit user approval after technical and "
+                "scientific review",
+                "D12 ADR status drift")
+        require(readiness["generator_id_present"] and
+                readiness["generator_manifest_rows_present"] and
+                readiness["generator_mutations_present"],
+                "B2 readiness generator/manifest cross-check failed")
+        require(readiness["manifest_schema_version"] == 1 and
+                readiness["manifest_status"] == "pending_D12",
+                "B2 readiness manifest approval state drift")
+        require(readiness["mutation_ids"] == [
+                    "coordinate_perturbation_v1", "reverse_face_zero_v1",
+                    "delete_face_zero_v1", "append_face_zero_v1"],
+                "B2 readiness mutation rule omission or reordering")
+        require(readiness["shared_hull_deduplication"] ==
+                "b2p_valence789 and b2p_single_flip_family/base share bytes "
+                "and count once as mesh-level evidence",
+                "B2 readiness shared-hull deduplication drift")
+        require(readiness["stable_locality_manifest"] ==
+                "data/fixtures/candidates/b2p_single_flip_family/"
+                "family_metadata.json#locality_sample_manifest",
+                "B2 readiness stable locality-manifest drift")
         require(i3["row_invariants_remain_distinct"],
                 "B2p row invariants conflated with accuracy targets")
 
@@ -1341,6 +1519,13 @@ def validate_inventory(report: dict[str, Any], check_adr: bool = True) -> list[s
             for path, digest in EXPECTED_B2P_FIXTURE_HASHES.items():
                 if f"| `{path}` | `{digest}` |" not in adr:
                     errors.append(f"ADR B2p fixture hash missing: {path}")
+            for name, value in EXPECTED_B2_READINESS_CRITERIA.items():
+                if _markdown_named_float(adr, name) != value:
+                    errors.append(
+                        f"ADR B2 readiness criterion missing or changed: {name}")
+            for path, digest in EXPECTED_B2_READINESS_FIXTURE_HASHES.items():
+                if f"| `{path}` | `{digest}` |" not in adr:
+                    errors.append(f"ADR B2 readiness fixture hash missing: {path}")
     return errors
 
 

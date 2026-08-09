@@ -22,7 +22,7 @@ Division of authority between the documents:
 | Decisions D0-D8 | ADR decision ledger |
 | Package lifecycle, command profiles V0-V5, review tiers | unified plan sections 4-5 |
 | Frozen tolerance and fixture ledger | ADR |
-| Bfr evaluator qualification and activation | **this document**, D9a-D11 |
+| Bfr evaluator qualification and activation/readiness | **this document**, D9a-D12 |
 | Legacy stratum disposition | **this document**, section 6 |
 | Face kernel, quadrature, shadow route, production, CUDA | unified plan WP4-WP8 |
 
@@ -151,8 +151,9 @@ These extend the ADR ledger and do not modify D0-D8.
 | D9b | Deferred - not decidable before WP5.2 | **Bfr production-activation acceptance.** D9a qualifies Bfr's rows; D9b accepts Bfr for production. The deciding quantity is convergence of the integrated bending energy and per-source forces under the *selected* quadrature rule, which does not exist until WP5.2. This is not a Far-versus-Bfr selection. | WP5.2 quadrature selection, then integrated-functional evidence, independent scientific review, and explicit user decision. |
 | D10 | Approved - Frozen B2p targets and coverage challenge accepted for B2 proof. This does not qualify Bfr, decide D9a or D9b, widen a target, or authorize production. | Declare frozen irregular row targets. The existing ledger has no irregular accuracy tolerance; `valence{3,4,5}_row_invariants = 1.0e-12` are row sum-rule invariants, not accuracy. | **B2p** declared names, values, rationale, and owning gate before B2 existed, so **S5** compliance is provable from commit order. Explicit user D10 approval on 2026-08-08. Widening after results is a blocker, not a fix. |
 | D11 | Proposed - pending explicit user decision after D9a | Legacy per-valence OpenSubdiv routes are frozen as regression comparators, not ported to Bfr, and retired only through the unified plan's WP7 sequence after the generic route is accepted. | Explicit user decision. Extends, and does not replace, D5. |
+| D12 | Proposed - pending explicit user approval after technical and scientific review | **Freeze B2 readiness.** Accept the a-priori preparation-cost, retained-row-memory, process-memory, and threading criteria in section 3.4, and accept the complete section-8/section-7 execution manifest and independently generated fixture ledger. | This separate preflight amendment, technical review, independent scientific review, then explicit user approval before any B2 candidate run. Approval changes no D10 input, does not decide D9a or D9b, and does not authorize production. |
 
-Nothing in D9a-D11 may be inferred from D1. D1 governs the *scheme* (stock Loop
+Nothing in D9a-D12 may be inferred from D1. D1 governs the *scheme* (stock Loop
 masks). D9a and D9b govern whether **Bfr** is qualified to extract rows for that
 scheme and then activated in production. A D1 approval is not a D9a approval, and
 the 2026-08-06 scope decision that this is a Bfr lane is not a D9a approval
@@ -629,6 +630,86 @@ altering a manifest entry or row name is fixture drift. The value is fixed near
 the existing row-sum invariant scale, far above double roundoff and far below
 every accuracy target, without reference to a candidate run.
 
+### 3.4 Pending D12 B2-readiness criteria and execution protocol
+
+These criteria are frozen before a Bfr or Far executable exists in this lane.
+They are deliberately loose **operational fail-stop budgets**, not evidence that
+either candidate is fast and not a substitute for D8's later coordinate-only
+production budget. No candidate output was used to choose them. D12 remains
+pending technical review, independent scientific review, and explicit user
+approval; until then B2 is stopped.
+
+The reference platform is a dedicated Apple-silicon (`arm64`) macOS runner on
+AC power, with no thermal-pressure indication and no other repository job
+executing. macOS does not provide a supported general-purpose API for pinning
+this process to performance cores, so no affinity claim is permitted. Record
+macOS version, hardware model, chip, performance/efficiency core counts,
+physical memory, compiler, optimization flags, OpenSubdiv identity, and clock
+source in the evidence JSON. A run on Intel macOS, a virtualized or shared
+runner, or a thermally pressured host is reported for information as
+`UNQUALIFIED_PLATFORM` and cannot pass or fail these numeric gates. This
+platform scoping prevents unexplained host variance from becoming a tolerance
+change; changing it requires a reviewed D12 amendment before rerunning B2.
+
+The preparation operation begins immediately before construction of a fresh
+full-mesh `Far::TopologyRefiner`, then includes candidate construction of all
+face surfaces and the six source-keyed rows at every manifest sample, and ends
+only after the complete immutable row collection is validated. It excludes
+fixture parsing, oracle work, JSON serialization, and disk I/O; each candidate
+builds the same pinned refiner input inside its own measured operation. Each exact
+`(candidate, fixture, approximation-level, applicable-cache-mode)` case runs in
+a fresh process, performs **3 unrecorded warmups followed by 15 measured
+preparations** in one process, discards no measured repeat, reports all 15
+nanosecond durations, and gates on their ordinary median (the eighth sorted
+value). System monotonic wall time is the unit. The fixed sweeps are Bfr
+`approxLevelSmooth = 2,3,4,5,6,7,8` with `approxLevelSharp = 6`, and Far
+isolation level `2,3,4,5,6,7,8`; equal integers are not treated as
+commensurable settings. Bfr timing and RSS run separately with caching disabled
+and with the serial `SurfaceFactoryCache`; Far has one proof-only uncached
+construction mode, recorded as cache mode `not_applicable`, and is not run
+twice under invented Bfr cache labels. Numeric timing/RSS use the recorded
+non-sanitized Release proof build. The TSan build below is a separate
+categorical threading profile and cannot supply a numeric cost or RSS PASS.
+
+| Name | Frozen criterion | Rationale and failure semantics |
+| --- | ---: | --- |
+| `b2_preparation_median_ms` | `<= 1000.000` for every valid closed-fixture case at every fixed sweep level and each applicable mode defined above | A one-second preparation of at most 192 faces is an a-priori interactive proof-run safety ceiling, not an observed speed target. Any nonfinite/negative duration, missing repeat, or median above the ceiling is `FAIL`. |
+| `b2_preparation_single_run_failstop_ms` | `<= 10000.000` for every measured repeat | Ten seconds catches hangs hidden by an otherwise passing median. Timeout, signal, allocation failure, or any repeat over the ceiling is `FAIL`; it is never discarded as an outlier. |
+| `b2_retained_row_payload_bytes_per_face` | `<= 98304` bytes for every valid closed-fixture case | Exact logical retained payload after validation. For a face with `S` samples, `U` validated face-union source IDs, and `C` total coefficient entries across its exactly `6*S` sparse rows, the byte count is exactly `12 + 4*U + 72*S + 12*C`: signed 32-bit face ID; unsigned 32-bit sample and union counts; `U` signed 32-bit union IDs; three binary64 sample fields; and, per row, unsigned 32-bit kind/count plus one signed 32-bit source ID and one binary64 coefficient per entry. Allocator padding/capacity, refiner memory, executable text, and oracle memory are excluded and reported separately. A missing count, non-six-row sample, arithmetic overflow, or larger value is `FAIL`. The dense upper-bound illustration for 24 irregular trend samples and all 42 refined-icosahedron sources is 74,484 bytes, leaving 23,820 bytes below this a-priori 96-KiB fail-stop; no implementation may omit the row-repeated source IDs to improve the metric. |
+| `b2_preparation_peak_rss_delta_mib` | `<= 64.000` MiB for every valid closed-fixture preparation process | On macOS, take the baseline `MACH_TASK_BASIC_INFO.resident_size` after fixture load but before refiner construction, then sample after refiner construction, factory/cache construction, every completed face-row insertion, and immutable-package publication; gate on the maximum observed nonnegative increase divided by `1048576`. A negative observation is clamped only for reporting to zero; a missing named boundary, sampling failure, process failure, or a larger delta is `FAIL`. The 64-MiB fail-stop is intentionally generous for this at-most-192-face corpus and does not assert production scalability or an unsampled continuous-time peak. |
+
+The complete machine-readable execution order is
+`data/fixtures/candidates/b2_readiness_v1/execution_manifest.json`. Its 17
+ordered entries map, without omission, all 14 unified-plan section 8 rows and
+all three section 7 additions to either an exact checked-in fixture or one exact
+deterministic mutation. Coordinate perturbation adds binary64 deltas
+`(+0x1p-8,-0x1p-9,+0x1p-10)` to vertex row 1 of the asymmetric bipyramid.
+Winding reversal swaps columns 1 and 2 of torus face row 0. The open case
+deletes torus face row 0. The duplicate/non-manifold case appends an exact copy
+of torus face row 0. No B2 code may choose a replacement or silently create a
+different case. The manifest preserves the B2p stable locality-sample manifest
+and its shared-hull rule: `b2p_valence789` and
+`b2p_single_flip_family/base` count once as mesh-level evidence.
+
+Threading is categorical rather than a timing ratio. The matrix is
+`cache_disabled` and `SurfaceFactoryCacheThreaded`, each at concurrent worker
+counts `1,2,4`, with 20 complete preparation rounds per count and exact byte
+identity of validated rows across workers and rounds. A support claim requires
+zero ThreadSanitizer findings from a build in which **both the B2 proof and all
+linked OpenSubdiv 3.7.0 translation units are TSan-instrumented**. An
+uninstrumented OpenSubdiv build is `UNQUALIFIED`, never PASS. Any detected race
+is `UNSUPPORTED/BLOCKING` for that mode. Cache-disabled concurrent preparation
+and serial cached preparation are independently reported and qualified; a
+threaded-cache result cannot confer status on either. Missing mode/count/round,
+row mismatch, crash, or sanitizer finding is blocking. This adds no automatic
+fallback and does not weaken the existing section 4 threading rule.
+
+The numeric criteria apply only after D12 approval. Widening a number, changing
+the aggregation or platform, omitting/reordering a manifest entry, or changing
+a mutation after any candidate output is visible stops B2 under **S5**. D12
+approval changes no D10 value or oracle input, does not decide D9a/D9b, and
+does not authorize production or D8.
+
 ## 4. Bfr implementation facts to be pinned
 
 Recorded so that reviewers can check the implementation against the library
@@ -991,9 +1072,10 @@ scientific reviewer, gatekeeper). Qualifying an irregular surface representation
 is baseline-affecting and cannot be reviewed as mechanical work.
 
 Dependencies: B0a, B0b, B0c, B1, **and B2p all merged**, plus explicit user D10
-approval of B2p's frozen targets. B2 cannot start on unfrozen inputs; that is the
-whole point of B2p existing. Volume semantics are excluded, so D3/D4 are not
-required.
+approval of B2p's frozen targets, and the separate B2-readiness preflight merged
+with explicit user **D12** approval. B2 cannot start on unfrozen inputs; that is
+the whole point of B2p and D12 existing. Volume semantics are excluded, so
+D3/D4 are not required.
 
 Allowed files, and nothing else:
 
@@ -1066,6 +1148,10 @@ Steps:
    plan inverted this. Report both as a projection for Phase 2, never as a
    delivered benefit, and state `comparable_faces` explicitly so the ratio is
    reconstructible.
+   Every preparation-cost and memory PASS/FAIL uses section 3.4 verbatim;
+   candidate output cannot revise its platform, sweep, aggregation, ceiling,
+   or failure semantics. D8's later coordinate-only production budget remains
+   distinct and undecided.
 7. Threading: run Bfr with caching disabled and with
    `SurfaceFactoryCacheThreaded`. Threaded caching may be claimed as supported
    **only** with a ThreadSanitizer-instrumented OpenSubdiv build; a TSan run
@@ -1081,11 +1167,16 @@ Steps:
    candidate labels, and accidental success.
 
 Fixtures: every row of the unified plan's section 8 matrix, **plus** the new
-rows in section 7 below. The flip-pair family is mandatory, not optional.
+rows in section 7 below, in the exact order and mapping frozen by section 3.4's
+hash-covered execution manifest. The flip-pair family is mandatory, not
+optional. B2 may materialize only the exact declared mutations in a temporary
+directory and may not retain or substitute a fixture.
 
 Gate:
 
 - D10 targets were frozen before results, evidenced by commit order;
+- D12 engineering criteria, execution manifest, and complete fixture corpus
+  were approved and frozen before results, evidenced by commit order;
 - `.github/workflows/bfr_qualification.yml` is green at the exact reviewed B2
   head in `--require-proof-dependencies` mode and publishes the dependency
   identities plus the complete independence audit;
@@ -1570,7 +1661,8 @@ Nothing in this plan decides them.
 | KB0b | Inventory enforced by a CI workflow, OpenSubdiv-free and read-only | Pending KB0a green | T1 technical |
 | KB1 | Extended `LoopTopologyKey` and row contract, no OpenSubdiv include | Pending B0a, B0b, B0c | T1 technical |
 | KB2p | Frozen D10 targets, oracle contract, new fixtures and hashes, face correspondence | Merged as PR 193 at `b8ed8bd2dbbf994a4419695cf490b2a3e6f349a6`; D10 approved 2026-08-08 | T2 + explicit user D10 |
-| KB2 | Bfr qualification evidence against B2p's frozen inputs; Far comparator results published | Ready after the D10 approval record merges; not started | T2: verification + technical + scientific + gatekeeper + user D9a |
+| KB2r | B2-readiness budgets plus complete section-8/section-7 fixture execution manifest | Drafted independently; no candidate run; pending technical/scientific review and explicit user D12 | T2 + explicit user D12 |
+| KB2 | Bfr qualification evidence against B2p's and D12's frozen inputs; Far comparator results published | Stopped before edits until KB2r merges and D12 is approved | T2: verification + technical + scientific + gatekeeper + user D9a |
 | KB3 | Bfr full-mesh provider; owns the exact 30700 pin and the no-Far-in-production tests | Pending D9a PASS | T2 |
 | KB4 | Topology epoch cache, invalidation, flip-pair re-preparation cost | Pending B3 | Technical |
 | KB9b | D9b Bfr production-activation acceptance on integrated-functional evidence | Deferred to after WP5.2 | Scientific + explicit user |

@@ -1,0 +1,95 @@
+{
+  "construction": {
+    "declared_566_face": {
+      "edge_midpoint_valence6_vertices": [
+        12,
+        14
+      ],
+      "face_row": 0,
+      "oriented_vertices": [
+        0,
+        12,
+        14
+      ],
+      "original_valence5_vertex": 0,
+      "valence_pattern": [
+        5,
+        6,
+        6
+      ]
+    },
+    "kind": "one_midpoint_refinement_of_algorithmic_regular_icosahedron",
+    "midpoints": "each base edge midpoint normalized to the unit sphere"
+  },
+  "fixture_id": "closed_566_refined_icosahedron",
+  "generator": {
+    "id": "scripts/generate_b2_readiness_fixtures.py",
+    "version": 1
+  },
+  "geometry": {
+    "minimum_triangle_quality": 0.9854363842046105,
+    "nonadjacent_triangle_intersection_count": 0,
+    "positive_triangle_areas": true,
+    "triangle_quality_definition": "4*sqrt(3)*area/(a^2+b^2+c^2)"
+  },
+  "proof_only": true,
+  "schema_version": 1,
+  "scientifically_approved": false,
+  "status": "candidate_only_pending_D12",
+  "topology": {
+    "all_coordinates_finite": true,
+    "all_vertices_referenced": true,
+    "closed_two_face_edge_manifold": true,
+    "connected_degree2_vertex_links": true,
+    "connected_surface": true,
+    "duplicate_faces_absent": true,
+    "edge_count": 120,
+    "face_count": 80,
+    "opposite_edge_orientation": true,
+    "valence_by_vertex": [
+      5,
+      5,
+      5,
+      5,
+      5,
+      5,
+      5,
+      5,
+      5,
+      5,
+      5,
+      5,
+      6,
+      6,
+      6,
+      6,
+      6,
+      6,
+      6,
+      6,
+      6,
+      6,
+      6,
+      6,
+      6,
+      6,
+      6,
+      6,
+      6,
+      6,
+      6,
+      6,
+      6,
+      6,
+      6,
+      6,
+      6,
+      6,
+      6,
+      6,
+      6,
+      6
+    ],
+    "vertex_count": 42
+  }
+}

@@ -428,6 +428,7 @@ class UnifiedLoopBaselineInventoryTest(unittest.TestCase):
             lambda text: text.replace(
                 "intersect its five outward-rounded coefficient",
                 "intersect an unspecified coefficient", 1))
+
         self.assert_text_mutation_rejected(
             "docs/bfr_loop_backend_plan_macos.md",
             lambda text: text.replace(
@@ -541,6 +542,78 @@ class UnifiedLoopBaselineInventoryTest(unittest.TestCase):
             self.baseline["I_tolerances_fixtures"]["fixture_sha256"],
             INVENTORY.EXPECTED_FIXTURE_HASHES,
         )
+
+    def test_I4_B2_readiness_inputs_fail_closed_on_required_mutations(self) -> None:
+        fixture = next(iter(INVENTORY.EXPECTED_B2_READINESS_FIXTURE_HASHES))
+
+        original_is_file = Path.is_file
+
+        def missing_file(path):
+            if Path(path).resolve() == (ROOT / fixture).resolve():
+                return False
+            return original_is_file(path)
+
+        with mock.patch.object(Path, "is_file", missing_file):
+            candidate = INVENTORY.collect_inventory()
+        self.assertIn(
+            "B2 readiness fixture missing or SHA256 drift",
+            INVENTORY.validate_inventory(candidate, check_adr=False),
+        )
+
+        original_sha256 = INVENTORY._sha256
+
+        def altered_digest(path):
+            return "0" * 64 if path == fixture else original_sha256(path)
+
+        with mock.patch.object(INVENTORY, "_sha256", side_effect=altered_digest):
+            candidate = INVENTORY.collect_inventory()
+        self.assertIn(
+            "B2 readiness fixture missing or SHA256 drift",
+            INVENTORY.validate_inventory(candidate, check_adr=False),
+        )
+
+        self.assert_mutation_rejected(
+            lambda r: r["I4_b2_readiness_pending_inputs"]["criteria"]
+            ["b2_preparation_median_ms"].update({"bfr_plan": 1001.0}))
+        self.assert_mutation_rejected(
+            lambda r: r["I4_b2_readiness_pending_inputs"]["manifest_rows"].pop())
+        self.assert_mutation_rejected(
+            lambda r: r["I4_b2_readiness_pending_inputs"]["manifest_rows"].reverse())
+        self.assert_mutation_rejected(
+            lambda r: r["I4_b2_readiness_pending_inputs"]["contract"].update(
+                {"d12_plan_status": "Approved"}))
+        self.assert_mutation_rejected(
+            lambda r: r["I4_b2_readiness_pending_inputs"]["contract"]
+            ["mutation_ids"].pop())
+        self.assert_text_mutation_rejected(
+            "docs/bfr_loop_backend_plan_macos.md",
+            lambda text: text.replace(
+                "`b2_preparation_median_ms` | `<= 1000.000`",
+                "`b2_preparation_median_ms` | `<= 1001.000`", 1))
+        self.assert_text_mutation_rejected(
+            "docs/adr_unified_loop_backend.md",
+            lambda text: text.replace(
+                "`b2_preparation_peak_rss_delta_mib` | `64.000`",
+                "`b2_preparation_peak_rss_delta_mib` | `65.000`", 1))
+        self.assert_text_mutation_rejected(
+            "docs/bfr_loop_backend_plan_macos.md",
+            lambda text: text.replace(
+                "12 + 4*U + 72*S + 12*C",
+                "12 + 4*U + 72*S + 8*C", 1))
+        self.assert_text_mutation_rejected(
+            "data/fixtures/candidates/b2_readiness_v1/execution_manifest.json",
+            lambda text: text.replace('"id": "U8-14"', '"id": "U8-99"', 1))
+        self.assert_text_mutation_rejected(
+            "scripts/generate_b2_readiness_fixtures.py",
+            lambda text: text.replace(
+                '("U8-14", "Topology-mutated/edge-flipped mesh",',
+                '("U8-99", "Topology-mutated/edge-flipped mesh",', 1))
+        self.assert_text_mutation_rejected(
+            "docs/bfr_loop_backend_plan_macos.md",
+            lambda text: text.replace(
+                "D12 | Proposed - pending explicit user approval after technical "
+                "and scientific review",
+                "D12 | Approved", 1))
 
     def test_I2_periodic_scope_n6_equivalence_and_performance_budget(self) -> None:
         self.assert_mutation_rejected(

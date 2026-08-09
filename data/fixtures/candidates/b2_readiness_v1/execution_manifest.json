@@ -1,0 +1,126 @@
+{
+  "entries": [
+    {
+      "fixture_or_mutation": "b2_readiness_v1/regular_all6_torus",
+      "id": "U8-01",
+      "row": "Regular closed/periodic mesh"
+    },
+    {
+      "fixture_or_mutation": "closed_valence3_tetrahedron",
+      "id": "U8-02",
+      "row": "Tetrahedron"
+    },
+    {
+      "fixture_or_mutation": "closed_valence4_octahedron",
+      "id": "U8-03",
+      "row": "Octahedron"
+    },
+    {
+      "fixture_or_mutation": "closed_valence5",
+      "id": "U8-04",
+      "row": "Icosahedron"
+    },
+    {
+      "fixture_or_mutation": "b2_readiness_v1/symmetric_344_bipyramid",
+      "id": "U8-05",
+      "row": "Symmetric 3/4/4 bipyramid"
+    },
+    {
+      "fixture_or_mutation": "b2_readiness_v1/asymmetric_344_bipyramid",
+      "id": "U8-06",
+      "row": "Asymmetric 3/4/4 bipyramid"
+    },
+    {
+      "fixture_or_mutation": "closed_mixed_valence345",
+      "id": "U8-07",
+      "row": "Closed mixed 3/4/5"
+    },
+    {
+      "fixture_or_mutation": "b2_readiness_v1/closed_566_refined_icosahedron",
+      "id": "U8-08",
+      "row": "Intended 5/6/6 local patch in a closed mesh"
+    },
+    {
+      "fixture_or_mutation": "b2p_valence789",
+      "id": "U8-09",
+      "row": "Non-Platonic closed triangulation"
+    },
+    {
+      "fixture_or_mutation": "mutation:coordinate_perturbation_v1",
+      "id": "U8-10",
+      "row": "Coordinate-perturbed variants"
+    },
+    {
+      "fixture_or_mutation": "mutation:reverse_face_zero_v1",
+      "id": "U8-11",
+      "row": "Reversed/inconsistent winding"
+    },
+    {
+      "fixture_or_mutation": "mutation:delete_face_zero_v1",
+      "id": "U8-12",
+      "row": "Open boundary mesh"
+    },
+    {
+      "fixture_or_mutation": "mutation:append_face_zero_v1",
+      "id": "U8-13",
+      "row": "Non-manifold/duplicate edge"
+    },
+    {
+      "fixture_or_mutation": "b2p_single_flip_family",
+      "id": "U8-14",
+      "row": "Topology-mutated/edge-flipped mesh"
+    },
+    {
+      "fixture_or_mutation": "b2p_single_flip_family",
+      "id": "B7-01",
+      "row": "Single-flip pair family"
+    },
+    {
+      "fixture_or_mutation": "b2p_valence789",
+      "id": "B7-02",
+      "row": "Closed mesh containing valence 7, 8, and 9 corners"
+    },
+    {
+      "fixture_or_mutation": "b2p_adjacent_extraordinary",
+      "id": "B7-03",
+      "row": "Adjacent extraordinary corners sharing an edge"
+    }
+  ],
+  "fixture_roots": {
+    "b2_readiness_v1": "data/fixtures/candidates/b2_readiness_v1",
+    "b2p_adjacent_extraordinary": "data/fixtures/candidates/b2p_adjacent_extraordinary",
+    "b2p_single_flip_family": "data/fixtures/candidates/b2p_single_flip_family",
+    "b2p_valence789": "data/fixtures/candidates/b2p_valence789",
+    "closed_mixed_valence345": "data/fixtures/candidates/closed_mixed_valence345",
+    "closed_valence3_tetrahedron": "data/fixtures/candidates/closed_valence3_tetrahedron",
+    "closed_valence4_octahedron": "data/fixtures/candidates/closed_valence4_octahedron",
+    "closed_valence5": "data/fixtures/closed_valence5"
+  },
+  "mutation_rules": [
+    {
+      "base": "b2_readiness_v1/asymmetric_344_bipyramid",
+      "id": "coordinate_perturbation_v1",
+      "operation": "add exact binary64 deltas (+0x1p-8,-0x1p-9,+0x1p-10) to vertex row 1 only; topology unchanged"
+    },
+    {
+      "base": "b2_readiness_v1/regular_all6_torus",
+      "id": "reverse_face_zero_v1",
+      "operation": "replace face row 0 [a,b,c] with [a,c,b]"
+    },
+    {
+      "base": "b2_readiness_v1/regular_all6_torus",
+      "id": "delete_face_zero_v1",
+      "operation": "delete face row 0 and preserve every remaining row in order"
+    },
+    {
+      "base": "b2_readiness_v1/regular_all6_torus",
+      "id": "append_face_zero_v1",
+      "operation": "append an exact duplicate of face row 0 without changing prior rows"
+    }
+  ],
+  "ordering_contract": "entry checks execute exactly in listed order with no omission, substitution, or reordering; byte-identical fixture content may be loaded once but mesh-level aggregation obeys shared_hull_deduplication",
+  "schema_version": 1,
+  "shared_hull_deduplication": "b2p_valence789 and b2p_single_flip_family/base share bytes and count once as mesh-level evidence",
+  "stable_locality_manifest": "data/fixtures/candidates/b2p_single_flip_family/family_metadata.json#locality_sample_manifest",
+  "status": "pending_D12"
+}
