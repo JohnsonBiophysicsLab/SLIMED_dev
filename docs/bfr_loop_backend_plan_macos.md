@@ -1351,7 +1351,8 @@ and any decision-status change.
 
 Evidence and gate:
 
-1. Revalidate the exact-head schema-2 checkpoint and all 294 frozen artifacts.
+1. Revalidate the exact-head schema-2 checkpoint, its actual candidate-binary
+   binding, and all 294 frozen artifacts.
 2. Reproduce the recorded 124-case Bfr failure and maximum residual without
    changing the `1.0e-12` gate.
 3. Cover all 196 Bfr cases, every emitted row, every source, all levels, and both
@@ -1363,8 +1364,9 @@ Evidence and gate:
 6. Exact-head technical, scientific, and gatekeeper PASS permits only a user
    architecture decision; it does not select the candidate or start B3.
 
-Stop conditions: incomplete or mutated frozen evidence; absent anchor; changed
-source identity or coefficient mutation/omission; nonfinite result; failure to
+Stop conditions: incomplete or mutated frozen evidence; absent or mismatched
+candidate binary; absent anchor; changed source identity or numeric/bit-label
+disagreement; coefficient mutation/omission; nonfinite product/sum/result; failure to
 reproduce D9a; cache-mode disagreement; need to normalize a row or relax any
 frozen input; or any production, Far-selection, B3, D9b, or activation change.
 

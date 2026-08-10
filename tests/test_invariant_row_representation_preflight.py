@@ -4,6 +4,7 @@ import json
 import pathlib
 import subprocess
 import sys
+import tempfile
 import unittest
 
 
@@ -138,6 +139,35 @@ class InvariantRowRepresentationPreflightTests(unittest.TestCase):
                 represented["difference_terms"][1]["coefficient"])
         with self.assertRaises(MODULE.PreflightError):
             MODULE.validate_representation_against_row(represented, row)
+
+    def test_validation_detects_numeric_coefficient_bit_label_mismatch(self):
+        row = self._row()
+        represented = MODULE.represent_row(row, [2, 5, 9])
+        represented["difference_terms"][1]["coefficient"] += 1.0
+        with self.assertRaises(MODULE.PreflightError):
+            MODULE.validate_representation_against_row(represented, row)
+
+    def test_candidate_binary_binding_rejects_any_other_64_hex_digest(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            candidate = pathlib.Path(temporary) / "candidate"
+            candidate.write_bytes(b"reviewed candidate bytes")
+            actual = MODULE.sha256_file(candidate)
+            MODULE.validate_candidate_binary_binding(
+                {"candidate_binary_sha256": actual}, candidate)
+            forged = "0" * 64 if actual != "0" * 64 else "1" * 64
+            with self.assertRaises(MODULE.PreflightError):
+                MODULE.validate_candidate_binary_binding(
+                    {"candidate_binary_sha256": forged}, candidate)
+
+    def test_nonfinite_evaluation_products_fail_closed(self):
+        row = self._row("duu")
+        row["coefficients"] = [1.0, sys.float_info.max, -0.5]
+        represented = MODULE.represent_row(row, [2, 5, 9])
+        sources = {2: 2.0, 5: -2.0, 9: 3.0}
+        with self.assertRaises(MODULE.PreflightError):
+            MODULE.evaluate_provider_row(row, sources)
+        with self.assertRaises(MODULE.PreflightError):
+            MODULE.evaluate_anchored_row(represented, sources)
 
     def test_self_test_rejects_evidence_arguments(self):
         completed = subprocess.run(

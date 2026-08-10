@@ -64,6 +64,7 @@ It consumes the complete schema-2 B2 Release checkpoint and all 294 compressed
 case artifacts. Before analyzing a row, it independently revalidates:
 
 - exact checkpoint schema and exact-head binding;
+- the actual candidate binary SHA-256 against the checkpoint binding;
 - the frozen manifest file SHA-256
   `bdadac60281c0430789e079cefb819c0c8e127899d4ede4ba7227d233452a07b`;
 - the frozen manifest contract SHA-256
@@ -99,7 +100,8 @@ these hold:
    identity and zero derivatives.
 6. The represented rows are bitwise identical between cache-disabled and
    serial `SurfaceFactoryCache` evidence for all 98 content/level pairs.
-7. The raw-versus-represented operator difference is finite and is reported on
+7. Every evaluation product, sum, result, and raw-versus-represented operator
+   difference is finite, and the difference is reported on
    both actual fixture coordinates and the frozen centered/normalized frame.
 8. No tolerance, D10 input, row kind, production file, route, or decision
    status changes.
@@ -108,8 +110,9 @@ There is intentionally no after-the-fact ceiling on the operator perturbation.
 This preflight reports it; a later candidate qualification must freeze an
 independent scientific oracle and acceptance target before it runs.
 
-Stop immediately on an absent anchor, changed source identity, coefficient-bit
-mutation or omission, nonfinite result, incomplete artifact set, failure to reproduce D9a,
+Stop immediately on an absent or mismatched candidate binary, absent anchor,
+changed source identity, numeric/bit-label disagreement, coefficient-bit
+mutation or omission, nonfinite product/sum/result, incomplete artifact set, failure to reproduce D9a,
 cache-mode disagreement, or any need to relax a frozen input.
 
 ## Preliminary replay on the reviewed B2 artifacts

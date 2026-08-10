@@ -218,6 +218,7 @@ jobs:
           python3 scripts/run_invariant_row_representation_preflight.py \
             --checkpoint "$RUNNER_TEMP/bfr-release-checkpoint.json" \
             --artifact-dir "$RUNNER_TEMP/bfr-case-json" \
+            --candidate-binary "$RUNNER_TEMP/bfr-proof-artifacts/bfr_candidate" \
             --expected-binding-head "$PREFLIGHT_HEAD" \
             --output "$RUNNER_TEMP/invariant-row-representation-preflight.json" \
             --json

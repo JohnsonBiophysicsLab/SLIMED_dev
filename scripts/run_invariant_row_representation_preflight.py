@@ -136,21 +136,40 @@ def represent_row(row, oriented_face):
 
 
 def evaluate_provider_row(row, scalar_sources):
-    return B2.ordered_binary64_sum(
-        float(coefficient) * scalar_sources[source_id]
-        for source_id, coefficient in zip(row["source_ids"], row["coefficients"]))
+    products = []
+    for source_id, coefficient in zip(row["source_ids"], row["coefficients"]):
+        source = scalar_sources[source_id]
+        require(math.isfinite(source), "provider evaluation source is nonfinite")
+        product = float(coefficient) * source
+        require(math.isfinite(product), "provider evaluation product is nonfinite")
+        products.append(product)
+    value = B2.ordered_binary64_sum(products)
+    require(math.isfinite(value), "provider evaluation result is nonfinite")
+    return value
 
 
 def evaluate_anchored_row(representation, scalar_sources):
     anchor = scalar_sources[representation["anchor_source_id"]]
-    terms = [
-        term["coefficient"] * (scalar_sources[term["source_id"]] - anchor)
-        for term in representation["difference_terms"]
-    ]
+    require(math.isfinite(anchor), "anchored evaluation anchor is nonfinite")
+    terms = []
+    for term in representation["difference_terms"]:
+        source = scalar_sources[term["source_id"]]
+        require(math.isfinite(source), "anchored evaluation source is nonfinite")
+        difference = source - anchor
+        require(math.isfinite(difference),
+                "anchored evaluation source difference is nonfinite")
+        product = term["coefficient"] * difference
+        require(math.isfinite(product), "anchored evaluation product is nonfinite")
+        terms.append(product)
     difference_sum = B2.ordered_binary64_sum(terms)
+    require(math.isfinite(difference_sum),
+            "anchored evaluation difference sum is nonfinite")
     if representation["row_kind"] == "position":
-        return anchor + difference_sum
-    return difference_sum
+        value = anchor + difference_sum
+    else:
+        value = difference_sum
+    require(math.isfinite(value), "anchored evaluation result is nonfinite")
+    return value
 
 
 def validate_representation_against_row(representation, row):
@@ -166,10 +185,17 @@ def validate_representation_against_row(representation, row):
                     for term in representation["difference_terms"]]
     require(actual_terms == expected_terms,
             "representation mutated, omitted, or reordered a coefficient")
+    require(all(binary64_bits_hex(term["coefficient"]) ==
+                term["coefficient_bits_hex"]
+                for term in representation["difference_terms"]),
+            "representation numeric coefficient contradicts its bit label")
     anchor_index = row["source_ids"].index(anchor)
     require(representation["provider_anchor_coefficient_bits_hex"] ==
             binary64_bits_hex(row["coefficients"][anchor_index]),
             "representation lost the provider anchor audit value")
+    require(binary64_bits_hex(representation["provider_anchor_coefficient"]) ==
+            representation["provider_anchor_coefficient_bits_hex"],
+            "provider anchor numeric value contradicts its bit label")
     for constant in CONSTANT_FIELD_CHALLENGES:
         scalar_sources = {source_id: constant for source_id in row["source_ids"]}
         observed = evaluate_anchored_row(representation, scalar_sources)
@@ -194,8 +220,15 @@ def update_representation_digest(digest, row, representation):
         digest.update(bytes.fromhex(term["coefficient_bits_hex"]))
 
 
+def validate_candidate_binary_binding(binding, candidate_binary):
+    candidate_path = pathlib.Path(candidate_binary).resolve()
+    require(candidate_path.is_file(), "candidate binary is unavailable")
+    require(sha256_file(candidate_path) == binding["candidate_binary_sha256"],
+            "checkpoint candidate-binary binding does not match the actual binary")
+
+
 def validate_checkpoint_and_artifacts(checkpoint_path, artifact_dir,
-                                      expected_binding_head):
+                                      candidate_binary, expected_binding_head):
     manifest = B2.load_manifest()
     B2.validate_manifest_contract(manifest)
     require(tuple(B2.ROW_ORDER) == ROW_ORDER, "six-row order drift")
@@ -230,6 +263,7 @@ def validate_checkpoint_and_artifacts(checkpoint_path, artifact_dir,
             "Release checkpoint is not bound to the frozen D10/D12 inputs")
     require(re.fullmatch(r"[0-9a-f]{64}", binding["candidate_binary_sha256"])
             is not None, "candidate binary binding is malformed")
+    validate_candidate_binary_binding(binding, candidate_binary)
 
     cases = checkpoint["numeric_cases"]
     require(isinstance(cases, list) and len(cases) == EXPECTED_CASE_COUNT,
@@ -262,10 +296,12 @@ def validate_checkpoint_and_artifacts(checkpoint_path, artifact_dir,
     return manifest, checkpoint, jobs, hashlib.sha256(checkpoint_raw).hexdigest()
 
 
-def analyze(checkpoint_path, artifact_dir, expected_binding_head):
+def analyze(checkpoint_path, artifact_dir, candidate_binary,
+            expected_binding_head):
     manifest, checkpoint, jobs, checkpoint_sha256 = \
         validate_checkpoint_and_artifacts(
-            checkpoint_path, artifact_dir, expected_binding_head)
+            checkpoint_path, artifact_dir, candidate_binary,
+            expected_binding_head)
     artifact_root = pathlib.Path(artifact_dir).resolve()
     representation_digest = hashlib.sha256()
     representation_digest.update(REPRESENTATION.encode("ascii"))
@@ -331,11 +367,15 @@ def analyze(checkpoint_path, artifact_dir, expected_binding_head):
                 represented_actual = evaluate_anchored_row(
                     representation, actual_sources)
                 actual_delta = abs(represented_actual - raw_actual)
+                require(math.isfinite(actual_delta),
+                        "actual-coordinate operator delta is nonfinite")
                 raw_normalized = evaluate_provider_row(row, normalized_sources)
                 represented_normalized = evaluate_anchored_row(
                     representation, normalized_sources)
                 normalized_delta = abs(
                     represented_normalized - raw_normalized)
+                require(math.isfinite(normalized_delta),
+                        "centered/normalized operator delta is nonfinite")
                 max_actual_coordinate_delta = max(
                     max_actual_coordinate_delta, actual_delta)
                 if normalized_delta > max_centered_normalized_delta:
@@ -467,6 +507,7 @@ def parse_args(argv=None):
     parser.add_argument("--json", action="store_true")
     parser.add_argument("--checkpoint")
     parser.add_argument("--artifact-dir")
+    parser.add_argument("--candidate-binary")
     parser.add_argument("--expected-binding-head")
     parser.add_argument("--output")
     return parser.parse_args(argv)
@@ -477,17 +518,21 @@ def main(argv=None):
     try:
         if args.self_test:
             require(not args.checkpoint and not args.artifact_dir and
-                    not args.expected_binding_head and not args.output,
+                    not args.candidate_binary and not args.expected_binding_head and
+                    not args.output,
                     "self-test does not accept evidence inputs")
             report = self_test_report()
         else:
-            require(args.checkpoint and args.artifact_dir,
-                    "analysis requires checkpoint and artifact directory")
+            require(args.checkpoint and args.artifact_dir and
+                    args.candidate_binary,
+                    "analysis requires checkpoint, artifact directory, and candidate binary")
             expected_head = args.expected_binding_head or exact_git_head()
             require(re.fullmatch(r"[0-9a-f]{40}", expected_head) is not None,
                     "expected binding head is malformed")
-            report = analyze(args.checkpoint, args.artifact_dir, expected_head)
-        encoded = json.dumps(report, sort_keys=True, separators=(",", ":")) + "\n"
+            report = analyze(args.checkpoint, args.artifact_dir,
+                             args.candidate_binary, expected_head)
+        encoded = json.dumps(report, sort_keys=True, separators=(",", ":"),
+                             allow_nan=False) + "\n"
         if args.output:
             pathlib.Path(args.output).write_text(encoded, encoding="utf-8")
         if args.json or not args.output:
@@ -498,7 +543,7 @@ def main(argv=None):
         failure = {"schema_version": SCHEMA_VERSION,
                    "kind": "invariant_row_representation_preflight",
                    "status": "failed", "error": str(error)}
-        sys.stderr.write(json.dumps(failure, sort_keys=True) + "\n")
+        sys.stderr.write(json.dumps(failure, sort_keys=True, allow_nan=False) + "\n")
         return 1
 
 
