@@ -362,7 +362,7 @@ EXPECTED_DECISIONS = {
     "D6": "Restated existing project policy",
     "D7": "Restated existing user instruction",
     "D8": "Proposed - pending explicit user performance-budget approval",
-    "D12": "Proposed - pending explicit user approval after technical and scientific review",
+    "D12": "Approved - B2 readiness criteria, schema-2 execution manifest, fixture corpus, and exact qualification/build protocol are frozen for B2. This does not qualify Bfr, decide D9a/D9b or D8, or authorize production.",
 }
 
 EXPECTED_PLAN_AUTHORITIES = {
@@ -969,10 +969,10 @@ def collect_inventory() -> dict[str, Any]:
                 readiness_byte_identity_groups_valid = False
 
     plan_readiness_section = bfr_plan.split(
-        "### 3.4 Pending D12 B2-readiness criteria and execution protocol", 1
+        "### 3.4 Approved D12 B2-readiness criteria and execution protocol", 1
     )[-1].split("\n## 4.", 1)[0]
     adr_readiness_section = adr.split(
-        "### Pending D12 B2-readiness ledger", 1
+        "### Approved D12 B2-readiness ledger", 1
     )[-1].split("\nExpected scientific values", 1)[0]
     readiness_claim_scan = "\n".join([
         plan_readiness_section, adr_readiness_section,
@@ -1610,12 +1610,16 @@ def validate_inventory(report: dict[str, Any], check_adr: bool = True) -> list[s
         require(all(readiness["anchors"].values()),
                 "B2 readiness protocol incomplete")
         require(readiness["d12_plan_status"] ==
-                "Proposed - pending explicit user approval after technical and "
-                "scientific review",
+                "Approved - B2 readiness criteria, schema-2 execution manifest, "
+                "fixture corpus, and exact qualification/build protocol are "
+                "frozen for B2. This does not qualify Bfr, decide D9a/D9b or "
+                "D8, or authorize production.",
                 "D12 plan status drift")
         require(readiness["d12_adr_status"] ==
-                "Proposed - pending explicit user approval after technical and "
-                "scientific review",
+                "Approved - B2 readiness criteria, schema-2 execution manifest, "
+                "fixture corpus, and exact qualification/build protocol are "
+                "frozen for B2. This does not qualify Bfr, decide D9a/D9b or "
+                "D8, or authorize production.",
                 "D12 ADR status drift")
         require(readiness["generator_id_present"] and
                 readiness["generator_contract_digest_present"] and
@@ -1631,7 +1635,7 @@ def validate_inventory(report: dict[str, Any], check_adr: bool = True) -> list[s
                 "B2 readiness ADR/manifest contract cross-check drift")
         require(readiness["manifest_schema_version"] == 2 and
                 readiness["manifest_status"] == "pending_D12",
-                "B2 readiness manifest approval state drift")
+                "B2 readiness frozen pre-decision manifest state drift")
         require(readiness["mutation_ids"] == [
                     "coordinate_perturbation_v1", "reverse_face_zero_v1",
                     "delete_face_zero_v1", "append_face_zero_v1"],

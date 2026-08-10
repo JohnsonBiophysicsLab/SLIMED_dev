@@ -590,7 +590,7 @@ class UnifiedLoopBaselineInventoryTest(unittest.TestCase):
             ["forbidden_claim_tokens"].append("bfr_qualified"))
         self.assert_mutation_rejected(
             lambda r: r["I4_b2_readiness_pending_inputs"]["contract"].update(
-                {"d12_plan_status": "Approved"}))
+                {"d12_plan_status": "Proposed"}))
         self.assert_mutation_rejected(
             lambda r: r["I4_b2_readiness_pending_inputs"]["contract"]
             ["mutation_ids"].pop())
@@ -681,9 +681,8 @@ class UnifiedLoopBaselineInventoryTest(unittest.TestCase):
         self.assert_text_mutation_rejected(
             "docs/bfr_loop_backend_plan_macos.md",
             lambda text: text.replace(
-                "D12 | Proposed - pending explicit user approval after technical "
-                "and scientific review",
-                "D12 | Approved", 1))
+                "D12 | Approved - B2 readiness criteria",
+                "D12 | Proposed - B2 readiness criteria", 1))
 
     def test_I2_periodic_scope_n6_equivalence_and_performance_budget(self) -> None:
         self.assert_mutation_rejected(

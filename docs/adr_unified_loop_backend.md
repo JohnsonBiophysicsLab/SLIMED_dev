@@ -61,7 +61,7 @@ The exact status phrases below are checked by
 | D6 | Restated existing project policy | Default builds and tests remain OpenSubdiv-free throughout proof and opt-in work. Every OpenSubdiv build remains explicit and requires `OPENSUBDIV_ROOT`. | WP0.1 makes no new decision; later changes require a separate dependency decision. |
 | D7 | Restated existing user instruction | WP0-WP7 do not change `src/cuda`, `include/cuda`, CUDA targets, or CUDA scientific baselines. CUDA work is deferred to its backward-compatibility lane. | WP0.1 makes no new decision; expansion requires explicit user authority. |
 | D8 | Proposed - pending explicit user performance-budget approval | Freeze the same-binary alternating-order regular benchmark. The `generic_vs_cached_regular_median <= TBD` ceiling remains explicitly pending the named D8 measurement and approval; the candidate direct-route bound is `generic_vs_direct_regular_each_case <= 2.00`. Topology preparation is reported separately and occurs once per epoch. | Reproduce the benchmark protocol, review platform variance, then obtain explicit user approval before WP3.3 performance PASS or WP6 default selection. |
-| D12 | Proposed - pending explicit user approval after technical and scientific review | Freeze the B2-readiness preparation-cost, retained-row-memory, process-memory, and threading acceptance criteria plus the complete section-8/section-7 fixture execution manifest. | Separate reviewed preflight before any Bfr/Far candidate run. Approval changes no D10 input, does not decide D9a/D9b, does not decide D8, and does not authorize production. |
+| D12 | Approved - B2 readiness criteria, schema-2 execution manifest, fixture corpus, and exact qualification/build protocol are frozen for B2. This does not qualify Bfr, decide D9a/D9b or D8, or authorize production. | Freeze the B2-readiness preparation-cost, retained-row-memory, process-memory, and threading acceptance criteria plus the complete section-8/section-7 fixture execution manifest. | Exact SHA `bf75d32e0a8103fa99e8b3d961ddfa7436a6239f` passed verification, technical, scientific, and gatekeeper review before PR 195 merged as `b8cb9470077c1c5e15449318eff7b61e7464cd51`; explicit user D12 approval followed on 2026-08-10 before any Bfr/Far candidate run. Approval changes no D10 input, does not decide D9a/D9b or D8, and does not authorize production. |
 
 D3 and D4 remain pending WP2.1, independent scientific review, and explicit
 user decisions. D2b, D5, and D8 also remain pending their named evidence and
@@ -295,10 +295,11 @@ Authoritative fixture hashes:
 | `data/fixtures/candidates/b2_readiness_v1/symmetric_344_bipyramid/faces.csv` | `c621d95a16a6915ab443bf74f162bddde96a85ee82e06152cbef82f28ef87486` |
 | `data/fixtures/candidates/b2_readiness_v1/symmetric_344_bipyramid/vertices.csv` | `bbce1680eb4006622e14dd5d724134df826471bb55e0332c19a208b5e92429a5` |
 
-### Pending D12 B2-readiness ledger
+### Approved D12 B2-readiness ledger
 
-D12 is a pre-result proposal. It freezes operational fail-stop criteria for the
-small B2 proof corpus; it does not assert production performance. On the
+D12 is an approved pre-result baseline. It freezes operational fail-stop
+criteria for the small B2 proof corpus; it does not assert production
+performance. On the
 reference dedicated Apple-silicon macOS platform and the exact section 3.4
 protocol in `docs/bfr_loop_backend_plan_macos.md`:
 
@@ -352,10 +353,14 @@ Exactly 14 ordered unified-plan section 8 entries precede exactly three Bfr-plan
 section 7 entries. Per-row executable procedures or scoped `N/A` reasons,
 aliases, unique byte-evidence groups, face/corner/sample/row order, exact
 binary64 mutation bits, numeric applicability, platform/build, aggregation,
-RSS, and threading are all part of that hash. D12 remains pending explicit user
-approval after technical and scientific review. Approval changes no existing
-D10 value, fixture, oracle contract, metadata, or hash and does not decide
-D9a/D9b or D8.
+RSS, and threading are all part of that hash. Verification, technical,
+scientific, and gatekeeper reviews passed at exact SHA `bf75d32e0a8103fa99e8b3d961ddfa7436a6239f`;
+PR 195 merged that unchanged head, and the user explicitly approved D12 on
+2026-08-10 before any Bfr/Far candidate run. The manifest's `pending_D12`
+status is the immutable pre-decision state that was reviewed and hash-locked;
+this decision ledger records the later approval without rewriting frozen
+inputs. Approval changes no existing D10 value, fixture, oracle contract,
+metadata, or hash and does not decide D9a/D9b or D8.
 
 The schema-2 proof-sample `weight` is exact binary64 positive one solely to
 satisfy the merged B1 positive-weight validator. It is forbidden as a
