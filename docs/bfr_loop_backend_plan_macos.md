@@ -1320,6 +1320,26 @@ Exactly one of these is the deliverable. Both are valid results under **P9**.
    package to harden Far. No agent may select any of those by inference, and no
    configuration change may route production to Far.
 
+Far's own measured results are published either way, as comparator evidence. If
+Far fails the regular gate that is a severity-1 finding about the existing
+prototypes and is escalated on its own, but it neither qualifies nor
+disqualifies Bfr.
+
+In both outcomes, the measured near-vertex Far-Bfr disagreement magnitude is a
+required deliverable in its own right, reported strictly as **observed
+inter-method spread**.
+
+It is **not** a floor on achievable irregular row accuracy, and must never be
+described as one. Far and Bfr share an approximation *strategy* — local
+subdivision plus a Gregory-style end cap — so their errors are expected to be
+correlated. Correlated errors make the spread small while both methods are
+inaccurate, so agreement is weak evidence of accuracy and the spread bounds
+neither method's error. Any WP5.1 accuracy limit must be derived from converged
+independent-oracle error, or left unresolved. An earlier draft of this plan
+asserted the invalid floor interpretation; it is withdrawn.
+
+Suggested branch: `codex/bfr-qualification-proof`.
+
 ### B2a - invariant-preserving row-representation architecture preflight
 
 Objective: evaluate one different, invariant-preserving representation against
@@ -1397,13 +1417,21 @@ Frozen proposal:
 
 - reuse the exact D10 MPFR/Stam oracle, fixtures, manifest hashes, row targets,
   `1.0e-12` invariant, inner-radius exclusion, and D12 contract unchanged;
+- form effective rows with exact integer-over-`2^1074` dyadic arithmetic and
+  rigorously certified outward imports into the 544-bit oracle;
 - qualify the fixed first oriented corner while requiring both other coarse-face
-  corners to pass the same oracle gates;
-- reserve `0.1` of each D10 order target for pairwise anchor sensitivity,
-  ordered-binary64 evaluation fidelity, and each of the `6 -> 7` and `7 -> 8`
-  stabilization transitions;
-- require levels 7 and 8, and both the exact effective and end-to-end emitted
-  binary64 functionals, independently to pass the full D10 target; and
+  corners and both frozen source-relabeling permutations to pass their gates;
+- propose new, explicitly approved `0.1 x D10` targets for pairwise anchor
+  sensitivity, ordered-binary64 evaluation fidelity, and each of the `6 -> 7`
+  and `7 -> 8` stabilization transitions; these are distinct from B2p's oracle
+  uncertainty allocation and are not fitted to B2a output;
+- require levels 7 and 8 to pass full D10, with exact effective rows owning
+  coefficient and geometry gates and the emitted binary64 evaluator owning a
+  separate direct-fixture-geometry gate; basis probes of rounded evaluation
+  remain diagnostic rather than a claimed linear operator bound;
+- freeze the binary64 instruction order and the fail-closed
+  `anchored-row-qualification-report-v1` bindings, matrix ledgers, named
+  criteria, early-stop representation, and verdict precedence; and
 - preserve raw Bfr failure evidence separately, with no normalized or repaired
   provider row and no Far comparison as truth.
 
@@ -1421,26 +1449,6 @@ Stop conditions: a target is derived from candidate qualification output; a D10
 or D12 input changes; an anchor may be selected from observed results; an
 oracle-uncovered item becomes candidate evidence; or the packet implies
 qualification, B3, D9b, Far promotion, or production.
-
-Far's own measured results are published either way, as comparator evidence. If
-Far fails the regular gate that is a severity-1 finding about the existing
-prototypes and is escalated on its own, but it neither qualifies nor
-disqualifies Bfr.
-
-In both outcomes, the measured near-vertex Far-Bfr disagreement magnitude is a
-required deliverable in its own right, reported strictly as **observed
-inter-method spread**.
-
-It is **not** a floor on achievable irregular row accuracy, and must never be
-described as one. Far and Bfr share an approximation *strategy* — local
-subdivision plus a Gregory-style end cap — so their errors are expected to be
-correlated. Correlated errors make the spread small while both methods are
-inaccurate, so agreement is weak evidence of accuracy and the spread bounds
-neither method's error. Any WP5.1 accuracy limit must be derived from converged
-independent-oracle error, or left unresolved. An earlier draft of this plan
-asserted the invalid floor interpretation; it is withdrawn.
-
-Suggested branch: `codex/bfr-qualification-proof`.
 
 ### B3 - Bfr full-mesh provider
 
