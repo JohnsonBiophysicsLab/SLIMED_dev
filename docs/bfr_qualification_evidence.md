@@ -63,17 +63,17 @@ The dedicated workflow rebuilds the evidence from scratch and uploads the case
 JSON, checkpoint, finalized evidence, dependency archives, build transcripts,
 compile/link ledgers, and persistent proof binaries/maps/dependency files.
 
-The historical checkpoint also predates the mandatory before/after power and
-thermal probes for each of its 588 full case processes. The earlier sandboxed
-probe observed `kIOPSACPowerValue` and nominal thermal state, but its
-virtualization sysctl query was denied. A later outside-sandbox native probe on
-the same exact worktree completed the frozen macOS `26.5.1` build `25F80`,
-`arm64`, `Apple M5`, `Mac17,2`, 25,769,803,776-byte, 10/4/6-core fingerprint
-and observed nominal thermal state, but it reported
-`kIOPSBatteryPowerValue`. The first observation is unqualified because its
-fingerprint query was incomplete; the second is unqualified because power was
-not AC. Independently, the historical checkpoint has zero of the required
-1,176 boundary samples. Neither observation is D12 PASS.
+The exact repaired checkpoint retains all 1,176 mandatory before/after power
+and thermal boundary samples for its 588 full case processes. Every retained
+sample observed `kIOPSACPowerValue` and nominal thermal state, but the
+virtualization sysctl query was denied and recorded as `-1`, so all 1,176
+fingerprints were incomplete and the boundary protocol is not qualified. A
+separate later outside-sandbox native probe completed the frozen macOS `26.5.1`
+build `25F80`, `arm64`, `Apple M5`, `Mac17,2`, 25,769,803,776-byte,
+10/4/6-core fingerprint and observed nominal thermal state, but it reported
+`kIOPSBatteryPowerValue`. It is not a substitute for the retained samples and
+is independently unqualified because power was not AC. Neither observation is
+D12 PASS.
 
 ## Criterion disposition
 
