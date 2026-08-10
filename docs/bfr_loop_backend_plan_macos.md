@@ -1320,6 +1320,56 @@ Exactly one of these is the deliverable. Both are valid results under **P9**.
    package to harden Far. No agent may select any of those by inference, and no
    configuration change may route production to Far.
 
+### B2a - invariant-preserving row-representation architecture preflight
+
+Objective: evaluate one different, invariant-preserving representation against
+the complete frozen B2 row corpus without selecting it or changing production.
+
+Authorization: the user explicitly authorized this proof-only T2 preflight on
+2026-08-10 after recording D9a as Bfr not qualified. The authorization keeps the
+`1.0e-12` tolerance, D10 inputs, and six-row contract frozen; prohibits post-hoc
+normalization, Far fallback, B3 implementation, and production activation; and
+requires exact-SHA technical, scientific, and gatekeeper review before any
+architecture selection.
+
+Candidate: `anchored_difference_rows_v1`, documented in
+[`invariant_row_representation_preflight.md`](invariant_row_representation_preflight.md).
+Each row is represented around the first oriented coarse-face corner. Every
+provider coefficient remains bitwise unchanged, including the anchor
+coefficient, whose term multiplies the exact zero anchor difference. Position is
+an anchor value plus weighted source differences, while all five derivatives
+are weighted source differences. This enforces constant-field identities by
+construction but changes the represented operator, so its measured perturbation
+must be published and may not be called negligible without a later frozen
+scientific gate.
+
+Allowed files: the proof runner and focused test; its external Markdown evidence
+and plan amendment; and the external workflow step that analyzes the complete
+exact-head B2 artifact set. Forbidden: `src/**`, `include/**`, build files,
+production tests or routes, tolerance or fixture changes, Bfr/Far provider code,
+and any decision-status change.
+
+Evidence and gate:
+
+1. Revalidate the exact-head schema-2 checkpoint, its actual candidate-binary
+   binding, and all 294 frozen artifacts.
+2. Reproduce the recorded 124-case Bfr failure and maximum residual without
+   changing the `1.0e-12` gate.
+3. Cover all 196 Bfr cases, every emitted row, every source, all levels, and both
+   Bfr cache modes; require bitwise-identical represented cache-mode pairs.
+4. Prove all six constant-field identities structurally while preserving every
+   provider coefficient bit and all original source IDs.
+5. Publish actual-coordinate and centered/normalized raw-versus-represented
+   operator differences with no post-result acceptance ceiling.
+6. Exact-head technical, scientific, and gatekeeper PASS permits only a user
+   architecture decision; it does not select the candidate or start B3.
+
+Stop conditions: incomplete or mutated frozen evidence; absent or mismatched
+candidate binary; absent anchor; changed source identity or numeric/bit-label
+disagreement; coefficient mutation/omission; nonfinite product/sum/result; failure to
+reproduce D9a; cache-mode disagreement; need to normalize a row or relax any
+frozen input; or any production, Far-selection, B3, D9b, or activation change.
+
 Far's own measured results are published either way, as comparator evidence. If
 Far fails the regular gate that is a severity-1 finding about the existing
 prototypes and is escalated on its own, but it neither qualifies nor
@@ -1724,7 +1774,9 @@ B0a inventory logic repair              (blocks everything; may start now)
               |
               +-- explicit user D9a: Bfr PASS or FAIL
                     |          \
-                    |           `-- FAIL: lane BLOCKS, escalate to a new
+                    |           `-- FAIL: lane BLOCKS; B2a may study a different
+                    |               representation after explicit authorization,
+                    |               then exact-SHA T2 reviews and a new explicit
                     |               architecture decision. No Far fallback.
                     |
                     +-- B3 Bfr full-mesh provider   [T2]
@@ -1769,6 +1821,7 @@ Nothing in this plan decides them.
 | KB2p | Frozen D10 targets, oracle contract, new fixtures and hashes, face correspondence | Merged as PR 193 at `b8ed8bd2dbbf994a4419695cf490b2a3e6f349a6`; D10 approved 2026-08-08 | T2 + explicit user D10 |
 | KB2r | B2-readiness budgets plus complete section-8/section-7 fixture execution manifest | Merged as PR 195 at `b8cb9470077c1c5e15449318eff7b61e7464cd51`; D12 approved 2026-08-10 before any candidate run | T2 + explicit user D12 |
 | KB2 | Bfr qualification evidence against B2p's and D12's frozen inputs; Far comparator results published | Merged as PR 197 at `5d49b7ff06160cbdfa25eb19c973b4bcccac59d9`; exact head `efbe73f94e42e9f364baf6b2531ef4c7104cded9` passed all T2 reviews; D9a recorded Bfr not qualified on 2026-08-10 | T2 verification + technical + scientific + gatekeeper completed; explicit user D9a decision recorded |
+| KB2a | Proof-only invariant-preserving row-representation architecture preflight; no selection or production | Authorized 2026-08-10; implementation pending exact-SHA technical, scientific, and gatekeeper review | T2 technical + scientific + gatekeeper, then explicit user architecture decision |
 | KB3 | Bfr full-mesh provider; owns the exact 30700 pin and the no-Far-in-production tests | Blocked by recorded D9a outcome: Bfr not qualified. Requires a new explicit architecture decision; no Far fallback. | T2, only after a new explicit architecture decision |
 | KB4 | Topology epoch cache, invalidation, flip-pair re-preparation cost | Pending B3 | Technical |
 | KB9b | D9b Bfr production-activation acceptance on integrated-functional evidence | Deferred to after WP5.2 | Scientific + explicit user |

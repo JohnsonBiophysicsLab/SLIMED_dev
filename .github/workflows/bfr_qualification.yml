@@ -43,6 +43,8 @@ jobs:
         run: |
           python3 scripts/run_bfr_qualification.py --self-test --json
           python3 -m unittest tests.test_bfr_qualification
+          python3 scripts/run_invariant_row_representation_preflight.py --self-test --json
+          python3 -m unittest tests.test_invariant_row_representation_preflight
 
       - name: Download and checksum proof archives
         shell: bash
@@ -209,6 +211,18 @@ jobs:
             --output "$RUNNER_TEMP/bfr-qualification-evidence.json"
           python3 -c 'import json, os; value=json.load(open(os.environ["RUNNER_TEMP"] + "/bfr-qualification-evidence.json")); assert value["platform_qualification"]["status"] == "UNQUALIFIED_PLATFORM"; assert value["d12_summary"]["status"] == "UNQUALIFIED_PLATFORM"; assert value["d12_summary"]["budget_verdict"] == "NEITHER_PASS_NOR_FAIL"'
 
+      - name: Analyze invariant-preserving representation without selecting it
+        env:
+          PREFLIGHT_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          python3 scripts/run_invariant_row_representation_preflight.py \
+            --checkpoint "$RUNNER_TEMP/bfr-release-checkpoint.json" \
+            --artifact-dir "$RUNNER_TEMP/bfr-case-json" \
+            --candidate-binary "$RUNNER_TEMP/bfr-proof-artifacts/bfr_candidate" \
+            --expected-binding-head "$PREFLIGHT_HEAD" \
+            --output "$RUNNER_TEMP/invariant-row-representation-preflight.json" \
+            --json
+
       - name: Publish hosted correctness and reproduction evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -217,6 +231,7 @@ jobs:
           path: |
             ${{ runner.temp }}/bfr-qualification-evidence.json
             ${{ runner.temp }}/bfr-release-checkpoint.json
+            ${{ runner.temp }}/invariant-row-representation-preflight.json
             ${{ runner.temp }}/bfr-case-json
             ${{ runner.temp }}/bfr-proof-artifacts
             ${{ runner.temp }}/b2-downloads
