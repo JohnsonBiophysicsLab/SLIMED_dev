@@ -1,0 +1,149 @@
+name: Bfr exact-head correctness and reproduction audit
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  bfr-qualification:
+    runs-on: macos-26
+    timeout-minutes: 180
+    env:
+      GMP_VERSION: "6.3.0"
+      GMP_SHA256: "a3c2b80201b89e68616f4ad30bc66aee4927c3ce50e33929ca819d5c43538898"
+      MPFR_VERSION: "4.2.2"
+      MPFR_SHA256: "b67ba0383ef7e8a8563734e2e889ef5ec3c3b898a01d00fa0a6869ad81c6ce01"
+      OPENSUBDIV_VERSION: "3_7_0"
+      OPENSUBDIV_COMMIT: "9dab8a47bfbb1388ec8388fe61f5f916e6123f38"
+      OPENSUBDIV_ARCHIVE_SHA256: "f843eb49daf20264007d807cbc64516a1fed9cdb1149aaf84ff47691d97491f9"
+      LANG: C
+      LC_ALL: C
+      TZ: UTC
+      SOURCE_DATE_EPOCH: "0"
+      ZERO_AR_DATE: "1"
+    steps:
+      - name: Checkout exact pull-request head with tags
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Pin Python 3.14.6
+        uses: actions/setup-python@v5
+        with:
+          python-version: 3.14.6
+
+      - name: Validate frozen contract before dependencies
+        run: |
+          python3 scripts/run_bfr_qualification.py --self-test --json
+          python3 -m unittest tests.test_bfr_qualification
+
+      - name: Download and checksum proof archives
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/b2-downloads"
+          curl --fail --location --retry 3 \
+            "https://ftp.gnu.org/gnu/gmp/gmp-${GMP_VERSION}.tar.xz" \
+            --output "$RUNNER_TEMP/b2-downloads/gmp.tar.xz"
+          echo "${GMP_SHA256}  $RUNNER_TEMP/b2-downloads/gmp.tar.xz" | shasum -a 256 -c -
+          curl --fail --location --retry 3 \
+            "https://ftp.gnu.org/gnu/mpfr/mpfr-${MPFR_VERSION}.tar.xz" \
+            --output "$RUNNER_TEMP/b2-downloads/mpfr.tar.xz"
+          echo "${MPFR_SHA256}  $RUNNER_TEMP/b2-downloads/mpfr.tar.xz" | shasum -a 256 -c -
+          curl --fail --location --retry 3 \
+            "https://codeload.github.com/PixarAnimationStudios/OpenSubdiv/tar.gz/v${OPENSUBDIV_VERSION}" \
+            --output "$RUNNER_TEMP/b2-downloads/opensubdiv.tar.gz"
+          echo "${OPENSUBDIV_ARCHIVE_SHA256}  $RUNNER_TEMP/b2-downloads/opensubdiv.tar.gz" | shasum -a 256 -c -
+
+      - name: Build pinned GMP and MPFR
+        shell: bash
+        run: |
+          set -euo pipefail
+          MPFR_ROOT="$RUNNER_TEMP/b2-mpfr"
+          mkdir -p "$RUNNER_TEMP/b2-gmp-src" "$RUNNER_TEMP/b2-mpfr-src"
+          tar -xf "$RUNNER_TEMP/b2-downloads/gmp.tar.xz" -C "$RUNNER_TEMP/b2-gmp-src" --strip-components=1
+          tar -xf "$RUNNER_TEMP/b2-downloads/mpfr.tar.xz" -C "$RUNNER_TEMP/b2-mpfr-src" --strip-components=1
+          (cd "$RUNNER_TEMP/b2-gmp-src" && ./configure --prefix="$MPFR_ROOT" --enable-shared --disable-static && /usr/bin/make -j1 && /usr/bin/make install)
+          (cd "$RUNNER_TEMP/b2-mpfr-src" && ./configure --prefix="$MPFR_ROOT" --with-gmp="$MPFR_ROOT" --enable-shared --disable-static && /usr/bin/make -j1 && /usr/bin/make install)
+          echo "MPFR_ROOT=$MPFR_ROOT" >> "$GITHUB_ENV"
+
+      - name: Prepare exact OpenSubdiv source checkout
+        shell: bash
+        run: |
+          set -euo pipefail
+          OSD_SOURCE="$RUNNER_TEMP/b2-opensubdiv-source"
+          git clone --filter=blob:none --no-checkout https://github.com/PixarAnimationStudios/OpenSubdiv.git "$OSD_SOURCE"
+          git -C "$OSD_SOURCE" checkout --detach "$OPENSUBDIV_COMMIT"
+          test "$(git -C "$OSD_SOURCE" rev-parse HEAD)" = "$OPENSUBDIV_COMMIT"
+          test -z "$(git -C "$OSD_SOURCE" status --porcelain=v1)"
+          echo "OPENSUBDIV_SOURCE=$OSD_SOURCE" >> "$GITHUB_ENV"
+
+      - name: Build exact Release and TSan OpenSubdiv archives
+        shell: bash
+        run: |
+          set -euo pipefail
+          common=(
+            -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Release
+            -DCMAKE_CXX_COMPILER=/Library/Developer/CommandLineTools/usr/bin/clang++
+            -DCMAKE_CXX_STANDARD=17 -DCMAKE_CXX_STANDARD_REQUIRED=ON -DCMAKE_CXX_EXTENSIONS=OFF
+            -DCMAKE_OSX_ARCHITECTURES=arm64 -DCMAKE_OSX_DEPLOYMENT_TARGET=26.0
+            -DCMAKE_OSX_SYSROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk
+            -DCMAKE_AR=/Library/Developer/CommandLineTools/usr/bin/ar
+            -DCMAKE_RANLIB=/Library/Developer/CommandLineTools/usr/bin/ranlib
+            -DCMAKE_MAKE_PROGRAM=/usr/bin/make -DCMAKE_INSTALL_LIBDIR=lib
+            -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DCMAKE_POSITION_INDEPENDENT_CODE=OFF
+            -DCMAKE_VERBOSE_MAKEFILE=ON -DBUILD_SHARED_LIBS=OFF -DNO_LIB=OFF
+            -DNO_EXAMPLES=ON -DNO_TUTORIALS=ON -DNO_REGRESSION=ON -DNO_PTEX=ON
+            -DNO_DOC=ON -DNO_OMP=ON -DNO_TBB=ON -DNO_CUDA=ON -DNO_OPENCL=ON
+            -DNO_CLEW=ON -DNO_OPENGL=ON -DNO_METAL=ON -DNO_DX=ON -DNO_TESTS=ON
+            -DNO_GLTESTS=ON -DNO_GLEW=ON -DNO_GLFW=ON -DNO_GLFW_X11=ON
+            -DNO_MACOS_FRAMEWORK=ON -DOSD_PATCH_SHADER_SOURCE_GLSL=OFF
+            -DOSD_PATCH_SHADER_SOURCE_HLSL=OFF -DOSD_PATCH_SHADER_SOURCE_MSL=OFF
+            -DOPENSUBDIV_GREGORY_EVAL_TRUE_DERIVATIVES=OFF -DSIMD=NONE
+          )
+          build_profile() {
+            local build_root="$1" install_root="$2" flags="$3"
+            cmake -S "$OPENSUBDIV_SOURCE" -B "$build_root" "${common[@]}" \
+              -DCMAKE_INSTALL_PREFIX="$install_root" -DCMAKE_CXX_FLAGS= \
+              -DCMAKE_CXX_FLAGS_RELEASE="$flags"
+            cmake --build "$build_root" --config Release --target osd_static_cpu --parallel 1 --verbose
+            cmake --install "$build_root" --config Release
+          }
+          OPENSUBDIV_ROOT="$RUNNER_TEMP/b2-osd-release"
+          OPENSUBDIV_TSAN_ROOT="$RUNNER_TEMP/b2-osd-tsan"
+          build_profile "$RUNNER_TEMP/b2-osd-release-build" "$OPENSUBDIV_ROOT" \
+            "-std=c++17 -O3 -DNDEBUG -fno-fast-math -ffp-contract=off -fno-omit-frame-pointer -isysroot /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk -mmacosx-version-min=26.0"
+          build_profile "$RUNNER_TEMP/b2-osd-tsan-build" "$OPENSUBDIV_TSAN_ROOT" \
+            "-std=c++17 -O1 -g -DNDEBUG -fno-fast-math -ffp-contract=off -fno-omit-frame-pointer -isysroot /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk -mmacosx-version-min=26.0 -fsanitize=thread"
+          echo "OPENSUBDIV_ROOT=$OPENSUBDIV_ROOT" >> "$GITHUB_ENV"
+          echo "OPENSUBDIV_TSAN_ROOT=$OPENSUBDIV_TSAN_ROOT" >> "$GITHUB_ENV"
+
+      - name: Hosted correctness audit and full Release reproduction
+        run: |
+          mkdir -p "$RUNNER_TEMP/bfr-case-json"
+          python3 scripts/run_bfr_qualification.py \
+            --run-release-matrix \
+            --mpfr-root "$MPFR_ROOT" \
+            --opensubdiv-root "$OPENSUBDIV_ROOT" \
+            --opensubdiv-tsan-root "$OPENSUBDIV_TSAN_ROOT" \
+            --opensubdiv-source "$OPENSUBDIV_SOURCE" \
+            --release-checkpoint "$RUNNER_TEMP/bfr-release-checkpoint.json" \
+            --artifact-dir "$RUNNER_TEMP/bfr-case-json" \
+            --output "$RUNNER_TEMP/bfr-qualification-evidence.json"
+          python3 -c 'import json, os; value=json.load(open(os.environ["RUNNER_TEMP"] + "/bfr-qualification-evidence.json")); assert value["platform_qualification"]["status"] == "UNQUALIFIED_PLATFORM"; assert value["d12_summary"]["status"] == "UNQUALIFIED_PLATFORM"; assert value["d12_summary"]["budget_verdict"] == "NEITHER_PASS_NOR_FAIL"'
+
+      - name: Publish hosted correctness and reproduction evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bfr-hosted-reproduction-${{ github.event.pull_request.head.sha || github.sha }}
+          path: |
+            ${{ runner.temp }}/bfr-qualification-evidence.json
+            ${{ runner.temp }}/bfr-release-checkpoint.json
+            ${{ runner.temp }}/bfr-case-json
+          if-no-files-found: error
