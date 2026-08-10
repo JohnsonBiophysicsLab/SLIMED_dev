@@ -151,7 +151,7 @@ These extend the ADR ledger and do not modify D0-D8.
 | D9b | Deferred - not decidable before WP5.2 | **Bfr production-activation acceptance.** D9a qualifies Bfr's rows; D9b accepts Bfr for production. The deciding quantity is convergence of the integrated bending energy and per-source forces under the *selected* quadrature rule, which does not exist until WP5.2. This is not a Far-versus-Bfr selection. | WP5.2 quadrature selection, then integrated-functional evidence, independent scientific review, and explicit user decision. |
 | D10 | Approved - Frozen B2p targets and coverage challenge accepted for B2 proof. This does not qualify Bfr, decide D9a or D9b, widen a target, or authorize production. | Declare frozen irregular row targets. The existing ledger has no irregular accuracy tolerance; `valence{3,4,5}_row_invariants = 1.0e-12` are row sum-rule invariants, not accuracy. | **B2p** declared names, values, rationale, and owning gate before B2 existed, so **S5** compliance is provable from commit order. Explicit user D10 approval on 2026-08-08. Widening after results is a blocker, not a fix. |
 | D11 | Proposed - pending explicit user decision after D9a | Legacy per-valence OpenSubdiv routes are frozen as regression comparators, not ported to Bfr, and retired only through the unified plan's WP7 sequence after the generic route is accepted. | Explicit user decision. Extends, and does not replace, D5. |
-| D12 | Proposed - pending explicit user approval after technical and scientific review | **Freeze B2 readiness.** Accept the a-priori preparation-cost, retained-row-memory, process-memory, and threading criteria in section 3.4, and accept the complete section-8/section-7 execution manifest and independently generated fixture ledger. | This separate preflight amendment, technical review, independent scientific review, then explicit user approval before any B2 candidate run. Approval changes no D10 input, does not decide D9a or D9b, and does not authorize production. |
+| D12 | Approved - B2 readiness criteria, schema-2 execution manifest, fixture corpus, and exact qualification/build protocol are frozen for B2. This does not qualify Bfr, decide D9a/D9b or D8, or authorize production. | **Freeze B2 readiness.** Accept the a-priori preparation-cost, retained-row-memory, process-memory, and threading criteria in section 3.4, and accept the complete section-8/section-7 execution manifest and independently generated fixture ledger. | Exact SHA `bf75d32e0a8103fa99e8b3d961ddfa7436a6239f` passed verification, technical, scientific, and gatekeeper review before PR 195 merged as `b8cb9470077c1c5e15449318eff7b61e7464cd51`; explicit user D12 approval followed on 2026-08-10 before any Bfr/Far candidate run. Approval changes no D10 input, does not decide D9a/D9b or D8, and does not authorize production. |
 
 Nothing in D9a-D12 may be inferred from D1. D1 governs the *scheme* (stock Loop
 masks). D9a and D9b govern whether **Bfr** is qualified to extract rows for that
@@ -630,14 +630,17 @@ altering a manifest entry or row name is fixture drift. The value is fixed near
 the existing row-sum invariant scale, far above double roundoff and far below
 every accuracy target, without reference to a candidate run.
 
-### 3.4 Pending D12 B2-readiness criteria and execution protocol
+### 3.4 Approved D12 B2-readiness criteria and execution protocol
 
 These criteria are frozen before a Bfr or Far executable exists in this lane.
 They are deliberately loose **operational fail-stop budgets**, not evidence that
 either candidate is fast and not a substitute for D8's later coordinate-only
-production budget. No candidate output was used to choose them. D12 remains
-pending technical review, independent scientific review, and explicit user
-approval; until then B2 is stopped.
+production budget. No candidate output was used to choose them. Verification,
+technical, scientific, and gatekeeper reviews passed at exact SHA
+`bf75d32e0a8103fa99e8b3d961ddfa7436a6239f`; PR 195 merged that unchanged
+head as `b8cb9470077c1c5e15449318eff7b61e7464cd51`, and the user explicitly
+approved D12 on 2026-08-10 before any Bfr/Far candidate run. B2 may now consume
+these frozen inputs, but no candidate is run by this decision-record package.
 
 The numeric reference is one physical host with this exact fingerprint:
 macOS `26.5.1` build `25F80`, `arm64`, `hw.model=Mac17,2`, chip `Apple M5`,
@@ -796,7 +799,7 @@ serial/cache-disabled criterion passes may the packet make an explicitly
 decision. The manifest never infers D9a. Missing tuples, outputs, byte matches,
 or sanitizer coverage are blocking.
 
-The numeric criteria apply only after D12 approval. Widening a number, changing
+The D12 approval activates these numeric criteria for B2. Widening a number, changing
 the aggregation or platform, omitting/reordering a manifest entry, or changing
 a mutation after any candidate output is visible stops B2 under **S5**. D12
 approval changes no D10 value or oracle input, does not decide D9a/D9b, and
@@ -1753,8 +1756,8 @@ Nothing in this plan decides them.
 | KB0b | Inventory enforced by a CI workflow, OpenSubdiv-free and read-only | Pending KB0a green | T1 technical |
 | KB1 | Extended `LoopTopologyKey` and row contract, no OpenSubdiv include | Pending B0a, B0b, B0c | T1 technical |
 | KB2p | Frozen D10 targets, oracle contract, new fixtures and hashes, face correspondence | Merged as PR 193 at `b8ed8bd2dbbf994a4419695cf490b2a3e6f349a6`; D10 approved 2026-08-08 | T2 + explicit user D10 |
-| KB2r | B2-readiness budgets plus complete section-8/section-7 fixture execution manifest | Drafted independently; no candidate run; pending technical/scientific review and explicit user D12 | T2 + explicit user D12 |
-| KB2 | Bfr qualification evidence against B2p's and D12's frozen inputs; Far comparator results published | Stopped before edits until KB2r merges and D12 is approved | T2: verification + technical + scientific + gatekeeper + user D9a |
+| KB2r | B2-readiness budgets plus complete section-8/section-7 fixture execution manifest | Merged as PR 195 at `b8cb9470077c1c5e15449318eff7b61e7464cd51`; D12 approved 2026-08-10 before any candidate run | T2 + explicit user D12 |
+| KB2 | Bfr qualification evidence against B2p's and D12's frozen inputs; Far comparator results published | Ready to start from merged KB2r and approved D12; no candidate run yet | T2: verification + technical + scientific + gatekeeper + user D9a |
 | KB3 | Bfr full-mesh provider; owns the exact 30700 pin and the no-Far-in-production tests | Pending D9a PASS | T2 |
 | KB4 | Topology epoch cache, invalidation, flip-pair re-preparation cost | Pending B3 | Technical |
 | KB9b | D9b Bfr production-activation acceptance on integrated-functional evidence | Deferred to after WP5.2 | Scientific + explicit user |
