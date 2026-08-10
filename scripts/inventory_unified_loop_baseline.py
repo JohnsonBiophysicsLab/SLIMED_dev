@@ -163,7 +163,7 @@ EXPECTED_B2_READINESS_FIXTURE_HASHES = {
     "data/fixtures/candidates/b2_readiness_v1/closed_566_refined_icosahedron/vertices.csv":
         "cb6c618c254b36bbe27ff354f5dc009222e95277188833a3385a4f3c378b0bd6",
     "data/fixtures/candidates/b2_readiness_v1/execution_manifest.json":
-        "b84e51a9d150aca1128f27cbc0c2a41115cab35ddc72f2ec878dcdc6143eed0b",
+        "81cbb72b910f7fc8ee3cb56aba73729e38c2abcd0dab09f487a01499dcdf04b6",
     "data/fixtures/candidates/b2_readiness_v1/regular_all6_torus/candidate_metadata.json":
         "11aba5339fced78cab1056b99d03766ecf3b0a7178e1c04c5376f1af01f2cf1c",
     "data/fixtures/candidates/b2_readiness_v1/regular_all6_torus/faces.csv":
@@ -186,9 +186,9 @@ EXPECTED_B2_READINESS_CRITERIA = {
 }
 
 EXPECTED_B2_READINESS_MANIFEST_CONTRACT_SHA256 = (
-    "676b03e36b4db9fb618f75bddd80382c79e1a824d47353b1244b75f02f1d2bda")
+    "bb3896cf192b4699526019979e14f28104c9822c3d73f86826f810ccd09c3cb4")
 EXPECTED_B2_READINESS_GENERATOR_SHA256 = (
-    "02eefa5d7812ea8e0cc54d15055c6f15c9baef11385a2595ba90f41075512c47")
+    "306475cc64121184097741579e163c03155eec373120ea521fdc77b832c10e9f")
 EXPECTED_B2_READINESS_SOURCE_ROW_IDS = [
     *[f"U8-{index:02d}" for index in range(1, 15)],
     "B7-01", "B7-02", "B7-03",
@@ -227,7 +227,7 @@ EXPECTED_B2_READINESS_SAMPLE_POLICY_IDS = [
 ]
 
 EXPECTED_B2_READINESS_ANCHORS = [
-    "`676b03e36b4db9fb618f75bddd80382c79e1a824d47353b1244b75f02f1d2bda`",
+    "`bb3896cf192b4699526019979e14f28104c9822c3d73f86826f810ccd09c3cb4`",
     "3 unrecorded warmups followed by 15 measured\npreparations",
     "ordinary\nmedian is the eighth sorted value",
     "Bfr\n`approxLevelSmooth = 2,3,4,5,6,7,8` with `approxLevelSharp = 6`",
@@ -244,6 +244,10 @@ EXPECTED_B2_READINESS_ANCHORS = [
     "Per-worker results are destroyed after comparison while shared\nstate persists through all 20 rounds",
     "Far has one proof-only uncached\nconstruction mode, recorded as cache mode `not_applicable`",
     "The TSan build below is a separate\ncategorical threading profile",
+    "The only library target is `osd_static_cpu`",
+    "ordered 47-translation-unit expansion",
+    "`compile_commands.json`",
+    "`BUILD_PROVENANCE_FAILURE`",
     "12 + 4*U + 72*S + 12*C",
     "changes no D10 value or oracle input",
 ]

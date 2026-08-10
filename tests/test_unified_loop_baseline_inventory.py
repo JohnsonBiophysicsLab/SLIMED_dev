@@ -658,6 +658,16 @@ class UnifiedLoopBaselineInventoryTest(unittest.TestCase):
         self.assert_text_mutation_rejected(
             "data/fixtures/candidates/b2_readiness_v1/execution_manifest.json",
             lambda text: text.replace(
+                '"-DBUILD_SHARED_LIBS=OFF"',
+                '"-DBUILD_SHARED_LIBS=ON"', 1))
+        self.assert_text_mutation_rejected(
+            "data/fixtures/candidates/b2_readiness_v1/execution_manifest.json",
+            lambda text: text.replace(
+                '"opensubdiv/bfr/surfaceFactoryCache.cpp"',
+                '"opensubdiv/bfr/surfaceFactoryCache_extra.cpp"', 1))
+        self.assert_text_mutation_rejected(
+            "data/fixtures/candidates/b2_readiness_v1/execution_manifest.json",
+            lambda text: text.replace(
                 '"after_refiner_destruction"', '"after_refiner_leak"', 1))
         self.assert_text_mutation_rejected(
             "data/fixtures/candidates/b2_readiness_v1/execution_manifest.json",

@@ -1207,6 +1207,9 @@
   },
   "qualification_platform": {
     "build": {
+      "candidate_include_flags": [
+        "-I${OPENSUBDIV_ROOT}/include"
+      ],
       "candidate_link_inputs": [
         "${OPENSUBDIV_ROOT}/lib/libosdCPU.a",
         "-framework",
@@ -1244,6 +1247,181 @@
         "-lgmp"
       ],
       "opensubdiv": {
+        "archive_target": "osd_static_cpu",
+        "build_environment": {
+          "LANG": "C",
+          "LC_ALL": "C",
+          "SOURCE_DATE_EPOCH": "0",
+          "TZ": "UTC",
+          "ZERO_AR_DATE": "1"
+        },
+        "build_tool": {
+          "path": "/usr/bin/make",
+          "version": "GNU Make 3.81"
+        },
+        "cmake": {
+          "common_options_in_exact_order": [
+            "-G",
+            "Unix Makefiles",
+            "-DCMAKE_BUILD_TYPE=Release",
+            "-DCMAKE_CXX_COMPILER=/Library/Developer/CommandLineTools/usr/bin/clang++",
+            "-DCMAKE_CXX_STANDARD=17",
+            "-DCMAKE_CXX_STANDARD_REQUIRED=ON",
+            "-DCMAKE_CXX_EXTENSIONS=OFF",
+            "-DCMAKE_OSX_ARCHITECTURES=arm64",
+            "-DCMAKE_OSX_DEPLOYMENT_TARGET=26.0",
+            "-DCMAKE_OSX_SYSROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk",
+            "-DCMAKE_AR=/Library/Developer/CommandLineTools/usr/bin/ar",
+            "-DCMAKE_RANLIB=/Library/Developer/CommandLineTools/usr/bin/ranlib",
+            "-DCMAKE_MAKE_PROGRAM=/usr/bin/make",
+            "-DCMAKE_INSTALL_PREFIX=${PROFILE_INSTALL_ROOT}",
+            "-DCMAKE_INSTALL_LIBDIR=lib",
+            "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON",
+            "-DCMAKE_POSITION_INDEPENDENT_CODE=OFF",
+            "-DCMAKE_VERBOSE_MAKEFILE=ON",
+            "-DBUILD_SHARED_LIBS=OFF",
+            "-DNO_LIB=OFF",
+            "-DNO_EXAMPLES=ON",
+            "-DNO_TUTORIALS=ON",
+            "-DNO_REGRESSION=ON",
+            "-DNO_PTEX=ON",
+            "-DNO_DOC=ON",
+            "-DNO_OMP=ON",
+            "-DNO_TBB=ON",
+            "-DNO_CUDA=ON",
+            "-DNO_OPENCL=ON",
+            "-DNO_CLEW=ON",
+            "-DNO_OPENGL=ON",
+            "-DNO_METAL=ON",
+            "-DNO_DX=ON",
+            "-DNO_TESTS=ON",
+            "-DNO_GLTESTS=ON",
+            "-DNO_GLEW=ON",
+            "-DNO_GLFW=ON",
+            "-DNO_GLFW_X11=ON",
+            "-DNO_MACOS_FRAMEWORK=ON",
+            "-DOSD_PATCH_SHADER_SOURCE_GLSL=OFF",
+            "-DOSD_PATCH_SHADER_SOURCE_HLSL=OFF",
+            "-DOSD_PATCH_SHADER_SOURCE_MSL=OFF",
+            "-DOPENSUBDIV_GREGORY_EVAL_TRUE_DERIVATIVES=OFF",
+            "-DSIMD=NONE"
+          ],
+          "generator": "Unix Makefiles",
+          "path": "/opt/homebrew/bin/cmake",
+          "version": "4.4.2"
+        },
+        "commands": {
+          "build": "env <exact build_environment> /opt/homebrew/bin/cmake --build ${PROFILE_BUILD_ROOT} --config Release --target osd_static_cpu --parallel 1 --verbose",
+          "configure": "env <exact build_environment> /opt/homebrew/bin/cmake -S ${OPENSUBDIV_SOURCE} -B ${PROFILE_BUILD_ROOT} <common_options_in_exact_order> -DCMAKE_CXX_FLAGS= -DCMAKE_CXX_FLAGS_RELEASE=<profile flags joined by single spaces>",
+          "install": "env <exact build_environment> /opt/homebrew/bin/cmake --install ${PROFILE_BUILD_ROOT} --config Release"
+        },
+        "expected_archive_member_basenames_in_target_order": [
+          "version.cpp.o",
+          "crease.cpp.o",
+          "typeTraits.cpp.o",
+          "fvarLevel.cpp.o",
+          "fvarRefinement.cpp.o",
+          "level.cpp.o",
+          "quadRefinement.cpp.o",
+          "refinement.cpp.o",
+          "sparseSelector.cpp.o",
+          "triRefinement.cpp.o",
+          "bilinearPatchBuilder.cpp.o",
+          "catmarkPatchBuilder.cpp.o",
+          "error.cpp.o",
+          "loopPatchBuilder.cpp.o",
+          "patchBasis.cpp.o",
+          "patchBuilder.cpp.o",
+          "patchDescriptor.cpp.o",
+          "patchMap.cpp.o",
+          "patchTable.cpp.o",
+          "patchTableFactory.cpp.o",
+          "ptexIndices.cpp.o",
+          "stencilTable.cpp.o",
+          "stencilTableFactory.cpp.o",
+          "stencilBuilder.cpp.o",
+          "topologyDescriptor.cpp.o",
+          "topologyRefiner.cpp.o",
+          "topologyRefinerFactory.cpp.o",
+          "faceSurface.cpp.o",
+          "faceTopology.cpp.o",
+          "faceVertex.cpp.o",
+          "hash.cpp.o",
+          "irregularPatchBuilder.cpp.o",
+          "parameterization.cpp.o",
+          "patchTree.cpp.o",
+          "patchTreeBuilder.cpp.o",
+          "refinerSurfaceFactory.cpp.o",
+          "regularPatchBuilder.cpp.o",
+          "surface.cpp.o",
+          "surfaceData.cpp.o",
+          "surfaceFactory.cpp.o",
+          "surfaceFactoryCache.cpp.o",
+          "tessellation.cpp.o",
+          "vertexDescriptor.cpp.o",
+          "cpuEvaluator.cpp.o",
+          "cpuKernel.cpp.o",
+          "cpuPatchTable.cpp.o",
+          "cpuVertexBuffer.cpp.o"
+        ],
+        "profile_roots": {
+          "release": {
+            "build": "${OPENSUBDIV_RELEASE_BUILD_ROOT}",
+            "install": "${OPENSUBDIV_ROOT}"
+          },
+          "thread_sanitizer": {
+            "build": "${OPENSUBDIV_TSAN_BUILD_ROOT}",
+            "install": "${OPENSUBDIV_TSAN_ROOT}"
+          }
+        },
+        "profiles": {
+          "release": {
+            "archive": "${OPENSUBDIV_ROOT}/lib/libosdCPU.a",
+            "compile_flags": [
+              "-std=c++17",
+              "-O3",
+              "-DNDEBUG",
+              "-fno-fast-math",
+              "-ffp-contract=off",
+              "-fno-omit-frame-pointer",
+              "-isysroot",
+              "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk",
+              "-mmacosx-version-min=26.0",
+              "-Wall",
+              "-Wextra",
+              "-Wpedantic",
+              "-Werror"
+            ]
+          },
+          "thread_sanitizer": {
+            "archive": "${OPENSUBDIV_TSAN_ROOT}/lib/libosdCPU.a",
+            "compile_flags": [
+              "-std=c++17",
+              "-O1",
+              "-g",
+              "-DNDEBUG",
+              "-fno-fast-math",
+              "-ffp-contract=off",
+              "-fno-omit-frame-pointer",
+              "-isysroot",
+              "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk",
+              "-mmacosx-version-min=26.0",
+              "-fsanitize=thread"
+            ]
+          }
+        },
+        "provenance_evidence_required": [
+          "exact configure/build/install command transcripts with expanded absolute roots and environment",
+          "CMakeCache.txt and configure stdout/stderr",
+          "compile_commands.json",
+          "verbose single-worker osd_static_cpu build log",
+          "opensubdiv/CMakeFiles/osd_static_cpu.dir/link.txt",
+          "ar -t archive member list in exact order",
+          "per-translation-unit source-relative path, source SHA-256, object/member basename, and full compile command ledger",
+          "installed libosdCPU.a byte size and SHA-256",
+          "candidate proof full compile/link commands, linker map, dependency file, binary SHA-256, and otool -L output"
+        ],
+        "provenance_fail_closed_audit": "for each profile, require clean pinned source; exact configure options and environment; translation-unit ledger exactly equal to translation_units_in_target_order; archive members exactly equal to expected_archive_member_basenames_in_target_order; every compile command contains that profile's exact flags and no conflicting optimization, fast-math, contraction, architecture, deployment, or sanitizer flag; release and TSan build/install roots are pairwise disjoint; candidate include/archive paths name the matching exact profile; any missing/extra TU, member, flag, command, hash, or dependency is BUILD_PROVENANCE_FAILURE and leaves B2 evidence incomplete",
         "release_archive": "${OPENSUBDIV_ROOT}/lib/libosdCPU.a",
         "release_compile_flags": [
           "-std=c++17",
@@ -1254,9 +1432,72 @@
           "-fno-omit-frame-pointer",
           "-isysroot",
           "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk",
-          "-mmacosx-version-min=26.0"
+          "-mmacosx-version-min=26.0",
+          "-Wall",
+          "-Wextra",
+          "-Wpedantic",
+          "-Werror"
+        ],
+        "source_checkout": "${OPENSUBDIV_SOURCE}",
+        "source_cleanliness": "git rev-parse HEAD must equal tag_commit; git status --porcelain=v1 must be empty; record git rev-parse HEAD^{tree} and SHA-256 of every translation unit",
+        "static_target_object_groups_in_order": [
+          "opensubdiv/version.cpp",
+          "sdc_obj",
+          "vtr_obj",
+          "far_obj",
+          "bfr_obj",
+          "osd_cpu_obj"
         ],
         "tag_commit": "9dab8a47bfbb1388ec8388fe61f5f916e6123f38",
+        "translation_units_in_target_order": [
+          "opensubdiv/version.cpp",
+          "opensubdiv/sdc/crease.cpp",
+          "opensubdiv/sdc/typeTraits.cpp",
+          "opensubdiv/vtr/fvarLevel.cpp",
+          "opensubdiv/vtr/fvarRefinement.cpp",
+          "opensubdiv/vtr/level.cpp",
+          "opensubdiv/vtr/quadRefinement.cpp",
+          "opensubdiv/vtr/refinement.cpp",
+          "opensubdiv/vtr/sparseSelector.cpp",
+          "opensubdiv/vtr/triRefinement.cpp",
+          "opensubdiv/far/bilinearPatchBuilder.cpp",
+          "opensubdiv/far/catmarkPatchBuilder.cpp",
+          "opensubdiv/far/error.cpp",
+          "opensubdiv/far/loopPatchBuilder.cpp",
+          "opensubdiv/far/patchBasis.cpp",
+          "opensubdiv/far/patchBuilder.cpp",
+          "opensubdiv/far/patchDescriptor.cpp",
+          "opensubdiv/far/patchMap.cpp",
+          "opensubdiv/far/patchTable.cpp",
+          "opensubdiv/far/patchTableFactory.cpp",
+          "opensubdiv/far/ptexIndices.cpp",
+          "opensubdiv/far/stencilTable.cpp",
+          "opensubdiv/far/stencilTableFactory.cpp",
+          "opensubdiv/far/stencilBuilder.cpp",
+          "opensubdiv/far/topologyDescriptor.cpp",
+          "opensubdiv/far/topologyRefiner.cpp",
+          "opensubdiv/far/topologyRefinerFactory.cpp",
+          "opensubdiv/bfr/faceSurface.cpp",
+          "opensubdiv/bfr/faceTopology.cpp",
+          "opensubdiv/bfr/faceVertex.cpp",
+          "opensubdiv/bfr/hash.cpp",
+          "opensubdiv/bfr/irregularPatchBuilder.cpp",
+          "opensubdiv/bfr/parameterization.cpp",
+          "opensubdiv/bfr/patchTree.cpp",
+          "opensubdiv/bfr/patchTreeBuilder.cpp",
+          "opensubdiv/bfr/refinerSurfaceFactory.cpp",
+          "opensubdiv/bfr/regularPatchBuilder.cpp",
+          "opensubdiv/bfr/surface.cpp",
+          "opensubdiv/bfr/surfaceData.cpp",
+          "opensubdiv/bfr/surfaceFactory.cpp",
+          "opensubdiv/bfr/surfaceFactoryCache.cpp",
+          "opensubdiv/bfr/tessellation.cpp",
+          "opensubdiv/bfr/vertexDescriptor.cpp",
+          "opensubdiv/osd/cpuEvaluator.cpp",
+          "opensubdiv/osd/cpuKernel.cpp",
+          "opensubdiv/osd/cpuPatchTable.cpp",
+          "opensubdiv/osd/cpuVertexBuffer.cpp"
+        ],
         "version": "3.7.0"
       },
       "oracle_separation": "the D10 MPFR oracle remains a separate executable and may not link OpenSubdiv",
@@ -1273,6 +1514,9 @@
         "-mmacosx-version-min=26.0",
         "-fsanitize=thread"
       ],
+      "thread_sanitizer_include_flags": [
+        "-I${OPENSUBDIV_TSAN_ROOT}/include"
+      ],
       "thread_sanitizer_link_inputs": [
         "-fsanitize=thread",
         "${OPENSUBDIV_TSAN_ROOT}/lib/libosdCPU.a",
@@ -1281,7 +1525,7 @@
         "-framework",
         "Foundation"
       ],
-      "thread_sanitizer_opensubdiv_requirement": "rebuild every linked OpenSubdiv 3.7.0 translation unit from the pinned source with thread_sanitizer_compile_flags into the exact OPENSUBDIV_TSAN_ROOT static archive and link that instrumented archive only"
+      "thread_sanitizer_opensubdiv_requirement": "build exactly osd_static_cpu's frozen 47-translation-unit scope from the clean pinned source with the thread_sanitizer profile into the exact disjoint OPENSUBDIV_TSAN_ROOT archive and link that instrumented archive only"
     },
     "fingerprint": {
       "architecture": "arm64",
@@ -1302,7 +1546,8 @@
     "git_identity": "local artifact records and exactly equals the reviewed B2 head SHA and has an empty worktree",
     "power": {
       "api": "IOPSCopyPowerSourcesInfo plus IOPSGetProvidingPowerSourceType",
-      "required_value": "kIOPSACPowerValue"
+      "required_value": "kIOPSACPowerValue",
+      "sampling": "before and after every full case process"
     },
     "qualification_failure": "any fingerprint mismatch, API/query failure, non-AC value, virtualization/shared-host evidence, or non-nominal thermal state is UNQUALIFIED_PLATFORM; numeric gates neither pass nor fail and B2 evidence is incomplete; no repeat may be discarded or rerun selectively",
     "thermal": {
@@ -1365,9 +1610,10 @@
     ],
     "trend_coordinates": "xi and eta are exact dyadic rationals; apply extraordinary_corner_maps before binary64 conversion",
     "weight": {
-      "binary64_hex": "0x0.0p+0",
-      "bits_hex": "0000000000000000",
-      "meaning": "proof-only placeholder; not quadrature"
+      "b1_validation": "strictly positive and finite",
+      "binary64_hex": "0x1.0000000000000p+0",
+      "bits_hex": "3ff0000000000000",
+      "meaning": "validation-only sentinel; forbidden for quadrature, integration, or any D9b claim"
     }
   },
   "sample_policies": [

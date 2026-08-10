@@ -32,7 +32,7 @@ EXPECTED_HASHES = {
     "closed_566_refined_icosahedron/candidate_metadata.json": "f974fb5bb1d542561672c1e7d2d52bf5220acc09dd3b5510dc14f1d98343b0b5",
     "closed_566_refined_icosahedron/faces.csv": "d72e02a882c536643e8a3405efe8bb32c745bc034cbc55dcc1af0d5eba11e1b8",
     "closed_566_refined_icosahedron/vertices.csv": "cb6c618c254b36bbe27ff354f5dc009222e95277188833a3385a4f3c378b0bd6",
-    "execution_manifest.json": "b84e51a9d150aca1128f27cbc0c2a41115cab35ddc72f2ec878dcdc6143eed0b",
+    "execution_manifest.json": "81cbb72b910f7fc8ee3cb56aba73729e38c2abcd0dab09f487a01499dcdf04b6",
     "regular_all6_torus/candidate_metadata.json": "11aba5339fced78cab1056b99d03766ecf3b0a7178e1c04c5376f1af01f2cf1c",
     "regular_all6_torus/faces.csv": "7797a1ded38d99e83707fb85e23a2a193c5857f7425a5f678ceccb1506c67cd0",
     "regular_all6_torus/vertices.csv": "923914e925eaf0f60eb9a087f0150ad37b9e56bf0191ffc52b5d7fbd91b2903c",
@@ -43,7 +43,7 @@ EXPECTED_HASHES = {
 EXPECTED_ROW_IDS = [f"U8-{index:02d}" for index in range(1, 15)] + [
     "B7-01", "B7-02", "B7-03"]
 EXPECTED_MANIFEST_CONTRACT_SHA256 = (
-    "676b03e36b4db9fb618f75bddd80382c79e1a824d47353b1244b75f02f1d2bda")
+    "bb3896cf192b4699526019979e14f28104c9822c3d73f86826f810ccd09c3cb4")
 
 
 def read_vertices(path: Path) -> list[tuple[float, float, float]]:
@@ -446,6 +446,44 @@ class B2ReadinessFixturesTest(unittest.TestCase):
                          "/Library/Developer/CommandLineTools/usr/bin/clang++")
         self.assertIn("both Bfr and Far",
                       platform["build"]["candidate_proof_binary"])
+        self.assertEqual(platform["build"]["candidate_include_flags"],
+                         ["-I${OPENSUBDIV_ROOT}/include"])
+        opensubdiv = platform["build"]["opensubdiv"]
+        self.assertEqual(opensubdiv["archive_target"], "osd_static_cpu")
+        self.assertEqual(opensubdiv["cmake"]["path"], "/opt/homebrew/bin/cmake")
+        self.assertEqual(opensubdiv["cmake"]["version"], "4.4.2")
+        options = opensubdiv["cmake"]["common_options_in_exact_order"]
+        for option in (
+                "-DBUILD_SHARED_LIBS=OFF", "-DNO_LIB=OFF", "-DNO_OMP=ON",
+                "-DNO_TBB=ON", "-DNO_CUDA=ON", "-DNO_OPENCL=ON",
+                "-DNO_OPENGL=ON", "-DNO_METAL=ON", "-DNO_TESTS=ON",
+                "-DOSD_PATCH_SHADER_SOURCE_GLSL=OFF",
+                "-DOPENSUBDIV_GREGORY_EVAL_TRUE_DERIVATIVES=OFF",
+                "-DSIMD=NONE"):
+            self.assertIn(option, options)
+        self.assertEqual(opensubdiv["static_target_object_groups_in_order"], [
+            "opensubdiv/version.cpp", "sdc_obj", "vtr_obj", "far_obj",
+            "bfr_obj", "osd_cpu_obj",
+        ])
+        translation_units = opensubdiv["translation_units_in_target_order"]
+        self.assertEqual(len(translation_units), 47)
+        self.assertEqual(len(set(translation_units)), 47)
+        self.assertEqual(translation_units[0], "opensubdiv/version.cpp")
+        self.assertEqual(translation_units[-1],
+                         "opensubdiv/osd/cpuVertexBuffer.cpp")
+        self.assertEqual(
+            opensubdiv["expected_archive_member_basenames_in_target_order"],
+            [Path(path).name + ".o" for path in translation_units])
+        self.assertEqual(
+            opensubdiv["profiles"]["release"]["compile_flags"],
+            platform["build"]["common_release_compile_flags"])
+        self.assertEqual(
+            opensubdiv["profiles"]["thread_sanitizer"]["compile_flags"],
+            platform["build"]["thread_sanitizer_compile_flags"])
+        self.assertIn("compile_commands.json",
+                      opensubdiv["provenance_evidence_required"])
+        self.assertIn("BUILD_PROVENANCE_FAILURE",
+                      opensubdiv["provenance_fail_closed_audit"])
         self.assertEqual(platform["build"]["thread_sanitizer_compile_flags"], [
             "-std=c++17", "-O1", "-g", "-DNDEBUG", "-fno-fast-math",
             "-ffp-contract=off", "-fno-omit-frame-pointer", "-isysroot",
@@ -457,11 +495,13 @@ class B2ReadinessFixturesTest(unittest.TestCase):
             "${OPENSUBDIV_TSAN_ROOT}/lib/libosdCPU.a",
             "-framework", "IOKit", "-framework", "Foundation",
         ])
-        self.assertIn("rebuild every linked OpenSubdiv 3.7.0 translation unit",
+        self.assertIn("frozen 47-translation-unit scope",
                       platform["build"]["thread_sanitizer_opensubdiv_requirement"])
         self.assertIn("cannot satisfy D12 numeric platform gates",
                       platform["workflow_boundary"])
         self.assertEqual(platform["power"]["required_value"], "kIOPSACPowerValue")
+        self.assertEqual(platform["power"]["sampling"],
+                         "before and after every full case process")
         self.assertEqual(platform["thermal"]["required_value"],
                          "NSProcessInfoThermalStateNominal")
 
@@ -487,7 +527,11 @@ class B2ReadinessFixturesTest(unittest.TestCase):
         self.assertEqual(manifest["d9a_rollup"]["decision_authority"],
                          "this manifest produces evidence status only and never infers or records D9a")
         sample_fields = manifest["sample_field_contract"]
-        self.assertEqual(sample_fields["weight"]["bits_hex"], "0000000000000000")
+        self.assertEqual(sample_fields["weight"]["bits_hex"], "3ff0000000000000")
+        self.assertEqual(float.fromhex(
+            sample_fields["weight"]["binary64_hex"]), 1.0)
+        self.assertIn("forbidden for quadrature",
+                      sample_fields["weight"]["meaning"])
         self.assertEqual(
             [item["local_corner"] for item in
              sample_fields["extraordinary_corner_maps"]], [0, 1, 2])

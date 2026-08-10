@@ -650,6 +650,31 @@ containing both Bfr and Far, OpenSubdiv `3.7.0` at section 3.2's exact tagged
 commit, and MPFR `4.2.2`. The D10 MPFR
 oracle remains a separate executable that may not link OpenSubdiv.
 
+OpenSubdiv is built twice, once Release and once TSan, from a clean checkout at
+section 3.2's exact tagged commit. Both profiles use CMake `4.4.2`, the
+`Unix Makefiles` generator, `/usr/bin/make` GNU Make 3.81, the
+same pinned compiler/SDK/architecture/deployment target, static libraries,
+`SIMD=NONE`, and every example, tutorial, regression, test, documentation,
+OpenMP, TBB, CUDA, OpenCL, OpenGL, Metal, DirectX, and optional patch-shader
+backend disabled. The only library target is `osd_static_cpu`. Its exact
+hash-covered scope is the ordered 47-translation-unit expansion of
+`opensubdiv/version.cpp`, then `sdc_obj`, `vtr_obj`, `far_obj`, `bfr_obj`, and
+`osd_cpu_obj`; no other translation unit or archive member is permitted. The
+Release and TSan build/install roots must be pairwise disjoint, and the proof
+binary includes headers and links `libosdCPU.a` only from its matching profile.
+
+Each profile emits the expanded environment and configure/build/install
+commands, `CMakeCache.txt`, configure transcript, `compile_commands.json`,
+verbose single-worker build log, `osd_static_cpu` link script, ordered `ar -t`
+member list, per-translation-unit source SHA-256/object/command ledger, archive
+byte size and SHA-256, and the proof binary's full commands, dependency file,
+linker map, SHA-256, and `otool -L` output. The audit requires the exact source,
+translation-unit, member, option, and profile-flag sets and rejects conflicting
+optimization, fast-math, contraction, architecture, deployment, or sanitizer
+flags. Any missing or extra item is `BUILD_PROVENANCE_FAILURE`, so B2 evidence
+remains incomplete. The complete literal option order, profile flags, paths,
+commands, translation-unit list, and audit are in the execution manifest.
+
 Before and after every full case process, power is read through
 `IOPSCopyPowerSourcesInfo` plus `IOPSGetProvidingPowerSourceType` and must equal
 `kIOPSACPowerValue`; `NSProcessInfo.thermalState` must equal
@@ -700,7 +725,7 @@ categorical threading profile and cannot supply a numeric cost or RSS PASS.
 The complete machine-readable authority is schema 2
 `data/fixtures/candidates/b2_readiness_v1/execution_manifest.json`, whose
 canonical-JSON contract digest is
-`676b03e36b4db9fb618f75bddd80382c79e1a824d47353b1244b75f02f1d2bda`.
+`bb3896cf192b4699526019979e14f28104c9822c3d73f86826f810ccd09c3cb4`.
 Its 17 entries map all `U8-01..U8-14` then `B7-01..B7-03`. Every entry fixes a
 unique execution-case ID, mesh-evidence key, exact fixture members or mutation,
 face and corner order, sample-policy reference, six-row order, candidates,
@@ -721,8 +746,11 @@ extraordinary corners on that face; rejection cases have `S=0`. Flip locality
 reuses, rather than duplicates, the same ten samples. Rows are always
 `position,du,dv,duu,duv,dvv`.
 
-For every proof-only sample the retained `weight` field is binary64 positive
-zero and has no quadrature meaning. Rational face coordinates are converted to
+For every proof-only sample the retained `weight` field is exact binary64
+positive one (`0x1.0000000000000p+0`) so it passes the merged B1
+`InvalidSampleWeight` guard. It is a validation-only sentinel and **must not**
+be multiplied into any integrand or used for a quadrature/integration claim.
+Rational face coordinates are converted to
 binary64 once under round-to-nearest-ties-to-even. For extraordinary local
 corner `c`, barycentric weights assign `1-xi-eta` to `c`, `xi` to
 `(c+1) mod 3`, and `eta` to `(c+2) mod 3`; face-local `(u,v)` are barycentric
