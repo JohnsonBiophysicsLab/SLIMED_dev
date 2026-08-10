@@ -554,6 +554,23 @@ An unavailable or unqualified platform, missing instrumentation, or invalid
 build provenance remains criterion `INCOMPLETE`, not one of these candidate
 failure reasons.
 
+For every content/level threading tuple, the reference row digest is the
+independently validated exact-head Release cache-disabled canonical `B2ROWV1`
+digest for that same content and level. Every cache-disabled and threaded-cache
+worker/round result is compared directly to that reference; pairwise consensus
+among concurrent results is insufficient. All unequal keys are reported, and
+the first failure is the unsigned-lexicographically first canonical operational
+key. A cache-disabled inequality uses `CACHE_DISABLED_CONCURRENCY_MISMATCH`; a
+threaded inequality uses `THREADED_CACHE_OUTPUT_MISMATCH` and is never eligible
+for serial-only qualification.
+
+When TSan aborts a threaded tuple on a detected race, the runner continues the
+remaining fresh-process tuples. Every expected worker/round key that the
+aborted tuple could not produce remains in the ledger as a `FAIL` with reason
+`THREADED_CACHE_RACE` and the sanitizer finding as its witness; it carries no
+invented row digest. Thus the complete 588-tuple key ledger remains auditable
+without relabeling missing output as a mismatch.
+
 The exact criterion-ID set is:
 
 ```text
@@ -644,9 +661,11 @@ scientific/oracle/regular/constant/relabel/stabilization/cache-disabled/serial-
 cache criterion passes, the qualified physical-host preparation/payload/RSS
 and cache-disabled-concurrency criteria pass, all cache-disabled TSan cells
 pass, the complete 588-tuple TSan ledger is present, and every failing cell is
-a threaded-cache cell with exact reason `THREADED_CACHE_RACE` or
-`THREADED_CACHE_OUTPUT_MISMATCH`. The failure ledger contains precisely those
-sorted D12 operational keys and is hashed by the frozen RFC 8785 procedure.
+a threaded-cache cell with exact reason `THREADED_CACHE_RACE`. The failure
+ledger contains precisely those sorted D12 operational keys and is hashed by
+the frozen RFC 8785 procedure. A threaded output mismatch, missing tuple for a
+reason other than its recorded race, or any other failure makes eligibility
+false.
 When any condition is not met, eligibility is false, the reason is
 `NOT_ELIGIBLE`, and the ledger hash is null.
 
