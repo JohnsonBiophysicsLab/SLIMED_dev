@@ -1,15 +1,18 @@
 # B2 Bfr qualification evidence
 
-Status: **provisional exact-worktree Bfr NOT QUALIFIED** — terminal row-invariant
-failure; independent review pending
+Status: **Bfr NOT QUALIFIED** — terminal row-invariant failure; D9a recorded
 
 This proof-only B2 packet evaluates Bfr as the qualification target. Far is a
 regression comparator only; it cannot be promoted, selected, or used as truth.
-This result does not decide D9a or D9b and does not activate a production route.
+The user recorded D9a as Bfr not qualified on 2026-08-10 after all required
+reviews passed. This result does not decide D9b and does not activate a
+production route.
 
 ## Frozen authority
 
 - Exact repaired implementation head: `8282549ac2e0d0819edb095772e4b85aa204209d`.
+- Exact reviewed PR head: `efbe73f94e42e9f364baf6b2531ef4c7104cded9`;
+  merged as PR 197 at `5d49b7ff06160cbdfa25eb19c973b4bcccac59d9`.
 - B2p merge: `b8ed8bd2dbbf994a4419695cf490b2a3e6f349a6`.
 - D10 was explicitly approved on 2026-08-08 before B2 output.
 - KB2r merged as `b8cb9470077c1c5e15449318eff7b61e7464cd51`;
@@ -110,9 +113,13 @@ artifact. Even if its raw resource observations fit the budgets, it emits
 `UNQUALIFIED_PLATFORM` and cannot overwrite or masquerade as the separately
 reviewed physical-host artifact.
 
-Technical, scientific, verification, and gatekeeper reviews remain PENDING.
-Accordingly the result is provisional evidence, not a D9a decision. The lane
-is blocked pending independent review and the user's architectural decision.
+Technical, scientific, verification, and gatekeeper reviews passed at exact PR
+head `efbe73f94e42e9f364baf6b2531ef4c7104cded9`. The exact-head hosted audit,
+build, coverage, Codecov patch, and inventory checks were green, and the
+gatekeeper independently re-finalized all 294 compressed case artifacts. The
+user then explicitly recorded D9a as **Bfr not qualified**. The Bfr lane is
+blocked pending a new explicit architecture decision; there is no automatic
+Far fallback, configuration route to Far, or production activation.
 
 ## Proof programs and limits
 

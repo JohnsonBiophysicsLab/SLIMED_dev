@@ -147,7 +147,7 @@ These extend the ADR ledger and do not modify D0-D8.
 
 | ID | Status | Proposed rule | Required authority / evidence |
 | --- | --- | --- | --- |
-| D9a | Proposed - pending B2 evidence and explicit user scientific decision | **Qualify `bfr-surface`.** Pass/fail on Bfr alone: is it scientifically and operationally adequate to carry the generic backend? Far is **not a candidate** and cannot be admitted; it is a regression comparator only. A Bfr failure blocks the lane and escalates to a new explicit architecture decision; there is no automatic Far fallback and no configuration path to one. | B2 evidence, technical review, independent scientific review, explicit user decision. |
+| D9a | Recorded - Bfr not qualified. Bfr failed the frozen `1.0e-12` row-invariant gate, so the Bfr lane is blocked pending a new explicit architecture decision. Far remains a regression comparator only; there is no automatic Far fallback, configuration route to Far, or production activation. | **Qualify `bfr-surface`.** Pass/fail on Bfr alone: is it scientifically and operationally adequate to carry the generic backend? Far is **not a candidate** and cannot be admitted; it is a regression comparator only. A Bfr failure blocks the lane and escalates to a new explicit architecture decision; there is no automatic Far fallback and no configuration path to one. | B2 exact head `efbe73f94e42e9f364baf6b2531ef4c7104cded9` passed verification, technical, scientific, and gatekeeper review and merged as PR 197 at `5d49b7ff06160cbdfa25eb19c973b4bcccac59d9`; the user explicitly recorded Bfr as not qualified on 2026-08-10. |
 | D9b | Deferred - not decidable before WP5.2 | **Bfr production-activation acceptance.** D9a qualifies Bfr's rows; D9b accepts Bfr for production. The deciding quantity is convergence of the integrated bending energy and per-source forces under the *selected* quadrature rule, which does not exist until WP5.2. This is not a Far-versus-Bfr selection. | WP5.2 quadrature selection, then integrated-functional evidence, independent scientific review, and explicit user decision. |
 | D10 | Approved - Frozen B2p targets and coverage challenge accepted for B2 proof. This does not qualify Bfr, decide D9a or D9b, widen a target, or authorize production. | Declare frozen irregular row targets. The existing ledger has no irregular accuracy tolerance; `valence{3,4,5}_row_invariants = 1.0e-12` are row sum-rule invariants, not accuracy. | **B2p** declared names, values, rationale, and owning gate before B2 existed, so **S5** compliance is provable from commit order. Explicit user D10 approval on 2026-08-08. Widening after results is a blocker, not a fix. |
 | D11 | Proposed - pending explicit user decision after D9a | Legacy per-valence OpenSubdiv routes are frozen as regression comparators, not ported to Bfr, and retired only through the unified plan's WP7 sequence after the generic route is accepted. | Explicit user decision. Extends, and does not replace, D5. |
@@ -158,6 +158,17 @@ masks). D9a and D9b govern whether **Bfr** is qualified to extract rows for that
 scheme and then activated in production. A D1 approval is not a D9a approval, and
 the 2026-08-06 scope decision that this is a Bfr lane is not a D9a approval
 either: it fixes the target, not the evidence.
+
+**Recorded D9a result (2026-08-10).** PR 197 published the complete B2 evidence
+and merged at `5d49b7ff06160cbdfa25eb19c973b4bcccac59d9`. Bfr failed the
+unchanged `1.0e-12` row-invariant criterion in 124 cases, with maximum absolute
+error `2.0368522054550406e-11`. Verification, technical, scientific, and
+gatekeeper reviews passed the evidence package at exact head
+`efbe73f94e42e9f364baf6b2531ef4c7104cded9`, after which the user explicitly
+recorded **Bfr not qualified**. This blocks B3 and the Bfr lane. It does not
+promote Far, decide D9b, authorize a configuration change, or activate any
+production route. Further implementation requires a new explicit architecture
+decision and separately reviewed package.
 
 ### 3.1 Why qualification and activation are split, and what B2 can settle
 
@@ -1757,8 +1768,8 @@ Nothing in this plan decides them.
 | KB1 | Extended `LoopTopologyKey` and row contract, no OpenSubdiv include | Pending B0a, B0b, B0c | T1 technical |
 | KB2p | Frozen D10 targets, oracle contract, new fixtures and hashes, face correspondence | Merged as PR 193 at `b8ed8bd2dbbf994a4419695cf490b2a3e6f349a6`; D10 approved 2026-08-08 | T2 + explicit user D10 |
 | KB2r | B2-readiness budgets plus complete section-8/section-7 fixture execution manifest | Merged as PR 195 at `b8cb9470077c1c5e15449318eff7b61e7464cd51`; D12 approved 2026-08-10 before any candidate run | T2 + explicit user D12 |
-| KB2 | Bfr qualification evidence against B2p's and D12's frozen inputs; Far comparator results published | Ready to start from merged KB2r and approved D12; no candidate run yet | T2: verification + technical + scientific + gatekeeper + user D9a |
-| KB3 | Bfr full-mesh provider; owns the exact 30700 pin and the no-Far-in-production tests | Pending D9a PASS | T2 |
+| KB2 | Bfr qualification evidence against B2p's and D12's frozen inputs; Far comparator results published | Merged as PR 197 at `5d49b7ff06160cbdfa25eb19c973b4bcccac59d9`; exact head `efbe73f94e42e9f364baf6b2531ef4c7104cded9` passed all T2 reviews; D9a recorded Bfr not qualified on 2026-08-10 | T2 verification + technical + scientific + gatekeeper completed; explicit user D9a decision recorded |
+| KB3 | Bfr full-mesh provider; owns the exact 30700 pin and the no-Far-in-production tests | Blocked by recorded D9a outcome: Bfr not qualified. Requires a new explicit architecture decision; no Far fallback. | T2, only after a new explicit architecture decision |
 | KB4 | Topology epoch cache, invalidation, flip-pair re-preparation cost | Pending B3 | Technical |
 | KB9b | D9b Bfr production-activation acceptance on integrated-functional evidence | Deferred to after WP5.2 | Scientific + explicit user |
 | KL1 | WP1.1a merged; L1 quarantine still pending D5 | Ready now | T1, then T2 for WP1.1b |
