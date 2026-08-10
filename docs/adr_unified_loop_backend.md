@@ -287,7 +287,7 @@ Authoritative fixture hashes:
 | `data/fixtures/candidates/b2_readiness_v1/closed_566_refined_icosahedron/candidate_metadata.json` | `f974fb5bb1d542561672c1e7d2d52bf5220acc09dd3b5510dc14f1d98343b0b5` |
 | `data/fixtures/candidates/b2_readiness_v1/closed_566_refined_icosahedron/faces.csv` | `d72e02a882c536643e8a3405efe8bb32c745bc034cbc55dcc1af0d5eba11e1b8` |
 | `data/fixtures/candidates/b2_readiness_v1/closed_566_refined_icosahedron/vertices.csv` | `cb6c618c254b36bbe27ff354f5dc009222e95277188833a3385a4f3c378b0bd6` |
-| `data/fixtures/candidates/b2_readiness_v1/execution_manifest.json` | `81cbb72b910f7fc8ee3cb56aba73729e38c2abcd0dab09f487a01499dcdf04b6` |
+| `data/fixtures/candidates/b2_readiness_v1/execution_manifest.json` | `bdadac60281c0430789e079cefb819c0c8e127899d4ede4ba7227d233452a07b` |
 | `data/fixtures/candidates/b2_readiness_v1/regular_all6_torus/candidate_metadata.json` | `11aba5339fced78cab1056b99d03766ecf3b0a7178e1c04c5376f1af01f2cf1c` |
 | `data/fixtures/candidates/b2_readiness_v1/regular_all6_torus/faces.csv` | `7797a1ded38d99e83707fb85e23a2a193c5857f7425a5f678ceccb1506c67cd0` |
 | `data/fixtures/candidates/b2_readiness_v1/regular_all6_torus/vertices.csv` | `923914e925eaf0f60eb9a087f0150ad37b9e56bf0191ffc52b5d7fbd91b2903c` |
@@ -322,11 +322,16 @@ from this physical host.
 The same hash freezes a fail-closed OpenSubdiv build: clean tag commit
 `9dab8a47bfbb1388ec8388fe61f5f916e6123f38`, CMake 4.4.2 with Unix
 Makefiles, exact options and Release/TSan flags, only target `osd_static_cpu`,
-and its exact ordered 47 translation units/archive members. Release and TSan
+and its exact ordered 47 translation units/object members. Release and TSan
 roots are disjoint. Exact commands, compile database, link script, member list,
 per-source hashes and commands, archive hashes, and proof link/dependency
 evidence are mandatory; any mismatch is `BUILD_PROVENANCE_FAILURE` and cannot
 produce B2 evidence.
+
+Candidate Release warnings remain fail-closed with `-Werror`; the pinned
+third-party archive omits those diagnostic-policy flags while retaining the
+same numerical/toolchain flags. Raw Apple archives contain exactly one leading
+`__.SYMDEF` symbol-table member plus the 47 frozen objects.
 
 The exact sweeps are Bfr smooth levels `2,3,4,5,6,7,8` with sharp level `6`
 and Far isolation levels `2,3,4,5,6,7,8`; their integers are not commensurable.
@@ -342,7 +347,7 @@ D9a proposal. This ledger does not infer D9a.
 The hash-covered schema-2 execution ledger is
 `data/fixtures/candidates/b2_readiness_v1/execution_manifest.json`, canonical
 contract SHA-256
-`bb3896cf192b4699526019979e14f28104c9822c3d73f86826f810ccd09c3cb4`.
+`30db9a564c165c2f04125f25a983df6301225ca4355386bf5c91a500ea67f368`.
 Exactly 14 ordered unified-plan section 8 entries precede exactly three Bfr-plan
 section 7 entries. Per-row executable procedures or scoped `N/A` reasons,
 aliases, unique byte-evidence groups, face/corner/sample/row order, exact

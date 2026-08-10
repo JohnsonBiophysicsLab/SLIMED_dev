@@ -659,14 +659,24 @@ OpenMP, TBB, CUDA, OpenCL, OpenGL, Metal, DirectX, and optional patch-shader
 backend disabled. The only library target is `osd_static_cpu`. Its exact
 hash-covered scope is the ordered 47-translation-unit expansion of
 `opensubdiv/version.cpp`, then `sdc_obj`, `vtr_obj`, `far_obj`, `bfr_obj`, and
-`osd_cpu_obj`; no other translation unit or archive member is permitted. The
+`osd_cpu_obj`; no other translation unit or object member is permitted. Raw
+Apple `ar -t` output must contain one leading `__.SYMDEF` linker symbol-table
+member followed by exactly those 47 ordered objects. The
 Release and TSan build/install roots must be pairwise disjoint, and the proof
 binary includes headers and links `libosdCPU.a` only from its matching profile.
 
+The proof binary's Release flags retain `-Wall -Wextra -Wpedantic -Werror`.
+Those diagnostic-policy flags are deliberately not applied to the pinned
+third-party OpenSubdiv sources, whose exact Release profile retains the same
+C++ standard, optimization, floating-point, frame-pointer, SDK, and deployment
+flags. This separation is literal in the manifest; using candidate flags for
+the upstream archive, or upstream flags for the proof translation units, is a
+provenance failure.
+
 Each profile emits the expanded environment and configure/build/install
 commands, `CMakeCache.txt`, configure transcript, `compile_commands.json`,
-verbose single-worker build log, `osd_static_cpu` link script, ordered `ar -t`
-member list, per-translation-unit source SHA-256/object/command ledger, archive
+verbose single-worker build log, `osd_static_cpu` link script, ordered raw
+`ar -t` member list, per-translation-unit source SHA-256/object/command ledger, archive
 byte size and SHA-256, and the proof binary's full commands, dependency file,
 linker map, SHA-256, and `otool -L` output. The audit requires the exact source,
 translation-unit, member, option, and profile-flag sets and rejects conflicting
@@ -725,7 +735,7 @@ categorical threading profile and cannot supply a numeric cost or RSS PASS.
 The complete machine-readable authority is schema 2
 `data/fixtures/candidates/b2_readiness_v1/execution_manifest.json`, whose
 canonical-JSON contract digest is
-`bb3896cf192b4699526019979e14f28104c9822c3d73f86826f810ccd09c3cb4`.
+`30db9a564c165c2f04125f25a983df6301225ca4355386bf5c91a500ea67f368`.
 Its 17 entries map all `U8-01..U8-14` then `B7-01..B7-03`. Every entry fixes a
 unique execution-case ID, mesh-evidence key, exact fixture members or mutation,
 face and corner order, sample-policy reference, six-row order, candidates,

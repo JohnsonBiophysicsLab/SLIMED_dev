@@ -668,6 +668,10 @@ class UnifiedLoopBaselineInventoryTest(unittest.TestCase):
         self.assert_text_mutation_rejected(
             "data/fixtures/candidates/b2_readiness_v1/execution_manifest.json",
             lambda text: text.replace(
+                '"__.SYMDEF"', '"__.SYMDEF_WRONG"', 1))
+        self.assert_text_mutation_rejected(
+            "data/fixtures/candidates/b2_readiness_v1/execution_manifest.json",
+            lambda text: text.replace(
                 '"after_refiner_destruction"', '"after_refiner_leak"', 1))
         self.assert_text_mutation_rejected(
             "data/fixtures/candidates/b2_readiness_v1/execution_manifest.json",

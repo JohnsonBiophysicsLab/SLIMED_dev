@@ -163,7 +163,7 @@ EXPECTED_B2_READINESS_FIXTURE_HASHES = {
     "data/fixtures/candidates/b2_readiness_v1/closed_566_refined_icosahedron/vertices.csv":
         "cb6c618c254b36bbe27ff354f5dc009222e95277188833a3385a4f3c378b0bd6",
     "data/fixtures/candidates/b2_readiness_v1/execution_manifest.json":
-        "81cbb72b910f7fc8ee3cb56aba73729e38c2abcd0dab09f487a01499dcdf04b6",
+        "bdadac60281c0430789e079cefb819c0c8e127899d4ede4ba7227d233452a07b",
     "data/fixtures/candidates/b2_readiness_v1/regular_all6_torus/candidate_metadata.json":
         "11aba5339fced78cab1056b99d03766ecf3b0a7178e1c04c5376f1af01f2cf1c",
     "data/fixtures/candidates/b2_readiness_v1/regular_all6_torus/faces.csv":
@@ -186,9 +186,9 @@ EXPECTED_B2_READINESS_CRITERIA = {
 }
 
 EXPECTED_B2_READINESS_MANIFEST_CONTRACT_SHA256 = (
-    "bb3896cf192b4699526019979e14f28104c9822c3d73f86826f810ccd09c3cb4")
+    "30db9a564c165c2f04125f25a983df6301225ca4355386bf5c91a500ea67f368")
 EXPECTED_B2_READINESS_GENERATOR_SHA256 = (
-    "306475cc64121184097741579e163c03155eec373120ea521fdc77b832c10e9f")
+    "7a2232133184ac2689159629b77e4971728d18df52d0b8ddafd3ac6e3594ccb2")
 EXPECTED_B2_READINESS_SOURCE_ROW_IDS = [
     *[f"U8-{index:02d}" for index in range(1, 15)],
     "B7-01", "B7-02", "B7-03",
@@ -227,7 +227,7 @@ EXPECTED_B2_READINESS_SAMPLE_POLICY_IDS = [
 ]
 
 EXPECTED_B2_READINESS_ANCHORS = [
-    "`bb3896cf192b4699526019979e14f28104c9822c3d73f86826f810ccd09c3cb4`",
+    "`30db9a564c165c2f04125f25a983df6301225ca4355386bf5c91a500ea67f368`",
     "3 unrecorded warmups followed by 15 measured\npreparations",
     "ordinary\nmedian is the eighth sorted value",
     "Bfr\n`approxLevelSmooth = 2,3,4,5,6,7,8` with `approxLevelSharp = 6`",

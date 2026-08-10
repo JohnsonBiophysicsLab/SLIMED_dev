@@ -32,7 +32,7 @@ EXPECTED_HASHES = {
     "closed_566_refined_icosahedron/candidate_metadata.json": "f974fb5bb1d542561672c1e7d2d52bf5220acc09dd3b5510dc14f1d98343b0b5",
     "closed_566_refined_icosahedron/faces.csv": "d72e02a882c536643e8a3405efe8bb32c745bc034cbc55dcc1af0d5eba11e1b8",
     "closed_566_refined_icosahedron/vertices.csv": "cb6c618c254b36bbe27ff354f5dc009222e95277188833a3385a4f3c378b0bd6",
-    "execution_manifest.json": "81cbb72b910f7fc8ee3cb56aba73729e38c2abcd0dab09f487a01499dcdf04b6",
+    "execution_manifest.json": "bdadac60281c0430789e079cefb819c0c8e127899d4ede4ba7227d233452a07b",
     "regular_all6_torus/candidate_metadata.json": "11aba5339fced78cab1056b99d03766ecf3b0a7178e1c04c5376f1af01f2cf1c",
     "regular_all6_torus/faces.csv": "7797a1ded38d99e83707fb85e23a2a193c5857f7425a5f678ceccb1506c67cd0",
     "regular_all6_torus/vertices.csv": "923914e925eaf0f60eb9a087f0150ad37b9e56bf0191ffc52b5d7fbd91b2903c",
@@ -43,7 +43,7 @@ EXPECTED_HASHES = {
 EXPECTED_ROW_IDS = [f"U8-{index:02d}" for index in range(1, 15)] + [
     "B7-01", "B7-02", "B7-03"]
 EXPECTED_MANIFEST_CONTRACT_SHA256 = (
-    "bb3896cf192b4699526019979e14f28104c9822c3d73f86826f810ccd09c3cb4")
+    "30db9a564c165c2f04125f25a983df6301225ca4355386bf5c91a500ea67f368")
 
 
 def read_vertices(path: Path) -> list[tuple[float, float, float]]:
@@ -475,8 +475,15 @@ class B2ReadinessFixturesTest(unittest.TestCase):
             opensubdiv["expected_archive_member_basenames_in_target_order"],
             [Path(path).name + ".o" for path in translation_units])
         self.assertEqual(
-            opensubdiv["profiles"]["release"]["compile_flags"],
-            platform["build"]["common_release_compile_flags"])
+            opensubdiv["expected_raw_ar_t_members_in_order"],
+            ["__.SYMDEF"] + [Path(path).name + ".o"
+                             for path in translation_units])
+        candidate_release = platform["build"]["common_release_compile_flags"]
+        upstream_release = opensubdiv["profiles"]["release"]["compile_flags"]
+        self.assertIn("-Werror", candidate_release)
+        self.assertNotIn("-Werror", upstream_release)
+        self.assertEqual(candidate_release[:len(upstream_release)],
+                         upstream_release)
         self.assertEqual(
             opensubdiv["profiles"]["thread_sanitizer"]["compile_flags"],
             platform["build"]["thread_sanitizer_compile_flags"])

@@ -23,7 +23,7 @@ GENERATOR_ID = "scripts/generate_b2_readiness_fixtures.py"
 GENERATOR_VERSION = 1
 ROOT_NAME = "b2_readiness_v1"
 MANIFEST_CONTRACT_SHA256 = (
-    "bb3896cf192b4699526019979e14f28104c9822c3d73f86826f810ccd09c3cb4")
+    "30db9a564c165c2f04125f25a983df6301225ca4355386bf5c91a500ea67f368")
 
 
 @dataclass(frozen=True)
@@ -586,12 +586,18 @@ def execution_manifest() -> dict[str, Any]:
         "-DOPENSUBDIV_GREGORY_EVAL_TRUE_DERIVATIVES=OFF",
         "-DSIMD=NONE",
     ]
-    release_flags = [
+    candidate_release_flags = [
         "-std=c++17", "-O3", "-DNDEBUG", "-fno-fast-math",
         "-ffp-contract=off", "-fno-omit-frame-pointer", "-isysroot",
         "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk",
         "-mmacosx-version-min=26.0", "-Wall", "-Wextra", "-Wpedantic",
         "-Werror",
+    ]
+    opensubdiv_release_flags = [
+        "-std=c++17", "-O3", "-DNDEBUG", "-fno-fast-math",
+        "-ffp-contract=off", "-fno-omit-frame-pointer", "-isysroot",
+        "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk",
+        "-mmacosx-version-min=26.0",
     ]
     tsan_flags = [
         "-std=c++17", "-O1", "-g", "-DNDEBUG", "-fno-fast-math",
@@ -654,7 +660,7 @@ def execution_manifest() -> dict[str, Any]:
                 "candidate_include_flags": ["-I${OPENSUBDIV_ROOT}/include"],
                 "candidate_link_inputs": ["${OPENSUBDIV_ROOT}/lib/libosdCPU.a", "-framework", "IOKit", "-framework", "Foundation"],
                 "candidate_proof_binary": "one Release binary containing both Bfr and Far candidates",
-                "common_release_compile_flags": release_flags,
+                "common_release_compile_flags": candidate_release_flags,
                 "compiler_path": "/Library/Developer/CommandLineTools/usr/bin/clang++",
                 "compiler_version": "Apple clang version 21.0.0 (clang-2100.1.1.101)",
                 "macos_sdk_path": "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk",
@@ -672,22 +678,23 @@ def execution_manifest() -> dict[str, Any]:
                         "install": "env <exact build_environment> /opt/homebrew/bin/cmake --install ${PROFILE_BUILD_ROOT} --config Release",
                     },
                     "expected_archive_member_basenames_in_target_order": [Path(path).name + ".o" for path in opensubdiv_translation_units],
+                    "expected_raw_ar_t_members_in_order": ["__.SYMDEF"] + [Path(path).name + ".o" for path in opensubdiv_translation_units],
                     "profile_roots": {"release": {"build": "${OPENSUBDIV_RELEASE_BUILD_ROOT}", "install": "${OPENSUBDIV_ROOT}"}, "thread_sanitizer": {"build": "${OPENSUBDIV_TSAN_BUILD_ROOT}", "install": "${OPENSUBDIV_TSAN_ROOT}"}},
-                    "profiles": {"release": {"archive": "${OPENSUBDIV_ROOT}/lib/libosdCPU.a", "compile_flags": release_flags}, "thread_sanitizer": {"archive": "${OPENSUBDIV_TSAN_ROOT}/lib/libosdCPU.a", "compile_flags": tsan_flags}},
+                    "profiles": {"release": {"archive": "${OPENSUBDIV_ROOT}/lib/libosdCPU.a", "compile_flags": opensubdiv_release_flags}, "thread_sanitizer": {"archive": "${OPENSUBDIV_TSAN_ROOT}/lib/libosdCPU.a", "compile_flags": tsan_flags}},
                     "provenance_evidence_required": [
                         "exact configure/build/install command transcripts with expanded absolute roots and environment",
                         "CMakeCache.txt and configure stdout/stderr",
                         "compile_commands.json",
                         "verbose single-worker osd_static_cpu build log",
                         "opensubdiv/CMakeFiles/osd_static_cpu.dir/link.txt",
-                        "ar -t archive member list in exact order",
+                        "raw ar -t archive member list in exact order, including Apple's leading __.SYMDEF linker symbol table",
                         "per-translation-unit source-relative path, source SHA-256, object/member basename, and full compile command ledger",
                         "installed libosdCPU.a byte size and SHA-256",
                         "candidate proof full compile/link commands, linker map, dependency file, binary SHA-256, and otool -L output",
                     ],
-                    "provenance_fail_closed_audit": "for each profile, require clean pinned source; exact configure options and environment; translation-unit ledger exactly equal to translation_units_in_target_order; archive members exactly equal to expected_archive_member_basenames_in_target_order; every compile command contains that profile's exact flags and no conflicting optimization, fast-math, contraction, architecture, deployment, or sanitizer flag; release and TSan build/install roots are pairwise disjoint; candidate include/archive paths name the matching exact profile; any missing/extra TU, member, flag, command, hash, or dependency is BUILD_PROVENANCE_FAILURE and leaves B2 evidence incomplete",
+                    "provenance_fail_closed_audit": "for each profile, require clean pinned source; exact configure options and environment; translation-unit ledger exactly equal to translation_units_in_target_order; raw ar -t output exactly equal to expected_raw_ar_t_members_in_order; after removing the one leading __.SYMDEF linker symbol-table member, object members exactly equal to expected_archive_member_basenames_in_target_order; every OpenSubdiv compile command contains that profile's exact flags and no conflicting optimization, fast-math, contraction, architecture, deployment, or sanitizer flag; release and TSan build/install roots are pairwise disjoint; candidate include/archive paths name the matching exact profile; candidate proof commands separately contain common_release_compile_flags; any missing/extra TU, member, flag, command, hash, or dependency is BUILD_PROVENANCE_FAILURE and leaves B2 evidence incomplete",
                     "release_archive": "${OPENSUBDIV_ROOT}/lib/libosdCPU.a",
-                    "release_compile_flags": release_flags,
+                    "release_compile_flags": opensubdiv_release_flags,
                     "source_checkout": "${OPENSUBDIV_SOURCE}",
                     "source_cleanliness": "git rev-parse HEAD must equal tag_commit; git status --porcelain=v1 must be empty; record git rev-parse HEAD^{tree} and SHA-256 of every translation unit",
                     "static_target_object_groups_in_order": ["opensubdiv/version.cpp", "sdc_obj", "vtr_obj", "far_obj", "bfr_obj", "osd_cpu_obj"],
