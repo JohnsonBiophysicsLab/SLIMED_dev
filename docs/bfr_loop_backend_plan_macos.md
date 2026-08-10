@@ -22,7 +22,7 @@ Division of authority between the documents:
 | Decisions D0-D8 | ADR decision ledger |
 | Package lifecycle, command profiles V0-V5, review tiers | unified plan sections 4-5 |
 | Frozen tolerance and fixture ledger | ADR |
-| Bfr evaluator qualification and activation | **this document**, D9a-D11 |
+| Bfr evaluator qualification and activation/readiness | **this document**, D9a-D12 |
 | Legacy stratum disposition | **this document**, section 6 |
 | Face kernel, quadrature, shadow route, production, CUDA | unified plan WP4-WP8 |
 
@@ -151,8 +151,9 @@ These extend the ADR ledger and do not modify D0-D8.
 | D9b | Deferred - not decidable before WP5.2 | **Bfr production-activation acceptance.** D9a qualifies Bfr's rows; D9b accepts Bfr for production. The deciding quantity is convergence of the integrated bending energy and per-source forces under the *selected* quadrature rule, which does not exist until WP5.2. This is not a Far-versus-Bfr selection. | WP5.2 quadrature selection, then integrated-functional evidence, independent scientific review, and explicit user decision. |
 | D10 | Approved - Frozen B2p targets and coverage challenge accepted for B2 proof. This does not qualify Bfr, decide D9a or D9b, widen a target, or authorize production. | Declare frozen irregular row targets. The existing ledger has no irregular accuracy tolerance; `valence{3,4,5}_row_invariants = 1.0e-12` are row sum-rule invariants, not accuracy. | **B2p** declared names, values, rationale, and owning gate before B2 existed, so **S5** compliance is provable from commit order. Explicit user D10 approval on 2026-08-08. Widening after results is a blocker, not a fix. |
 | D11 | Proposed - pending explicit user decision after D9a | Legacy per-valence OpenSubdiv routes are frozen as regression comparators, not ported to Bfr, and retired only through the unified plan's WP7 sequence after the generic route is accepted. | Explicit user decision. Extends, and does not replace, D5. |
+| D12 | Proposed - pending explicit user approval after technical and scientific review | **Freeze B2 readiness.** Accept the a-priori preparation-cost, retained-row-memory, process-memory, and threading criteria in section 3.4, and accept the complete section-8/section-7 execution manifest and independently generated fixture ledger. | This separate preflight amendment, technical review, independent scientific review, then explicit user approval before any B2 candidate run. Approval changes no D10 input, does not decide D9a or D9b, and does not authorize production. |
 
-Nothing in D9a-D11 may be inferred from D1. D1 governs the *scheme* (stock Loop
+Nothing in D9a-D12 may be inferred from D1. D1 governs the *scheme* (stock Loop
 masks). D9a and D9b govern whether **Bfr** is qualified to extract rows for that
 scheme and then activated in production. A D1 approval is not a D9a approval, and
 the 2026-08-06 scope decision that this is a Bfr lane is not a D9a approval
@@ -629,6 +630,178 @@ altering a manifest entry or row name is fixture drift. The value is fixed near
 the existing row-sum invariant scale, far above double roundoff and far below
 every accuracy target, without reference to a candidate run.
 
+### 3.4 Pending D12 B2-readiness criteria and execution protocol
+
+These criteria are frozen before a Bfr or Far executable exists in this lane.
+They are deliberately loose **operational fail-stop budgets**, not evidence that
+either candidate is fast and not a substitute for D8's later coordinate-only
+production budget. No candidate output was used to choose them. D12 remains
+pending technical review, independent scientific review, and explicit user
+approval; until then B2 is stopped.
+
+The numeric reference is one physical host with this exact fingerprint:
+macOS `26.5.1` build `25F80`, `arm64`, `hw.model=Mac17,2`, chip `Apple M5`,
+`hw.memsize=25769803776`, `hw.ncpu=10`, `hw.logicalcpu=10`,
+`hw.perflevel0.logicalcpu=4`, and `hw.perflevel1.logicalcpu=6`. The compiler is
+exactly `/Library/Developer/CommandLineTools/usr/bin/clang++`, reporting
+`Apple clang version 21.0.0 (clang-2100.1.1.101)`. The manifest freezes the
+complete ordered Release compile/link flags, one candidate proof binary
+containing both Bfr and Far, OpenSubdiv `3.7.0` at section 3.2's exact tagged
+commit, and MPFR `4.2.2`. The D10 MPFR
+oracle remains a separate executable that may not link OpenSubdiv.
+
+OpenSubdiv is built twice, once Release and once TSan, from a clean checkout at
+section 3.2's exact tagged commit. Both profiles use CMake `4.4.2`, the
+`Unix Makefiles` generator, `/usr/bin/make` GNU Make 3.81, the
+same pinned compiler/SDK/architecture/deployment target, static libraries,
+`SIMD=NONE`, and every example, tutorial, regression, test, documentation,
+OpenMP, TBB, CUDA, OpenCL, OpenGL, Metal, DirectX, and optional patch-shader
+backend disabled. The only library target is `osd_static_cpu`. Its exact
+hash-covered scope is the ordered 47-translation-unit expansion of
+`opensubdiv/version.cpp`, then `sdc_obj`, `vtr_obj`, `far_obj`, `bfr_obj`, and
+`osd_cpu_obj`; no other translation unit or object member is permitted. Raw
+Apple `ar -t` output must contain one leading `__.SYMDEF` linker symbol-table
+member followed by exactly those 47 ordered objects. The
+Release and TSan build/install roots must be pairwise disjoint, and the proof
+binary includes headers and links `libosdCPU.a` only from its matching profile.
+
+The proof binary's Release flags retain `-Wall -Wextra -Wpedantic -Werror`.
+Those diagnostic-policy flags are deliberately not applied to the pinned
+third-party OpenSubdiv sources, whose exact Release profile retains the same
+C++ standard, optimization, floating-point, frame-pointer, SDK, and deployment
+flags. This separation is literal in the manifest; using candidate flags for
+the upstream archive, or upstream flags for the proof translation units, is a
+provenance failure.
+
+Each profile emits the expanded environment and configure/build/install
+commands, `CMakeCache.txt`, configure transcript, `compile_commands.json`,
+verbose single-worker build log, `osd_static_cpu` link script, ordered raw
+`ar -t` member list, per-translation-unit source SHA-256/object/command ledger, archive
+byte size and SHA-256, and the proof binary's full commands, dependency file,
+linker map, SHA-256, and `otool -L` output. The audit requires the exact source,
+translation-unit, member, option, and profile-flag sets and rejects conflicting
+optimization, fast-math, contraction, architecture, deployment, or sanitizer
+flags. Any missing or extra item is `BUILD_PROVENANCE_FAILURE`, so B2 evidence
+remains incomplete. The complete literal option order, profile flags, paths,
+commands, translation-unit list, and audit are in the execution manifest.
+
+Before and after every full case process, power is read through
+`IOPSCopyPowerSourcesInfo` plus `IOPSGetProvidingPowerSourceType` and must equal
+`kIOPSACPowerValue`; `NSProcessInfo.thermalState` must equal
+`NSProcessInfoThermalStateNominal`. Numeric time uses
+`mach_continuous_time` converted with `mach_timebase_info`. Any fingerprint
+mismatch, API/query failure, non-AC power, non-nominal thermal state, or
+virtual/shared-host evidence is `UNQUALIFIED_PLATFORM`: numeric gates neither
+pass nor fail, no repeat is discarded or selectively rerun, and B2 evidence is
+incomplete. A clock/conversion failure is `MEASUREMENT_PROTOCOL_FAILURE` with
+the same incomplete-evidence consequence.
+
+The GitHub-hosted `macos-26` workflow remains mandatory for exact-head
+correctness, dependency provisioning, and independence audit, but it **cannot**
+satisfy the numeric D12 platform gates. Qualified numeric evidence is an
+exact-reviewed-head artifact produced locally on the physical fingerprint
+above with an empty worktree and then independently technically and
+scientifically reviewed. This resolves the workflow/platform distinction; a
+green hosted workflow is not numeric qualification.
+
+Each exact `(candidate, canonical execution case, unique fixture member,
+approximation level, applicable cache mode)` runs in a fresh process. Fixture
+parsing occurs once, then the RSS baseline is sampled once before the first
+refiner. The process performs **3 unrecorded warmups followed by 15 measured
+preparations**. Every one of the 18 repeats constructs a fresh full-mesh
+`Far::TopologyRefiner`, candidate factory/cache, and complete immutable row
+package; validates it; then destroys package, factory/cache, and refiner in that
+order before the next repeat. The timed preparation begins before refiner
+construction and ends after package validation; fixture parsing, oracle work,
+JSON serialization, destruction, and disk I/O are excluded. No measured repeat
+is discarded. All 15 integer-nanosecond durations are reported and the ordinary
+median is the eighth sorted value. The fixed sweeps are Bfr
+`approxLevelSmooth = 2,3,4,5,6,7,8` with `approxLevelSharp = 6`, and Far
+isolation level `2,3,4,5,6,7,8`; equal integers are not treated as
+commensurable settings. Bfr timing and RSS run separately with caching disabled
+and with the serial `SurfaceFactoryCache`; Far has one proof-only uncached
+construction mode, recorded as cache mode `not_applicable`, and is not run
+twice under invented Bfr cache labels. Numeric timing/RSS use the recorded
+non-sanitized Release proof build. The TSan build below is a separate
+categorical threading profile and cannot supply a numeric cost or RSS PASS.
+
+| Name | Frozen criterion | Rationale and failure semantics |
+| --- | ---: | --- |
+| `b2_preparation_median_ms` | `<= 1000.000` for every valid closed-fixture case at every fixed sweep level and each applicable mode defined above | A one-second preparation of at most 192 faces is an a-priori interactive proof-run safety ceiling, not an observed speed target. Any nonfinite/negative duration, missing repeat, or median above the ceiling is `FAIL`. |
+| `b2_preparation_single_run_failstop_ms` | `<= 10000.000` for every measured repeat | Ten seconds catches hangs hidden by an otherwise passing median. Timeout, signal, allocation failure, or any repeat over the ceiling is `FAIL`; it is never discarded as an outlier. |
+| `b2_retained_row_payload_bytes_per_face` | `<= 131072` bytes for every valid closed-fixture case | Exact logical retained payload after validation. For a face with `S` samples, `U` validated face-union source IDs, and `C` total coefficient entries across its exactly `6*S` sparse rows, the byte count is exactly `12 + 4*U + 72*S + 12*C`: signed 32-bit face ID; unsigned 32-bit sample and union counts; `U` signed 32-bit union IDs; three binary64 sample fields; and, per row, unsigned 32-bit kind/count plus one signed 32-bit source ID and one binary64 coefficient per entry. Allocator padding/capacity, refiner memory, executable text, and oracle memory are excluded and reported separately. A missing count, non-six-row sample, arithmetic overflow, or larger value is `FAIL`. Across the exact schema-2 sample policies, the dense all-source upper bound is 105,444 bytes on a 42-source refined-icosahedron face with `S=34`; the a-priori 128-KiB fail-stop leaves 25,628 bytes and no implementation may omit row-repeated source IDs to improve the metric. |
+| `b2_preparation_peak_rss_delta_mib` | `<= 64.000` MiB for every valid closed-fixture preparation process | Read `task_info(mach_task_self(), MACH_TASK_BASIC_INFO, ...)` once for the post-parse/pre-refiner baseline, then in every one of all 18 repeats after refiner construction, factory/cache construction, each completed face-row insertion, immutable-package publication, package destruction, factory/cache destruction, and refiner destruction. Gate on the maximum `max(0,sample-baseline)/1048576` across every named sample; never reset or discard. A missing sample, API/process failure, or larger delta is `FAIL`. |
+
+The complete machine-readable authority is schema 2
+`data/fixtures/candidates/b2_readiness_v1/execution_manifest.json`, whose
+canonical-JSON contract digest is
+`30db9a564c165c2f04125f25a983df6301225ca4355386bf5c91a500ea67f368`.
+Its 17 entries map all `U8-01..U8-14` then `B7-01..B7-03`. Every entry fixes a
+unique execution-case ID, mesh-evidence key, exact fixture members or mutation,
+face and corner order, sample-policy reference, six-row order, candidates,
+numeric applicability, and each source-matrix required check with either an
+executable B2 procedure or an exact scoped `N/A` reason. `B7-01` aliases
+`U8-14`; `B7-02` aliases `U8-09`. Aliases reuse execution bytes but retain and
+report their distinct ordered source checks. The inventory computes unique
+content identities and enforces the byte-identity group shared by
+`b2p_valence789` and `b2p_single_flip_family/base`; prose names cannot create
+independent evidence.
+
+The ten regular interior samples are exactly the hash-covered B2p denominator-6
+locality manifest, in its existing order. Each selected non-valence-6 corner
+adds exactly 24 trend samples: face-row then local-corner order, radius
+`2^-1..2^-8`, then rays `(1/4,3/4)`, `(1/2,1/2)`, `(3/4,1/4)`. Therefore the
+payload formula's sample count is exactly `S=10+24*K` for `K` selected
+extraordinary corners on that face; rejection cases have `S=0`. Flip locality
+reuses, rather than duplicates, the same ten samples. Rows are always
+`position,du,dv,duu,duv,dvv`.
+
+For every proof-only sample the retained `weight` field is exact binary64
+positive one (`0x1.0000000000000p+0`) so it passes the merged B1
+`InvalidSampleWeight` guard. It is a validation-only sentinel and **must not**
+be multiplied into any integrand or used for a quadrature/integration claim.
+Rational face coordinates are converted to
+binary64 once under round-to-nearest-ties-to-even. For extraordinary local
+corner `c`, barycentric weights assign `1-xi-eta` to `c`, `xi` to
+`(c+1) mod 3`, and `eta` to `(c+2) mod 3`; face-local `(u,v)` are barycentric
+weights 1 and 2. The manifest fixes the three expanded corner maps, so no
+candidate may permute a ray or choose a different face frame.
+
+The coordinate perturbation is also bit-frozen. Vertex row 1 input bits are
+`3ff2b851eb851eb8,bfe0cffc0ea99f27,3fc0a3d70a3d70a4`; deltas are
+`3f70000000000000,bf60000000000000,3f50000000000000`; outputs must be
+`3ff2c851eb851eb8,bfe0dffc0ea99f27,3fc0c3d70a3d70a4`. Each addition uses
+IEEE-754 binary64 round-to-nearest-ties-to-even (`FE_TONEAREST`) after verifying
+the input bits. The other three mutations retain their exact face-row rules.
+
+Threading is Bfr-only and categorical. For every unique valid closed content
+identity and every Bfr smooth level `2..8`, cross modes `cache_disabled` and
+`SurfaceFactoryCacheThreaded` with workers `1,2,4` and 20 rounds. Each tuple has
+one fresh process, one shared immutable full-mesh `Far::TopologyRefiner`, one
+shared `Bfr::RefinerSurfaceFactory`, and, in threaded mode, one shared
+`SurfaceFactoryCacheThreaded`. A start barrier releases all workers each round;
+every worker requests the same complete ordered face/sample workload to force
+cache contention. Canonical little-endian `B2ROWV1` bytes must match across all
+workers/rounds. Per-worker results are destroyed after comparison while shared
+state persists through all 20 rounds.
+
+Both proof and all linked OpenSubdiv translation units must be TSan-instrumented
+and produce zero findings. Cache-disabled concurrency and serial-cache
+numeric/row qualification are mandatory. A threaded-cache TSan result that is
+`UNQUALIFIED`, including any linked uninstrumented translation unit, leaves
+B2/D9a evidence incomplete. A detected cache
+race is `UNSUPPORTED/BLOCKING` for threaded support; only when every mandatory
+serial/cache-disabled criterion passes may the packet make an explicitly
+**serial-only** D9a proposal, still subject to reviews and explicit user
+decision. The manifest never infers D9a. Missing tuples, outputs, byte matches,
+or sanitizer coverage are blocking.
+
+The numeric criteria apply only after D12 approval. Widening a number, changing
+the aggregation or platform, omitting/reordering a manifest entry, or changing
+a mutation after any candidate output is visible stops B2 under **S5**. D12
+approval changes no D10 value or oracle input, does not decide D9a/D9b, and
+does not authorize production or D8.
+
 ## 4. Bfr implementation facts to be pinned
 
 Recorded so that reviewers can check the implementation against the library
@@ -991,9 +1164,10 @@ scientific reviewer, gatekeeper). Qualifying an irregular surface representation
 is baseline-affecting and cannot be reviewed as mechanical work.
 
 Dependencies: B0a, B0b, B0c, B1, **and B2p all merged**, plus explicit user D10
-approval of B2p's frozen targets. B2 cannot start on unfrozen inputs; that is the
-whole point of B2p existing. Volume semantics are excluded, so D3/D4 are not
-required.
+approval of B2p's frozen targets, and the separate B2-readiness preflight merged
+with explicit user **D12** approval. B2 cannot start on unfrozen inputs; that is
+the whole point of B2p and D12 existing. Volume semantics are excluded, so
+D3/D4 are not required.
 
 Allowed files, and nothing else:
 
@@ -1066,6 +1240,10 @@ Steps:
    plan inverted this. Report both as a projection for Phase 2, never as a
    delivered benefit, and state `comparable_faces` explicitly so the ratio is
    reconstructible.
+   Every preparation-cost and memory PASS/FAIL uses section 3.4 verbatim;
+   candidate output cannot revise its platform, sweep, aggregation, ceiling,
+   or failure semantics. D8's later coordinate-only production budget remains
+   distinct and undecided.
 7. Threading: run Bfr with caching disabled and with
    `SurfaceFactoryCacheThreaded`. Threaded caching may be claimed as supported
    **only** with a ThreadSanitizer-instrumented OpenSubdiv build; a TSan run
@@ -1081,11 +1259,16 @@ Steps:
    candidate labels, and accidental success.
 
 Fixtures: every row of the unified plan's section 8 matrix, **plus** the new
-rows in section 7 below. The flip-pair family is mandatory, not optional.
+rows in section 7 below, in the exact order and mapping frozen by section 3.4's
+hash-covered execution manifest. The flip-pair family is mandatory, not
+optional. B2 may materialize only the exact declared mutations in a temporary
+directory and may not retain or substitute a fixture.
 
 Gate:
 
 - D10 targets were frozen before results, evidenced by commit order;
+- D12 engineering criteria, execution manifest, and complete fixture corpus
+  were approved and frozen before results, evidenced by commit order;
 - `.github/workflows/bfr_qualification.yml` is green at the exact reviewed B2
   head in `--require-proof-dependencies` mode and publishes the dependency
   identities plus the complete independence audit;
@@ -1570,7 +1753,8 @@ Nothing in this plan decides them.
 | KB0b | Inventory enforced by a CI workflow, OpenSubdiv-free and read-only | Pending KB0a green | T1 technical |
 | KB1 | Extended `LoopTopologyKey` and row contract, no OpenSubdiv include | Pending B0a, B0b, B0c | T1 technical |
 | KB2p | Frozen D10 targets, oracle contract, new fixtures and hashes, face correspondence | Merged as PR 193 at `b8ed8bd2dbbf994a4419695cf490b2a3e6f349a6`; D10 approved 2026-08-08 | T2 + explicit user D10 |
-| KB2 | Bfr qualification evidence against B2p's frozen inputs; Far comparator results published | Ready after the D10 approval record merges; not started | T2: verification + technical + scientific + gatekeeper + user D9a |
+| KB2r | B2-readiness budgets plus complete section-8/section-7 fixture execution manifest | Drafted independently; no candidate run; pending technical/scientific review and explicit user D12 | T2 + explicit user D12 |
+| KB2 | Bfr qualification evidence against B2p's and D12's frozen inputs; Far comparator results published | Stopped before edits until KB2r merges and D12 is approved | T2: verification + technical + scientific + gatekeeper + user D9a |
 | KB3 | Bfr full-mesh provider; owns the exact 30700 pin and the no-Far-in-production tests | Pending D9a PASS | T2 |
 | KB4 | Topology epoch cache, invalidation, flip-pair re-preparation cost | Pending B3 | Technical |
 | KB9b | D9b Bfr production-activation acceptance on integrated-functional evidence | Deferred to after WP5.2 | Scientific + explicit user |

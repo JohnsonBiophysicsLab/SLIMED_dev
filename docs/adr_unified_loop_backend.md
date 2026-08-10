@@ -61,6 +61,7 @@ The exact status phrases below are checked by
 | D6 | Restated existing project policy | Default builds and tests remain OpenSubdiv-free throughout proof and opt-in work. Every OpenSubdiv build remains explicit and requires `OPENSUBDIV_ROOT`. | WP0.1 makes no new decision; later changes require a separate dependency decision. |
 | D7 | Restated existing user instruction | WP0-WP7 do not change `src/cuda`, `include/cuda`, CUDA targets, or CUDA scientific baselines. CUDA work is deferred to its backward-compatibility lane. | WP0.1 makes no new decision; expansion requires explicit user authority. |
 | D8 | Proposed - pending explicit user performance-budget approval | Freeze the same-binary alternating-order regular benchmark. The `generic_vs_cached_regular_median <= TBD` ceiling remains explicitly pending the named D8 measurement and approval; the candidate direct-route bound is `generic_vs_direct_regular_each_case <= 2.00`. Topology preparation is reported separately and occurs once per epoch. | Reproduce the benchmark protocol, review platform variance, then obtain explicit user approval before WP3.3 performance PASS or WP6 default selection. |
+| D12 | Proposed - pending explicit user approval after technical and scientific review | Freeze the B2-readiness preparation-cost, retained-row-memory, process-memory, and threading acceptance criteria plus the complete section-8/section-7 fixture execution manifest. | Separate reviewed preflight before any Bfr/Far candidate run. Approval changes no D10 input, does not decide D9a/D9b, does not decide D8, and does not authorize production. |
 
 D3 and D4 remain pending WP2.1, independent scientific review, and explicit
 user decisions. D2b, D5, and D8 also remain pending their named evidence and
@@ -280,6 +281,85 @@ Authoritative fixture hashes:
 | `data/fixtures/candidates/b2p_adjacent_extraordinary/candidate_metadata.json` | `de6bf74052e24f26049c3d194570a081d47bd5dcd278ad9b34c6b1cf39973d1b` |
 | `data/fixtures/candidates/b2p_adjacent_extraordinary/faces.csv` | `1ecbe26328311f99b2e55ccdc7e1d614947099fe1fff124cfca83dc62f5dddbb` |
 | `data/fixtures/candidates/b2p_adjacent_extraordinary/vertices.csv` | `b650ff4c1aed263701d25305d846f520933a2deb457655558f17a855e65c88b7` |
+| `data/fixtures/candidates/b2_readiness_v1/asymmetric_344_bipyramid/candidate_metadata.json` | `e92b244806eaecd9230a3f3f9977f61ddeff3875ee6550c2dfbdb211a8e05e04` |
+| `data/fixtures/candidates/b2_readiness_v1/asymmetric_344_bipyramid/faces.csv` | `c621d95a16a6915ab443bf74f162bddde96a85ee82e06152cbef82f28ef87486` |
+| `data/fixtures/candidates/b2_readiness_v1/asymmetric_344_bipyramid/vertices.csv` | `b275aac1d1b422a131c3703eb7f56fd4d5bf21230b277835774bc27405d10a4e` |
+| `data/fixtures/candidates/b2_readiness_v1/closed_566_refined_icosahedron/candidate_metadata.json` | `f974fb5bb1d542561672c1e7d2d52bf5220acc09dd3b5510dc14f1d98343b0b5` |
+| `data/fixtures/candidates/b2_readiness_v1/closed_566_refined_icosahedron/faces.csv` | `d72e02a882c536643e8a3405efe8bb32c745bc034cbc55dcc1af0d5eba11e1b8` |
+| `data/fixtures/candidates/b2_readiness_v1/closed_566_refined_icosahedron/vertices.csv` | `cb6c618c254b36bbe27ff354f5dc009222e95277188833a3385a4f3c378b0bd6` |
+| `data/fixtures/candidates/b2_readiness_v1/execution_manifest.json` | `bdadac60281c0430789e079cefb819c0c8e127899d4ede4ba7227d233452a07b` |
+| `data/fixtures/candidates/b2_readiness_v1/regular_all6_torus/candidate_metadata.json` | `11aba5339fced78cab1056b99d03766ecf3b0a7178e1c04c5376f1af01f2cf1c` |
+| `data/fixtures/candidates/b2_readiness_v1/regular_all6_torus/faces.csv` | `7797a1ded38d99e83707fb85e23a2a193c5857f7425a5f678ceccb1506c67cd0` |
+| `data/fixtures/candidates/b2_readiness_v1/regular_all6_torus/vertices.csv` | `923914e925eaf0f60eb9a087f0150ad37b9e56bf0191ffc52b5d7fbd91b2903c` |
+| `data/fixtures/candidates/b2_readiness_v1/symmetric_344_bipyramid/candidate_metadata.json` | `6afd2ec0c0df1cd71a8597fa78889dbf9daea9627d10b97165acec1cd39f9cb0` |
+| `data/fixtures/candidates/b2_readiness_v1/symmetric_344_bipyramid/faces.csv` | `c621d95a16a6915ab443bf74f162bddde96a85ee82e06152cbef82f28ef87486` |
+| `data/fixtures/candidates/b2_readiness_v1/symmetric_344_bipyramid/vertices.csv` | `bbce1680eb4006622e14dd5d724134df826471bb55e0332c19a208b5e92429a5` |
+
+### Pending D12 B2-readiness ledger
+
+D12 is a pre-result proposal. It freezes operational fail-stop criteria for the
+small B2 proof corpus; it does not assert production performance. On the
+reference dedicated Apple-silicon macOS platform and the exact section 3.4
+protocol in `docs/bfr_loop_backend_plan_macos.md`:
+
+| Name | Pending value | Unit / aggregation |
+| --- | ---: | --- |
+| `b2_preparation_median_ms` | `1000.000` | Upper bound on the eighth sorted value of 15 monotonic-wall-time measurements after 3 warmups, per candidate/fixture/level/cache-mode case. |
+| `b2_preparation_single_run_failstop_ms` | `10000.000` | Upper bound on every one of the 15 measured repeats; timeout or missing repeat fails. |
+| `b2_retained_row_payload_bytes_per_face` | `131072` | Per-face upper bound on the exact Bfr-plan section 3.4 logical six-row retained payload; its formula includes the source ID repeated in every sparse-row coefficient entry. The exact schema-2 corpus/sample-policy dense bound is 105,444 bytes. |
+| `b2_preparation_peak_rss_delta_mib` | `64.000` | Upper bound on the maximum macOS resident-size delta across every named boundary in all 3 warmup plus 15 measured repeats, divided by 1048576; the baseline is sampled once post-parse/pre-refiner. |
+
+The numeric physical fingerprint is macOS `26.5.1` build `25F80`, `arm64`,
+`Mac17,2`, `Apple M5`, 25,769,803,776 bytes, 10 physical/logical cores, and
+perflevel logical counts 4 and 6. Compiler identity is Apple clang 21.0.0
+(`clang-2100.1.1.101`) at the CommandLineTools `clang++` path. The manifest
+freezes exact Release flags, OpenSubdiv 3.7.0 and MPFR 4.2.2 pins, AC/nominal
+thermal checks, `mach_continuous_time`, and the complete fresh-process and RSS
+lifecycle. GitHub-hosted `macos-26` remains correctness/dependency audit only;
+numeric evidence must be an independently reviewed exact-head local artifact
+from this physical host.
+
+The same hash freezes a fail-closed OpenSubdiv build: clean tag commit
+`9dab8a47bfbb1388ec8388fe61f5f916e6123f38`, CMake 4.4.2 with Unix
+Makefiles, exact options and Release/TSan flags, only target `osd_static_cpu`,
+and its exact ordered 47 translation units/object members. Release and TSan
+roots are disjoint. Exact commands, compile database, link script, member list,
+per-source hashes and commands, archive hashes, and proof link/dependency
+evidence are mandatory; any mismatch is `BUILD_PROVENANCE_FAILURE` and cannot
+produce B2 evidence.
+
+Candidate Release warnings remain fail-closed with `-Werror`; the pinned
+third-party archive omits those diagnostic-policy flags while retaining the
+same numerical/toolchain flags. Raw Apple archives contain exactly one leading
+`__.SYMDEF` symbol-table member plus the 47 frozen objects.
+
+The exact sweeps are Bfr smooth levels `2,3,4,5,6,7,8` with sharp level `6`
+and Far isolation levels `2,3,4,5,6,7,8`; their integers are not commensurable.
+Bfr cost/RSS covers cache-disabled and serial-cache modes; Far has one uncached
+proof-only mode. Bfr threading expands every unique valid fixture identity over
+both cache-disabled and threaded-cache modes, all seven levels, workers
+`1,2,4`, and 20 rounds using shared refiner/factory/cache state. A fully
+instrumented threaded-cache `UNQUALIFIED` leaves D9a evidence incomplete. A
+detected cache race is `UNSUPPORTED/BLOCKING`; only a complete mandatory
+serial/cache-disabled PASS may support a separately reviewed **serial-only**
+D9a proposal. This ledger does not infer D9a.
+
+The hash-covered schema-2 execution ledger is
+`data/fixtures/candidates/b2_readiness_v1/execution_manifest.json`, canonical
+contract SHA-256
+`30db9a564c165c2f04125f25a983df6301225ca4355386bf5c91a500ea67f368`.
+Exactly 14 ordered unified-plan section 8 entries precede exactly three Bfr-plan
+section 7 entries. Per-row executable procedures or scoped `N/A` reasons,
+aliases, unique byte-evidence groups, face/corner/sample/row order, exact
+binary64 mutation bits, numeric applicability, platform/build, aggregation,
+RSS, and threading are all part of that hash. D12 remains pending explicit user
+approval after technical and scientific review. Approval changes no existing
+D10 value, fixture, oracle contract, metadata, or hash and does not decide
+D9a/D9b or D8.
+
+The schema-2 proof-sample `weight` is exact binary64 positive one solely to
+satisfy the merged B1 positive-weight validator. It is forbidden as a
+quadrature or integration weight; D12 does not select quadrature.
 
 Expected scientific values stored with a fixture are regression locks only.
 They cannot be the sole WP2 or quadrature oracle.

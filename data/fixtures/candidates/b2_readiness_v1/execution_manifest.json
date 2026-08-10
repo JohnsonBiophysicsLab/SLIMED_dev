@@ -1,0 +1,2046 @@
+{
+  "aggregation_contract": {
+    "alias_result_rule": "alias rows reuse the canonical execution bytes but run and report their own ordered source_matrix_checks; aliases never increase execution, fixture, sample, or mesh-evidence counts",
+    "canonical_execution_case_order": [
+      "u8_01_regular_closed",
+      "u8_02_tetrahedron",
+      "u8_03_octahedron",
+      "u8_04_icosahedron",
+      "u8_05_symmetric_344",
+      "u8_06_asymmetric_344",
+      "u8_07_mixed_345",
+      "u8_08_closed_566",
+      "u8_09_nonplatonic",
+      "u8_10_coordinate_perturbed",
+      "u8_11_reversed_winding",
+      "u8_12_open_boundary",
+      "u8_13_duplicate_face",
+      "u8_14_edge_flip_family",
+      "b7_03_adjacent_extraordinary"
+    ],
+    "case_result_identity": [
+      "execution_case_id",
+      "member_id",
+      "candidate",
+      "approximation_level",
+      "applicable_mode"
+    ],
+    "check_result_identity": [
+      "source_matrix_row_id",
+      "check_id"
+    ],
+    "failure_rule": "one missing case/check/sample/row, nonfinite value, forbidden N/A substitution, or FAIL makes the owning criterion FAIL; no passing subset or alias can mask it",
+    "row_result_identity": [
+      "execution_case_id",
+      "member_id",
+      "face_row",
+      "local_corner_or_none",
+      "sample_id",
+      "candidate",
+      "approximation_level",
+      "row_kind"
+    ],
+    "unique_content_identity_order": [
+      "regular_all6_torus",
+      "closed_valence3_tetrahedron",
+      "closed_valence4_octahedron",
+      "closed_valence5",
+      "symmetric_344_bipyramid",
+      "asymmetric_344_bipyramid",
+      "closed_mixed_valence345",
+      "closed_566_refined_icosahedron",
+      "b2p_shared_hull_base",
+      "asymmetric_344_binary64_perturbed",
+      "invalid_reversed_face_zero",
+      "invalid_deleted_face_zero",
+      "invalid_appended_face_zero",
+      "b2p_flip_000",
+      "b2p_flip_001",
+      "b2p_flip_002",
+      "b2p_adjacent_extraordinary"
+    ]
+  },
+  "alias_contracts": [
+    {
+      "alias_execution_case_id": "b7_01_single_flip_family",
+      "canonical_execution_case_id": "u8_14_edge_flip_family",
+      "must_equal_fields": [
+        "input",
+        "mesh_evidence_key",
+        "face_policy",
+        "corner_policy_ref",
+        "sample_policy_ref",
+        "row_order_ref",
+        "candidates",
+        "numeric_gate_applicability"
+      ],
+      "permitted_differences": [
+        "execution_case_id",
+        "source_matrix_row_id",
+        "source_matrix_row",
+        "source_matrix_checks",
+        "alias_of"
+      ]
+    },
+    {
+      "alias_execution_case_id": "b7_02_valence789",
+      "canonical_execution_case_id": "u8_09_nonplatonic",
+      "must_equal_fields": [
+        "input",
+        "mesh_evidence_key",
+        "face_policy",
+        "corner_policy_ref",
+        "sample_policy_ref",
+        "row_order_ref",
+        "candidates",
+        "numeric_gate_applicability"
+      ],
+      "permitted_differences": [
+        "execution_case_id",
+        "source_matrix_row_id",
+        "source_matrix_row",
+        "source_matrix_checks",
+        "alias_of"
+      ]
+    }
+  ],
+  "byte_identity_groups": [
+    {
+      "content_identity_key": "b2p_shared_hull_base",
+      "count_once": true,
+      "members": [
+        "data/fixtures/candidates/b2p_valence789",
+        "data/fixtures/candidates/b2p_single_flip_family/base"
+      ],
+      "required_equal_files": [
+        "faces.csv",
+        "vertices.csv"
+      ]
+    }
+  ],
+  "canonical_row_encoding": {
+    "endianness": "little",
+    "float": "IEEE-754 binary64 bits; negative zero preserved",
+    "integer": "two's-complement signed int32 source/face IDs and unsigned uint32 counts",
+    "magic_ascii": "B2ROWV1",
+    "order": [
+      "magic",
+      "face_row",
+      "sample_id_utf8_length_and_bytes",
+      "row_kind_ordinal",
+      "coefficient_count",
+      "ascending_source_id_then_binary64_coefficient_bits"
+    ],
+    "row_kind_ordinals": {
+      "du": 1,
+      "duu": 3,
+      "duv": 4,
+      "dv": 2,
+      "dvv": 5,
+      "position": 0
+    },
+    "text": "UTF-8 without NUL; uint32 byte length prefix",
+    "version": 1
+  },
+  "corner_policies": [
+    {
+      "id": "none_regular",
+      "order": "none",
+      "selection": "none"
+    },
+    {
+      "id": "all_non6_corners",
+      "order": "ascending face_row then local_corner 0,1,2",
+      "selection": "every selected face local corner whose base-mesh vertex valence != 6"
+    },
+    {
+      "id": "none_rejection",
+      "order": "none",
+      "selection": "none because rejection must occur before candidate/sample construction"
+    }
+  ],
+  "d9a_rollup": {
+    "cache_disabled_concurrency": "mandatory PASS with fully instrumented TSan coverage",
+    "decision_authority": "this manifest produces evidence status only and never infers or records D9a",
+    "mandatory_numeric_and_rows": "every unique valid content identity must pass cache-disabled and serial SurfaceFactoryCache cost/RSS/payload/row criteria",
+    "threaded_cache_tsan_unqualified": "B2/D9a evidence INCOMPLETE; no D9a proposal is permitted",
+    "threaded_cache_unsupported_blocking": "threaded mode and any threaded-support claim are BLOCKED; if and only if every mandatory serial/cache-disabled criterion passes, evidence may support an explicitly serial-only D9a proposal subject to reviews and user decision"
+  },
+  "entries": [
+    {
+      "alias_of": null,
+      "candidates": [
+        "bfr",
+        "far"
+      ],
+      "corner_policy_ref": "none_regular",
+      "execution_case_id": "u8_01_regular_closed",
+      "face_policy": {
+        "kind": "all_faces",
+        "order": "ascending_csv_row"
+      },
+      "input": {
+        "kind": "checked_in_fixture",
+        "members": [
+          {
+            "content_identity_key": "regular_all6_torus",
+            "member_id": "regular_all6_torus",
+            "path": "data/fixtures/candidates/b2_readiness_v1/regular_all6_torus"
+          }
+        ]
+      },
+      "mesh_evidence_key": "regular_all6_torus",
+      "numeric_gate_applicability": {
+        "peak_rss": true,
+        "preparation_cost": true,
+        "retained_row_payload": true,
+        "threading_bfr_only": true
+      },
+      "row_order_ref": "six_source_rows_v1",
+      "sample_policy_ref": "regular_interior_l6_10",
+      "source_matrix_checks": [
+        {
+          "b2_applicability": "APPLICABLE",
+          "check_id": "rows",
+          "procedure": "Evaluate all six source-keyed rows in the frozen row/sample order; apply the regular analytic or D10 Stam oracle as applicable.",
+          "source_text": "Rows"
+        },
+        {
+          "b2_applicability": "APPLICABLE",
+          "check_id": "geometry",
+          "procedure": "Compare position/derivative rows plus the area and legacy-volume integrands with the analytic regular evaluator at every regular sample.",
+          "source_text": "Geometry"
+        },
+        {
+          "b2_applicability": "N/A",
+          "check_id": "all_force_families",
+          "reason": "N/A in B2: no production force kernel is authorized; force qualification belongs to WP4/WP6 and D9b.",
+          "source_text": "All force families"
+        },
+        {
+          "b2_applicability": "N/A",
+          "check_id": "output",
+          "reason": "N/A in B2: the proof has no production route or output/checkpoint schema authority.",
+          "source_text": "Output"
+        },
+        {
+          "b2_applicability": "APPLICABLE",
+          "check_id": "cache",
+          "procedure": "Run the frozen serial-cache numeric protocol and Bfr-only threading matrix; compare canonical row bytes.",
+          "source_text": "Cache"
+        }
+      ],
+      "source_matrix_row": "Regular closed/periodic mesh",
+      "source_matrix_row_id": "U8-01"
+    },
+    {
+      "alias_of": null,
+      "candidates": [
+        "bfr",
+        "far"
+      ],
+      "corner_policy_ref": "all_non6_corners",
+      "execution_case_id": "u8_02_tetrahedron",
+      "face_policy": {
+        "kind": "all_faces",
+        "order": "ascending_csv_row"
+      },
+      "input": {
+        "kind": "checked_in_fixture",
+        "members": [
+          {
+            "content_identity_key": "closed_valence3_tetrahedron",
+            "member_id": "closed_valence3_tetrahedron",
+            "path": "data/fixtures/candidates/closed_valence3_tetrahedron"
+          }
+        ]
+      },
+      "mesh_evidence_key": "closed_valence3_tetrahedron",
+      "numeric_gate_applicability": {
+        "peak_rss": true,
+        "preparation_cost": true,
+        "retained_row_payload": true,
+        "threading_bfr_only": true
+      },
+      "row_order_ref": "six_source_rows_v1",
+      "sample_policy_ref": "full_surface_plus_extraordinary_trend",
+      "source_matrix_checks": [
+        {
+          "b2_applicability": "APPLICABLE",
+          "check_id": "rows",
+          "procedure": "Evaluate all six source-keyed rows in the frozen row/sample order; apply the regular analytic or D10 Stam oracle as applicable.",
+          "source_text": "Rows"
+        },
+        {
+          "b2_applicability": "APPLICABLE",
+          "check_id": "orientation",
+          "procedure": "Run the D2 closure/orientation validator before candidate construction and verify canonical face/corner maps for accepted input.",
+          "source_text": "Orientation"
+        },
+        {
+          "b2_applicability": "N/A",
+          "check_id": "full_volume",
+          "reason": "N/A in B2: D3/D4 volume semantics remain undecided and B2 is a row-qualification proof.",
+          "source_text": "Full volume"
+        },
+        {
+          "b2_applicability": "N/A",
+          "check_id": "fd_force",
+          "reason": "N/A in B2: force kernels are WP4/WP6 work and integrated-functional acceptance is deferred to D9b.",
+          "source_text": "FD force"
+        }
+      ],
+      "source_matrix_row": "Tetrahedron",
+      "source_matrix_row_id": "U8-02"
+    },
+    {
+      "alias_of": null,
+      "candidates": [
+        "bfr",
+        "far"
+      ],
+      "corner_policy_ref": "all_non6_corners",
+      "execution_case_id": "u8_03_octahedron",
+      "face_policy": {
+        "kind": "all_faces",
+        "order": "ascending_csv_row"
+      },
+      "input": {
+        "kind": "checked_in_fixture",
+        "members": [
+          {
+            "content_identity_key": "closed_valence4_octahedron",
+            "member_id": "closed_valence4_octahedron",
+            "path": "data/fixtures/candidates/closed_valence4_octahedron"
+          }
+        ]
+      },
+      "mesh_evidence_key": "closed_valence4_octahedron",
+      "numeric_gate_applicability": {
+        "peak_rss": true,
+        "preparation_cost": true,
+        "retained_row_payload": true,
+        "threading_bfr_only": true
+      },
+      "row_order_ref": "six_source_rows_v1",
+      "sample_policy_ref": "full_surface_plus_extraordinary_trend",
+      "source_matrix_checks": [
+        {
+          "b2_applicability": "APPLICABLE",
+          "check_id": "rows",
+          "procedure": "Evaluate all six source-keyed rows in the frozen row/sample order; apply the regular analytic or D10 Stam oracle as applicable.",
+          "source_text": "Rows"
+        },
+        {
+          "b2_applicability": "APPLICABLE",
+          "check_id": "orientation",
+          "procedure": "Run the D2 closure/orientation validator before candidate construction and verify canonical face/corner maps for accepted input.",
+          "source_text": "Orientation"
+        },
+        {
+          "b2_applicability": "N/A",
+          "check_id": "full_volume",
+          "reason": "N/A in B2: D3/D4 volume semantics remain undecided and B2 is a row-qualification proof.",
+          "source_text": "Full volume"
+        },
+        {
+          "b2_applicability": "N/A",
+          "check_id": "fd_force",
+          "reason": "N/A in B2: force kernels are WP4/WP6 work and integrated-functional acceptance is deferred to D9b.",
+          "source_text": "FD force"
+        }
+      ],
+      "source_matrix_row": "Octahedron",
+      "source_matrix_row_id": "U8-03"
+    },
+    {
+      "alias_of": null,
+      "candidates": [
+        "bfr",
+        "far"
+      ],
+      "corner_policy_ref": "all_non6_corners",
+      "execution_case_id": "u8_04_icosahedron",
+      "face_policy": {
+        "kind": "all_faces",
+        "order": "ascending_csv_row"
+      },
+      "input": {
+        "kind": "checked_in_fixture",
+        "members": [
+          {
+            "content_identity_key": "closed_valence5",
+            "member_id": "closed_valence5",
+            "path": "data/fixtures/closed_valence5"
+          }
+        ]
+      },
+      "mesh_evidence_key": "closed_valence5",
+      "numeric_gate_applicability": {
+        "peak_rss": true,
+        "preparation_cost": true,
+        "retained_row_payload": true,
+        "threading_bfr_only": true
+      },
+      "row_order_ref": "six_source_rows_v1",
+      "sample_policy_ref": "full_surface_plus_extraordinary_trend",
+      "source_matrix_checks": [
+        {
+          "b2_applicability": "APPLICABLE",
+          "check_id": "rows",
+          "procedure": "Evaluate all six source-keyed rows in the frozen row/sample order; apply the regular analytic or D10 Stam oracle as applicable.",
+          "source_text": "Rows"
+        },
+        {
+          "b2_applicability": "APPLICABLE",
+          "check_id": "orientation",
+          "procedure": "Run the D2 closure/orientation validator before candidate construction and verify canonical face/corner maps for accepted input.",
+          "source_text": "Orientation"
+        },
+        {
+          "b2_applicability": "N/A",
+          "check_id": "full_volume",
+          "reason": "N/A in B2: D3/D4 volume semantics remain undecided and B2 is a row-qualification proof.",
+          "source_text": "Full volume"
+        },
+        {
+          "b2_applicability": "N/A",
+          "check_id": "fd_force",
+          "reason": "N/A in B2: force kernels are WP4/WP6 work and integrated-functional acceptance is deferred to D9b.",
+          "source_text": "FD force"
+        },
+        {
+          "b2_applicability": "N/A",
+          "check_id": "legacy_rejection_compatibility",
+          "reason": "N/A in B2: legacy Valence-5 quarantine/compatibility is governed by D5 and no route change is authorized.",
+          "source_text": "Legacy rejection/compatibility"
+        }
+      ],
+      "source_matrix_row": "Icosahedron",
+      "source_matrix_row_id": "U8-04"
+    },
+    {
+      "alias_of": null,
+      "candidates": [
+        "bfr",
+        "far"
+      ],
+      "corner_policy_ref": "all_non6_corners",
+      "execution_case_id": "u8_05_symmetric_344",
+      "face_policy": {
+        "kind": "all_faces",
+        "order": "ascending_csv_row"
+      },
+      "input": {
+        "kind": "checked_in_fixture",
+        "members": [
+          {
+            "content_identity_key": "symmetric_344_bipyramid",
+            "member_id": "symmetric_344_bipyramid",
+            "path": "data/fixtures/candidates/b2_readiness_v1/symmetric_344_bipyramid"
+          }
+        ]
+      },
+      "mesh_evidence_key": "symmetric_344_bipyramid",
+      "numeric_gate_applicability": {
+        "peak_rss": true,
+        "preparation_cost": true,
+        "retained_row_payload": true,
+        "threading_bfr_only": true
+      },
+      "row_order_ref": "six_source_rows_v1",
+      "sample_policy_ref": "full_surface_plus_extraordinary_trend",
+      "source_matrix_checks": [
+        {
+          "b2_applicability": "APPLICABLE",
+          "check_id": "convergence",
+          "procedure": "Run each candidate's independent fixed approximation sweep and apply its internal row-stabilization criterion.",
+          "source_text": "Convergence"
+        },
+        {
+          "b2_applicability": "APPLICABLE",
+          "check_id": "row_invariants",
+          "procedure": "Apply position-sum-one and derivative-sum-zero at 1.0e-12 to every emitted row.",
+          "source_text": "Row invariants"
+        },
+        {
+          "b2_applicability": "APPLICABLE",
+          "check_id": "cache",
+          "procedure": "Run serial-cache numeric and Bfr threading protocols with canonical byte equality.",
+          "source_text": "Cache"
+        }
+      ],
+      "source_matrix_row": "Symmetric 3/4/4 bipyramid",
+      "source_matrix_row_id": "U8-05"
+    },
+    {
+      "alias_of": null,
+      "candidates": [
+        "bfr",
+        "far"
+      ],
+      "corner_policy_ref": "all_non6_corners",
+      "execution_case_id": "u8_06_asymmetric_344",
+      "face_policy": {
+        "kind": "all_faces",
+        "order": "ascending_csv_row"
+      },
+      "input": {
+        "kind": "checked_in_fixture",
+        "members": [
+          {
+            "content_identity_key": "asymmetric_344_bipyramid",
+            "member_id": "asymmetric_344_bipyramid",
+            "path": "data/fixtures/candidates/b2_readiness_v1/asymmetric_344_bipyramid"
+          }
+        ]
+      },
+      "mesh_evidence_key": "asymmetric_344_bipyramid",
+      "numeric_gate_applicability": {
+        "peak_rss": true,
+        "preparation_cost": true,
+        "retained_row_payload": true,
+        "threading_bfr_only": true
+      },
+      "row_order_ref": "six_source_rows_v1",
+      "sample_policy_ref": "full_surface_plus_extraordinary_trend",
+      "source_matrix_checks": [
+        {
+          "b2_applicability": "APPLICABLE",
+          "check_id": "per_source_axis_evidence",
+          "procedure": "For every row, retain source-ID coefficients and all three geometry-applied Cartesian components in exact face/corner/sample order.",
+          "source_text": "Per-source/axis evidence"
+        }
+      ],
+      "source_matrix_row": "Asymmetric 3/4/4 bipyramid",
+      "source_matrix_row_id": "U8-06"
+    },
+    {
+      "alias_of": null,
+      "candidates": [
+        "bfr",
+        "far"
+      ],
+      "corner_policy_ref": "all_non6_corners",
+      "execution_case_id": "u8_07_mixed_345",
+      "face_policy": {
+        "kind": "all_faces",
+        "order": "ascending_csv_row"
+      },
+      "input": {
+        "kind": "checked_in_fixture",
+        "members": [
+          {
+            "content_identity_key": "closed_mixed_valence345",
+            "member_id": "closed_mixed_valence345",
+            "path": "data/fixtures/candidates/closed_mixed_valence345"
+          }
+        ]
+      },
+      "mesh_evidence_key": "closed_mixed_valence345",
+      "numeric_gate_applicability": {
+        "peak_rss": true,
+        "preparation_cost": true,
+        "retained_row_payload": true,
+        "threading_bfr_only": true
+      },
+      "row_order_ref": "six_source_rows_v1",
+      "sample_policy_ref": "full_surface_plus_extraordinary_trend",
+      "source_matrix_checks": [
+        {
+          "b2_applicability": "APPLICABLE",
+          "check_id": "one_full_mesh_provider",
+          "procedure": "Construct each proof candidate from one complete full-mesh TopologyRefiner and require unambiguous original-source reconstruction.",
+          "source_text": "One full-mesh provider"
+        },
+        {
+          "b2_applicability": "N/A",
+          "check_id": "transaction",
+          "reason": "N/A in B2: the production write transaction belongs to B3/WP3.2 and no production caller is authorized.",
+          "source_text": "Transaction"
+        }
+      ],
+      "source_matrix_row": "Closed mixed 3/4/5",
+      "source_matrix_row_id": "U8-07"
+    },
+    {
+      "alias_of": null,
+      "candidates": [
+        "bfr",
+        "far"
+      ],
+      "corner_policy_ref": "all_non6_corners",
+      "execution_case_id": "u8_08_closed_566",
+      "face_policy": {
+        "kind": "all_faces",
+        "order": "ascending_csv_row"
+      },
+      "input": {
+        "kind": "checked_in_fixture",
+        "members": [
+          {
+            "content_identity_key": "closed_566_refined_icosahedron",
+            "member_id": "closed_566_refined_icosahedron",
+            "path": "data/fixtures/candidates/b2_readiness_v1/closed_566_refined_icosahedron"
+          }
+        ]
+      },
+      "mesh_evidence_key": "closed_566_refined_icosahedron",
+      "numeric_gate_applicability": {
+        "peak_rss": true,
+        "preparation_cost": true,
+        "retained_row_payload": true,
+        "threading_bfr_only": true
+      },
+      "row_order_ref": "six_source_rows_v1",
+      "sample_policy_ref": "full_surface_plus_extraordinary_trend",
+      "source_matrix_checks": [
+        {
+          "b2_applicability": "APPLICABLE",
+          "check_id": "exact_classification",
+          "procedure": "Verify metadata-declared face row 0 is oriented [0,12,14] with valences [5,6,6] before candidate construction.",
+          "source_text": "Exact classification"
+        },
+        {
+          "b2_applicability": "APPLICABLE",
+          "check_id": "generic_rows",
+          "procedure": "Evaluate all six rows on the complete selected face/sample workload without a per-valence route.",
+          "source_text": "Generic rows"
+        }
+      ],
+      "source_matrix_row": "Intended 5/6/6 local patch in a closed mesh",
+      "source_matrix_row_id": "U8-08"
+    },
+    {
+      "alias_of": null,
+      "candidates": [
+        "bfr",
+        "far"
+      ],
+      "corner_policy_ref": "all_non6_corners",
+      "execution_case_id": "u8_09_nonplatonic",
+      "face_policy": {
+        "kind": "all_faces",
+        "order": "ascending_csv_row"
+      },
+      "input": {
+        "kind": "checked_in_fixture",
+        "members": [
+          {
+            "content_identity_key": "b2p_shared_hull_base",
+            "member_id": "b2p_valence789",
+            "path": "data/fixtures/candidates/b2p_valence789"
+          }
+        ]
+      },
+      "mesh_evidence_key": "b2p_shared_hull",
+      "numeric_gate_applicability": {
+        "peak_rss": true,
+        "preparation_cost": true,
+        "retained_row_payload": true,
+        "threading_bfr_only": true
+      },
+      "row_order_ref": "six_source_rows_v1",
+      "sample_policy_ref": "full_surface_plus_extraordinary_trend",
+      "source_matrix_checks": [
+        {
+          "b2_applicability": "APPLICABLE",
+          "check_id": "variable_cardinality",
+          "procedure": "Record and validate each face-union source count without a fixed-cardinality assumption.",
+          "source_text": "Variable cardinality"
+        },
+        {
+          "b2_applicability": "APPLICABLE",
+          "check_id": "mixed_valences",
+          "procedure": "Execute the complete mesh containing valences 3,4,5,7,8,9 and group oracle coverage by exact valence.",
+          "source_text": "Mixed valences"
+        }
+      ],
+      "source_matrix_row": "Non-Platonic closed triangulation",
+      "source_matrix_row_id": "U8-09"
+    },
+    {
+      "alias_of": null,
+      "candidates": [
+        "bfr",
+        "far"
+      ],
+      "corner_policy_ref": "all_non6_corners",
+      "execution_case_id": "u8_10_coordinate_perturbed",
+      "face_policy": {
+        "kind": "all_faces",
+        "order": "ascending_csv_row"
+      },
+      "input": {
+        "base_member": {
+          "content_identity_key": "asymmetric_344_bipyramid",
+          "member_id": "asymmetric_344_bipyramid",
+          "path": "data/fixtures/candidates/b2_readiness_v1/asymmetric_344_bipyramid"
+        },
+        "kind": "deterministic_mutation",
+        "mutation_id": "coordinate_perturbation_v1",
+        "output_content_identity_key": "asymmetric_344_binary64_perturbed"
+      },
+      "mesh_evidence_key": "asymmetric_344_binary64_perturbed",
+      "numeric_gate_applicability": {
+        "peak_rss": true,
+        "preparation_cost": true,
+        "retained_row_payload": true,
+        "threading_bfr_only": true
+      },
+      "row_order_ref": "six_source_rows_v1",
+      "sample_policy_ref": "full_surface_plus_extraordinary_trend",
+      "source_matrix_checks": [
+        {
+          "b2_applicability": "N/A",
+          "check_id": "finite_differences",
+          "reason": "N/A in B2: production energy/force finite differences belong to WP4/WP6 and D9b.",
+          "source_text": "Finite differences"
+        },
+        {
+          "b2_applicability": "APPLICABLE",
+          "check_id": "convergence",
+          "procedure": "Repeat the independent candidate approximation sweeps on the exact binary64-mutated coordinates.",
+          "source_text": "Convergence"
+        }
+      ],
+      "source_matrix_row": "Coordinate-perturbed variants",
+      "source_matrix_row_id": "U8-10"
+    },
+    {
+      "alias_of": null,
+      "candidates": [
+        "bfr",
+        "far"
+      ],
+      "corner_policy_ref": "none_rejection",
+      "execution_case_id": "u8_11_reversed_winding",
+      "face_policy": {
+        "kind": "all_faces",
+        "order": "ascending_csv_row"
+      },
+      "input": {
+        "base_member": {
+          "content_identity_key": "regular_all6_torus",
+          "member_id": "regular_all6_torus",
+          "path": "data/fixtures/candidates/b2_readiness_v1/regular_all6_torus"
+        },
+        "kind": "deterministic_mutation",
+        "mutation_id": "reverse_face_zero_v1",
+        "output_content_identity_key": "invalid_reversed_face_zero"
+      },
+      "mesh_evidence_key": "invalid_reversed_face_zero",
+      "numeric_gate_applicability": {
+        "peak_rss": false,
+        "preparation_cost": false,
+        "retained_row_payload": false,
+        "threading_bfr_only": false
+      },
+      "row_order_ref": "six_source_rows_v1",
+      "sample_policy_ref": "none_rejection",
+      "source_matrix_checks": [
+        {
+          "b2_applicability": "APPLICABLE",
+          "check_id": "atomic_rejection_or_sign",
+          "procedure": "D2 fixes rejection: reverse face row 0 and require fail-before-candidate with no partial row package.",
+          "source_text": "Atomic rejection or defined sign behavior"
+        }
+      ],
+      "source_matrix_row": "Reversed/inconsistent winding",
+      "source_matrix_row_id": "U8-11"
+    },
+    {
+      "alias_of": null,
+      "candidates": [
+        "bfr",
+        "far"
+      ],
+      "corner_policy_ref": "none_rejection",
+      "execution_case_id": "u8_12_open_boundary",
+      "face_policy": {
+        "kind": "all_faces",
+        "order": "ascending_csv_row"
+      },
+      "input": {
+        "base_member": {
+          "content_identity_key": "regular_all6_torus",
+          "member_id": "regular_all6_torus",
+          "path": "data/fixtures/candidates/b2_readiness_v1/regular_all6_torus"
+        },
+        "kind": "deterministic_mutation",
+        "mutation_id": "delete_face_zero_v1",
+        "output_content_identity_key": "invalid_deleted_face_zero"
+      },
+      "mesh_evidence_key": "invalid_deleted_face_zero",
+      "numeric_gate_applicability": {
+        "peak_rss": false,
+        "preparation_cost": false,
+        "retained_row_payload": false,
+        "threading_bfr_only": false
+      },
+      "row_order_ref": "six_source_rows_v1",
+      "sample_policy_ref": "none_rejection",
+      "source_matrix_checks": [
+        {
+          "b2_applicability": "APPLICABLE",
+          "check_id": "fail_before_mutation",
+          "procedure": "Delete face row 0 and require the exact D2 open-boundary diagnostic before candidate construction or state mutation.",
+          "source_text": "Fail-before-mutation diagnostic"
+        }
+      ],
+      "source_matrix_row": "Open boundary mesh",
+      "source_matrix_row_id": "U8-12"
+    },
+    {
+      "alias_of": null,
+      "candidates": [
+        "bfr",
+        "far"
+      ],
+      "corner_policy_ref": "none_rejection",
+      "execution_case_id": "u8_13_duplicate_face",
+      "face_policy": {
+        "kind": "all_faces",
+        "order": "ascending_csv_row"
+      },
+      "input": {
+        "base_member": {
+          "content_identity_key": "regular_all6_torus",
+          "member_id": "regular_all6_torus",
+          "path": "data/fixtures/candidates/b2_readiness_v1/regular_all6_torus"
+        },
+        "kind": "deterministic_mutation",
+        "mutation_id": "append_face_zero_v1",
+        "output_content_identity_key": "invalid_appended_face_zero"
+      },
+      "mesh_evidence_key": "invalid_appended_face_zero",
+      "numeric_gate_applicability": {
+        "peak_rss": false,
+        "preparation_cost": false,
+        "retained_row_payload": false,
+        "threading_bfr_only": false
+      },
+      "row_order_ref": "six_source_rows_v1",
+      "sample_policy_ref": "none_rejection",
+      "source_matrix_checks": [
+        {
+          "b2_applicability": "APPLICABLE",
+          "check_id": "fail_before_mutation",
+          "procedure": "Append face row 0 verbatim and require the exact duplicate/non-manifold diagnostic before candidate construction or state mutation.",
+          "source_text": "Fail-before-mutation diagnostic"
+        }
+      ],
+      "source_matrix_row": "Non-manifold/duplicate edge",
+      "source_matrix_row_id": "U8-13"
+    },
+    {
+      "alias_of": null,
+      "candidates": [
+        "bfr",
+        "far"
+      ],
+      "corner_policy_ref": "all_non6_corners",
+      "execution_case_id": "u8_14_edge_flip_family",
+      "face_policy": {
+        "kind": "all_faces",
+        "order": "ascending_csv_row"
+      },
+      "input": {
+        "kind": "checked_in_fixture",
+        "members": [
+          {
+            "content_identity_key": "b2p_shared_hull_base",
+            "member_id": "base",
+            "path": "data/fixtures/candidates/b2p_single_flip_family/base"
+          },
+          {
+            "content_identity_key": "b2p_flip_000",
+            "member_id": "flip_000",
+            "path": "data/fixtures/candidates/b2p_single_flip_family/flip_000"
+          },
+          {
+            "content_identity_key": "b2p_flip_001",
+            "member_id": "flip_001",
+            "path": "data/fixtures/candidates/b2p_single_flip_family/flip_001"
+          },
+          {
+            "content_identity_key": "b2p_flip_002",
+            "member_id": "flip_002",
+            "path": "data/fixtures/candidates/b2p_single_flip_family/flip_002"
+          }
+        ]
+      },
+      "mesh_evidence_key": "b2p_flip_family",
+      "numeric_gate_applicability": {
+        "peak_rss": true,
+        "preparation_cost": true,
+        "retained_row_payload": true,
+        "threading_bfr_only": true
+      },
+      "row_order_ref": "six_source_rows_v1",
+      "sample_policy_ref": "full_surface_extraordinary_flip_locality",
+      "source_matrix_checks": [
+        {
+          "b2_applicability": "N/A",
+          "check_id": "epoch_miss_rebuild",
+          "reason": "N/A in B2: cache epoch invalidation is B4 and mutation ownership is WP9; B2 only measures frozen pairwise row locality.",
+          "source_text": "Epoch miss and rebuild"
+        }
+      ],
+      "source_matrix_row": "Topology-mutated/edge-flipped mesh",
+      "source_matrix_row_id": "U8-14"
+    },
+    {
+      "alias_of": "u8_14_edge_flip_family",
+      "candidates": [
+        "bfr",
+        "far"
+      ],
+      "corner_policy_ref": "all_non6_corners",
+      "execution_case_id": "b7_01_single_flip_family",
+      "face_policy": {
+        "kind": "all_faces",
+        "order": "ascending_csv_row"
+      },
+      "input": {
+        "kind": "checked_in_fixture",
+        "members": [
+          {
+            "content_identity_key": "b2p_shared_hull_base",
+            "member_id": "base",
+            "path": "data/fixtures/candidates/b2p_single_flip_family/base"
+          },
+          {
+            "content_identity_key": "b2p_flip_000",
+            "member_id": "flip_000",
+            "path": "data/fixtures/candidates/b2p_single_flip_family/flip_000"
+          },
+          {
+            "content_identity_key": "b2p_flip_001",
+            "member_id": "flip_001",
+            "path": "data/fixtures/candidates/b2p_single_flip_family/flip_001"
+          },
+          {
+            "content_identity_key": "b2p_flip_002",
+            "member_id": "flip_002",
+            "path": "data/fixtures/candidates/b2p_single_flip_family/flip_002"
+          }
+        ]
+      },
+      "mesh_evidence_key": "b2p_flip_family",
+      "numeric_gate_applicability": {
+        "peak_rss": true,
+        "preparation_cost": true,
+        "retained_row_payload": true,
+        "threading_bfr_only": true
+      },
+      "row_order_ref": "six_source_rows_v1",
+      "sample_policy_ref": "full_surface_extraordinary_flip_locality",
+      "source_matrix_checks": [
+        {
+          "b2_applicability": "APPLICABLE",
+          "check_id": "rows",
+          "procedure": "Evaluate all six rows for base and each variant in family-metadata order.",
+          "source_text": "Rows"
+        },
+        {
+          "b2_applicability": "APPLICABLE",
+          "check_id": "source_coverage",
+          "procedure": "Validate original-source union coverage for every comparable unchanged face.",
+          "source_text": "Source coverage"
+        },
+        {
+          "b2_applicability": "APPLICABLE",
+          "check_id": "error_oracle",
+          "procedure": "Apply D10 error bounds at every covered extraordinary trend sample; uncovered items remain uncovered.",
+          "source_text": "Error versus oracle"
+        },
+        {
+          "b2_applicability": "APPLICABLE",
+          "check_id": "changed_face_count",
+          "procedure": "Use the external B2p stable correspondence and ten-point locality manifest; report comparable, changed, and reusable counts separately.",
+          "source_text": "Changed-face count between pair members"
+        }
+      ],
+      "source_matrix_row": "Single-flip pair family",
+      "source_matrix_row_id": "B7-01"
+    },
+    {
+      "alias_of": "u8_09_nonplatonic",
+      "candidates": [
+        "bfr",
+        "far"
+      ],
+      "corner_policy_ref": "all_non6_corners",
+      "execution_case_id": "b7_02_valence789",
+      "face_policy": {
+        "kind": "all_faces",
+        "order": "ascending_csv_row"
+      },
+      "input": {
+        "kind": "checked_in_fixture",
+        "members": [
+          {
+            "content_identity_key": "b2p_shared_hull_base",
+            "member_id": "b2p_valence789",
+            "path": "data/fixtures/candidates/b2p_valence789"
+          }
+        ]
+      },
+      "mesh_evidence_key": "b2p_shared_hull",
+      "numeric_gate_applicability": {
+        "peak_rss": true,
+        "preparation_cost": true,
+        "retained_row_payload": true,
+        "threading_bfr_only": true
+      },
+      "row_order_ref": "six_source_rows_v1",
+      "sample_policy_ref": "full_surface_plus_extraordinary_trend",
+      "source_matrix_checks": [
+        {
+          "b2_applicability": "APPLICABLE",
+          "check_id": "rows",
+          "procedure": "Evaluate all six rows over the complete shared-hull workload.",
+          "source_text": "Rows"
+        },
+        {
+          "b2_applicability": "APPLICABLE",
+          "check_id": "derivative_sum_rules",
+          "procedure": "Require du,dv,duu,duv,dvv coefficient sums zero within 1.0e-12.",
+          "source_text": "Derivative sum rules"
+        },
+        {
+          "b2_applicability": "APPLICABLE",
+          "check_id": "error_oracle",
+          "procedure": "Apply D10 bounds only where the frozen isolation/eigenbasis contract establishes coverage.",
+          "source_text": "Error versus oracle"
+        },
+        {
+          "b2_applicability": "N/A",
+          "check_id": "force_conjugacy",
+          "reason": "N/A in B2: force kernels and integrated-functional conjugacy belong to WP4/WP5 and D9b.",
+          "source_text": "Force conjugacy"
+        }
+      ],
+      "source_matrix_row": "Closed mesh containing valence 7, 8, and 9 corners",
+      "source_matrix_row_id": "B7-02"
+    },
+    {
+      "alias_of": null,
+      "candidates": [
+        "bfr",
+        "far"
+      ],
+      "corner_policy_ref": "all_non6_corners",
+      "execution_case_id": "b7_03_adjacent_extraordinary",
+      "face_policy": {
+        "kind": "all_faces",
+        "order": "ascending_csv_row"
+      },
+      "input": {
+        "kind": "checked_in_fixture",
+        "members": [
+          {
+            "content_identity_key": "b2p_adjacent_extraordinary",
+            "member_id": "b2p_adjacent_extraordinary",
+            "path": "data/fixtures/candidates/b2p_adjacent_extraordinary"
+          }
+        ]
+      },
+      "mesh_evidence_key": "b2p_adjacent_extraordinary",
+      "numeric_gate_applicability": {
+        "peak_rss": true,
+        "preparation_cost": true,
+        "retained_row_payload": true,
+        "threading_bfr_only": true
+      },
+      "row_order_ref": "six_source_rows_v1",
+      "sample_policy_ref": "full_surface_plus_extraordinary_trend",
+      "source_matrix_checks": [
+        {
+          "b2_applicability": "APPLICABLE",
+          "check_id": "rows",
+          "procedure": "Evaluate all six rows at every ordered full-surface/trend sample.",
+          "source_text": "Rows"
+        },
+        {
+          "b2_applicability": "APPLICABLE",
+          "check_id": "oracle_error",
+          "procedure": "Report D10 error only for independently covered corners; adjacency never implies depth-zero coverage.",
+          "source_text": "Oracle error"
+        },
+        {
+          "b2_applicability": "N/A",
+          "check_id": "quadrature_sensitivity",
+          "reason": "N/A in B2: quadrature selection is WP5.1/WP5.2 and production activation is D9b.",
+          "source_text": "Quadrature sensitivity"
+        }
+      ],
+      "source_matrix_row": "Adjacent extraordinary corners sharing an edge",
+      "source_matrix_row_id": "B7-03"
+    }
+  ],
+  "mutation_rules": [
+    {
+      "base_member_path": "data/fixtures/candidates/b2_readiness_v1/asymmetric_344_bipyramid",
+      "components": [
+        {
+          "axis": "x",
+          "delta_binary64_hex": "0x1.0000000000000p-8",
+          "delta_bits_hex": "3f70000000000000",
+          "input_binary64_hex": "0x1.2b851eb851eb8p+0",
+          "input_bits_hex": "3ff2b851eb851eb8",
+          "output_binary64_hex": "0x1.2c851eb851eb8p+0",
+          "output_bits_hex": "3ff2c851eb851eb8"
+        },
+        {
+          "axis": "y",
+          "delta_binary64_hex": "-0x1.0000000000000p-9",
+          "delta_bits_hex": "bf60000000000000",
+          "input_binary64_hex": "-0x1.0cffc0ea99f27p-1",
+          "input_bits_hex": "bfe0cffc0ea99f27",
+          "output_binary64_hex": "-0x1.0dffc0ea99f27p-1",
+          "output_bits_hex": "bfe0dffc0ea99f27"
+        },
+        {
+          "axis": "z",
+          "delta_binary64_hex": "0x1.0000000000000p-10",
+          "delta_bits_hex": "3f50000000000000",
+          "input_binary64_hex": "0x1.0a3d70a3d70a4p-3",
+          "input_bits_hex": "3fc0a3d70a3d70a4",
+          "output_binary64_hex": "0x1.0c3d70a3d70a4p-3",
+          "output_bits_hex": "3fc0c3d70a3d70a4"
+        }
+      ],
+      "id": "coordinate_perturbation_v1",
+      "operation": "parse the checked-in decimal once to binary64; verify input bits; add the exact delta under FE_TONEAREST; verify output bits; replace vertex row 1 only",
+      "rounding": "IEEE-754 roundTiesToEven (C/C++ FE_TONEAREST), verified before addition; fused or extended-precision arithmetic forbidden"
+    },
+    {
+      "base_member_path": "data/fixtures/candidates/b2_readiness_v1/regular_all6_torus",
+      "id": "reverse_face_zero_v1",
+      "operation": "replace face row 0 [a,b,c] with [a,c,b]"
+    },
+    {
+      "base_member_path": "data/fixtures/candidates/b2_readiness_v1/regular_all6_torus",
+      "id": "delete_face_zero_v1",
+      "operation": "delete face row 0 and preserve every remaining row in order"
+    },
+    {
+      "base_member_path": "data/fixtures/candidates/b2_readiness_v1/regular_all6_torus",
+      "id": "append_face_zero_v1",
+      "operation": "append an exact duplicate of face row 0 without changing prior rows"
+    }
+  ],
+  "numeric_measurement_protocol": {
+    "aggregation": "retain all 15 measured repeats; ordinary median is eighth sorted value; every repeat also obeys the single-run fail-stop",
+    "applicable_modes": {
+      "bfr": [
+        "cache_disabled",
+        "SurfaceFactoryCache_serial"
+      ],
+      "far": [
+        "not_applicable_uncached"
+      ]
+    },
+    "case_process_identity": [
+      "candidate",
+      "canonical_execution_case_id",
+      "content_identity_key",
+      "approximation_level",
+      "applicable_mode"
+    ],
+    "clock": {
+      "api": "mach_continuous_time",
+      "conversion_api": "mach_timebase_info",
+      "failure": "MEASUREMENT_PROTOCOL_FAILURE; B2 evidence incomplete and no numeric PASS",
+      "unit": "integer nanoseconds with checked uint64 multiplication/division"
+    },
+    "fresh_process_per_case": true,
+    "levels": {
+      "bfr_approxLevelSharp": 6,
+      "bfr_approxLevelSmooth": [
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8
+      ],
+      "far_isolationLevel": [
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8
+      ]
+    },
+    "release_build_only": true,
+    "repeats": {
+      "measured": 15,
+      "warmup": 3
+    },
+    "rss_lifecycle": {
+      "baseline": "once after fixture parsing and before the first refiner",
+      "delta": "max(0, sample-baseline) for each named sample; gate on maximum across all samples in all 18 repeats; never reset or discard",
+      "fresh_objects_each_repeat": [
+        "full_mesh_TopologyRefiner",
+        "candidate_factory_or_cache",
+        "immutable_row_package"
+      ],
+      "named_boundaries_per_repeat": [
+        "after_refiner_construction",
+        "after_factory_or_cache_construction",
+        "after_each_completed_face_row_insertion",
+        "after_immutable_package_publication",
+        "after_row_package_destruction",
+        "after_factory_or_cache_destruction",
+        "after_refiner_destruction"
+      ],
+      "rss_api": "task_info(mach_task_self(), MACH_TASK_BASIC_INFO, ...) resident_size",
+      "sample_failure": "candidate case FAIL",
+      "teardown": "destroy package, then factory/cache, then refiner before the next repeat"
+    }
+  },
+  "qualification_platform": {
+    "build": {
+      "candidate_include_flags": [
+        "-I${OPENSUBDIV_ROOT}/include"
+      ],
+      "candidate_link_inputs": [
+        "${OPENSUBDIV_ROOT}/lib/libosdCPU.a",
+        "-framework",
+        "IOKit",
+        "-framework",
+        "Foundation"
+      ],
+      "candidate_proof_binary": "one Release binary containing both Bfr and Far candidates",
+      "common_release_compile_flags": [
+        "-std=c++17",
+        "-O3",
+        "-DNDEBUG",
+        "-fno-fast-math",
+        "-ffp-contract=off",
+        "-fno-omit-frame-pointer",
+        "-isysroot",
+        "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk",
+        "-mmacosx-version-min=26.0",
+        "-Wall",
+        "-Wextra",
+        "-Wpedantic",
+        "-Werror"
+      ],
+      "compiler_path": "/Library/Developer/CommandLineTools/usr/bin/clang++",
+      "compiler_version": "Apple clang version 21.0.0 (clang-2100.1.1.101)",
+      "macos_sdk_path": "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk",
+      "macos_sdk_version": "26.5",
+      "mpfr": {
+        "version": "4.2.2"
+      },
+      "mpfr_oracle_link_flags": [
+        "-L${MPFR_ROOT}/lib",
+        "-Wl,-rpath,${MPFR_ROOT}/lib",
+        "-lmpfr",
+        "-lgmp"
+      ],
+      "opensubdiv": {
+        "archive_target": "osd_static_cpu",
+        "build_environment": {
+          "LANG": "C",
+          "LC_ALL": "C",
+          "SOURCE_DATE_EPOCH": "0",
+          "TZ": "UTC",
+          "ZERO_AR_DATE": "1"
+        },
+        "build_tool": {
+          "path": "/usr/bin/make",
+          "version": "GNU Make 3.81"
+        },
+        "cmake": {
+          "common_options_in_exact_order": [
+            "-G",
+            "Unix Makefiles",
+            "-DCMAKE_BUILD_TYPE=Release",
+            "-DCMAKE_CXX_COMPILER=/Library/Developer/CommandLineTools/usr/bin/clang++",
+            "-DCMAKE_CXX_STANDARD=17",
+            "-DCMAKE_CXX_STANDARD_REQUIRED=ON",
+            "-DCMAKE_CXX_EXTENSIONS=OFF",
+            "-DCMAKE_OSX_ARCHITECTURES=arm64",
+            "-DCMAKE_OSX_DEPLOYMENT_TARGET=26.0",
+            "-DCMAKE_OSX_SYSROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk",
+            "-DCMAKE_AR=/Library/Developer/CommandLineTools/usr/bin/ar",
+            "-DCMAKE_RANLIB=/Library/Developer/CommandLineTools/usr/bin/ranlib",
+            "-DCMAKE_MAKE_PROGRAM=/usr/bin/make",
+            "-DCMAKE_INSTALL_PREFIX=${PROFILE_INSTALL_ROOT}",
+            "-DCMAKE_INSTALL_LIBDIR=lib",
+            "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON",
+            "-DCMAKE_POSITION_INDEPENDENT_CODE=OFF",
+            "-DCMAKE_VERBOSE_MAKEFILE=ON",
+            "-DBUILD_SHARED_LIBS=OFF",
+            "-DNO_LIB=OFF",
+            "-DNO_EXAMPLES=ON",
+            "-DNO_TUTORIALS=ON",
+            "-DNO_REGRESSION=ON",
+            "-DNO_PTEX=ON",
+            "-DNO_DOC=ON",
+            "-DNO_OMP=ON",
+            "-DNO_TBB=ON",
+            "-DNO_CUDA=ON",
+            "-DNO_OPENCL=ON",
+            "-DNO_CLEW=ON",
+            "-DNO_OPENGL=ON",
+            "-DNO_METAL=ON",
+            "-DNO_DX=ON",
+            "-DNO_TESTS=ON",
+            "-DNO_GLTESTS=ON",
+            "-DNO_GLEW=ON",
+            "-DNO_GLFW=ON",
+            "-DNO_GLFW_X11=ON",
+            "-DNO_MACOS_FRAMEWORK=ON",
+            "-DOSD_PATCH_SHADER_SOURCE_GLSL=OFF",
+            "-DOSD_PATCH_SHADER_SOURCE_HLSL=OFF",
+            "-DOSD_PATCH_SHADER_SOURCE_MSL=OFF",
+            "-DOPENSUBDIV_GREGORY_EVAL_TRUE_DERIVATIVES=OFF",
+            "-DSIMD=NONE"
+          ],
+          "generator": "Unix Makefiles",
+          "path": "/opt/homebrew/bin/cmake",
+          "version": "4.4.2"
+        },
+        "commands": {
+          "build": "env <exact build_environment> /opt/homebrew/bin/cmake --build ${PROFILE_BUILD_ROOT} --config Release --target osd_static_cpu --parallel 1 --verbose",
+          "configure": "env <exact build_environment> /opt/homebrew/bin/cmake -S ${OPENSUBDIV_SOURCE} -B ${PROFILE_BUILD_ROOT} <common_options_in_exact_order> -DCMAKE_CXX_FLAGS= -DCMAKE_CXX_FLAGS_RELEASE=<profile flags joined by single spaces>",
+          "install": "env <exact build_environment> /opt/homebrew/bin/cmake --install ${PROFILE_BUILD_ROOT} --config Release"
+        },
+        "expected_archive_member_basenames_in_target_order": [
+          "version.cpp.o",
+          "crease.cpp.o",
+          "typeTraits.cpp.o",
+          "fvarLevel.cpp.o",
+          "fvarRefinement.cpp.o",
+          "level.cpp.o",
+          "quadRefinement.cpp.o",
+          "refinement.cpp.o",
+          "sparseSelector.cpp.o",
+          "triRefinement.cpp.o",
+          "bilinearPatchBuilder.cpp.o",
+          "catmarkPatchBuilder.cpp.o",
+          "error.cpp.o",
+          "loopPatchBuilder.cpp.o",
+          "patchBasis.cpp.o",
+          "patchBuilder.cpp.o",
+          "patchDescriptor.cpp.o",
+          "patchMap.cpp.o",
+          "patchTable.cpp.o",
+          "patchTableFactory.cpp.o",
+          "ptexIndices.cpp.o",
+          "stencilTable.cpp.o",
+          "stencilTableFactory.cpp.o",
+          "stencilBuilder.cpp.o",
+          "topologyDescriptor.cpp.o",
+          "topologyRefiner.cpp.o",
+          "topologyRefinerFactory.cpp.o",
+          "faceSurface.cpp.o",
+          "faceTopology.cpp.o",
+          "faceVertex.cpp.o",
+          "hash.cpp.o",
+          "irregularPatchBuilder.cpp.o",
+          "parameterization.cpp.o",
+          "patchTree.cpp.o",
+          "patchTreeBuilder.cpp.o",
+          "refinerSurfaceFactory.cpp.o",
+          "regularPatchBuilder.cpp.o",
+          "surface.cpp.o",
+          "surfaceData.cpp.o",
+          "surfaceFactory.cpp.o",
+          "surfaceFactoryCache.cpp.o",
+          "tessellation.cpp.o",
+          "vertexDescriptor.cpp.o",
+          "cpuEvaluator.cpp.o",
+          "cpuKernel.cpp.o",
+          "cpuPatchTable.cpp.o",
+          "cpuVertexBuffer.cpp.o"
+        ],
+        "expected_raw_ar_t_members_in_order": [
+          "__.SYMDEF",
+          "version.cpp.o",
+          "crease.cpp.o",
+          "typeTraits.cpp.o",
+          "fvarLevel.cpp.o",
+          "fvarRefinement.cpp.o",
+          "level.cpp.o",
+          "quadRefinement.cpp.o",
+          "refinement.cpp.o",
+          "sparseSelector.cpp.o",
+          "triRefinement.cpp.o",
+          "bilinearPatchBuilder.cpp.o",
+          "catmarkPatchBuilder.cpp.o",
+          "error.cpp.o",
+          "loopPatchBuilder.cpp.o",
+          "patchBasis.cpp.o",
+          "patchBuilder.cpp.o",
+          "patchDescriptor.cpp.o",
+          "patchMap.cpp.o",
+          "patchTable.cpp.o",
+          "patchTableFactory.cpp.o",
+          "ptexIndices.cpp.o",
+          "stencilTable.cpp.o",
+          "stencilTableFactory.cpp.o",
+          "stencilBuilder.cpp.o",
+          "topologyDescriptor.cpp.o",
+          "topologyRefiner.cpp.o",
+          "topologyRefinerFactory.cpp.o",
+          "faceSurface.cpp.o",
+          "faceTopology.cpp.o",
+          "faceVertex.cpp.o",
+          "hash.cpp.o",
+          "irregularPatchBuilder.cpp.o",
+          "parameterization.cpp.o",
+          "patchTree.cpp.o",
+          "patchTreeBuilder.cpp.o",
+          "refinerSurfaceFactory.cpp.o",
+          "regularPatchBuilder.cpp.o",
+          "surface.cpp.o",
+          "surfaceData.cpp.o",
+          "surfaceFactory.cpp.o",
+          "surfaceFactoryCache.cpp.o",
+          "tessellation.cpp.o",
+          "vertexDescriptor.cpp.o",
+          "cpuEvaluator.cpp.o",
+          "cpuKernel.cpp.o",
+          "cpuPatchTable.cpp.o",
+          "cpuVertexBuffer.cpp.o"
+        ],
+        "profile_roots": {
+          "release": {
+            "build": "${OPENSUBDIV_RELEASE_BUILD_ROOT}",
+            "install": "${OPENSUBDIV_ROOT}"
+          },
+          "thread_sanitizer": {
+            "build": "${OPENSUBDIV_TSAN_BUILD_ROOT}",
+            "install": "${OPENSUBDIV_TSAN_ROOT}"
+          }
+        },
+        "profiles": {
+          "release": {
+            "archive": "${OPENSUBDIV_ROOT}/lib/libosdCPU.a",
+            "compile_flags": [
+              "-std=c++17",
+              "-O3",
+              "-DNDEBUG",
+              "-fno-fast-math",
+              "-ffp-contract=off",
+              "-fno-omit-frame-pointer",
+              "-isysroot",
+              "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk",
+              "-mmacosx-version-min=26.0"
+            ]
+          },
+          "thread_sanitizer": {
+            "archive": "${OPENSUBDIV_TSAN_ROOT}/lib/libosdCPU.a",
+            "compile_flags": [
+              "-std=c++17",
+              "-O1",
+              "-g",
+              "-DNDEBUG",
+              "-fno-fast-math",
+              "-ffp-contract=off",
+              "-fno-omit-frame-pointer",
+              "-isysroot",
+              "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk",
+              "-mmacosx-version-min=26.0",
+              "-fsanitize=thread"
+            ]
+          }
+        },
+        "provenance_evidence_required": [
+          "exact configure/build/install command transcripts with expanded absolute roots and environment",
+          "CMakeCache.txt and configure stdout/stderr",
+          "compile_commands.json",
+          "verbose single-worker osd_static_cpu build log",
+          "opensubdiv/CMakeFiles/osd_static_cpu.dir/link.txt",
+          "raw ar -t archive member list in exact order, including Apple's leading __.SYMDEF linker symbol table",
+          "per-translation-unit source-relative path, source SHA-256, object/member basename, and full compile command ledger",
+          "installed libosdCPU.a byte size and SHA-256",
+          "candidate proof full compile/link commands, linker map, dependency file, binary SHA-256, and otool -L output"
+        ],
+        "provenance_fail_closed_audit": "for each profile, require clean pinned source; exact configure options and environment; translation-unit ledger exactly equal to translation_units_in_target_order; raw ar -t output exactly equal to expected_raw_ar_t_members_in_order; after removing the one leading __.SYMDEF linker symbol-table member, object members exactly equal to expected_archive_member_basenames_in_target_order; every OpenSubdiv compile command contains that profile's exact flags and no conflicting optimization, fast-math, contraction, architecture, deployment, or sanitizer flag; release and TSan build/install roots are pairwise disjoint; candidate include/archive paths name the matching exact profile; candidate proof commands separately contain common_release_compile_flags; any missing/extra TU, member, flag, command, hash, or dependency is BUILD_PROVENANCE_FAILURE and leaves B2 evidence incomplete",
+        "release_archive": "${OPENSUBDIV_ROOT}/lib/libosdCPU.a",
+        "release_compile_flags": [
+          "-std=c++17",
+          "-O3",
+          "-DNDEBUG",
+          "-fno-fast-math",
+          "-ffp-contract=off",
+          "-fno-omit-frame-pointer",
+          "-isysroot",
+          "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk",
+          "-mmacosx-version-min=26.0"
+        ],
+        "source_checkout": "${OPENSUBDIV_SOURCE}",
+        "source_cleanliness": "git rev-parse HEAD must equal tag_commit; git status --porcelain=v1 must be empty; record git rev-parse HEAD^{tree} and SHA-256 of every translation unit",
+        "static_target_object_groups_in_order": [
+          "opensubdiv/version.cpp",
+          "sdc_obj",
+          "vtr_obj",
+          "far_obj",
+          "bfr_obj",
+          "osd_cpu_obj"
+        ],
+        "tag_commit": "9dab8a47bfbb1388ec8388fe61f5f916e6123f38",
+        "translation_units_in_target_order": [
+          "opensubdiv/version.cpp",
+          "opensubdiv/sdc/crease.cpp",
+          "opensubdiv/sdc/typeTraits.cpp",
+          "opensubdiv/vtr/fvarLevel.cpp",
+          "opensubdiv/vtr/fvarRefinement.cpp",
+          "opensubdiv/vtr/level.cpp",
+          "opensubdiv/vtr/quadRefinement.cpp",
+          "opensubdiv/vtr/refinement.cpp",
+          "opensubdiv/vtr/sparseSelector.cpp",
+          "opensubdiv/vtr/triRefinement.cpp",
+          "opensubdiv/far/bilinearPatchBuilder.cpp",
+          "opensubdiv/far/catmarkPatchBuilder.cpp",
+          "opensubdiv/far/error.cpp",
+          "opensubdiv/far/loopPatchBuilder.cpp",
+          "opensubdiv/far/patchBasis.cpp",
+          "opensubdiv/far/patchBuilder.cpp",
+          "opensubdiv/far/patchDescriptor.cpp",
+          "opensubdiv/far/patchMap.cpp",
+          "opensubdiv/far/patchTable.cpp",
+          "opensubdiv/far/patchTableFactory.cpp",
+          "opensubdiv/far/ptexIndices.cpp",
+          "opensubdiv/far/stencilTable.cpp",
+          "opensubdiv/far/stencilTableFactory.cpp",
+          "opensubdiv/far/stencilBuilder.cpp",
+          "opensubdiv/far/topologyDescriptor.cpp",
+          "opensubdiv/far/topologyRefiner.cpp",
+          "opensubdiv/far/topologyRefinerFactory.cpp",
+          "opensubdiv/bfr/faceSurface.cpp",
+          "opensubdiv/bfr/faceTopology.cpp",
+          "opensubdiv/bfr/faceVertex.cpp",
+          "opensubdiv/bfr/hash.cpp",
+          "opensubdiv/bfr/irregularPatchBuilder.cpp",
+          "opensubdiv/bfr/parameterization.cpp",
+          "opensubdiv/bfr/patchTree.cpp",
+          "opensubdiv/bfr/patchTreeBuilder.cpp",
+          "opensubdiv/bfr/refinerSurfaceFactory.cpp",
+          "opensubdiv/bfr/regularPatchBuilder.cpp",
+          "opensubdiv/bfr/surface.cpp",
+          "opensubdiv/bfr/surfaceData.cpp",
+          "opensubdiv/bfr/surfaceFactory.cpp",
+          "opensubdiv/bfr/surfaceFactoryCache.cpp",
+          "opensubdiv/bfr/tessellation.cpp",
+          "opensubdiv/bfr/vertexDescriptor.cpp",
+          "opensubdiv/osd/cpuEvaluator.cpp",
+          "opensubdiv/osd/cpuKernel.cpp",
+          "opensubdiv/osd/cpuPatchTable.cpp",
+          "opensubdiv/osd/cpuVertexBuffer.cpp"
+        ],
+        "version": "3.7.0"
+      },
+      "oracle_separation": "the D10 MPFR oracle remains a separate executable and may not link OpenSubdiv",
+      "thread_sanitizer_compile_flags": [
+        "-std=c++17",
+        "-O1",
+        "-g",
+        "-DNDEBUG",
+        "-fno-fast-math",
+        "-ffp-contract=off",
+        "-fno-omit-frame-pointer",
+        "-isysroot",
+        "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk",
+        "-mmacosx-version-min=26.0",
+        "-fsanitize=thread"
+      ],
+      "thread_sanitizer_include_flags": [
+        "-I${OPENSUBDIV_TSAN_ROOT}/include"
+      ],
+      "thread_sanitizer_link_inputs": [
+        "-fsanitize=thread",
+        "${OPENSUBDIV_TSAN_ROOT}/lib/libosdCPU.a",
+        "-framework",
+        "IOKit",
+        "-framework",
+        "Foundation"
+      ],
+      "thread_sanitizer_opensubdiv_requirement": "build exactly osd_static_cpu's frozen 47-translation-unit scope from the clean pinned source with the thread_sanitizer profile into the exact disjoint OPENSUBDIV_TSAN_ROOT archive and link that instrumented archive only"
+    },
+    "fingerprint": {
+      "architecture": "arm64",
+      "chip": "Apple M5",
+      "hw_logicalcpu": 10,
+      "hw_memsize_bytes": 25769803776,
+      "hw_model": "Mac17,2",
+      "hw_ncpu": 10,
+      "hw_perflevel0_logicalcpu": 4,
+      "hw_perflevel0_physicalcpu": 4,
+      "hw_perflevel1_logicalcpu": 6,
+      "hw_perflevel1_physicalcpu": 6,
+      "hw_physicalcpu": 10,
+      "kern_hv_vmm_present": 0,
+      "macos_build": "25F80",
+      "macos_version": "26.5.1"
+    },
+    "git_identity": "local artifact records and exactly equals the reviewed B2 head SHA and has an empty worktree",
+    "power": {
+      "api": "IOPSCopyPowerSourcesInfo plus IOPSGetProvidingPowerSourceType",
+      "required_value": "kIOPSACPowerValue",
+      "sampling": "before and after every full case process"
+    },
+    "qualification_failure": "any fingerprint mismatch, API/query failure, non-AC value, virtualization/shared-host evidence, or non-nominal thermal state is UNQUALIFIED_PLATFORM; numeric gates neither pass nor fail and B2 evidence is incomplete; no repeat may be discarded or rerun selectively",
+    "thermal": {
+      "api": "NSProcessInfo.thermalState",
+      "required_value": "NSProcessInfoThermalStateNominal",
+      "sampling": "before and after every full case process"
+    },
+    "workflow_boundary": "GitHub-hosted macos-26 runs correctness, dependency provisioning, and independence audit only; it cannot satisfy D12 numeric platform gates. Qualified numeric evidence is an exact-head local artifact from this physical fingerprint and receives independent technical and scientific review."
+  },
+  "row_order": {
+    "id": "six_source_rows_v1",
+    "rows": [
+      "position",
+      "du",
+      "dv",
+      "duu",
+      "duv",
+      "dvv"
+    ]
+  },
+  "sample_field_contract": {
+    "binary64_rounding": "IEEE-754 roundTiesToEven (C/C++ FE_TONEAREST), verified before conversion",
+    "extraordinary_corner_maps": [
+      {
+        "barycentric": [
+          "1-xi-eta",
+          "xi",
+          "eta"
+        ],
+        "local_corner": 0,
+        "u": "xi",
+        "v": "eta"
+      },
+      {
+        "barycentric": [
+          "eta",
+          "1-xi-eta",
+          "xi"
+        ],
+        "local_corner": 1,
+        "u": "1-xi-eta",
+        "v": "xi"
+      },
+      {
+        "barycentric": [
+          "xi",
+          "eta",
+          "1-xi-eta"
+        ],
+        "local_corner": 2,
+        "u": "eta",
+        "v": "1-xi-eta"
+      }
+    ],
+    "regular_coordinates": "u=u_numerator/6 and v=v_numerator/6, each converted once from the exact rational",
+    "retained_fields": [
+      "u_binary64",
+      "v_binary64",
+      "weight_binary64"
+    ],
+    "trend_coordinates": "xi and eta are exact dyadic rationals; apply extraordinary_corner_maps before binary64 conversion",
+    "weight": {
+      "b1_validation": "strictly positive and finite",
+      "binary64_hex": "0x1.0000000000000p+0",
+      "bits_hex": "3ff0000000000000",
+      "meaning": "validation-only sentinel; forbidden for quadrature, integration, or any D9b claim"
+    }
+  },
+  "sample_policies": [
+    {
+      "count_formula": "S=10 for every selected face",
+      "external_identity_reference": "data/fixtures/candidates/b2p_single_flip_family/family_metadata.json#locality_sample_manifest.samples",
+      "id": "regular_interior_l6_10",
+      "kind": "rational_face_interior",
+      "lattice_denominator": 6,
+      "order": "increasing i+j from 2 through 5, then increasing i; j=(i+j)-i",
+      "samples": [
+        {
+          "barycentric_numerators": [
+            4,
+            1,
+            1
+          ],
+          "id": "tri-l6-s02-u01-v01",
+          "u_numerator": 1,
+          "v_numerator": 1
+        },
+        {
+          "barycentric_numerators": [
+            3,
+            1,
+            2
+          ],
+          "id": "tri-l6-s03-u01-v02",
+          "u_numerator": 1,
+          "v_numerator": 2
+        },
+        {
+          "barycentric_numerators": [
+            3,
+            2,
+            1
+          ],
+          "id": "tri-l6-s03-u02-v01",
+          "u_numerator": 2,
+          "v_numerator": 1
+        },
+        {
+          "barycentric_numerators": [
+            2,
+            1,
+            3
+          ],
+          "id": "tri-l6-s04-u01-v03",
+          "u_numerator": 1,
+          "v_numerator": 3
+        },
+        {
+          "barycentric_numerators": [
+            2,
+            2,
+            2
+          ],
+          "id": "tri-l6-s04-u02-v02",
+          "u_numerator": 2,
+          "v_numerator": 2
+        },
+        {
+          "barycentric_numerators": [
+            2,
+            3,
+            1
+          ],
+          "id": "tri-l6-s04-u03-v01",
+          "u_numerator": 3,
+          "v_numerator": 1
+        },
+        {
+          "barycentric_numerators": [
+            1,
+            1,
+            4
+          ],
+          "id": "tri-l6-s05-u01-v04",
+          "u_numerator": 1,
+          "v_numerator": 4
+        },
+        {
+          "barycentric_numerators": [
+            1,
+            2,
+            3
+          ],
+          "id": "tri-l6-s05-u02-v03",
+          "u_numerator": 2,
+          "v_numerator": 3
+        },
+        {
+          "barycentric_numerators": [
+            1,
+            3,
+            2
+          ],
+          "id": "tri-l6-s05-u03-v02",
+          "u_numerator": 3,
+          "v_numerator": 2
+        },
+        {
+          "barycentric_numerators": [
+            1,
+            4,
+            1
+          ],
+          "id": "tri-l6-s05-u04-v01",
+          "u_numerator": 4,
+          "v_numerator": 1
+        }
+      ]
+    },
+    {
+      "corner_policy_ref": "all_non6_corners",
+      "count_formula": "S=24*K where K is the exact number of selected non-valence-6 corners on that face",
+      "formula": "for radius r=2^-e and ordered ray (a,b), (xi,eta)=r*(a,b)",
+      "id": "extraordinary_trend_24_per_corner",
+      "kind": "extraordinary_corner_trend",
+      "order": "ascending face_row, local_corner, radius_exponent 1..8, ray_index 0..2",
+      "rays": [
+        "(1/4,3/4)",
+        "(1/2,1/2)",
+        "(3/4,1/4)"
+      ],
+      "samples": [
+        {
+          "eta": "3/8",
+          "id": "trend-r01-ray00",
+          "radius": "1/2",
+          "radius_exponent": 1,
+          "ray_index": 0,
+          "xi": "1/8"
+        },
+        {
+          "eta": "1/4",
+          "id": "trend-r01-ray01",
+          "radius": "1/2",
+          "radius_exponent": 1,
+          "ray_index": 1,
+          "xi": "1/4"
+        },
+        {
+          "eta": "1/8",
+          "id": "trend-r01-ray02",
+          "radius": "1/2",
+          "radius_exponent": 1,
+          "ray_index": 2,
+          "xi": "3/8"
+        },
+        {
+          "eta": "3/16",
+          "id": "trend-r02-ray00",
+          "radius": "1/4",
+          "radius_exponent": 2,
+          "ray_index": 0,
+          "xi": "1/16"
+        },
+        {
+          "eta": "1/8",
+          "id": "trend-r02-ray01",
+          "radius": "1/4",
+          "radius_exponent": 2,
+          "ray_index": 1,
+          "xi": "1/8"
+        },
+        {
+          "eta": "1/16",
+          "id": "trend-r02-ray02",
+          "radius": "1/4",
+          "radius_exponent": 2,
+          "ray_index": 2,
+          "xi": "3/16"
+        },
+        {
+          "eta": "3/32",
+          "id": "trend-r03-ray00",
+          "radius": "1/8",
+          "radius_exponent": 3,
+          "ray_index": 0,
+          "xi": "1/32"
+        },
+        {
+          "eta": "1/16",
+          "id": "trend-r03-ray01",
+          "radius": "1/8",
+          "radius_exponent": 3,
+          "ray_index": 1,
+          "xi": "1/16"
+        },
+        {
+          "eta": "1/32",
+          "id": "trend-r03-ray02",
+          "radius": "1/8",
+          "radius_exponent": 3,
+          "ray_index": 2,
+          "xi": "3/32"
+        },
+        {
+          "eta": "3/64",
+          "id": "trend-r04-ray00",
+          "radius": "1/16",
+          "radius_exponent": 4,
+          "ray_index": 0,
+          "xi": "1/64"
+        },
+        {
+          "eta": "1/32",
+          "id": "trend-r04-ray01",
+          "radius": "1/16",
+          "radius_exponent": 4,
+          "ray_index": 1,
+          "xi": "1/32"
+        },
+        {
+          "eta": "1/64",
+          "id": "trend-r04-ray02",
+          "radius": "1/16",
+          "radius_exponent": 4,
+          "ray_index": 2,
+          "xi": "3/64"
+        },
+        {
+          "eta": "3/128",
+          "id": "trend-r05-ray00",
+          "radius": "1/32",
+          "radius_exponent": 5,
+          "ray_index": 0,
+          "xi": "1/128"
+        },
+        {
+          "eta": "1/64",
+          "id": "trend-r05-ray01",
+          "radius": "1/32",
+          "radius_exponent": 5,
+          "ray_index": 1,
+          "xi": "1/64"
+        },
+        {
+          "eta": "1/128",
+          "id": "trend-r05-ray02",
+          "radius": "1/32",
+          "radius_exponent": 5,
+          "ray_index": 2,
+          "xi": "3/128"
+        },
+        {
+          "eta": "3/256",
+          "id": "trend-r06-ray00",
+          "radius": "1/64",
+          "radius_exponent": 6,
+          "ray_index": 0,
+          "xi": "1/256"
+        },
+        {
+          "eta": "1/128",
+          "id": "trend-r06-ray01",
+          "radius": "1/64",
+          "radius_exponent": 6,
+          "ray_index": 1,
+          "xi": "1/128"
+        },
+        {
+          "eta": "1/256",
+          "id": "trend-r06-ray02",
+          "radius": "1/64",
+          "radius_exponent": 6,
+          "ray_index": 2,
+          "xi": "3/256"
+        },
+        {
+          "eta": "3/512",
+          "id": "trend-r07-ray00",
+          "radius": "1/128",
+          "radius_exponent": 7,
+          "ray_index": 0,
+          "xi": "1/512"
+        },
+        {
+          "eta": "1/256",
+          "id": "trend-r07-ray01",
+          "radius": "1/128",
+          "radius_exponent": 7,
+          "ray_index": 1,
+          "xi": "1/256"
+        },
+        {
+          "eta": "1/512",
+          "id": "trend-r07-ray02",
+          "radius": "1/128",
+          "radius_exponent": 7,
+          "ray_index": 2,
+          "xi": "3/512"
+        },
+        {
+          "eta": "3/1024",
+          "id": "trend-r08-ray00",
+          "radius": "1/256",
+          "radius_exponent": 8,
+          "ray_index": 0,
+          "xi": "1/1024"
+        },
+        {
+          "eta": "1/512",
+          "id": "trend-r08-ray01",
+          "radius": "1/256",
+          "radius_exponent": 8,
+          "ray_index": 1,
+          "xi": "1/512"
+        },
+        {
+          "eta": "1/1024",
+          "id": "trend-r08-ray02",
+          "radius": "1/256",
+          "radius_exponent": 8,
+          "ray_index": 2,
+          "xi": "3/1024"
+        }
+      ]
+    },
+    {
+      "components": [
+        "regular_interior_l6_10",
+        "extraordinary_trend_24_per_corner"
+      ],
+      "count_formula": "S=10+24*K for each selected face; component order is listed and duplicate sample IDs are forbidden",
+      "id": "full_surface_plus_extraordinary_trend",
+      "kind": "ordered_composite"
+    },
+    {
+      "components": [
+        "regular_interior_l6_10",
+        "extraordinary_trend_24_per_corner"
+      ],
+      "count_formula": "S=10+24*K; the ten regular samples are exactly the external flip-locality samples and are not duplicated",
+      "flip_locality_reference": "data/fixtures/candidates/b2p_single_flip_family/family_metadata.json#locality_sample_manifest",
+      "id": "full_surface_extraordinary_flip_locality",
+      "kind": "ordered_composite"
+    },
+    {
+      "count_formula": "S=0",
+      "id": "none_rejection",
+      "kind": "none",
+      "reason": "D2 rejection occurs before face/corner/sample/candidate construction"
+    }
+  ],
+  "schema_version": 2,
+  "status": "pending_D12",
+  "threading_protocol": {
+    "candidate": "bfr",
+    "case_selection": "every non-alias entry with threading_bfr_only=true, expanded in entry/member order and deduplicated by content_identity_key",
+    "levels_approxLevelSmooth": [
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8
+    ],
+    "modes": [
+      "cache_disabled",
+      "SurfaceFactoryCacheThreaded"
+    ],
+    "process_identity": [
+      "content_identity_key",
+      "approxLevelSmooth",
+      "mode",
+      "worker_count"
+    ],
+    "rounds": 20,
+    "row_comparison": "exact canonical_row_encoding byte identity across all workers and rounds; missing output or mismatch is blocking",
+    "shared_state_per_process": [
+      "one immutable full-mesh Far::TopologyRefiner",
+      "one shared Bfr::RefinerSurfaceFactory",
+      "for SurfaceFactoryCacheThreaded mode one shared SurfaceFactoryCacheThreaded"
+    ],
+    "synchronization": "one start barrier per round; every worker simultaneously requests the same complete ordered face/sample workload",
+    "teardown": "compare canonical bytes, then destroy each per-worker result after that round; shared refiner/factory/cache persists through all 20 rounds",
+    "tsan": "both B2 proof translation units and every linked OpenSubdiv 3.7.0 translation unit use -fsanitize=thread; zero findings required",
+    "workers": [
+      1,
+      2,
+      4
+    ],
+    "workload_order": "entry member order, ascending face row, sample-policy order, six_source_rows_v1 order, ascending source ID"
+  }
+}
