@@ -388,7 +388,7 @@ infrastructure stops use the explicit availability and criterion states below:
 | `matrix` | expected and observed counts: 294 artifact slots, 196 Bfr cases, 98 Far validation-only cases, 98 Bfr cache pairs, 1,386,000 raw Bfr rows, 4,158,000 anchor-row views, 12,549,936 provider terms, and 37,649,808 anchor-term views. It also carries expected/observed counts and scientific-cell-key or D12-operational-key ledger SHA-256 values per criterion and partition. Pre-result ledgers are derived from the validated frozen corpus before candidate or oracle numeric results are read; observed key sets must match as specified below. |
 | `criteria` | exactly one record for every named criterion below, with criterion ID, target and norm or categorical expectation, applicability, expected/observed cell counts, key-ledger SHA-256, status, maximum/witness when applicable, first failing key, and omission blocker. A maximum/witness is required for an executed numeric criterion and forbidden for an unexecuted one. |
 | `d12_artifact` | a standard `availability` object plus a separate `execution_state` enum: `QUALIFIED_PLATFORM`, `UNQUALIFIED_PLATFORM`, `OMITTED_AFTER_CANDIDATE_FAILURE`, or `OMITTED_AFTER_INFRASTRUCTURE_FAILURE`. A qualified artifact is `PRESENT/QUALIFIED_PLATFORM`; hosted evidence is `PRESENT/UNQUALIFIED_PLATFORM` with its actual hash; non-present availability requires `OMITTED_AFTER_INFRASTRUCTURE_FAILURE`; P9 omission uses `UNAVAILABLE/EXECUTION_UNAVAILABLE` plus `OMITTED_AFTER_CANDIDATE_FAILURE`. Every omitted state carries the named earlier blocker. The exact-head and physical-fingerprint bindings are required only for a present artifact and must validate before it can be qualified. |
-| `verdict` | exactly `PASS`, `FAIL`, or `INCOMPLETE`; first decisive criterion; ordered list of every failed, incomplete, uncovered, and omitted criterion; report-content SHA-256 computed over the RFC 8785 bytes of the entire report with only this field's digest member set to 64 zeroes. |
+| `verdict` | exactly `PASS`, `FAIL`, or `INCOMPLETE`; first decisive criterion; ordered list of every failed, incomplete, uncovered, and omitted criterion; the required serial-only disposition defined below; report-content SHA-256 computed over the RFC 8785 bytes of the entire report with only this field's digest member set to 64 zeroes. |
 
 ### Scientific cell-key and ledger encoding
 
@@ -433,15 +433,39 @@ coverage-state ledger.
 Every `UNCOVERED` cell uses exactly one of these frozen D10 reason codes:
 
 ```text
+ORACLE_INDEPENDENCE_AUDIT_FAILED
+MPFR_4_2_2_UNAVAILABLE
+MPFR_VERSION_MISMATCH
+DIRECTED_INTERVAL_PRIMITIVE_FAILED
+INTERVAL_BRANCH_ORDERING_UNCERTIFIED
 NO_ISOLATION_BY_DEPTH_12
 EIGENBASIS_CERTIFICATION_FAILED
 PARAMETRIC_MAP_CHECK_FAILED
+REGULAR_SUPPORT_NOT_REACHED_BY_DEPTH_30
 UNIFORM_CROSSCHECK_FAILED
 TANGENT_PROJECTION_CHECK_FAILED
 EMPTY_INTERVAL_INTERSECTION
+ORACLE_MIDPOINT_NONFINITE
+ORACLE_MIDPOINT_BINARY64_IMPORT_INEXACT
+NORMALIZATION_LENGTH_NONPOSITIVE
 ORACLE_UNCERTAINTY_BOUND_EXCEEDED
 ORACLE_SERIALIZATION_BOUND_EXCEEDED
 ```
+
+`ORACLE_INDEPENDENCE_AUDIT_FAILED` includes any forbidden source, dependency,
+symbol, library, or existing-row-provider coupling. `MPFR_4_2_2_UNAVAILABLE`
+and `MPFR_VERSION_MISMATCH` preserve the frozen section 3.2 rule even though
+the same unavailable/invalid dependency is also explicit in the top-level
+binding. `DIRECTED_INTERVAL_PRIMITIVE_FAILED` covers an invalid, NaN, infinite,
+divide-by-zero, overflow, underflow, range, or containment failure inside a
+directed primitive. `INTERVAL_BRANCH_ORDERING_UNCERTIFIED` covers every
+cosine-domain, eigenvalue-order, pivot, Gram-Schmidt, child-domain, or other
+branch whose ordering is not certified by disjoint interval endpoints.
+`ORACLE_UNCERTAINTY_BOUND_EXCEEDED` and
+`ORACLE_SERIALIZATION_BOUND_EXCEEDED` apply only to `E_coeff`/`E_geom` oracle
+enclosure and midpoint-serialization certification. Once a row is covered, a
+candidate import failure or candidate `U_coeff`/`U_geom` over D10 is always a
+candidate `FAIL` and can never use an `UNCOVERED` reason.
 
 For `constant_field_bits`, `challenge` is populated with each of the five enum
 values and all other criteria require it to be null. Exactly five expected keys
@@ -464,13 +488,15 @@ and hashed by the identical RFC 8785 outer-array procedure:
 7  repeat_phase     warmup | measured | null
 8  repeat_index     integer 0..2 for warmup or 0..14 for measured | null
 9  face_id          nonnegative integer | null
-10 sample_stage     pre_refiner_baseline | after_refiner |
+10 local_corner     nonnegative integer | null
+11 sample_id        string | null
+12 sample_stage     pre_refiner_baseline | after_refiner |
                     after_factory_cache | after_face_insert |
                     after_package_publication | after_package_destruction |
                     after_factory_cache_destruction |
                     after_refiner_destruction | thread_result |
                     sanitizer_summary | null
-11 quantity         preparation_duration_ns | preparation_median_ns |
+13 quantity         preparation_duration_ns | preparation_median_ns |
                     retained_payload_bytes | rss_bytes | row_digest |
                     instrumentation_coverage | tsan_finding_count
 ```
@@ -480,8 +506,8 @@ Numeric Release criteria cover exactly 14 valid content identities, levels
 preparation-cost ledger has 15 measured-duration cells plus one ordinary-median
 cell per process, exactly 3,136 cells. Retained-payload and RSS ledgers include
 every applicable face and every named frozen D12 sample stage; their exact
-pre-result cardinalities are derived from the validated fixture face counts
-and may not be candidate-selected.
+pre-result cardinalities are derived from the validated fixture face and
+face/sample row-group expansion and may not be candidate-selected.
 
 The threading expansion is exactly 588 process tuples: 14 contents times seven
 levels times two modes (`cache_disabled`,`threaded_cache`) times worker counts
@@ -499,13 +525,34 @@ The per-criterion operational applicability is exact:
 | --- | --- | ---: |
 | `d12_preparation_cost` | `release`; cache-disabled or serial-cache; for duration, measured repeat/index; for median, repeat null; all worker/round/face/stage fields null | `196 * (15 + 1) = 3,136` |
 | `d12_retained_payload` | `release`; cache-disabled or serial-cache; one `retained_payload_bytes` cell per valid face; worker/round/repeat/stage null | Sum of frozen valid-face counts over 196 cases, derived before results |
-| `d12_peak_rss` | `release`; cache-disabled or serial-cache; one pre-refiner baseline with null repeat, then every named stage in every one of three warmups and 15 measured repeats; `face_id` populated only at `after_face_insert` | Frozen stage/face expansion over 196 cases, derived before results |
+| `d12_peak_rss` | `release`; cache-disabled or serial-cache; one pre-refiner baseline with null repeat, then every named stage in every one of three warmups and 15 measured repeats; `face_id`, `local_corner`, and `sample_id` populated only at `after_face_insert`, once per completed face/sample six-row group | Frozen complete face/sample row-group and stage expansion over 196 cases, derived before results |
 | `d12_cache_disabled_concurrency` | `tsan`; cache-disabled; worker count/index, round, `thread_result`, `row_digest` | `13,720` worker-round cells from 294 tuples and 5,880 tuple-rounds |
 | `d12_instrumented_tsan` | `tsan`; both concurrent modes; one `instrumentation_coverage` and one `tsan_finding_count` sanitizer-summary per process tuple, plus every threaded-cache worker-round `row_digest` | `588 * 2 + 13,720 = 14,896` |
 
 Any field not named for a row in this table is null. The existing D12 artifact
 retains all other raw observations, but only these exhaustive keys own the five
 qualification criteria.
+
+Every failed D12 cell uses exactly one of these reason codes:
+
+```text
+PREPARATION_MEDIAN_BUDGET_EXCEEDED
+PREPARATION_SINGLE_RUN_BUDGET_EXCEEDED
+PREPARATION_MEASUREMENT_NONFINITE_OR_NEGATIVE
+PREPARATION_PROCESS_FAILURE
+RETAINED_PAYLOAD_BUDGET_EXCEEDED
+RETAINED_PAYLOAD_INVALID
+PEAK_RSS_BUDGET_EXCEEDED
+RSS_SAMPLE_MISSING_OR_API_FAILURE
+CACHE_DISABLED_CONCURRENCY_MISMATCH
+CACHE_DISABLED_RACE
+THREADED_CACHE_RACE
+THREADED_CACHE_OUTPUT_MISMATCH
+```
+
+An unavailable or unqualified platform, missing instrumentation, or invalid
+build provenance remains criterion `INCOMPLETE`, not one of these candidate
+failure reasons.
 
 The exact criterion-ID set is:
 
@@ -573,7 +620,7 @@ Status ownership and verdict effects are frozen by group:
 | Criterion group | Criterion IDs | Allowed executed outcome and ownership |
 | --- | --- | --- |
 | Required infrastructure | `bindings_and_independence`, `complete_artifact_inventory`, `raw_bfr_d9a_reproduction` | `PASS` or `INCOMPLETE`; never candidate `FAIL`. A missing/invalid binding, corpus mismatch, or failure to reproduce the frozen raw D9a observation is infrastructure incomplete. Later records may be `OMITTED_AFTER_INFRASTRUCTURE_FAILURE`. |
-| Oracle validity/coverage | `oracle_coverage_and_crosscheck` | `PASS`, `UNCOVERED`, or `INCOMPLETE`; never candidate `FAIL`. Per the unchanged D10 section 3.2 contract, no isolation by depth 12, failed eigenbasis or parametric-map certification, failed uniform cross-check or tangent-projection check, empty required interval intersection, or inability to meet the frozen oracle uncertainty/serialization bound is per-cell `UNCOVERED` with its exact reason. `INCOMPLETE` is reserved for unavailable/invalid tool, dependency, executable, provenance, report, or execution infrastructure; when it prevents the oracle run, downstream coverage partitioning is omitted under that infrastructure blocker rather than invented. |
+| Oracle validity/coverage | `oracle_coverage_and_crosscheck` | `PASS`, `UNCOVERED`, or `INCOMPLETE`; never candidate `FAIL`. Every scientific condition named by unchanged D10 section 3.2—including independence/dependency/MPFR failures and every certification condition enumerated above—is per-cell `UNCOVERED` with its exact reason. `INCOMPLETE` is reserved for non-oracle validator, Git, artifact, report, or execution infrastructure that prevents construction of the pre-result request ledger; downstream coverage partitioning is then omitted under that infrastructure blocker rather than invented. |
 | Candidate scientific | `representation_structure`, `constant_field_bits`, `relabel_exact_effective_coefficients`, all four `regular_analytic_*` IDs, all three D10 IDs, all three `anchor_sensitivity_*` IDs, all three binary64 fidelity/diagnostic IDs, all six stabilization IDs, and `cache_mode_bit_identity` | `PASS` or candidate-owned `FAIL` after required inputs validate. Any exceeded numeric/categorical target, nonfinite candidate arithmetic, evaluator-semantics mismatch, structural failure, or cache disagreement is `FAIL`. If it cannot execute because of prior infrastructure, it is omitted with the infrastructure blocker rather than mislabeled. |
 | D12 hybrid | all five `d12_*` IDs | `PASS` or candidate-owned `FAIL` only from exact-head evidence on the qualified frozen physical host; a measured budget overrun or fully instrumented race is `FAIL`. `INCOMPLETE` is required for a missing/unqualified platform, missing instrumentation, invalid provenance, or unavailable evidence. Hosted raw measurements cannot PASS or FAIL numeric budgets. |
 
@@ -583,6 +630,31 @@ verdict effect. `FAIL` is forbidden for infrastructure and oracle groups;
 `UNCOVERED` is forbidden outside the oracle group; `INCOMPLETE` in a candidate
 scientific record is represented as its causal infrastructure record plus
 `OMITTED_AFTER_INFRASTRUCTURE_FAILURE`, not as an ambiguous candidate outcome.
+
+The verdict also contains this closed serial-only disposition:
+
+```text
+serial_only_qualification_eligible = true | false
+serial_only_reason = ELIGIBLE_PENDING_EXPLICIT_USER_DECISION | NOT_ELIGIBLE
+threaded_only_failure_ledger_sha256 = 64 lowercase hex | null
+```
+
+Eligibility is true only when the overall full-scope verdict is `FAIL`, every
+scientific/oracle/regular/constant/relabel/stabilization/cache-disabled/serial-
+cache criterion passes, the qualified physical-host preparation/payload/RSS
+and cache-disabled-concurrency criteria pass, all cache-disabled TSan cells
+pass, the complete 588-tuple TSan ledger is present, and every failing cell is
+a threaded-cache cell with exact reason `THREADED_CACHE_RACE` or
+`THREADED_CACHE_OUTPUT_MISMATCH`. The failure ledger contains precisely those
+sorted D12 operational keys and is hashed by the frozen RFC 8785 procedure.
+When any condition is not met, eligibility is false, the reason is
+`NOT_ELIGIBLE`, and the ledger hash is null.
+
+`ELIGIBLE_PENDING_EXPLICIT_USER_DECISION` is not `PASS`, qualification, a
+route selection, or permission to discard threaded evidence. It only preserves
+the already frozen D12 possibility of a later separately reviewed and
+explicitly user-approved serial-only qualification decision. No result may
+adapt the candidate scope automatically.
 
 Verdict precedence is fail-closed and deterministic:
 

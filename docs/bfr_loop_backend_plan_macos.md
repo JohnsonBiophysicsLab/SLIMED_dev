@@ -1433,9 +1433,11 @@ Frozen proposal:
   `anchored-row-qualification-report-v1` bindings, RFC 8785 digest and fixed
   scientific and D12 cell-key encodings, five constant-challenge keys,
   closed unavailable-input reason codes, pre-result oracle request ledger with
-  the original D10 `UNCOVERED` semantics, explicitly rounded scalar regular
-  integrands, named criterion outcome ownership, early-stop representation,
-  and verdict precedence; and
+  the complete original D10 `UNCOVERED` reasons, explicitly rounded scalar
+  regular integrands, face/sample RSS insertion identities, named criterion
+  outcome ownership, the existing later-decision-only serial-only eligibility
+  after a threaded-only failure, early-stop representation, and verdict
+  precedence; and
 - preserve raw Bfr failure evidence separately, with no normalized or repaired
   provider row and no Far comparison as truth.
 
