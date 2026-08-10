@@ -639,29 +639,48 @@ production budget. No candidate output was used to choose them. D12 remains
 pending technical review, independent scientific review, and explicit user
 approval; until then B2 is stopped.
 
-The reference platform is a dedicated Apple-silicon (`arm64`) macOS runner on
-AC power, with no thermal-pressure indication and no other repository job
-executing. macOS does not provide a supported general-purpose API for pinning
-this process to performance cores, so no affinity claim is permitted. Record
-macOS version, hardware model, chip, performance/efficiency core counts,
-physical memory, compiler, optimization flags, OpenSubdiv identity, and clock
-source in the evidence JSON. A run on Intel macOS, a virtualized or shared
-runner, or a thermally pressured host is reported for information as
-`UNQUALIFIED_PLATFORM` and cannot pass or fail these numeric gates. This
-platform scoping prevents unexplained host variance from becoming a tolerance
-change; changing it requires a reviewed D12 amendment before rerunning B2.
+The numeric reference is one physical host with this exact fingerprint:
+macOS `26.5.1` build `25F80`, `arm64`, `hw.model=Mac17,2`, chip `Apple M5`,
+`hw.memsize=25769803776`, `hw.ncpu=10`, `hw.logicalcpu=10`,
+`hw.perflevel0.logicalcpu=4`, and `hw.perflevel1.logicalcpu=6`. The compiler is
+exactly `/Library/Developer/CommandLineTools/usr/bin/clang++`, reporting
+`Apple clang version 21.0.0 (clang-2100.1.1.101)`. The manifest freezes the
+complete ordered Release compile/link flags, one candidate proof binary
+containing both Bfr and Far, OpenSubdiv `3.7.0` at section 3.2's exact tagged
+commit, and MPFR `4.2.2`. The D10 MPFR
+oracle remains a separate executable that may not link OpenSubdiv.
 
-The preparation operation begins immediately before construction of a fresh
-full-mesh `Far::TopologyRefiner`, then includes candidate construction of all
-face surfaces and the six source-keyed rows at every manifest sample, and ends
-only after the complete immutable row collection is validated. It excludes
-fixture parsing, oracle work, JSON serialization, and disk I/O; each candidate
-builds the same pinned refiner input inside its own measured operation. Each exact
-`(candidate, fixture, approximation-level, applicable-cache-mode)` case runs in
-a fresh process, performs **3 unrecorded warmups followed by 15 measured
-preparations** in one process, discards no measured repeat, reports all 15
-nanosecond durations, and gates on their ordinary median (the eighth sorted
-value). System monotonic wall time is the unit. The fixed sweeps are Bfr
+Before and after every full case process, power is read through
+`IOPSCopyPowerSourcesInfo` plus `IOPSGetProvidingPowerSourceType` and must equal
+`kIOPSACPowerValue`; `NSProcessInfo.thermalState` must equal
+`NSProcessInfoThermalStateNominal`. Numeric time uses
+`mach_continuous_time` converted with `mach_timebase_info`. Any fingerprint
+mismatch, API/query failure, non-AC power, non-nominal thermal state, or
+virtual/shared-host evidence is `UNQUALIFIED_PLATFORM`: numeric gates neither
+pass nor fail, no repeat is discarded or selectively rerun, and B2 evidence is
+incomplete. A clock/conversion failure is `MEASUREMENT_PROTOCOL_FAILURE` with
+the same incomplete-evidence consequence.
+
+The GitHub-hosted `macos-26` workflow remains mandatory for exact-head
+correctness, dependency provisioning, and independence audit, but it **cannot**
+satisfy the numeric D12 platform gates. Qualified numeric evidence is an
+exact-reviewed-head artifact produced locally on the physical fingerprint
+above with an empty worktree and then independently technically and
+scientifically reviewed. This resolves the workflow/platform distinction; a
+green hosted workflow is not numeric qualification.
+
+Each exact `(candidate, canonical execution case, unique fixture member,
+approximation level, applicable cache mode)` runs in a fresh process. Fixture
+parsing occurs once, then the RSS baseline is sampled once before the first
+refiner. The process performs **3 unrecorded warmups followed by 15 measured
+preparations**. Every one of the 18 repeats constructs a fresh full-mesh
+`Far::TopologyRefiner`, candidate factory/cache, and complete immutable row
+package; validates it; then destroys package, factory/cache, and refiner in that
+order before the next repeat. The timed preparation begins before refiner
+construction and ends after package validation; fixture parsing, oracle work,
+JSON serialization, destruction, and disk I/O are excluded. No measured repeat
+is discarded. All 15 integer-nanosecond durations are reported and the ordinary
+median is the eighth sorted value. The fixed sweeps are Bfr
 `approxLevelSmooth = 2,3,4,5,6,7,8` with `approxLevelSharp = 6`, and Far
 isolation level `2,3,4,5,6,7,8`; equal integers are not treated as
 commensurable settings. Bfr timing and RSS run separately with caching disabled
@@ -675,34 +694,69 @@ categorical threading profile and cannot supply a numeric cost or RSS PASS.
 | --- | ---: | --- |
 | `b2_preparation_median_ms` | `<= 1000.000` for every valid closed-fixture case at every fixed sweep level and each applicable mode defined above | A one-second preparation of at most 192 faces is an a-priori interactive proof-run safety ceiling, not an observed speed target. Any nonfinite/negative duration, missing repeat, or median above the ceiling is `FAIL`. |
 | `b2_preparation_single_run_failstop_ms` | `<= 10000.000` for every measured repeat | Ten seconds catches hangs hidden by an otherwise passing median. Timeout, signal, allocation failure, or any repeat over the ceiling is `FAIL`; it is never discarded as an outlier. |
-| `b2_retained_row_payload_bytes_per_face` | `<= 98304` bytes for every valid closed-fixture case | Exact logical retained payload after validation. For a face with `S` samples, `U` validated face-union source IDs, and `C` total coefficient entries across its exactly `6*S` sparse rows, the byte count is exactly `12 + 4*U + 72*S + 12*C`: signed 32-bit face ID; unsigned 32-bit sample and union counts; `U` signed 32-bit union IDs; three binary64 sample fields; and, per row, unsigned 32-bit kind/count plus one signed 32-bit source ID and one binary64 coefficient per entry. Allocator padding/capacity, refiner memory, executable text, and oracle memory are excluded and reported separately. A missing count, non-six-row sample, arithmetic overflow, or larger value is `FAIL`. The dense upper-bound illustration for 24 irregular trend samples and all 42 refined-icosahedron sources is 74,484 bytes, leaving 23,820 bytes below this a-priori 96-KiB fail-stop; no implementation may omit the row-repeated source IDs to improve the metric. |
-| `b2_preparation_peak_rss_delta_mib` | `<= 64.000` MiB for every valid closed-fixture preparation process | On macOS, take the baseline `MACH_TASK_BASIC_INFO.resident_size` after fixture load but before refiner construction, then sample after refiner construction, factory/cache construction, every completed face-row insertion, and immutable-package publication; gate on the maximum observed nonnegative increase divided by `1048576`. A negative observation is clamped only for reporting to zero; a missing named boundary, sampling failure, process failure, or a larger delta is `FAIL`. The 64-MiB fail-stop is intentionally generous for this at-most-192-face corpus and does not assert production scalability or an unsampled continuous-time peak. |
+| `b2_retained_row_payload_bytes_per_face` | `<= 131072` bytes for every valid closed-fixture case | Exact logical retained payload after validation. For a face with `S` samples, `U` validated face-union source IDs, and `C` total coefficient entries across its exactly `6*S` sparse rows, the byte count is exactly `12 + 4*U + 72*S + 12*C`: signed 32-bit face ID; unsigned 32-bit sample and union counts; `U` signed 32-bit union IDs; three binary64 sample fields; and, per row, unsigned 32-bit kind/count plus one signed 32-bit source ID and one binary64 coefficient per entry. Allocator padding/capacity, refiner memory, executable text, and oracle memory are excluded and reported separately. A missing count, non-six-row sample, arithmetic overflow, or larger value is `FAIL`. Across the exact schema-2 sample policies, the dense all-source upper bound is 105,444 bytes on a 42-source refined-icosahedron face with `S=34`; the a-priori 128-KiB fail-stop leaves 25,628 bytes and no implementation may omit row-repeated source IDs to improve the metric. |
+| `b2_preparation_peak_rss_delta_mib` | `<= 64.000` MiB for every valid closed-fixture preparation process | Read `task_info(mach_task_self(), MACH_TASK_BASIC_INFO, ...)` once for the post-parse/pre-refiner baseline, then in every one of all 18 repeats after refiner construction, factory/cache construction, each completed face-row insertion, immutable-package publication, package destruction, factory/cache destruction, and refiner destruction. Gate on the maximum `max(0,sample-baseline)/1048576` across every named sample; never reset or discard. A missing sample, API/process failure, or larger delta is `FAIL`. |
 
-The complete machine-readable execution order is
-`data/fixtures/candidates/b2_readiness_v1/execution_manifest.json`. Its 17
-ordered entries map, without omission, all 14 unified-plan section 8 rows and
-all three section 7 additions to either an exact checked-in fixture or one exact
-deterministic mutation. Coordinate perturbation adds binary64 deltas
-`(+0x1p-8,-0x1p-9,+0x1p-10)` to vertex row 1 of the asymmetric bipyramid.
-Winding reversal swaps columns 1 and 2 of torus face row 0. The open case
-deletes torus face row 0. The duplicate/non-manifold case appends an exact copy
-of torus face row 0. No B2 code may choose a replacement or silently create a
-different case. The manifest preserves the B2p stable locality-sample manifest
-and its shared-hull rule: `b2p_valence789` and
-`b2p_single_flip_family/base` count once as mesh-level evidence.
+The complete machine-readable authority is schema 2
+`data/fixtures/candidates/b2_readiness_v1/execution_manifest.json`, whose
+canonical-JSON contract digest is
+`676b03e36b4db9fb618f75bddd80382c79e1a824d47353b1244b75f02f1d2bda`.
+Its 17 entries map all `U8-01..U8-14` then `B7-01..B7-03`. Every entry fixes a
+unique execution-case ID, mesh-evidence key, exact fixture members or mutation,
+face and corner order, sample-policy reference, six-row order, candidates,
+numeric applicability, and each source-matrix required check with either an
+executable B2 procedure or an exact scoped `N/A` reason. `B7-01` aliases
+`U8-14`; `B7-02` aliases `U8-09`. Aliases reuse execution bytes but retain and
+report their distinct ordered source checks. The inventory computes unique
+content identities and enforces the byte-identity group shared by
+`b2p_valence789` and `b2p_single_flip_family/base`; prose names cannot create
+independent evidence.
 
-Threading is categorical rather than a timing ratio. The matrix is
-`cache_disabled` and `SurfaceFactoryCacheThreaded`, each at concurrent worker
-counts `1,2,4`, with 20 complete preparation rounds per count and exact byte
-identity of validated rows across workers and rounds. A support claim requires
-zero ThreadSanitizer findings from a build in which **both the B2 proof and all
-linked OpenSubdiv 3.7.0 translation units are TSan-instrumented**. An
-uninstrumented OpenSubdiv build is `UNQUALIFIED`, never PASS. Any detected race
-is `UNSUPPORTED/BLOCKING` for that mode. Cache-disabled concurrent preparation
-and serial cached preparation are independently reported and qualified; a
-threaded-cache result cannot confer status on either. Missing mode/count/round,
-row mismatch, crash, or sanitizer finding is blocking. This adds no automatic
-fallback and does not weaken the existing section 4 threading rule.
+The ten regular interior samples are exactly the hash-covered B2p denominator-6
+locality manifest, in its existing order. Each selected non-valence-6 corner
+adds exactly 24 trend samples: face-row then local-corner order, radius
+`2^-1..2^-8`, then rays `(1/4,3/4)`, `(1/2,1/2)`, `(3/4,1/4)`. Therefore the
+payload formula's sample count is exactly `S=10+24*K` for `K` selected
+extraordinary corners on that face; rejection cases have `S=0`. Flip locality
+reuses, rather than duplicates, the same ten samples. Rows are always
+`position,du,dv,duu,duv,dvv`.
+
+For every proof-only sample the retained `weight` field is binary64 positive
+zero and has no quadrature meaning. Rational face coordinates are converted to
+binary64 once under round-to-nearest-ties-to-even. For extraordinary local
+corner `c`, barycentric weights assign `1-xi-eta` to `c`, `xi` to
+`(c+1) mod 3`, and `eta` to `(c+2) mod 3`; face-local `(u,v)` are barycentric
+weights 1 and 2. The manifest fixes the three expanded corner maps, so no
+candidate may permute a ray or choose a different face frame.
+
+The coordinate perturbation is also bit-frozen. Vertex row 1 input bits are
+`3ff2b851eb851eb8,bfe0cffc0ea99f27,3fc0a3d70a3d70a4`; deltas are
+`3f70000000000000,bf60000000000000,3f50000000000000`; outputs must be
+`3ff2c851eb851eb8,bfe0dffc0ea99f27,3fc0c3d70a3d70a4`. Each addition uses
+IEEE-754 binary64 round-to-nearest-ties-to-even (`FE_TONEAREST`) after verifying
+the input bits. The other three mutations retain their exact face-row rules.
+
+Threading is Bfr-only and categorical. For every unique valid closed content
+identity and every Bfr smooth level `2..8`, cross modes `cache_disabled` and
+`SurfaceFactoryCacheThreaded` with workers `1,2,4` and 20 rounds. Each tuple has
+one fresh process, one shared immutable full-mesh `Far::TopologyRefiner`, one
+shared `Bfr::RefinerSurfaceFactory`, and, in threaded mode, one shared
+`SurfaceFactoryCacheThreaded`. A start barrier releases all workers each round;
+every worker requests the same complete ordered face/sample workload to force
+cache contention. Canonical little-endian `B2ROWV1` bytes must match across all
+workers/rounds. Per-worker results are destroyed after comparison while shared
+state persists through all 20 rounds.
+
+Both proof and all linked OpenSubdiv translation units must be TSan-instrumented
+and produce zero findings. Cache-disabled concurrency and serial-cache
+numeric/row qualification are mandatory. A threaded-cache TSan result that is
+`UNQUALIFIED`, including any linked uninstrumented translation unit, leaves
+B2/D9a evidence incomplete. A detected cache
+race is `UNSUPPORTED/BLOCKING` for threaded support; only when every mandatory
+serial/cache-disabled criterion passes may the packet make an explicitly
+**serial-only** D9a proposal, still subject to reviews and explicit user
+decision. The manifest never infers D9a. Missing tuples, outputs, byte matches,
+or sanitizer coverage are blocking.
 
 The numeric criteria apply only after D12 approval. Widening a number, changing
 the aggregation or platform, omitting/reordering a manifest entry, or changing

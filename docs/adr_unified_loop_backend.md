@@ -287,7 +287,7 @@ Authoritative fixture hashes:
 | `data/fixtures/candidates/b2_readiness_v1/closed_566_refined_icosahedron/candidate_metadata.json` | `f974fb5bb1d542561672c1e7d2d52bf5220acc09dd3b5510dc14f1d98343b0b5` |
 | `data/fixtures/candidates/b2_readiness_v1/closed_566_refined_icosahedron/faces.csv` | `d72e02a882c536643e8a3405efe8bb32c745bc034cbc55dcc1af0d5eba11e1b8` |
 | `data/fixtures/candidates/b2_readiness_v1/closed_566_refined_icosahedron/vertices.csv` | `cb6c618c254b36bbe27ff354f5dc009222e95277188833a3385a4f3c378b0bd6` |
-| `data/fixtures/candidates/b2_readiness_v1/execution_manifest.json` | `f043c51e3274b0b2bb998dadb11357d1e1f091c5f0109506921a212456bbf837` |
+| `data/fixtures/candidates/b2_readiness_v1/execution_manifest.json` | `b84e51a9d150aca1128f27cbc0c2a41115cab35ddc72f2ec878dcdc6143eed0b` |
 | `data/fixtures/candidates/b2_readiness_v1/regular_all6_torus/candidate_metadata.json` | `11aba5339fced78cab1056b99d03766ecf3b0a7178e1c04c5376f1af01f2cf1c` |
 | `data/fixtures/candidates/b2_readiness_v1/regular_all6_torus/faces.csv` | `7797a1ded38d99e83707fb85e23a2a193c5857f7425a5f678ceccb1506c67cd0` |
 | `data/fixtures/candidates/b2_readiness_v1/regular_all6_torus/vertices.csv` | `923914e925eaf0f60eb9a087f0150ad37b9e56bf0191ffc52b5d7fbd91b2903c` |
@@ -306,28 +306,42 @@ protocol in `docs/bfr_loop_backend_plan_macos.md`:
 | --- | ---: | --- |
 | `b2_preparation_median_ms` | `1000.000` | Upper bound on the eighth sorted value of 15 monotonic-wall-time measurements after 3 warmups, per candidate/fixture/level/cache-mode case. |
 | `b2_preparation_single_run_failstop_ms` | `10000.000` | Upper bound on every one of the 15 measured repeats; timeout or missing repeat fails. |
-| `b2_retained_row_payload_bytes_per_face` | `98304` | Per-face upper bound on the exact Bfr-plan section 3.4 logical six-row retained payload; its formula includes the source ID repeated in every sparse-row coefficient entry. |
-| `b2_preparation_peak_rss_delta_mib` | `64.000` | Upper bound on maximum macOS resident-size increase from the post-fixture/pre-refiner baseline, divided by 1048576. |
+| `b2_retained_row_payload_bytes_per_face` | `131072` | Per-face upper bound on the exact Bfr-plan section 3.4 logical six-row retained payload; its formula includes the source ID repeated in every sparse-row coefficient entry. The exact schema-2 corpus/sample-policy dense bound is 105,444 bytes. |
+| `b2_preparation_peak_rss_delta_mib` | `64.000` | Upper bound on the maximum macOS resident-size delta across every named boundary in all 3 warmup plus 15 measured repeats, divided by 1048576; the baseline is sampled once post-parse/pre-refiner. |
+
+The numeric physical fingerprint is macOS `26.5.1` build `25F80`, `arm64`,
+`Mac17,2`, `Apple M5`, 25,769,803,776 bytes, 10 physical/logical cores, and
+perflevel logical counts 4 and 6. Compiler identity is Apple clang 21.0.0
+(`clang-2100.1.1.101`) at the CommandLineTools `clang++` path. The manifest
+freezes exact Release flags, OpenSubdiv 3.7.0 and MPFR 4.2.2 pins, AC/nominal
+thermal checks, `mach_continuous_time`, and the complete fresh-process and RSS
+lifecycle. GitHub-hosted `macos-26` remains correctness/dependency audit only;
+numeric evidence must be an independently reviewed exact-head local artifact
+from this physical host.
 
 The exact sweeps are Bfr smooth levels `2,3,4,5,6,7,8` with sharp level `6`
-and Far isolation levels `2,3,4,5,6,7,8`; their integers are not
-commensurable. Bfr cost/RSS covers cache-disabled and serial-cache modes; Far
-has one uncached proof-only mode labelled `not_applicable`. Those numeric gates
-use a non-sanitized Release proof build. The separate threading profile covers
-Bfr cache-disabled and threaded-cache modes at `1,2,4` workers for 20 rounds.
-Support requires byte-identical rows and zero ThreadSanitizer findings with
-OpenSubdiv itself instrumented. Uninstrumented is `UNQUALIFIED`; any race is
-`UNSUPPORTED/BLOCKING`; cache-disabled concurrent and serial cached modes
-retain separate status.
+and Far isolation levels `2,3,4,5,6,7,8`; their integers are not commensurable.
+Bfr cost/RSS covers cache-disabled and serial-cache modes; Far has one uncached
+proof-only mode. Bfr threading expands every unique valid fixture identity over
+both cache-disabled and threaded-cache modes, all seven levels, workers
+`1,2,4`, and 20 rounds using shared refiner/factory/cache state. A fully
+instrumented threaded-cache `UNQUALIFIED` leaves D9a evidence incomplete. A
+detected cache race is `UNSUPPORTED/BLOCKING`; only a complete mandatory
+serial/cache-disabled PASS may support a separately reviewed **serial-only**
+D9a proposal. This ledger does not infer D9a.
 
-The execution ledger is the hash-covered
-`data/fixtures/candidates/b2_readiness_v1/execution_manifest.json`: exactly 14
-ordered unified-plan section 8 entries followed by exactly three Bfr-plan
-section 7 entries. It fixes all rejection and perturbation mutations, retains
-the existing stable locality manifest, and preserves the rule that the shared
-B2p hull counts only once. D12 remains pending explicit user approval after
-technical and scientific review. Approval changes no existing D10 value,
-fixture, oracle contract, metadata, or hash and does not decide D9a/D9b or D8.
+The hash-covered schema-2 execution ledger is
+`data/fixtures/candidates/b2_readiness_v1/execution_manifest.json`, canonical
+contract SHA-256
+`676b03e36b4db9fb618f75bddd80382c79e1a824d47353b1244b75f02f1d2bda`.
+Exactly 14 ordered unified-plan section 8 entries precede exactly three Bfr-plan
+section 7 entries. Per-row executable procedures or scoped `N/A` reasons,
+aliases, unique byte-evidence groups, face/corner/sample/row order, exact
+binary64 mutation bits, numeric applicability, platform/build, aggregation,
+RSS, and threading are all part of that hash. D12 remains pending explicit user
+approval after technical and scientific review. Approval changes no existing
+D10 value, fixture, oracle contract, metadata, or hash and does not decide
+D9a/D9b or D8.
 
 Expected scientific values stored with a fixture are regression locks only.
 They cannot be the sole WP2 or quadrature oracle.

@@ -16,9 +16,11 @@ import hashlib
 import io
 import json
 import re
+import struct
 import subprocess
 import sys
 import tokenize
+from fractions import Fraction
 from pathlib import Path
 from typing import Any
 
@@ -161,7 +163,7 @@ EXPECTED_B2_READINESS_FIXTURE_HASHES = {
     "data/fixtures/candidates/b2_readiness_v1/closed_566_refined_icosahedron/vertices.csv":
         "cb6c618c254b36bbe27ff354f5dc009222e95277188833a3385a4f3c378b0bd6",
     "data/fixtures/candidates/b2_readiness_v1/execution_manifest.json":
-        "f043c51e3274b0b2bb998dadb11357d1e1f091c5f0109506921a212456bbf837",
+        "b84e51a9d150aca1128f27cbc0c2a41115cab35ddc72f2ec878dcdc6143eed0b",
     "data/fixtures/candidates/b2_readiness_v1/regular_all6_torus/candidate_metadata.json":
         "11aba5339fced78cab1056b99d03766ecf3b0a7178e1c04c5376f1af01f2cf1c",
     "data/fixtures/candidates/b2_readiness_v1/regular_all6_torus/faces.csv":
@@ -179,44 +181,79 @@ EXPECTED_B2_READINESS_FIXTURE_HASHES = {
 EXPECTED_B2_READINESS_CRITERIA = {
     "b2_preparation_median_ms": 1000.000,
     "b2_preparation_single_run_failstop_ms": 10000.000,
-    "b2_retained_row_payload_bytes_per_face": 98304.0,
+    "b2_retained_row_payload_bytes_per_face": 131072.0,
     "b2_preparation_peak_rss_delta_mib": 64.000,
 }
 
-EXPECTED_B2_READINESS_MANIFEST_ROWS = [
-    ["U8-01", "Regular closed/periodic mesh", "b2_readiness_v1/regular_all6_torus"],
-    ["U8-02", "Tetrahedron", "closed_valence3_tetrahedron"],
-    ["U8-03", "Octahedron", "closed_valence4_octahedron"],
-    ["U8-04", "Icosahedron", "closed_valence5"],
-    ["U8-05", "Symmetric 3/4/4 bipyramid", "b2_readiness_v1/symmetric_344_bipyramid"],
-    ["U8-06", "Asymmetric 3/4/4 bipyramid", "b2_readiness_v1/asymmetric_344_bipyramid"],
-    ["U8-07", "Closed mixed 3/4/5", "closed_mixed_valence345"],
-    ["U8-08", "Intended 5/6/6 local patch in a closed mesh", "b2_readiness_v1/closed_566_refined_icosahedron"],
-    ["U8-09", "Non-Platonic closed triangulation", "b2p_valence789"],
-    ["U8-10", "Coordinate-perturbed variants", "mutation:coordinate_perturbation_v1"],
-    ["U8-11", "Reversed/inconsistent winding", "mutation:reverse_face_zero_v1"],
-    ["U8-12", "Open boundary mesh", "mutation:delete_face_zero_v1"],
-    ["U8-13", "Non-manifold/duplicate edge", "mutation:append_face_zero_v1"],
-    ["U8-14", "Topology-mutated/edge-flipped mesh", "b2p_single_flip_family"],
-    ["B7-01", "Single-flip pair family", "b2p_single_flip_family"],
-    ["B7-02", "Closed mesh containing valence 7, 8, and 9 corners", "b2p_valence789"],
-    ["B7-03", "Adjacent extraordinary corners sharing an edge", "b2p_adjacent_extraordinary"],
+EXPECTED_B2_READINESS_MANIFEST_CONTRACT_SHA256 = (
+    "676b03e36b4db9fb618f75bddd80382c79e1a824d47353b1244b75f02f1d2bda")
+EXPECTED_B2_READINESS_GENERATOR_SHA256 = (
+    "02eefa5d7812ea8e0cc54d15055c6f15c9baef11385a2595ba90f41075512c47")
+EXPECTED_B2_READINESS_SOURCE_ROW_IDS = [
+    *[f"U8-{index:02d}" for index in range(1, 15)],
+    "B7-01", "B7-02", "B7-03",
+]
+EXPECTED_B2_READINESS_EXECUTION_CASE_IDS = [
+    "u8_01_regular_closed", "u8_02_tetrahedron", "u8_03_octahedron",
+    "u8_04_icosahedron", "u8_05_symmetric_344", "u8_06_asymmetric_344",
+    "u8_07_mixed_345", "u8_08_closed_566", "u8_09_nonplatonic",
+    "u8_10_coordinate_perturbed", "u8_11_reversed_winding",
+    "u8_12_open_boundary", "u8_13_duplicate_face",
+    "u8_14_edge_flip_family", "b7_01_single_flip_family",
+    "b7_02_valence789", "b7_03_adjacent_extraordinary",
+]
+EXPECTED_B2_READINESS_ALIAS_PAIRS = [
+    ["b7_01_single_flip_family", "u8_14_edge_flip_family"],
+    ["b7_02_valence789", "u8_09_nonplatonic"],
+]
+EXPECTED_B2_READINESS_UNIQUE_CONTENT_IDENTITIES = [
+    "regular_all6_torus", "closed_valence3_tetrahedron",
+    "closed_valence4_octahedron", "closed_valence5",
+    "symmetric_344_bipyramid", "asymmetric_344_bipyramid",
+    "closed_mixed_valence345", "closed_566_refined_icosahedron",
+    "b2p_shared_hull_base", "asymmetric_344_binary64_perturbed",
+    "invalid_reversed_face_zero", "invalid_deleted_face_zero",
+    "invalid_appended_face_zero", "b2p_flip_000", "b2p_flip_001",
+    "b2p_flip_002", "b2p_adjacent_extraordinary",
+]
+EXPECTED_B2_READINESS_VALID_THREAD_CONTENT_IDENTITIES = [
+    value for value in EXPECTED_B2_READINESS_UNIQUE_CONTENT_IDENTITIES
+    if not value.startswith("invalid_")
+]
+EXPECTED_B2_READINESS_SAMPLE_POLICY_IDS = [
+    "regular_interior_l6_10", "extraordinary_trend_24_per_corner",
+    "full_surface_plus_extraordinary_trend",
+    "full_surface_extraordinary_flip_locality", "none_rejection",
 ]
 
 EXPECTED_B2_READINESS_ANCHORS = [
+    "`676b03e36b4db9fb618f75bddd80382c79e1a824d47353b1244b75f02f1d2bda`",
     "3 unrecorded warmups followed by 15 measured\npreparations",
-    "ordinary median (the eighth sorted\nvalue)",
+    "ordinary\nmedian is the eighth sorted value",
     "Bfr\n`approxLevelSmooth = 2,3,4,5,6,7,8` with `approxLevelSharp = 6`",
     "Far\nisolation level `2,3,4,5,6,7,8`",
-    "`MACH_TASK_BASIC_INFO.resident_size`",
+    "`hw.model=Mac17,2`",
+    "`hw.memsize=25769803776`",
+    "`Apple clang version 21.0.0 (clang-2100.1.1.101)`",
+    "`mach_continuous_time` converted with `mach_timebase_info`",
+    "`IOPSCopyPowerSourcesInfo` plus `IOPSGetProvidingPowerSourceType`",
+    "`NSProcessInfo.thermalState`",
     "`UNQUALIFIED_PLATFORM`",
     "`UNSUPPORTED/BLOCKING`",
-    "both the B2 proof and all\nlinked OpenSubdiv 3.7.0 translation units are TSan-instrumented",
-    "counts `1,2,4`, with 20 complete preparation rounds",
+    "one shared immutable full-mesh `Far::TopologyRefiner`",
+    "Per-worker results are destroyed after comparison while shared\nstate persists through all 20 rounds",
     "Far has one proof-only uncached\nconstruction mode, recorded as cache mode `not_applicable`",
     "The TSan build below is a separate\ncategorical threading profile",
     "12 + 4*U + 72*S + 12*C",
     "changes no D10 value or oracle input",
+]
+
+FORBIDDEN_B2_READINESS_CLAIM_TOKENS = [
+    "bfr_" + "qualified",
+    "far_" + "qualified",
+    "candidate_" + "comparison_result",
+    '"d9a_decision": "pass"',
+    '"qualification_claim": "pass"',
 ]
 
 EXPECTED_B2P_ORACLE_ANCHORS = [
@@ -770,11 +807,111 @@ def collect_inventory() -> dict[str, Any]:
         "data/fixtures/candidates/b2_readiness_v1/execution_manifest.json")
     readiness_manifest = json.loads(_text(readiness_manifest_path)) \
         if (ROOT / readiness_manifest_path).is_file() else {}
-    readiness_manifest_rows = [
-        [entry.get("id"), entry.get("row"), entry.get("fixture_or_mutation")]
-        for entry in readiness_manifest.get("entries", [])
+    readiness_entries = readiness_manifest.get("entries", [])
+    readiness_source_row_ids = [
+        entry.get("source_matrix_row_id") for entry in readiness_entries]
+    readiness_execution_case_ids = [
+        entry.get("execution_case_id") for entry in readiness_entries]
+    readiness_alias_pairs = [
+        [entry.get("execution_case_id"), entry.get("alias_of")]
+        for entry in readiness_entries if entry.get("alias_of") is not None
     ]
+    readiness_by_case = {
+        entry.get("execution_case_id"): entry for entry in readiness_entries
+    }
+    readiness_alias_contracts_valid = True
+    for contract in readiness_manifest.get("alias_contracts", []):
+        alias = readiness_by_case.get(contract.get("alias_execution_case_id"), {})
+        canonical = readiness_by_case.get(
+            contract.get("canonical_execution_case_id"), {})
+        if alias.get("alias_of") != canonical.get("execution_case_id"):
+            readiness_alias_contracts_valid = False
+        for field in contract.get("must_equal_fields", []):
+            if alias.get(field) != canonical.get(field):
+                readiness_alias_contracts_valid = False
+        actual_differences = sorted(
+            key for key in set(alias).union(canonical)
+            if alias.get(key) != canonical.get(key)
+        )
+        if actual_differences != sorted(contract.get("permitted_differences", [])):
+            readiness_alias_contracts_valid = False
+
+    readiness_unique_content_identities: list[str] = []
+    readiness_valid_thread_content_identities: list[str] = []
+    for entry in readiness_entries:
+        if entry.get("alias_of") is not None:
+            continue
+        input_spec = entry.get("input", {})
+        if input_spec.get("kind") == "checked_in_fixture":
+            content_keys = [member.get("content_identity_key")
+                            for member in input_spec.get("members", [])]
+        elif input_spec.get("kind") == "deterministic_mutation":
+            content_keys = [input_spec.get("output_content_identity_key")]
+        else:
+            content_keys = []
+        for content_key in content_keys:
+            if content_key not in readiness_unique_content_identities:
+                readiness_unique_content_identities.append(content_key)
+            if (entry.get("numeric_gate_applicability", {}).get(
+                    "threading_bfr_only") and
+                    content_key not in readiness_valid_thread_content_identities):
+                readiness_valid_thread_content_identities.append(content_key)
+
+    expected_entry_fields = {
+        "alias_of", "candidates", "corner_policy_ref", "execution_case_id",
+        "face_policy", "input", "mesh_evidence_key",
+        "numeric_gate_applicability", "row_order_ref", "sample_policy_ref",
+        "source_matrix_checks", "source_matrix_row", "source_matrix_row_id",
+    }
+    readiness_entry_schema_complete = True
+    for entry in readiness_entries:
+        if set(entry) != expected_entry_fields:
+            readiness_entry_schema_complete = False
+        checks = entry.get("source_matrix_checks", [])
+        if not checks or len({item.get("check_id") for item in checks}) != len(checks):
+            readiness_entry_schema_complete = False
+        for item in checks:
+            applicability = item.get("b2_applicability")
+            if applicability == "APPLICABLE":
+                expected = {"b2_applicability", "check_id", "procedure", "source_text"}
+            elif applicability == "N/A":
+                expected = {"b2_applicability", "check_id", "reason", "source_text"}
+            else:
+                expected = set()
+            if set(item) != expected or not item.get(
+                    "procedure" if applicability == "APPLICABLE" else "reason"):
+                readiness_entry_schema_complete = False
+
+    readiness_sample_policies = readiness_manifest.get("sample_policies", [])
+    readiness_sample_policy_ids = [item.get("id")
+                                   for item in readiness_sample_policies]
+    readiness_samples_by_id = {item.get("id"): item
+                               for item in readiness_sample_policies}
+    readiness_regular_samples_equal_b2p = (
+        readiness_samples_by_id.get("regular_interior_l6_10", {}).get("samples") ==
+        b2p_locality_sample_manifest.get("samples"))
+    trend_samples = readiness_samples_by_id.get(
+        "extraordinary_trend_24_per_corner", {}).get("samples", [])
+    readiness_trend_samples_valid = len(trend_samples) == 24
+    for offset, sample in enumerate(trend_samples):
+        exponent, ray = 1 + offset // 3, offset % 3
+        try:
+            xi, eta = Fraction(sample["xi"]), Fraction(sample["eta"])
+            readiness_trend_samples_valid = (
+                readiness_trend_samples_valid and
+                sample["radius_exponent"] == exponent and
+                sample["ray_index"] == ray and
+                sample["id"] == f"trend-r{exponent:02d}-ray{ray:02d}" and
+                xi + eta == Fraction(1, 2 ** exponent))
+        except (KeyError, ValueError, ZeroDivisionError):
+            readiness_trend_samples_valid = False
+
+    readiness_manifest_contract_sha256 = hashlib.sha256(json.dumps(
+        readiness_manifest, sort_keys=True,
+        separators=(",", ":")).encode("utf-8")).hexdigest()
     readiness_generator = _text("scripts/generate_b2_readiness_fixtures.py")
+    readiness_generator_sha256 = hashlib.sha256(
+        readiness_generator.encode("utf-8")).hexdigest()
     readiness_criteria = {
         name: {
             "adr": _markdown_named_float(adr, name),
@@ -784,8 +921,64 @@ def collect_inventory() -> dict[str, Any]:
         }
         for name in EXPECTED_B2_READINESS_CRITERIA
     }
+    readiness_mutation_rules = readiness_manifest.get("mutation_rules", [])
     readiness_mutation_ids = [
-        item.get("id") for item in readiness_manifest.get("mutation_rules", [])
+        item.get("id") for item in readiness_mutation_rules
+    ]
+    coordinate_rule = next((item for item in readiness_mutation_rules
+                            if item.get("id") == "coordinate_perturbation_v1"), {})
+    coordinate_path = ROOT / coordinate_rule.get("base_member_path", "") / "vertices.csv"
+    readiness_coordinate_bits_valid = coordinate_path.is_file()
+    if readiness_coordinate_bits_valid:
+        with coordinate_path.open(newline="", encoding="utf-8") as stream:
+            coordinate_rows = list(csv.reader(stream))
+        for axis, component in enumerate(coordinate_rule.get("components", [])):
+            try:
+                observed_input = float(coordinate_rows[1][axis])
+                observed_delta = float.fromhex(component["delta_binary64_hex"])
+                observed_output = observed_input + observed_delta
+                pairs = [
+                    (observed_input, component["input_binary64_hex"],
+                     component["input_bits_hex"]),
+                    (observed_delta, component["delta_binary64_hex"],
+                     component["delta_bits_hex"]),
+                    (observed_output, component["output_binary64_hex"],
+                     component["output_bits_hex"]),
+                ]
+                readiness_coordinate_bits_valid = (
+                    readiness_coordinate_bits_valid and
+                    component.get("axis") == "xyz"[axis] and
+                    all(value.hex() == hex_value and
+                        struct.pack(">d", value).hex() == bits
+                        for value, hex_value, bits in pairs))
+            except (IndexError, KeyError, ValueError):
+                readiness_coordinate_bits_valid = False
+
+    readiness_byte_identity_groups_valid = True
+    for group in readiness_manifest.get("byte_identity_groups", []):
+        for filename in group.get("required_equal_files", []):
+            contents = [(ROOT / member / filename).read_bytes()
+                        for member in group.get("members", [])
+                        if (ROOT / member / filename).is_file()]
+            if (len(contents) != len(group.get("members", [])) or not contents or
+                    any(content != contents[0] for content in contents[1:])):
+                readiness_byte_identity_groups_valid = False
+
+    plan_readiness_section = bfr_plan.split(
+        "### 3.4 Pending D12 B2-readiness criteria and execution protocol", 1
+    )[-1].split("\n## 4.", 1)[0]
+    adr_readiness_section = adr.split(
+        "### Pending D12 B2-readiness ledger", 1
+    )[-1].split("\nExpected scientific values", 1)[0]
+    readiness_claim_scan = "\n".join([
+        plan_readiness_section, adr_readiness_section,
+        json.dumps(readiness_manifest, sort_keys=True),
+        *[_text(path) for path in EXPECTED_B2_READINESS_FIXTURE_HASHES
+          if path.endswith("candidate_metadata.json") and (ROOT / path).is_file()],
+    ]).lower()
+    readiness_forbidden_claim_tokens = [
+        token for token in FORBIDDEN_B2_READINESS_CLAIM_TOKENS
+        if token in readiness_claim_scan
     ]
     readiness_contract = {
         "anchors": {anchor: anchor in bfr_plan
@@ -795,20 +988,32 @@ def collect_inventory() -> dict[str, Any]:
         "generator_id_present": (
             'GENERATOR_ID = "scripts/generate_b2_readiness_fixtures.py"'
             in readiness_generator),
-        "generator_manifest_rows_present": all(
-            all(value in readiness_generator for value in row)
-            for row in EXPECTED_B2_READINESS_MANIFEST_ROWS),
+        "generator_contract_digest_present": (
+            EXPECTED_B2_READINESS_MANIFEST_CONTRACT_SHA256 in readiness_generator),
+        "generator_sha256": readiness_generator_sha256,
         "generator_mutations_present": all(
             mutation in readiness_generator for mutation in [
                 "coordinate_perturbation_v1", "reverse_face_zero_v1",
                 "delete_face_zero_v1", "append_face_zero_v1"]),
+        "alias_contracts_valid": readiness_alias_contracts_valid,
+        "adr_contract_digest_present": (
+            EXPECTED_B2_READINESS_MANIFEST_CONTRACT_SHA256 in adr),
+        "byte_identity_groups_valid": readiness_byte_identity_groups_valid,
+        "coordinate_mutation_bits_valid": readiness_coordinate_bits_valid,
+        "entry_schema_complete": readiness_entry_schema_complete,
+        "manifest_contract_sha256": readiness_manifest_contract_sha256,
         "manifest_schema_version": readiness_manifest.get("schema_version"),
         "manifest_status": readiness_manifest.get("status"),
         "mutation_ids": readiness_mutation_ids,
-        "shared_hull_deduplication": readiness_manifest.get(
-            "shared_hull_deduplication"),
-        "stable_locality_manifest": readiness_manifest.get(
-            "stable_locality_manifest"),
+        "regular_samples_equal_b2p": readiness_regular_samples_equal_b2p,
+        "sample_policy_ids": readiness_sample_policy_ids,
+        "thread_tuple_count": (
+            len(readiness_valid_thread_content_identities) *
+            len(readiness_manifest.get("threading_protocol", {}).get(
+                "levels_approxLevelSmooth", [])) *
+            len(readiness_manifest.get("threading_protocol", {}).get("modes", [])) *
+            len(readiness_manifest.get("threading_protocol", {}).get("workers", []))),
+        "trend_samples_valid": readiness_trend_samples_valid,
     }
     topology = {
         "valence3_tetrahedron": {
@@ -1069,13 +1274,18 @@ def collect_inventory() -> dict[str, Any]:
             ]),
         },
         "I4_b2_readiness_pending_inputs": {
+            "alias_pairs": readiness_alias_pairs,
             "contract": readiness_contract,
             "criteria": readiness_criteria,
             "expected_criteria": EXPECTED_B2_READINESS_CRITERIA,
             "expected_fixture_sha256": EXPECTED_B2_READINESS_FIXTURE_HASHES,
-            "expected_manifest_rows": EXPECTED_B2_READINESS_MANIFEST_ROWS,
+            "execution_case_ids": readiness_execution_case_ids,
             "fixture_sha256": readiness_fixtures,
-            "manifest_rows": readiness_manifest_rows,
+            "forbidden_claim_tokens": readiness_forbidden_claim_tokens,
+            "source_row_ids": readiness_source_row_ids,
+            "unique_content_identities": readiness_unique_content_identities,
+            "valid_thread_content_identities":
+                readiness_valid_thread_content_identities,
         },
         "I2_scope_performance": {
             "regular_n6_masks_coincide": {
@@ -1376,11 +1586,22 @@ def validate_inventory(report: dict[str, Any], check_adr: bool = True) -> list[s
                 "B2 readiness fixture-hash expectation drift")
         require(i4["fixture_sha256"] == EXPECTED_B2_READINESS_FIXTURE_HASHES,
                 "B2 readiness fixture missing or SHA256 drift")
-        require(i4["expected_manifest_rows"] ==
-                EXPECTED_B2_READINESS_MANIFEST_ROWS,
-                "B2 readiness manifest expectation drift")
-        require(i4["manifest_rows"] == EXPECTED_B2_READINESS_MANIFEST_ROWS,
-                "B2 readiness manifest omission or reordering")
+        require(i4["source_row_ids"] == EXPECTED_B2_READINESS_SOURCE_ROW_IDS,
+                "B2 readiness source-matrix row omission or reordering")
+        require(i4["execution_case_ids"] ==
+                EXPECTED_B2_READINESS_EXECUTION_CASE_IDS and
+                len(set(i4["execution_case_ids"])) == 17,
+                "B2 readiness execution-case identity drift")
+        require(i4["alias_pairs"] == EXPECTED_B2_READINESS_ALIAS_PAIRS,
+                "B2 readiness alias mapping drift")
+        require(i4["unique_content_identities"] ==
+                EXPECTED_B2_READINESS_UNIQUE_CONTENT_IDENTITIES,
+                "B2 readiness unique mesh-evidence aggregation drift")
+        require(i4["valid_thread_content_identities"] ==
+                EXPECTED_B2_READINESS_VALID_THREAD_CONTENT_IDENTITIES,
+                "B2 readiness threading fixture expansion drift")
+        require(i4["forbidden_claim_tokens"] == [],
+                "B2 readiness contains a forbidden result or qualification claim")
         readiness = i4["contract"]
         require(all(readiness["anchors"].values()),
                 "B2 readiness protocol incomplete")
@@ -1393,24 +1614,39 @@ def validate_inventory(report: dict[str, Any], check_adr: bool = True) -> list[s
                 "scientific review",
                 "D12 ADR status drift")
         require(readiness["generator_id_present"] and
-                readiness["generator_manifest_rows_present"] and
+                readiness["generator_contract_digest_present"] and
                 readiness["generator_mutations_present"],
                 "B2 readiness generator/manifest cross-check failed")
-        require(readiness["manifest_schema_version"] == 1 and
+        require(readiness["generator_sha256"] ==
+                EXPECTED_B2_READINESS_GENERATOR_SHA256,
+                "B2 readiness generator source drift")
+        require(readiness["manifest_contract_sha256"] ==
+                EXPECTED_B2_READINESS_MANIFEST_CONTRACT_SHA256,
+                "B2 readiness manifest contract/rationale drift")
+        require(readiness["adr_contract_digest_present"],
+                "B2 readiness ADR/manifest contract cross-check drift")
+        require(readiness["manifest_schema_version"] == 2 and
                 readiness["manifest_status"] == "pending_D12",
                 "B2 readiness manifest approval state drift")
         require(readiness["mutation_ids"] == [
                     "coordinate_perturbation_v1", "reverse_face_zero_v1",
                     "delete_face_zero_v1", "append_face_zero_v1"],
                 "B2 readiness mutation rule omission or reordering")
-        require(readiness["shared_hull_deduplication"] ==
-                "b2p_valence789 and b2p_single_flip_family/base share bytes "
-                "and count once as mesh-level evidence",
-                "B2 readiness shared-hull deduplication drift")
-        require(readiness["stable_locality_manifest"] ==
-                "data/fixtures/candidates/b2p_single_flip_family/"
-                "family_metadata.json#locality_sample_manifest",
-                "B2 readiness stable locality-manifest drift")
+        require(readiness["entry_schema_complete"],
+                "B2 readiness entry/source-check schema incomplete")
+        require(readiness["alias_contracts_valid"],
+                "B2 readiness row-specific alias contract drift")
+        require(readiness["byte_identity_groups_valid"],
+                "B2 readiness shared fixture-byte evidence drift")
+        require(readiness["coordinate_mutation_bits_valid"],
+                "B2 readiness coordinate mutation binary64 drift")
+        require(readiness["sample_policy_ids"] ==
+                EXPECTED_B2_READINESS_SAMPLE_POLICY_IDS and
+                readiness["regular_samples_equal_b2p"] and
+                readiness["trend_samples_valid"],
+                "B2 readiness sample policy omission/order/formula drift")
+        require(readiness["thread_tuple_count"] == 588,
+                "B2 readiness threading Cartesian product drift")
         require(i3["row_invariants_remain_distinct"],
                 "B2p row invariants conflated with accuracy targets")
 

@@ -6,11 +6,13 @@ import csv
 import hashlib
 import json
 import math
+import struct
 import subprocess
 import sys
 import tempfile
 import unittest
 from collections import defaultdict, deque
+from fractions import Fraction
 from pathlib import Path
 
 
@@ -30,7 +32,7 @@ EXPECTED_HASHES = {
     "closed_566_refined_icosahedron/candidate_metadata.json": "f974fb5bb1d542561672c1e7d2d52bf5220acc09dd3b5510dc14f1d98343b0b5",
     "closed_566_refined_icosahedron/faces.csv": "d72e02a882c536643e8a3405efe8bb32c745bc034cbc55dcc1af0d5eba11e1b8",
     "closed_566_refined_icosahedron/vertices.csv": "cb6c618c254b36bbe27ff354f5dc009222e95277188833a3385a4f3c378b0bd6",
-    "execution_manifest.json": "f043c51e3274b0b2bb998dadb11357d1e1f091c5f0109506921a212456bbf837",
+    "execution_manifest.json": "b84e51a9d150aca1128f27cbc0c2a41115cab35ddc72f2ec878dcdc6143eed0b",
     "regular_all6_torus/candidate_metadata.json": "11aba5339fced78cab1056b99d03766ecf3b0a7178e1c04c5376f1af01f2cf1c",
     "regular_all6_torus/faces.csv": "7797a1ded38d99e83707fb85e23a2a193c5857f7425a5f678ceccb1506c67cd0",
     "regular_all6_torus/vertices.csv": "923914e925eaf0f60eb9a087f0150ad37b9e56bf0191ffc52b5d7fbd91b2903c",
@@ -40,21 +42,8 @@ EXPECTED_HASHES = {
 }
 EXPECTED_ROW_IDS = [f"U8-{index:02d}" for index in range(1, 15)] + [
     "B7-01", "B7-02", "B7-03"]
-EXPECTED_FIXTURE_ROOTS = {
-    "b2_readiness_v1": "data/fixtures/candidates/b2_readiness_v1",
-    "b2p_adjacent_extraordinary":
-        "data/fixtures/candidates/b2p_adjacent_extraordinary",
-    "b2p_single_flip_family":
-        "data/fixtures/candidates/b2p_single_flip_family",
-    "b2p_valence789": "data/fixtures/candidates/b2p_valence789",
-    "closed_mixed_valence345":
-        "data/fixtures/candidates/closed_mixed_valence345",
-    "closed_valence3_tetrahedron":
-        "data/fixtures/candidates/closed_valence3_tetrahedron",
-    "closed_valence4_octahedron":
-        "data/fixtures/candidates/closed_valence4_octahedron",
-    "closed_valence5": "data/fixtures/closed_valence5",
-}
+EXPECTED_MANIFEST_CONTRACT_SHA256 = (
+    "676b03e36b4db9fb618f75bddd80382c79e1a824d47353b1244b75f02f1d2bda")
 
 
 def read_vertices(path: Path) -> list[tuple[float, float, float]]:
@@ -302,7 +291,7 @@ class B2ReadinessFixturesTest(unittest.TestCase):
                                     triangles[left_index], triangles[right_index]),
                                 (member, left_index, right_index))
 
-    def test_C_hash_ledger_and_cross_python_byte_reproduction(self) -> None:
+    def test_C_hash_ledger_and_current_interpreter_byte_reproduction(self) -> None:
         observed = {
             str(path.relative_to(FIXTURE_ROOT)):
                 hashlib.sha256(path.read_bytes()).hexdigest()
@@ -325,22 +314,104 @@ class B2ReadinessFixturesTest(unittest.TestCase):
 
     def test_D_manifest_is_complete_ordered_and_has_exact_mutations(self) -> None:
         manifest = json.loads((FIXTURE_ROOT / "execution_manifest.json").read_text())
-        self.assertEqual([entry["id"] for entry in manifest["entries"]],
+        self.assertEqual(manifest["schema_version"], 2)
+        self.assertEqual(manifest["status"], "pending_D12")
+        contract_digest = hashlib.sha256(json.dumps(
+            manifest, sort_keys=True,
+            separators=(",", ":")).encode()).hexdigest()
+        self.assertEqual(contract_digest, EXPECTED_MANIFEST_CONTRACT_SHA256)
+        self.assertEqual([entry["source_matrix_row_id"]
+                          for entry in manifest["entries"]],
                          EXPECTED_ROW_IDS)
         self.assertEqual(len(manifest["entries"]), 17)
-        self.assertEqual(manifest["fixture_roots"], EXPECTED_FIXTURE_ROOTS)
-        for relative in EXPECTED_FIXTURE_ROOTS.values():
-            self.assertTrue((ROOT / relative).is_dir(), relative)
+        case_ids = [entry["execution_case_id"] for entry in manifest["entries"]]
+        self.assertEqual(len(set(case_ids)), 17)
+        required_entry_fields = {
+            "alias_of", "candidates", "corner_policy_ref", "execution_case_id",
+            "face_policy", "input", "mesh_evidence_key",
+            "numeric_gate_applicability", "row_order_ref", "sample_policy_ref",
+            "source_matrix_checks", "source_matrix_row", "source_matrix_row_id",
+        }
+        for entry in manifest["entries"]:
+            self.assertEqual(set(entry), required_entry_fields)
+            self.assertEqual(entry["face_policy"],
+                             {"kind": "all_faces", "order": "ascending_csv_row"})
+            self.assertEqual(entry["row_order_ref"], "six_source_rows_v1")
+            self.assertEqual(entry["candidates"], ["bfr", "far"])
+            self.assertTrue(entry["source_matrix_checks"])
+            check_ids = [item["check_id"] for item in entry["source_matrix_checks"]]
+            self.assertEqual(len(check_ids), len(set(check_ids)))
+            for item in entry["source_matrix_checks"]:
+                if item["b2_applicability"] == "APPLICABLE":
+                    self.assertEqual(set(item), {
+                        "b2_applicability", "check_id", "procedure", "source_text"})
+                    self.assertTrue(item["procedure"])
+                else:
+                    self.assertEqual(item["b2_applicability"], "N/A")
+                    self.assertEqual(set(item), {
+                        "b2_applicability", "check_id", "reason", "source_text"})
+                    self.assertTrue(item["reason"].startswith("N/A in B2:"))
+
+        by_case = {entry["execution_case_id"]: entry
+                   for entry in manifest["entries"]}
+        expected_aliases = {
+            "b7_01_single_flip_family": "u8_14_edge_flip_family",
+            "b7_02_valence789": "u8_09_nonplatonic",
+        }
+        self.assertEqual({key: by_case[key]["alias_of"] for key in expected_aliases},
+                         expected_aliases)
+        for contract in manifest["alias_contracts"]:
+            alias = by_case[contract["alias_execution_case_id"]]
+            canonical = by_case[contract["canonical_execution_case_id"]]
+            self.assertEqual(alias["alias_of"], canonical["execution_case_id"])
+            for field in contract["must_equal_fields"]:
+                self.assertEqual(alias[field], canonical[field], field)
+            differences = sorted(key for key in set(alias).union(canonical)
+                                 if alias.get(key) != canonical.get(key))
+            self.assertEqual(differences,
+                             sorted(contract["permitted_differences"]))
+
         self.assertEqual([rule["id"] for rule in manifest["mutation_rules"]], [
             "coordinate_perturbation_v1", "reverse_face_zero_v1",
             "delete_face_zero_v1", "append_face_zero_v1"])
-        self.assertIn("count once", manifest["shared_hull_deduplication"])
-        self.assertIn("mesh-level aggregation obeys shared_hull_deduplication",
-                      manifest["ordering_contract"])
-        self.assertEqual(
-            manifest["stable_locality_manifest"],
-            "data/fixtures/candidates/b2p_single_flip_family/"
-            "family_metadata.json#locality_sample_manifest")
+        identity_group = manifest["byte_identity_groups"][0]
+        self.assertTrue(identity_group["count_once"])
+        for filename in identity_group["required_equal_files"]:
+            contents = [(ROOT / member / filename).read_bytes()
+                        for member in identity_group["members"]]
+            self.assertEqual(contents[0], contents[1])
+
+        sample_policies = {item["id"]: item for item in manifest["sample_policies"]}
+        family = json.loads((ROOT / "data/fixtures/candidates/"
+                             "b2p_single_flip_family/family_metadata.json").read_text())
+        self.assertEqual(sample_policies["regular_interior_l6_10"]["samples"],
+                         family["locality_sample_manifest"]["samples"])
+        trend = sample_policies["extraordinary_trend_24_per_corner"]["samples"]
+        self.assertEqual(len(trend), 24)
+        for offset, sample in enumerate(trend):
+            exponent, ray = 1 + offset // 3, offset % 3
+            self.assertEqual(sample["id"], f"trend-r{exponent:02d}-ray{ray:02d}")
+            self.assertEqual(Fraction(sample["xi"]) + Fraction(sample["eta"]),
+                             Fraction(1, 2 ** exponent))
+        self.assertEqual(manifest["row_order"]["rows"],
+                         ["position", "du", "dv", "duu", "duv", "dvv"])
+
+        coordinate_rule = manifest["mutation_rules"][0]
+        asymmetric = FIXTURE_ROOT / "asymmetric_344_bipyramid"
+        input_values = read_vertices(asymmetric / "vertices.csv")[1]
+        output_values = []
+        for axis, component in enumerate(coordinate_rule["components"]):
+            input_value = input_values[axis]
+            delta = float.fromhex(component["delta_binary64_hex"])
+            output = input_value + delta
+            output_values.append(output)
+            for value, hex_key, bits_key in (
+                    (input_value, "input_binary64_hex", "input_bits_hex"),
+                    (delta, "delta_binary64_hex", "delta_bits_hex"),
+                    (output, "output_binary64_hex", "output_bits_hex")):
+                self.assertEqual(value.hex(), component[hex_key])
+                self.assertEqual(struct.pack(">d", value).hex(), component[bits_key])
+        self.assertIn("FE_TONEAREST", coordinate_rule["rounding"])
 
         torus = FIXTURE_ROOT / "regular_all6_torus"
         vertices, faces = read_vertices(torus / "vertices.csv"), read_faces(torus / "faces.csv")
@@ -351,14 +422,86 @@ class B2ReadinessFixturesTest(unittest.TestCase):
             with self.assertRaises(AssertionError):
                 validate_topology(vertices, invalid)
 
-        asymmetric = FIXTURE_ROOT / "asymmetric_344_bipyramid"
         perturbed = list(read_vertices(asymmetric / "vertices.csv"))
-        x, y, z = perturbed[1]
-        perturbed[1] = (x + float.fromhex("0x1p-8"),
-                        y - float.fromhex("0x1p-9"),
-                        z + float.fromhex("0x1p-10"))
+        perturbed[1] = tuple(output_values)
         self.assertEqual(validate_topology(
             perturbed, read_faces(asymmetric / "faces.csv")), [4, 4, 4, 3, 3])
+
+    def test_E_platform_rss_threading_and_aggregation_are_frozen(self) -> None:
+        manifest = json.loads((FIXTURE_ROOT / "execution_manifest.json").read_text())
+        platform = manifest["qualification_platform"]
+        self.assertEqual(platform["fingerprint"], {
+            "architecture": "arm64", "chip": "Apple M5",
+            "hw_logicalcpu": 10, "hw_memsize_bytes": 25769803776,
+            "hw_model": "Mac17,2", "hw_ncpu": 10,
+            "hw_perflevel0_logicalcpu": 4,
+            "hw_perflevel0_physicalcpu": 4,
+            "hw_perflevel1_logicalcpu": 6,
+            "hw_perflevel1_physicalcpu": 6,
+            "hw_physicalcpu": 10,
+            "kern_hv_vmm_present": 0,
+            "macos_build": "25F80", "macos_version": "26.5.1",
+        })
+        self.assertEqual(platform["build"]["compiler_path"],
+                         "/Library/Developer/CommandLineTools/usr/bin/clang++")
+        self.assertIn("both Bfr and Far",
+                      platform["build"]["candidate_proof_binary"])
+        self.assertEqual(platform["build"]["thread_sanitizer_compile_flags"], [
+            "-std=c++17", "-O1", "-g", "-DNDEBUG", "-fno-fast-math",
+            "-ffp-contract=off", "-fno-omit-frame-pointer", "-isysroot",
+            "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk",
+            "-mmacosx-version-min=26.0", "-fsanitize=thread",
+        ])
+        self.assertEqual(platform["build"]["thread_sanitizer_link_inputs"], [
+            "-fsanitize=thread",
+            "${OPENSUBDIV_TSAN_ROOT}/lib/libosdCPU.a",
+            "-framework", "IOKit", "-framework", "Foundation",
+        ])
+        self.assertIn("rebuild every linked OpenSubdiv 3.7.0 translation unit",
+                      platform["build"]["thread_sanitizer_opensubdiv_requirement"])
+        self.assertIn("cannot satisfy D12 numeric platform gates",
+                      platform["workflow_boundary"])
+        self.assertEqual(platform["power"]["required_value"], "kIOPSACPowerValue")
+        self.assertEqual(platform["thermal"]["required_value"],
+                         "NSProcessInfoThermalStateNominal")
+
+        numeric = manifest["numeric_measurement_protocol"]
+        self.assertTrue(numeric["fresh_process_per_case"])
+        self.assertEqual(numeric["repeats"], {"measured": 15, "warmup": 3})
+        rss = numeric["rss_lifecycle"]
+        self.assertEqual(len(rss["named_boundaries_per_repeat"]), 7)
+        self.assertIn("all 18 repeats", rss["delta"])
+        self.assertEqual(rss["teardown"],
+                         "destroy package, then factory/cache, then refiner before the next repeat")
+
+        threading = manifest["threading_protocol"]
+        self.assertEqual(threading["candidate"], "bfr")
+        self.assertEqual(threading["levels_approxLevelSmooth"], list(range(2, 9)))
+        self.assertEqual(threading["modes"],
+                         ["cache_disabled", "SurfaceFactoryCacheThreaded"])
+        self.assertEqual(threading["workers"], [1, 2, 4])
+        self.assertEqual(threading["rounds"], 20)
+        self.assertIn("one start barrier", threading["synchronization"])
+        self.assertIn("shared refiner/factory/cache persists",
+                      threading["teardown"])
+        self.assertEqual(manifest["d9a_rollup"]["decision_authority"],
+                         "this manifest produces evidence status only and never infers or records D9a")
+        sample_fields = manifest["sample_field_contract"]
+        self.assertEqual(sample_fields["weight"]["bits_hex"], "0000000000000000")
+        self.assertEqual(
+            [item["local_corner"] for item in
+             sample_fields["extraordinary_corner_maps"]], [0, 1, 2])
+
+    def test_F_synthetic_disconnected_surface_predicate_is_rejected(self) -> None:
+        source = ROOT / "data/fixtures/candidates/closed_valence3_tetrahedron"
+        vertices = read_vertices(source / "vertices.csv")
+        faces = read_faces(source / "faces.csv")
+        shifted = [(x + 10.0, y, z) for x, y, z in vertices]
+        disconnected_vertices = vertices + shifted
+        disconnected_faces = faces + [tuple(index + len(vertices) for index in face)
+                                      for face in faces]
+        with self.assertRaisesRegex(AssertionError, "surface is disconnected"):
+            validate_topology(disconnected_vertices, disconnected_faces)
 
 
 if __name__ == "__main__":

@@ -576,15 +576,36 @@ class UnifiedLoopBaselineInventoryTest(unittest.TestCase):
             lambda r: r["I4_b2_readiness_pending_inputs"]["criteria"]
             ["b2_preparation_median_ms"].update({"bfr_plan": 1001.0}))
         self.assert_mutation_rejected(
-            lambda r: r["I4_b2_readiness_pending_inputs"]["manifest_rows"].pop())
+            lambda r: r["I4_b2_readiness_pending_inputs"]["execution_case_ids"].pop())
         self.assert_mutation_rejected(
-            lambda r: r["I4_b2_readiness_pending_inputs"]["manifest_rows"].reverse())
+            lambda r: r["I4_b2_readiness_pending_inputs"]["source_row_ids"].reverse())
+        self.assert_mutation_rejected(
+            lambda r: r["I4_b2_readiness_pending_inputs"]["alias_pairs"][0]
+            .__setitem__(1, "u8_09_nonplatonic"))
+        self.assert_mutation_rejected(
+            lambda r: r["I4_b2_readiness_pending_inputs"]
+            ["unique_content_identities"].pop())
+        self.assert_mutation_rejected(
+            lambda r: r["I4_b2_readiness_pending_inputs"]
+            ["forbidden_claim_tokens"].append("bfr_qualified"))
         self.assert_mutation_rejected(
             lambda r: r["I4_b2_readiness_pending_inputs"]["contract"].update(
                 {"d12_plan_status": "Approved"}))
         self.assert_mutation_rejected(
             lambda r: r["I4_b2_readiness_pending_inputs"]["contract"]
             ["mutation_ids"].pop())
+        self.assert_mutation_rejected(
+            lambda r: r["I4_b2_readiness_pending_inputs"]["contract"].update(
+                {"manifest_contract_sha256": "0" * 64}))
+        self.assert_mutation_rejected(
+            lambda r: r["I4_b2_readiness_pending_inputs"]["contract"].update(
+                {"alias_contracts_valid": False}))
+        self.assert_mutation_rejected(
+            lambda r: r["I4_b2_readiness_pending_inputs"]["contract"].update(
+                {"coordinate_mutation_bits_valid": False}))
+        self.assert_mutation_rejected(
+            lambda r: r["I4_b2_readiness_pending_inputs"]["contract"].update(
+                {"thread_tuple_count": 587}))
         self.assert_text_mutation_rejected(
             "docs/bfr_loop_backend_plan_macos.md",
             lambda text: text.replace(
@@ -602,12 +623,47 @@ class UnifiedLoopBaselineInventoryTest(unittest.TestCase):
                 "12 + 4*U + 72*S + 8*C", 1))
         self.assert_text_mutation_rejected(
             "data/fixtures/candidates/b2_readiness_v1/execution_manifest.json",
-            lambda text: text.replace('"id": "U8-14"', '"id": "U8-99"', 1))
+            lambda text: text.replace(
+                '"execution_case_id": "u8_14_edge_flip_family"',
+                '"execution_case_id": "u8_99_edge_flip_family"', 1))
         self.assert_text_mutation_rejected(
             "scripts/generate_b2_readiness_fixtures.py",
             lambda text: text.replace(
-                '("U8-14", "Topology-mutated/edge-flipped mesh",',
-                '("U8-99", "Topology-mutated/edge-flipped mesh",', 1))
+                '"u8_14_edge_flip_family", "U8-14",',
+                '"u8_99_edge_flip_family", "U8-14",', 1))
+        self.assert_text_mutation_rejected(
+            "data/fixtures/candidates/b2_readiness_v1/execution_manifest.json",
+            lambda text: text.replace(
+                '"alias_of": "u8_14_edge_flip_family"',
+                '"alias_of": "u8_09_nonplatonic"', 1))
+        self.assert_text_mutation_rejected(
+            "data/fixtures/candidates/b2_readiness_v1/execution_manifest.json",
+            lambda text: text.replace(
+                '"reason": "N/A in B2: quadrature selection is WP5.1/WP5.2 '
+                'and production activation is D9b."',
+                '"reason": "N/A"', 1))
+        self.assert_text_mutation_rejected(
+            "data/fixtures/candidates/b2_readiness_v1/execution_manifest.json",
+            lambda text: text.replace(
+                '"id": "trend-r08-ray02"', '"id": "trend-r08-ray99"', 1))
+        self.assert_text_mutation_rejected(
+            "data/fixtures/candidates/b2_readiness_v1/execution_manifest.json",
+            lambda text: text.replace(
+                '"output_bits_hex": "3ff2c851eb851eb8"',
+                '"output_bits_hex": "3ff2c851eb851eb9"', 1))
+        self.assert_text_mutation_rejected(
+            "data/fixtures/candidates/b2_readiness_v1/execution_manifest.json",
+            lambda text: text.replace(
+                '"hw_model": "Mac17,2"', '"hw_model": "Mac17,3"', 1))
+        self.assert_text_mutation_rejected(
+            "data/fixtures/candidates/b2_readiness_v1/execution_manifest.json",
+            lambda text: text.replace(
+                '"after_refiner_destruction"', '"after_refiner_leak"', 1))
+        self.assert_text_mutation_rejected(
+            "data/fixtures/candidates/b2_readiness_v1/execution_manifest.json",
+            lambda text: text.replace(
+                '"workers": [\n      1,\n      2,\n      4\n    ]',
+                '"workers": [\n      1,\n      4\n    ]', 1))
         self.assert_text_mutation_rejected(
             "docs/bfr_loop_backend_plan_macos.md",
             lambda text: text.replace(
