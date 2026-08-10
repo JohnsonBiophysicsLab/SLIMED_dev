@@ -1430,8 +1430,10 @@ Frozen proposal:
   separate direct-fixture-geometry gate; basis probes of rounded evaluation
   remain diagnostic rather than a claimed linear operator bound;
 - freeze the binary64 instruction order and the fail-closed
-  `anchored-row-qualification-report-v1` bindings, matrix ledgers, named
-  criteria, early-stop representation, and verdict precedence; and
+  `anchored-row-qualification-report-v1` bindings, RFC 8785 digest and fixed
+  cell-key encoding, explicit unavailable-input states, pre-result oracle
+  request ledger, named row/integrand criteria and outcome ownership,
+  early-stop representation, and verdict precedence; and
 - preserve raw Bfr failure evidence separately, with no normalized or repaired
   provider row and no Far comparison as truth.
 

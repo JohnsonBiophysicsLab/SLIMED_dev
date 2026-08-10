@@ -273,28 +273,89 @@ schemas.
 
 ## Frozen B2c report contract
 
-The B2c report is canonical UTF-8 JSON with schema identifier
-`anchored-row-qualification-report-v1`. B2c must materialize an executable JSON
-Schema matching this section exactly, use `additionalProperties: false` for
-every object, reject duplicate keys, and reject every missing, extra, wrong-type,
-nonfinite, or noncanonical numeric field. Hashes are lowercase 64-character
-SHA-256 hex strings; enum spelling is exact. The validator is separate from
-the candidate and oracle executables and has mutation tests for every required
-key and verdict transition.
+The B2c report is UTF-8 JSON with schema identifier
+`anchored-row-qualification-report-v1`. Its canonical byte representation is
+RFC 8785 JSON Canonicalization Scheme (JCS): Unicode strings and object keys,
+IEEE-754 finite JSON numbers, escaping, member sorting, and number formatting
+all follow RFC 8785, with no BOM, prefix, suffix, or trailing newline. B2c must
+materialize an executable JSON Schema matching this section exactly, use
+`additionalProperties: false` for every object, reject duplicate keys, and
+reject every missing, extra, wrong-type, nonfinite, negative-zero numeric, or
+noncanonical field. Any value whose exact binary64 bits matter also carries a
+required 16-lowercase-hex-digit big-endian bit label that must decode to the
+numeric value. Hashes are lowercase 64-character SHA-256 hex strings; enum
+spelling is exact. The validator is separate from the candidate and oracle
+executables and has mutation tests for every required key and verdict
+transition.
 
-These top-level records are required even after an early candidate failure:
+Every external binding uses the same strict availability object:
+
+```text
+state       = PRESENT | MISSING | UNAVAILABLE | INVALID
+sha256      = 64 lowercase hex only when PRESENT, otherwise JSON null
+reason_code = JSON null only when PRESENT, otherwise a nonempty frozen enum
+```
+
+An all-zero or invented hash is invalid. The executable schema uses conditional
+requirements so unavailable metadata is represented by `null`, never omitted
+or fabricated. `MISSING` means an expected path or object does not exist;
+`UNAVAILABLE` means a required tool/platform/dependency could not be obtained;
+`INVALID` means bytes exist but fail identity, schema, provenance, or hash
+validation. Any of these states is infrastructure `INCOMPLETE` unless a
+separately established candidate failure takes verdict precedence.
+
+These top-level records are required for every report. Early candidate or
+infrastructure stops use the explicit availability and criterion states below:
 
 | Record | Required binding |
 | --- | --- |
-| `identity` | schema ID; exact Git head observed before and after execution; clean-worktree boolean required true; base and approved-B2b merge SHAs; candidate name exactly `anchored_difference_rows_v1`; start/end UTC; validator binary/script SHA-256. |
-| `binaries` | actual B2 row-provider, representation-candidate, and independent-oracle binary SHA-256; complete source-file path/SHA inventory for each; compiler/link command and version digests; GMP `6.3.0`, MPFR `4.2.2`, OpenSubdiv `3.7.0`, archive, build, install, link-map, and dynamic-dependency provenance. Candidate and oracle source/dependency inventories are distinct and the oracle independence audit is required. |
-| `authority` | both frozen manifest hashes; exact six-row list; `1.0e-12`; D10 and new B2b targets; inner-radius rule; canonical sample/radius/ray/source order; frozen fixture-file hash inventory; D12 contract and physical fingerprint. |
-| `checkpoint` | exact schema-2 checkpoint SHA-256, bound Git head, bound B2 row-provider binary SHA-256, and release-completeness state. The separately bound representation-candidate binary consumes these rows and cannot masquerade as their producer. |
-| `artifacts` | exactly 294 records in canonical manifest order, each with case identity, candidate label, cache mode, level, compressed SHA-256, decompressed JSON SHA-256, and canonical `B2ROWV1` digest; no other file or nested path is permitted. |
-| `matrix` | expected and observed counts: 294 artifacts, 196 Bfr cases, 98 Far validation-only cases, 98 Bfr cache pairs, 1,386,000 raw Bfr rows, 4,158,000 anchor-row views, 12,549,936 provider terms, and 37,649,808 anchor-term views. It also carries expected/observed counts and a sorted key-ledger SHA-256 per level, row kind, anchor, cache mode, relabeling, basis probe, direct axis, anchor pair, oracle-coverage state, and stabilization transition. Expected ledgers are derived from the validated frozen corpus before candidate or oracle numeric results are read; observed key sets must equal them exactly. |
+| `identity` | schema ID; availability bindings for exact Git head before/after execution and clean-worktree observation; base and approved-B2b merge SHAs; candidate name exactly `anchored_difference_rows_v1`; start/end UTC; validator binary/script SHA-256. A complete run requires matching present heads and clean-worktree true; unavailable Git identity remains representable but forces `INCOMPLETE`. |
+| `binaries` | availability objects for the actual B2 row-provider, representation-candidate, and independent-oracle binaries; when present, their SHA-256 plus complete source-file path/SHA inventories, compiler/link command and version digests, and GMP `6.3.0`, MPFR `4.2.2`, OpenSubdiv `3.7.0`, archive, build, install, link-map, and dynamic-dependency provenance. Candidate and oracle source/dependency inventories are distinct and the oracle independence audit is required. |
+| `authority` | both expected frozen manifest hashes; exact six-row list; `1.0e-12`; D10 and new B2b targets; inner-radius rule; canonical sample/radius/ray/source order; expected frozen fixture-file hash inventory plus an actual availability/hash binding for every file; D12 contract and physical fingerprint. |
+| `checkpoint` | one availability object for the exact schema-2 checkpoint; when present, its SHA-256, bound Git head, bound B2 row-provider binary SHA-256, and release-completeness state. The separately bound representation-candidate binary consumes these rows and cannot masquerade as their producer. |
+| `artifacts` | exactly 294 expected-slot records in canonical manifest order. Each always carries the expected case identity, candidate label, cache mode, and level plus an availability state; a present slot also carries compressed SHA-256, decompressed JSON SHA-256, and canonical `B2ROWV1` digest, while the three hash fields are `null` for a non-present slot. A separate `unexpected_paths` array records every extra or nested path and its availability/hash rather than silently omitting it. |
+| `matrix` | expected and observed counts: 294 artifact slots, 196 Bfr cases, 98 Far validation-only cases, 98 Bfr cache pairs, 1,386,000 raw Bfr rows, 4,158,000 anchor-row views, 12,549,936 provider terms, and 37,649,808 anchor-term views. It also carries expected/observed counts and cell-key-ledger SHA-256 values per criterion and partition. Pre-result ledgers are derived from the validated frozen corpus before candidate or oracle numeric results are read; observed key sets must match as specified below. |
 | `criteria` | exactly one record for every named criterion below, with criterion ID, target and norm or categorical expectation, applicability, expected/observed cell counts, key-ledger SHA-256, status, maximum/witness when applicable, first failing key, and omission blocker. A maximum/witness is required for an executed numeric criterion and forbidden for an unexecuted one. |
-| `d12_artifact` | state plus exact-head/physical-fingerprint/artifact SHA-256 binding. The SHA is required for executed D12 evidence; JSON `null` is allowed only with state `OMITTED_AFTER_CANDIDATE_FAILURE` and a named earlier failing criterion. Hosted evidence is explicitly `UNQUALIFIED_PLATFORM`. |
-| `verdict` | exactly `PASS`, `FAIL`, or `INCOMPLETE`; first decisive criterion; ordered list of every failed, incomplete, uncovered, and omitted criterion; canonical report-content SHA-256 computed with only this field's digest member set to 64 zeroes. |
+| `d12_artifact` | availability/execution state plus exact-head, physical-fingerprint, and artifact SHA-256 binding. A qualified executed artifact uses `PRESENT`; `MISSING`, `UNAVAILABLE`, and `INVALID` use null bindings and force `INCOMPLETE` absent candidate failure. JSON null bindings are also allowed with `OMITTED_AFTER_CANDIDATE_FAILURE` and a named earlier failing criterion. Hosted evidence is explicitly `UNQUALIFIED_PLATFORM` and has its actual artifact hash but cannot satisfy physical D12. |
+| `verdict` | exactly `PASS`, `FAIL`, or `INCOMPLETE`; first decisive criterion; ordered list of every failed, incomplete, uncovered, and omitted criterion; report-content SHA-256 computed over the RFC 8785 bytes of the entire report with only this field's digest member set to 64 zeroes. |
+
+### Cell-key and ledger encoding
+
+Every scientific cell key is a JSON array with these fields in this exact
+order and type; an inapplicable position is JSON `null` rather than omitted:
+
+```text
+0  content_id       string
+1  cache_mode       cache_disabled | serial_cache | cache_pair | null
+2  level            integer 2..8
+3  face_id          nonnegative integer
+4  local_corner     nonnegative integer | null
+5  sample_id        string
+6  quantity         position | du | dv | duu | duv | dvv |
+                    area_integrand | legacy_volume_integrand
+7  view             exact_effective | emitted_binary64 | structural | null
+8  anchor           v0 | v1 | v2 | null
+9  relabel          identity | rank_reverse | rank_rotate_1 | null
+10 basis_source_id  signed integer | null
+11 axis             x | y | z | null
+12 anchor_pair      v0_v1 | v0_v2 | v1_v2 | null
+13 transition       6_7 | 7_8 | null
+```
+
+The schema freezes which nullable dimensions are populated for each criterion;
+for example, a basis cell has one `basis_source_id` and null `axis`, while a
+direct-geometry cell has one axis and null basis source. Each key is first
+encoded as its RFC 8785 byte string. Keys are rejected if duplicated, sorted by
+unsigned lexicographic order of those UTF-8 byte strings, placed in one JSON
+array in that order, and the SHA-256 is taken over the RFC 8785 bytes of that
+outer array with no newline. This is the sole cell-ledger encoding.
+
+Oracle applicability has one pre-result `oracle_request` ledger containing
+every frozen cell submitted to the oracle. After the independent oracle runs,
+the observed `COVERED` and `UNCOVERED` ledgers must be disjoint, contain no key
+outside the request, and have an exact set union equal to `oracle_request`.
+Coverage is never predicted from candidate output or placed into a pre-result
+coverage-state ledger.
 
 The exact criterion-ID set is:
 
@@ -307,6 +368,8 @@ constant_field_bits
 relabel_exact_effective_coefficients
 regular_analytic_exact_rows
 regular_analytic_emitted_geometry
+regular_analytic_area_integrand
+regular_analytic_legacy_volume_integrand
 oracle_coverage_and_crosscheck
 exact_effective_d10_coeff
 exact_effective_d10_geometry
@@ -334,9 +397,41 @@ d12_instrumented_tsan
 Each criterion owns one exhaustive record per applicable frozen cell; no
 summary-only PASS is valid. Oracle-uncovered cells remain present with state
 `UNCOVERED` and make the overall result `INCOMPLETE` unless an earlier candidate
-failure already fixes `FAIL`. The two regular criterion records use the
-existing regular coverage only. Far contributes artifact validation records
-and no candidate criterion cell.
+failure already fixes `FAIL`. The four regular criterion records use the
+existing regular coverage only. The two row records cover all six row
+quantities in their named exact/emitted views. Each integrand record covers
+both `exact_effective` and `emitted_binary64` views, all three Cartesian source
+axes needed by the frozen formulas, every anchor, both cache modes, levels 7
+and 8, and its own `area_integrand` or `legacy_volume_integrand` quantity key at
+the unchanged `5.0e-6` gate. Far contributes artifact validation records and no
+candidate criterion cell.
+
+The allowed criterion status enum is exactly:
+
+```text
+PASS
+FAIL
+INCOMPLETE
+UNCOVERED
+OMITTED_AFTER_CANDIDATE_FAILURE
+OMITTED_AFTER_INFRASTRUCTURE_FAILURE
+```
+
+Status ownership and verdict effects are frozen by group:
+
+| Criterion group | Criterion IDs | Allowed executed outcome and ownership |
+| --- | --- | --- |
+| Required infrastructure | `bindings_and_independence`, `complete_artifact_inventory`, `raw_bfr_d9a_reproduction` | `PASS` or `INCOMPLETE`; never candidate `FAIL`. A missing/invalid binding, corpus mismatch, or failure to reproduce the frozen raw D9a observation is infrastructure incomplete. Later records may be `OMITTED_AFTER_INFRASTRUCTURE_FAILURE`. |
+| Oracle validity/coverage | `oracle_coverage_and_crosscheck` | `PASS`, `UNCOVERED`, or `INCOMPLETE`; never candidate `FAIL`. `UNCOVERED` is valid independent-oracle noncoverage; eigensystem, isolation, cross-check, provenance, or enclosure failure is `INCOMPLETE`. |
+| Candidate scientific | `representation_structure`, `constant_field_bits`, `relabel_exact_effective_coefficients`, all four `regular_analytic_*` IDs, all three D10 IDs, all three `anchor_sensitivity_*` IDs, all three binary64 fidelity/diagnostic IDs, all six stabilization IDs, and `cache_mode_bit_identity` | `PASS` or candidate-owned `FAIL` after required inputs validate. Any exceeded numeric/categorical target, nonfinite candidate arithmetic, evaluator-semantics mismatch, structural failure, or cache disagreement is `FAIL`. If it cannot execute because of prior infrastructure, it is omitted with the infrastructure blocker rather than mislabeled. |
+| D12 hybrid | all five `d12_*` IDs | `PASS` or candidate-owned `FAIL` only from exact-head evidence on the qualified frozen physical host; a measured budget overrun or fully instrumented race is `FAIL`. Missing/unqualified platform, missing instrumentation, invalid provenance, or unavailable evidence is `INCOMPLETE`. Hosted raw measurements cannot PASS or FAIL numeric budgets. |
+
+An omitted status is legal only for a criterion ordered after its named blocker,
+requires zero observed cells and null maximum/witness, and has no independent
+verdict effect. `FAIL` is forbidden for infrastructure and oracle groups;
+`UNCOVERED` is forbidden outside the oracle group; `INCOMPLETE` in a candidate
+scientific record is represented as its causal infrastructure record plus
+`OMITTED_AFTER_INFRASTRUCTURE_FAILURE`, not as an ambiguous candidate outcome.
 
 Verdict precedence is fail-closed and deterministic:
 
@@ -352,8 +447,12 @@ After the first established candidate failure, later non-decisive scientific or
 D12 execution may stop under P9. Its criterion records may not disappear: each
 must use `OMITTED_AFTER_CANDIDATE_FAILURE`, zero observed cells, and the exact
 earlier blocker ID. Binding, full 294-artifact validation, raw D9a reproduction,
-and report finalization can never be omitted. An infrastructure failure before
-any candidate result permits no candidate `FAIL` and resolves to `INCOMPLETE`.
+and report finalization can never be omitted after a candidate failure. After
+an infrastructure failure, any stage that cannot honestly execute uses
+`OMITTED_AFTER_INFRASTRUCTURE_FAILURE` with the exact blocker; expected
+artifact slots and all top-level records still remain in the report with
+explicit availability states. An infrastructure failure before any candidate
+result permits no candidate `FAIL` and resolves to `INCOMPLETE`.
 
 The qualification report must resolve to exactly one of:
 
