@@ -9,7 +9,7 @@ This result does not decide D9a or D9b and does not activate a production route.
 
 ## Frozen authority
 
-- Exact repair worktree base: `266fd0724c83da3d95f2f54ddf433c1882585665`.
+- Exact repaired implementation head: `8282549ac2e0d0819edb095772e4b85aa204209d`.
 - B2p merge: `b8ed8bd2dbbf994a4419695cf490b2a3e6f349a6`.
 - D10 was explicitly approved on 2026-08-08 before B2 output.
 - KB2r merged as `b8cb9470077c1c5e15449318eff7b61e7464cd51`;
@@ -48,13 +48,13 @@ The frozen row-sum criterion failed and is terminal under P9:
 
 The repair replay's resumable checkpoint is complete with 294 cases and
 SHA-256
-`ef6fc071186c41f8dc4a7981054e0bec7efd982298f550ec5f1f91a1455051a1`.
+`894d6c2ae192fe67c48ddab63cbde11b21a0dff4eebdb90a2aed90aca9b8057c`.
 It is bound to the two frozen manifest hashes, Git HEAD
-`266fd0724c83da3d95f2f54ddf433c1882585665`, candidate binary SHA-256
+`8282549ac2e0d0819edb095772e4b85aa204209d`, candidate binary SHA-256
 `d7829797c4fb00fe002f48d1ae79313aedb61653f16ff72a1c16d5ee65d51560`,
 and every compressed/decompressed case-artifact hash. It was produced at
-`/private/tmp/b2-prov-full-checkpoint-20260810.json`; the 294 complete gzip
-artifacts remain at `/private/tmp/b2-prov-full-artifacts-20260810`. Both are
+`/private/tmp/b2-exact-8282549-checkpoint.json`; the 294 complete gzip
+artifacts remain at `/private/tmp/b2-exact-8282549-artifacts`. Both are
 local, non-repository artifacts. The earlier sandboxed, AC-observing
 platform-guarded local evidence SHA-256 is
 `3bab4c45a8a6c52a25b31efa1c2591cd2093abb722814f0c1a5bdaaf718b019d`.
@@ -84,9 +84,9 @@ not AC. Independently, the historical checkpoint has zero of the required
 | Original-source reconstruction | PASS | Complete for all executed numeric rows |
 | Internal independent-setting convergence | `NOT_RUN_TERMINAL_BFR_FAILURE` | Non-decisive after P9 stop |
 | Frozen D10 primary Stam interval oracle | `NOT_RUN_TERMINAL_BFR_FAILURE` | No full oracle-coverage claim |
-| D12 preparation cost | `UNQUALIFIED_PLATFORM` | Provenance-bound replay raw maximum median `60,879,125 ns`; raw maximum single `80,221,208 ns` |
+| D12 preparation cost | `UNQUALIFIED_PLATFORM` | Provenance-bound replay raw maximum median `62,876,125 ns`; raw maximum single `80,888,875 ns` |
 | D12 retained payload | `UNQUALIFIED_PLATFORM` | Raw maximum `82,720 bytes/face` |
-| D12 peak RSS delta | `UNQUALIFIED_PLATFORM` | Provenance-bound replay raw maximum `12,091,392 bytes` |
+| D12 peak RSS delta | `UNQUALIFIED_PLATFORM` | Provenance-bound replay raw maximum `13,025,280 bytes` |
 | Cache-disabled concurrency | `NOT_RUN_TERMINAL_BFR_FAILURE` | Full frozen matrix not run |
 | Fully instrumented threaded-cache TSan | `NOT_RUN_TERMINAL_BFR_FAILURE` | Full frozen matrix not run |
 
@@ -160,7 +160,7 @@ The fresh full dependency-audit JSON SHA-256 is
 `ee66b8ec4004f44a91a03e8e9ecfb82551943890cdeded83fbf5f7880307c462`.
 The provenance-bound, sorted and round-trip-validated terminal evidence JSON
 SHA-256 is
-`97d047e7d48cd11ff88d6194fba616adfc1628a81c1e955ac0e3ba8d8646eecd`.
+`9175920dd7eedc2a44962c76959079d94793671be7e726e8e18e47783201df40`.
 
 The candidate's `--platform-probe` uses the frozen native protocols directly:
 sysctl/uname for the complete physical fingerprint,

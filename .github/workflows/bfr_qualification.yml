@@ -13,6 +13,8 @@ jobs:
     runs-on: macos-26
     timeout-minutes: 180
     env:
+      CMAKE_VERSION: "4.4.2"
+      CMAKE_MACOS_UNIVERSAL_SHA256: "800fc86838e913fff969b499886c80baeb4ccfd00f0e39906b34aa334f39ab6c"
       GMP_VERSION: "6.3.0"
       GMP_SHA256: "a3c2b80201b89e68616f4ad30bc66aee4927c3ce50e33929ca819d5c43538898"
       MPFR_VERSION: "4.2.2"
@@ -48,6 +50,10 @@ jobs:
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/b2-downloads"
           curl --fail --location --retry 3 \
+            "https://github.com/Kitware/CMake/releases/download/v${CMAKE_VERSION}/cmake-${CMAKE_VERSION}-macos-universal.tar.gz" \
+            --output "$RUNNER_TEMP/b2-downloads/cmake.tar.gz"
+          echo "${CMAKE_MACOS_UNIVERSAL_SHA256}  $RUNNER_TEMP/b2-downloads/cmake.tar.gz" | shasum -a 256 -c -
+          curl --fail --location --retry 3 \
             "https://ftp.gnu.org/gnu/gmp/gmp-${GMP_VERSION}.tar.xz" \
             --output "$RUNNER_TEMP/b2-downloads/gmp.tar.xz"
           echo "${GMP_SHA256}  $RUNNER_TEMP/b2-downloads/gmp.tar.xz" | shasum -a 256 -c -
@@ -59,6 +65,21 @@ jobs:
             "https://codeload.github.com/PixarAnimationStudios/OpenSubdiv/tar.gz/v${OPENSUBDIV_VERSION}" \
             --output "$RUNNER_TEMP/b2-downloads/opensubdiv.tar.gz"
           echo "${OPENSUBDIV_ARCHIVE_SHA256}  $RUNNER_TEMP/b2-downloads/opensubdiv.tar.gz" | shasum -a 256 -c -
+
+      - name: Provision frozen CMake
+        shell: bash
+        run: |
+          set -euo pipefail
+          CMAKE_ROOT="$RUNNER_TEMP/b2-cmake"
+          mkdir -p "$CMAKE_ROOT"
+          tar -xzf "$RUNNER_TEMP/b2-downloads/cmake.tar.gz" \
+            -C "$CMAKE_ROOT" --strip-components=1
+          test -x "$CMAKE_ROOT/CMake.app/Contents/bin/cmake"
+          /bin/ln -sfn "$CMAKE_ROOT/CMake.app/Contents/bin/cmake" \
+            /opt/homebrew/bin/cmake
+          test "$(/opt/homebrew/bin/cmake --version | sed -n '1p')" = \
+            "cmake version ${CMAKE_VERSION}"
+          echo "CMAKE_ROOT=$CMAKE_ROOT" >> "$GITHUB_ENV"
 
       - name: Build pinned GMP and MPFR
         shell: bash
