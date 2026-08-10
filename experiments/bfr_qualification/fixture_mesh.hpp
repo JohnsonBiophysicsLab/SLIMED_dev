@@ -146,6 +146,7 @@ inline void validate_closed_oriented_two_manifold(Mesh &mesh) {
     std::set<std::array<int, 3> > duplicate_keys;
     std::map<std::pair<int, int>, std::vector<std::pair<int, int> > > edges;
     std::vector<std::set<int> > neighbors(mesh.vertices.size());
+    std::vector<std::map<int, std::set<int> > > vertex_links(mesh.vertices.size());
     std::vector<int> referenced(mesh.vertices.size(), 0);
     for (std::size_t face_index = 0; face_index < mesh.faces.size(); ++face_index) {
         std::array<int, 3> const &face = mesh.faces[face_index];
@@ -166,6 +167,13 @@ inline void validate_closed_oriented_two_manifold(Mesh &mesh) {
         if (!duplicate_keys.insert(sorted).second) {
             throw std::runtime_error("D2_DUPLICATE_FACE");
         }
+        for (int corner = 0; corner < 3; ++corner) {
+            int const vertex = face[corner];
+            int const previous = face[(corner + 2) % 3];
+            int const next = face[(corner + 1) % 3];
+            vertex_links[static_cast<std::size_t>(vertex)][previous].insert(next);
+            vertex_links[static_cast<std::size_t>(vertex)][next].insert(previous);
+        }
     }
     for (std::size_t index = 0; index < referenced.size(); ++index) {
         if (!referenced[index]) {
@@ -180,6 +188,34 @@ inline void validate_closed_oriented_two_manifold(Mesh &mesh) {
         if (edge->second[0].first != edge->second[1].second ||
             edge->second[0].second != edge->second[1].first) {
             throw std::runtime_error("D2_INCONSISTENT_ORIENTATION");
+        }
+    }
+    for (std::size_t vertex = 0; vertex < vertex_links.size(); ++vertex) {
+        std::map<int, std::set<int> > const &link = vertex_links[vertex];
+        if (link.size() != neighbors[vertex].size() || link.size() < 3) {
+            throw std::runtime_error("D2_INVALID_CLOSED_VERTEX_LINK");
+        }
+        for (std::map<int, std::set<int> >::const_iterator item = link.begin();
+             item != link.end(); ++item) {
+            if (item->second.size() != 2) {
+                throw std::runtime_error("D2_INVALID_CLOSED_VERTEX_LINK");
+            }
+        }
+        std::set<int> link_visited;
+        std::queue<int> link_pending;
+        link_pending.push(link.begin()->first);
+        link_visited.insert(link.begin()->first);
+        while (!link_pending.empty()) {
+            int const current = link_pending.front();
+            link_pending.pop();
+            std::set<int> const &adjacent = link.find(current)->second;
+            for (std::set<int>::const_iterator next = adjacent.begin();
+                 next != adjacent.end(); ++next) {
+                if (link_visited.insert(*next).second) link_pending.push(*next);
+            }
+        }
+        if (link_visited.size() != link.size()) {
+            throw std::runtime_error("D2_INVALID_CLOSED_VERTEX_LINK");
         }
     }
     std::vector<int> visited(mesh.vertices.size(), 0);

@@ -9,7 +9,7 @@ This result does not decide D9a or D9b and does not activate a production route.
 
 ## Frozen authority
 
-- Exact worktree base: `caf569f82c1c5c483e3dcd7584e1cf91933ca91b`.
+- Exact repair worktree base: `266fd0724c83da3d95f2f54ddf433c1882585665`.
 - B2p merge: `b8ed8bd2dbbf994a4419695cf490b2a3e6f349a6`.
 - D10 was explicitly approved on 2026-08-08 before B2 output.
 - KB2r merged as `b8cb9470077c1c5e15449318eff7b61e7464cd51`;
@@ -28,8 +28,11 @@ an integrand, quadrature, or integration claim.
 
 The local exact-worktree replay completed all 294 numeric cases twice. The
 canonical `B2ROWV1` rows matched between process passes for every case. The
-three negative fixtures were rejected before candidate construction or stdout
-row emission with their frozen D2 reasons.
+three negative fixtures and an independently constructed temporary
+pinched-vertex control were rejected before candidate construction or stdout
+row emission. The control has valid edge-incidence/global-connectivity shape
+but its vertex link is not one connected degree-2 cycle, and it is rejected as
+`D2_INVALID_CLOSED_VERTEX_LINK`.
 
 The frozen row-sum criterion failed and is terminal under P9:
 
@@ -43,16 +46,22 @@ The frozen row-sum criterion failed and is terminal under P9:
   `0, 0, 11, 12, 13, 13, 13`; maximum absolute row-sum error was
   `3.356106503815681e-10`. This finding does not promote Far.
 
-The resumable checkpoint is complete with 294 cases and SHA-256
-`133d24dd6e92a8ff8043b88e41cc08fd6e41b8811977c1f6666b658a851c3951`.
-It was produced at `/private/tmp/b2-release-checkpoint.json`, so that path is a
-local, non-repository artifact. The earlier sandboxed, AC-observing
+The repair replay's resumable checkpoint is complete with 294 cases and
+SHA-256
+`ef6fc071186c41f8dc4a7981054e0bec7efd982298f550ec5f1f91a1455051a1`.
+It is bound to the two frozen manifest hashes, Git HEAD
+`266fd0724c83da3d95f2f54ddf433c1882585665`, candidate binary SHA-256
+`d7829797c4fb00fe002f48d1ae79313aedb61653f16ff72a1c16d5ee65d51560`,
+and every compressed/decompressed case-artifact hash. It was produced at
+`/private/tmp/b2-prov-full-checkpoint-20260810.json`; the 294 complete gzip
+artifacts remain at `/private/tmp/b2-prov-full-artifacts-20260810`. Both are
+local, non-repository artifacts. The earlier sandboxed, AC-observing
 platform-guarded local evidence SHA-256 is
 `3bab4c45a8a6c52a25b31efa1c2591cd2093abb722814f0c1a5bdaaf718b019d`.
 That hash does not identify the later outside-sandbox battery observation.
-The local checkpoint did not retain the per-case JSON directory; the dedicated
-workflow supplies an artifact directory and uploads all case JSON alongside
-the checkpoint and finalized evidence.
+The dedicated workflow rebuilds the evidence from scratch and uploads the case
+JSON, checkpoint, finalized evidence, dependency archives, build transcripts,
+compile/link ledgers, and persistent proof binaries/maps/dependency files.
 
 The historical checkpoint also predates the mandatory before/after power and
 thermal probes for each of its 588 full case processes. The earlier sandboxed
@@ -75,9 +84,9 @@ not AC. Independently, the historical checkpoint has zero of the required
 | Original-source reconstruction | PASS | Complete for all executed numeric rows |
 | Internal independent-setting convergence | `NOT_RUN_TERMINAL_BFR_FAILURE` | Non-decisive after P9 stop |
 | Frozen D10 primary Stam interval oracle | `NOT_RUN_TERMINAL_BFR_FAILURE` | No full oracle-coverage claim |
-| D12 preparation cost | `UNQUALIFIED_PLATFORM` | Raw maximum median `64,784,333 ns`; raw maximum single `88,430,125 ns` |
+| D12 preparation cost | `UNQUALIFIED_PLATFORM` | Provenance-bound replay raw maximum median `60,879,125 ns`; raw maximum single `80,221,208 ns` |
 | D12 retained payload | `UNQUALIFIED_PLATFORM` | Raw maximum `82,720 bytes/face` |
-| D12 peak RSS delta | `UNQUALIFIED_PLATFORM` | Raw maximum `16,744,448 bytes` |
+| D12 peak RSS delta | `UNQUALIFIED_PLATFORM` | Provenance-bound replay raw maximum `12,091,392 bytes` |
 | Cache-disabled concurrency | `NOT_RUN_TERMINAL_BFR_FAILURE` | Full frozen matrix not run |
 | Fully instrumented threaded-cache TSan | `NOT_RUN_TERMINAL_BFR_FAILURE` | Full frozen matrix not run |
 
@@ -114,11 +123,44 @@ source separation, and validation-only sentinel policy. It uses only the
 standard library and is tested under Python 3.9.6 and 3.14.6.
 
 `--require-proof-dependencies` accepts explicit `MPFR_ROOT`,
-`OPENSUBDIV_ROOT`, `OPENSUBDIV_TSAN_ROOT`, and `OPENSUBDIV_SOURCE`. It never
+GMP/MPFR build roots and source archives, separate OpenSubdiv Release/TSan
+build and install roots, `OPENSUBDIV_SOURCE`, the OpenSubdiv source archive,
+and a persistent proof-artifact directory. It never
 downloads dependencies or searches ambient prefixes. It fails closed on a
-version/root/commit/member-order/dependency/symbol mismatch, compiles the
-candidate and the separate MPFR interval program with frozen flags, records
-binary/library hashes, and audits `nm -u` and `otool -L`.
+version/root/commit/member-order/dependency/symbol mismatch. For both
+OpenSubdiv profiles it audits the exact environment and configure/build/install
+argv, CMake cache, configure/build/install logs, all 47 ordered translation
+units and compile commands, link command, raw archive members, installed
+archive, and hashes. GMP/MPFR archive, configure/build/install, library, and
+header provenance are also retained. Candidate/oracle commands, binaries,
+dependency files, linker maps, `nm -u`, and `otool -L` identities remain in the
+published workflow artifact.
+
+## Neutral near-vertex inter-method observation
+
+The mandatory observation pairs Bfr level 8 (`approxLevelSharp=6`,
+cache-disabled) with uncached Far isolation level 8. These are each method's
+highest frozen setting; the integers are explicitly noncommensurable. Rows are
+aligned by content, face, local corner, trend sample, derivative order, and
+original coarse source. The all-valence-6 control contributes artifact
+bindings but correctly has no near-vertex trend rows.
+
+Across 73,440 aligned rows (12,240 per derivative order), the maximum
+coefficient L1 / normalized-geometry L-infinity spreads were: position
+`0.0017544988475447618 / 0.0011570703213699958`; `du`
+`0.4888219681803726 / 0.29026062322985213`; `dv`
+`0.4888220764477891 / 0.2843687302618921`; `duu`
+`346.02613495569506 / 122.12768950539758`; `duv`
+`283.91666714085886 / 184.87842875319146`; and `dvv`
+`346.0261349557122 / 128.9784922529451`. The evidence also records medians,
+radii 1--8 trends, maximum observations, and 28 artifact bindings. This is an
+observed spread only: it is not an accuracy ranking, floor, or bound.
+
+The fresh full dependency-audit JSON SHA-256 is
+`ee66b8ec4004f44a91a03e8e9ecfb82551943890cdeded83fbf5f7880307c462`.
+The provenance-bound, sorted and round-trip-validated terminal evidence JSON
+SHA-256 is
+`97d047e7d48cd11ff88d6194fba616adfc1628a81c1e955ac0e3ba8d8646eecd`.
 
 The candidate's `--platform-probe` uses the frozen native protocols directly:
 sysctl/uname for the complete physical fingerprint,
@@ -152,6 +194,7 @@ python3 scripts/run_bfr_qualification.py \
   --finalize-release-checkpoint \
   --release-checkpoint /path/to/bfr-release-checkpoint.json \
   --candidate-binary /path/to/bfr-candidate \
+  --artifact-dir /path/to/bfr-case-json \
   --output /path/to/bfr-qualification-evidence.json
 ```
 
@@ -160,9 +203,17 @@ Run the dependency audit and full resumable Release matrix:
 ```text
 python3 scripts/run_bfr_qualification.py --run-release-matrix \
   --mpfr-root "$MPFR_ROOT" \
+  --gmp-build-root "$GMP_BUILD_ROOT" \
+  --mpfr-build-root "$MPFR_BUILD_ROOT" \
   --opensubdiv-root "$OPENSUBDIV_ROOT" \
   --opensubdiv-tsan-root "$OPENSUBDIV_TSAN_ROOT" \
   --opensubdiv-source "$OPENSUBDIV_SOURCE" \
+  --opensubdiv-release-build-root "$OPENSUBDIV_RELEASE_BUILD_ROOT" \
+  --opensubdiv-tsan-build-root "$OPENSUBDIV_TSAN_BUILD_ROOT" \
+  --gmp-archive /path/to/gmp-6.3.0.tar.xz \
+  --mpfr-archive /path/to/mpfr-4.2.2.tar.xz \
+  --opensubdiv-archive /path/to/opensubdiv-v3_7_0.tar.gz \
+  --proof-artifact-dir /path/to/bfr-proof-artifacts \
   --release-checkpoint /path/to/bfr-release-checkpoint.json \
   --artifact-dir /path/to/bfr-case-json \
   --output /path/to/bfr-qualification-evidence.json

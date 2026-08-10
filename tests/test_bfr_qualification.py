@@ -1,10 +1,12 @@
 import copy
+import gzip
 import importlib.util
 import io
 import json
 import pathlib
 import subprocess
 import sys
+import tempfile
 import unittest
 from unittest import mock
 
@@ -56,6 +58,62 @@ class BfrQualificationContractTests(unittest.TestCase):
             with self.assertRaises(MODULE.QualificationError):
                 MODULE.validate_manifest_contract(mutation)
 
+    def _spread_evidence(self, manifest):
+        statistic = {"observation_count": 8, "maximum": 0.1, "median": 0.1}
+        radius_statistic = {"observation_count": 1, "maximum": 0.1,
+                            "median": 0.1}
+        per_order = {}
+        trends = {}
+        for row_kind in MODULE.ROW_ORDER:
+            per_order[row_kind] = {
+                "coefficient_l1": copy.deepcopy(statistic),
+                "normalized_geometric_linf": {
+                    "observation_count": 8, "maximum": 0.01, "median": 0.01},
+                "maximum_coefficient_l1_observation": {
+                    "content_identity_key": MODULE.valid_unique_contents(manifest)[0],
+                    "face_row": 0, "local_corner": 0,
+                    "sample_id": "trend-r01-ray00", "radius_exponent": 1,
+                    "row_kind": row_kind, "coefficient_l1": 0.1,
+                    "normalized_geometric_linf": 0.01,
+                },
+            }
+            trends[row_kind] = {
+                str(exponent): {
+                    "coefficient_l1": copy.deepcopy(radius_statistic),
+                    "normalized_geometric_linf": {
+                        "observation_count": 1, "maximum": 0.01,
+                        "median": 0.01},
+                }
+                for exponent in range(1, 9)
+            }
+        return {
+            "kind": "observed_inter_method_spread",
+            "row_order": list(MODULE.ROW_ORDER),
+            "pairing": {
+                "bfr": {"approxLevelSmooth": 8, "approxLevelSharp": 6,
+                        "mode": "cache_disabled"},
+                "far": {"isolationLevel": 8,
+                        "mode": "not_applicable_uncached"},
+                "alignment": "same content/face/local-corner/trend-sample/original-source coarse frame",
+                "selection_reason": "highest frozen setting for each candidate",
+                "approximation_knobs_commensurable": False,
+            },
+            "normalization": "per-content coordinates centered at their arithmetic centroid and divided by maximum absolute centered coordinate",
+            "observation_count": 48,
+            "per_order": per_order,
+            "trend_by_radius_exponent": trends,
+            "overall_max_coefficient_l1": 0.1,
+            "overall_max_normalized_geometric_linf": 0.01,
+            "artifact_bindings": [
+                {"content_identity_key": identity, "candidate": candidate,
+                 "artifact_sha256": "a" * 64}
+                for identity in MODULE.valid_unique_contents(manifest)
+                for candidate in ("bfr", "far")
+            ],
+            "is_accuracy_ranking": False, "is_accuracy_floor": False,
+            "is_accuracy_bound": False,
+        }
+
     def _valid_evidence(self):
         manifest = MODULE.load_manifest()
         probe = {
@@ -82,6 +140,43 @@ class BfrQualificationContractTests(unittest.TestCase):
                     "row_kind": kind,
                     "coefficients": [1.0 if kind == "position" else 0.0],
                 })
+        group_counts = {
+            job["content_identity_key"]:
+                len(MODULE.expected_case_samples(manifest, job)[2])
+            for job in MODULE.valid_content_jobs(manifest)
+        }
+
+        def numeric_case(identity, candidate, level, mode):
+            group_count = group_counts[identity]
+            rss_counts = {
+                "after_refiner_construction": 18,
+                "after_factory_or_cache_construction": 18,
+                "after_each_completed_face_row_insertion": 18 * group_count,
+                "after_immutable_package_publication": 18,
+                "after_row_package_destruction": 18,
+                "after_factory_or_cache_destruction": 18,
+                "after_refiner_destruction": 18,
+            }
+            rss_total = sum(rss_counts.values())
+            return {
+                "content_identity_key": identity, "candidate": candidate,
+                "approximation_level": level, "applicable_mode": mode,
+                "status": "PASS", "row_group_count": group_count,
+                "row_kind_counts": {kind: group_count for kind in MODULE.ROW_ORDER},
+                "source_reconstruction_complete": True, "max_row_sum_error": 0.0,
+                "warmup_count": 3, "preparation_ns": list(range(15)),
+                "preparation_median_ns": 7, "retained_payload_bytes_per_face": 100,
+                "peak_rss_delta_bytes": 100, "rss_baseline_sample_count": 1,
+                "rss_named_samples_complete": True,
+                "rss_named_sample_count": rss_total,
+                "rss_expected_named_sample_count": rss_total,
+                "rss_named_sample_counts": rss_counts,
+                "untimed_serialization_replay": True,
+                "serialization_replay_rss_sampled": False,
+                "platform_boundary_samples": [
+                    {"boundary": boundary, "probe": copy.deepcopy(probe)}
+                    for boundary in boundaries],
+            }
         return {
             "schema_version": 1,
             "kind": "bfr_qualification_evidence",
@@ -93,6 +188,10 @@ class BfrQualificationContractTests(unittest.TestCase):
             "sample_weight_arithmetic_uses": 0,
             "near_vertex_accuracy_ranking_declined": True,
             "inter_method_spread_is_accuracy_floor": False,
+            "observed_near_vertex_inter_method_spread":
+                self._spread_evidence(manifest),
+            "far_promotion_declined": True,
+            "approximation_knobs_commensurable": False,
             "execution": {
                 "canonical_case_order": MODULE.CANONICAL_CASE_ORDER,
                 "deterministic_reruns_equal": True,
@@ -101,18 +200,16 @@ class BfrQualificationContractTests(unittest.TestCase):
                      "candidate_objects_constructed": 0, "rows_emitted": 0}
                     for case_id in sorted(MODULE.NEGATIVE_CASES)
                 ],
+                "adversarial_pinched_vertex": {
+                    "content_identity_key": "adversarial_temporary_pinched_vertex",
+                    "status": "REJECTED_BEFORE_OUTPUT",
+                    "candidate_objects_constructed": 0, "rows_emitted": 0,
+                    "reason": "D2_INVALID_CLOSED_VERTEX_LINK",
+                    "edge_incidence_and_global_connectivity_control": True,
+                    "retained_fixture": False,
+                },
                 "numeric_cases": [
-                    {"content_identity_key": identity, "candidate": candidate,
-                     "approximation_level": level, "applicable_mode": mode,
-                     "status": "PASS", "row_group_count": 1,
-                     "row_kind_counts": {kind: 1 for kind in MODULE.ROW_ORDER},
-                     "source_reconstruction_complete": True, "max_row_sum_error": 0.0,
-                     "warmup_count": 3, "preparation_ns": [index for index in range(15)],
-                     "preparation_median_ns": 7, "retained_payload_bytes_per_face": 100,
-                     "peak_rss_delta_bytes": 100, "rss_named_samples_complete": True,
-                     "platform_boundary_samples": [
-                         {"boundary": boundary, "probe": copy.deepcopy(probe)}
-                         for boundary in boundaries]}
+                    numeric_case(identity, candidate, level, mode)
                     for identity, candidate, level, mode in
                     MODULE.expected_numeric_case_identities(manifest)
                 ],
@@ -146,7 +243,6 @@ class BfrQualificationContractTests(unittest.TestCase):
                             "status": "PASS"}
                 for candidate in ("bfr", "far")
             },
-            "approximation_knobs_commensurable": False,
             "oracle_certificates": [{
                 "status": "COVERED", "uniform_success_substituted_for_primary": False,
                 "first_isolating_depth": 1, "primary_method": "stam_eigenanalysis",
@@ -175,6 +271,7 @@ class BfrQualificationContractTests(unittest.TestCase):
             },
             "flip_locality": [{"comparable_faces": 10, "changed_faces": 2,
                                "reusable_faces": 8, "phase2_projection_only": True}],
+            "criterion_order": list(MODULE.BFR_CRITERIA),
             "bfr_d9a_criteria": {criterion: "PASS" for criterion in MODULE.BFR_CRITERIA},
             "bfr_verdict": "PASS",
             "oracle_coverage_complete": True,
@@ -214,9 +311,18 @@ class BfrQualificationContractTests(unittest.TestCase):
                 "bfr_failure_count": 124, "far_comparator_failure_count": 62,
                 "bfr_max_error": 2.0368522054550406e-11,
                 "far_max_error": 3.356106503815681e-10,
-                "example": {"row_kind": "dvv", "sample_id": "trend-r08-ray01",
+                "example": {
+                            "content_identity_key": "closed_valence3_tetrahedron",
+                            "candidate": "bfr", "approximation_level": 4,
+                            "modes": ["cache_disabled", "SurfaceFactoryCache_serial"],
+                            "row_kind": "dvv", "face_row": 0, "local_corner": 1,
+                            "sample_id": "trend-r08-ray01",
+                            "sum": 1.4781509349859334e-12,
                             "absolute_error": 1.4781509349859334e-12,
-                            "cache_modes_equal": True},
+                            "cache_modes_equal": True,
+                            "artifact_sha256_by_mode": {
+                                "cache_disabled": "e" * 64,
+                                "SurfaceFactoryCache_serial": "f" * 64}},
             },
             "d12_summary": {
                 "status": "PASS", "budget_verdict": "PASS", "case_count": 294,
@@ -229,8 +335,21 @@ class BfrQualificationContractTests(unittest.TestCase):
                             "peak_rss_delta_bytes": 64 * 1048576}},
             "canonical_determinism": {"status": "PASS", "case_count": 294,
                                       "two_pass_rows_equal": True},
-            "negative_preflight": {"status": "PASS", "case_count": 3,
-                                   "failure_before_output": True},
+            "negative_preflight": {
+                "status": "PASS", "manifest_case_count": 3,
+                "adversarial_case_count": 1, "case_count": 4,
+                "failure_before_output": True,
+                "pinched_vertex_link_cycle_rejected": True},
+            "release_checkpoint": {
+                "path": "/tmp/checkpoint", "sha256": "b" * 64,
+                "complete": True, "case_count": 294,
+                "binding": {
+                    "manifest_file_sha256": MODULE.MANIFEST_FILE_SHA256,
+                    "manifest_contract_sha256": MODULE.MANIFEST_CONTRACT_SHA256,
+                    "git_head": "c" * 40,
+                    "candidate_binary_sha256": "d" * 64,
+                },
+            },
             "bfr_d9a_criteria": {
                 "regular_analytic_rows_and_integrands": terminal,
                 "row_sum_invariants": "FAIL",
@@ -251,6 +370,64 @@ class BfrQualificationContractTests(unittest.TestCase):
             "package_review_complete": False,
         })
         return report
+
+    def _synthetic_candidate_case(self):
+        manifest = MODULE.load_manifest()
+        job = next(job for job in MODULE.valid_content_jobs(manifest)
+                   if job["content_identity_key"] == "closed_valence3_tetrahedron")
+        identity = job["content_identity_key"]
+        candidate, level, mode = "bfr", 2, "cache_disabled"
+        _, faces, samples = MODULE.expected_case_samples(manifest, job)
+        rows = []
+        face_sample_counts = [0 for _ in faces]
+        for sample in samples:
+            face_sample_counts[sample["face_row"]] += 1
+            for row_kind in MODULE.ROW_ORDER:
+                rows.append({
+                    "content_identity_key": identity, "candidate": candidate,
+                    "approximation_level": level, "applicable_mode": mode,
+                    "face_row": sample["face_row"],
+                    "local_corner_or_none": sample["local_corner_or_none"],
+                    "sample_id": sample["sample_id"],
+                    "u_binary64": sample["u"], "v_binary64": sample["v"],
+                    "u_binary64_bits_hex": MODULE.binary64_bits_hex(sample["u"]),
+                    "v_binary64_bits_hex": MODULE.binary64_bits_hex(sample["v"]),
+                    "weight_bits_hex": "3ff0000000000000", "row_kind": row_kind,
+                    "source_ids": [0],
+                    "coefficients": [1.0 if row_kind == "position" else 0.0],
+                })
+        group_count = len(samples)
+        rss_counts = {
+            "after_refiner_construction": 18,
+            "after_factory_or_cache_construction": 18,
+            "after_each_completed_face_row_insertion": 18 * group_count,
+            "after_immutable_package_publication": 18,
+            "after_row_package_destruction": 18,
+            "after_factory_or_cache_destruction": 18,
+            "after_refiner_destruction": 18,
+        }
+        report = {
+            "schema_version": 1, "kind": "bfr_candidate_case", "status": "ok",
+            "finite": True, "content_identity_key": identity,
+            "candidate": candidate, "approximation_level": level,
+            "applicable_mode": mode, "rows": rows,
+            "row_group_count": group_count,
+            "row_kind_counts": {kind: group_count for kind in MODULE.ROW_ORDER},
+            "source_reconstruction_complete": True, "max_row_sum_error": 0.0,
+            "retained_payload_bytes_per_face": max(
+                12 + 4 + 72 * count + 12 * 6 * count
+                for count in face_sample_counts),
+            "warmup_count": 3, "preparation_ns": list(range(15)),
+            "preparation_median_ns": 7, "peak_rss_delta_bytes": 100,
+            "rss_baseline_sample_count": 1,
+            "rss_named_sample_counts": rss_counts,
+            "rss_named_sample_count": sum(rss_counts.values()),
+            "rss_expected_named_sample_count": sum(rss_counts.values()),
+            "rss_named_samples_complete": True,
+            "untimed_serialization_replay": True,
+            "serialization_replay_rss_sampled": False,
+        }
+        return manifest, job, (identity, candidate, level, mode), report
 
     def test_terminal_scientific_failure_schema_is_complete_and_fail_closed(self):
         valid = self._terminal_failure_evidence()
@@ -278,6 +455,134 @@ class BfrQualificationContractTests(unittest.TestCase):
             with self.assertRaises(MODULE.QualificationError):
                 MODULE.validate_evidence_document(mutation)
 
+    def test_sorted_json_round_trip_uses_explicit_criterion_order(self):
+        valid = self._terminal_failure_evidence()
+        round_tripped = json.loads(json.dumps(valid, sort_keys=True, allow_nan=False))
+        self.assertNotEqual(list(round_tripped["bfr_d9a_criteria"]),
+                            MODULE.BFR_CRITERIA)
+        self.assertTrue(MODULE.validate_evidence_document(round_tripped))
+        reordered = copy.deepcopy(valid)
+        reordered["bfr_d9a_criteria"] = dict(reversed(
+            list(reordered["bfr_d9a_criteria"].items())))
+        self.assertTrue(MODULE.validate_evidence_document(reordered))
+        wrong_order = copy.deepcopy(round_tripped)
+        wrong_order["criterion_order"][0:2] = reversed(
+            wrong_order["criterion_order"][0:2])
+        with self.assertRaises(MODULE.QualificationError):
+            MODULE.validate_evidence_document(wrong_order)
+
+    def test_scientific_accumulation_order_is_python_version_independent(self):
+        self.assertEqual(MODULE.ordered_binary64_sum([1.0e16, 1.0, -1.0e16]),
+                         0.0)
+
+    def test_spread_and_lifecycle_mutations_fail_closed(self):
+        valid = self._terminal_failure_evidence()
+        mutations = []
+        missing_order = copy.deepcopy(valid)
+        del missing_order["observed_near_vertex_inter_method_spread"][
+            "per_order"]["dvv"]
+        mutations.append(missing_order)
+        promoted_floor = copy.deepcopy(valid)
+        promoted_floor["observed_near_vertex_inter_method_spread"][
+            "is_accuracy_floor"] = True
+        mutations.append(promoted_floor)
+        bad_trend_count = copy.deepcopy(valid)
+        bad_trend_count["observed_near_vertex_inter_method_spread"][
+            "trend_by_radius_exponent"]["du"]["8"]["coefficient_l1"][
+                "observation_count"] = 2
+        mutations.append(bad_trend_count)
+        bad_rss = copy.deepcopy(valid)
+        bad_rss["execution"]["numeric_cases"][0]["rss_named_sample_count"] += 1
+        mutations.append(bad_rss)
+        bad_group_count = copy.deepcopy(valid)
+        bad_group_count["execution"]["numeric_cases"][0]["row_group_count"] -= 1
+        mutations.append(bad_group_count)
+        for mutation in mutations:
+            with self.assertRaises(MODULE.QualificationError):
+                MODULE.validate_evidence_document(mutation)
+
+    def test_candidate_rows_and_gzip_artifact_are_independently_revalidated(self):
+        manifest, job, identity_tuple, report = self._synthetic_candidate_case()
+        validated = MODULE.validate_candidate_case(
+            report, *identity_tuple, manifest, job)
+        self.assertEqual(validated["row_group_count"], report["row_group_count"])
+        self.assertTrue(MODULE.validate_candidate_case(
+            json.loads(json.dumps(report, sort_keys=True, allow_nan=False)),
+            *identity_tuple, manifest, job))
+        mutations = []
+        changed_coordinate = copy.deepcopy(report)
+        changed_coordinate["rows"][0]["u_binary64"] = 0.125
+        mutations.append(changed_coordinate)
+        changed_source = copy.deepcopy(report)
+        changed_source["rows"][0]["source_ids"] = [1000000]
+        mutations.append(changed_source)
+        forged_maximum = copy.deepcopy(report)
+        forged_maximum["max_row_sum_error"] = 1.0
+        mutations.append(forged_maximum)
+        forged_rss = copy.deepcopy(report)
+        forged_rss["rss_named_sample_counts"][
+            "after_each_completed_face_row_insertion"] -= 1
+        mutations.append(forged_rss)
+        for mutation in mutations:
+            with self.assertRaises(MODULE.QualificationError):
+                MODULE.validate_candidate_case(
+                    mutation, *identity_tuple, manifest, job)
+
+        identity, candidate, level, mode = identity_tuple
+        summary = {
+            "content_identity_key": identity, "candidate": candidate,
+            "approximation_level": level, "applicable_mode": mode,
+            "status": "PASS", "failure_reasons": [],
+            "d12_budget_observation": "WITHIN_BUDGETS",
+            "row_group_count": validated["row_group_count"],
+            "row_kind_counts": validated["row_kind_counts"],
+            "source_reconstruction_complete": True,
+            "max_row_sum_error": validated["max_row_sum_error"],
+            "warmup_count": 3, "preparation_ns": report["preparation_ns"],
+            "preparation_median_ns": report["preparation_median_ns"],
+            "retained_payload_bytes_per_face":
+                validated["retained_payload_bytes_per_face"],
+            "peak_rss_delta_bytes": report["peak_rss_delta_bytes"],
+            "rss_baseline_sample_count": 1,
+            "rss_named_samples_complete": True,
+            "rss_named_sample_count": validated["rss_named_sample_count"],
+            "rss_expected_named_sample_count": validated["rss_named_sample_count"],
+            "rss_named_sample_counts": validated["rss_named_sample_counts"],
+            "untimed_serialization_replay": True,
+            "serialization_replay_rss_sampled": False,
+            "canonical_rows_sha256": validated["canonical_rows_sha256"],
+            "deterministic_rerun_equal": True,
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            artifact = pathlib.Path(temporary) / "case.json.gz"
+            raw = (json.dumps(report, sort_keys=True, allow_nan=False) + "\n").encode()
+            artifact.write_bytes(gzip.compress(raw, mtime=0))
+            summary["complete_json_artifact_sha256"] = MODULE.sha256_file(artifact)
+            summary["complete_json_sha256"] = MODULE.sha256_bytes(raw)
+            summary["complete_json_artifact"] = artifact.name
+            MODULE.validate_case_artifact(
+                artifact, summary, manifest, job, *identity_tuple)
+            self.assertTrue(MODULE.validate_artifact_directory_inventory(
+                artifact.parent, [summary]))
+            (artifact.parent / "extra.json.gz").write_bytes(b"extra")
+            with self.assertRaises(MODULE.QualificationError):
+                MODULE.validate_artifact_directory_inventory(
+                    artifact.parent, [summary])
+            (artifact.parent / "extra.json.gz").unlink()
+            corrupted = copy.deepcopy(report)
+            corrupted["rows"][0]["source_ids"] = [1000000]
+            corrupted_raw = (json.dumps(corrupted, sort_keys=True,
+                                        allow_nan=False) + "\n").encode()
+            artifact.write_bytes(gzip.compress(corrupted_raw, mtime=0))
+            corrupt_summary = copy.deepcopy(summary)
+            corrupt_summary["complete_json_artifact_sha256"] = (
+                MODULE.sha256_file(artifact))
+            corrupt_summary["complete_json_sha256"] = MODULE.sha256_bytes(
+                corrupted_raw)
+            with self.assertRaises(MODULE.QualificationError):
+                MODULE.validate_case_artifact(
+                    artifact, corrupt_summary, manifest, job, *identity_tuple)
+
     def test_scientific_fail_exits_zero_but_infrastructure_failure_is_nonzero(self):
         evidence = self._terminal_failure_evidence()
         stdout = io.StringIO()
@@ -285,7 +590,8 @@ class BfrQualificationContractTests(unittest.TestCase):
             with mock.patch("sys.stdout", stdout):
                 result = MODULE.main([
                     "--finalize-release-checkpoint", "--release-checkpoint", "/tmp/checkpoint",
-                    "--candidate-binary", "/tmp/candidate", "--json"])
+                    "--candidate-binary", "/tmp/candidate",
+                    "--artifact-dir", "/tmp/artifacts", "--json"])
         self.assertEqual(result, 0)
         self.assertEqual(json.loads(stdout.getvalue())["bfr_verdict"], "FAIL")
         with mock.patch("sys.stdout", io.StringIO()):

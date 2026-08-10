@@ -96,9 +96,22 @@ struct RowPackage {
 struct Preparation {
     RefinerPtr refiner;
     std::unique_ptr<Bfr::RefinerSurfaceFactoryBase> bfrFactory;
+    std::unique_ptr<Far::LimitStencilTableReal<double> const,
+                    ConstDeleter<Far::LimitStencilTableReal<double> > > farTable;
     std::unique_ptr<RowPackage> package;
     std::uint64_t elapsedNanoseconds = 0;
-    std::uint64_t peakRssBytes = 0;
+};
+
+struct RssLedger {
+    std::uint64_t baseline = 0;
+    std::uint64_t peakDeltaBytes = 0;
+    std::uint64_t afterRefinerConstruction = 0;
+    std::uint64_t afterFactoryOrCacheConstruction = 0;
+    std::uint64_t afterEachCompletedFaceRowInsertion = 0;
+    std::uint64_t afterImmutablePackagePublication = 0;
+    std::uint64_t afterRowPackageDestruction = 0;
+    std::uint64_t afterFactoryOrCacheDestruction = 0;
+    std::uint64_t afterRefinerDestruction = 0;
 };
 
 struct PlatformProbe {
@@ -318,6 +331,12 @@ void observe_rss(std::uint64_t baseline, std::uint64_t &peak) {
     std::uint64_t const current = resident_bytes();
     std::uint64_t const delta = current > baseline ? current - baseline : 0;
     peak = std::max(peak, delta);
+}
+
+void observe_named_rss(RssLedger *ledger, std::uint64_t RssLedger::*counter) {
+    if (!ledger) return;
+    observe_rss(ledger->baseline, ledger->peakDeltaBytes);
+    ++(ledger->*counter);
 }
 
 std::vector<Sample> face_samples(b2fixture::Mesh const &mesh, int face) {
@@ -581,8 +600,7 @@ void finalize_payload(RowPackage &package, int faceCount) {
 template <class Factory>
 std::unique_ptr<RowPackage> build_bfr_workload(b2fixture::Mesh const &mesh,
                                                Factory const &factory,
-                                               std::uint64_t baseline,
-                                               std::uint64_t *peakRss) {
+                                               RssLedger *rss) {
     std::unique_ptr<RowPackage> package(new RowPackage());
     for (int face = 0; face < static_cast<int>(mesh.faces.size()); ++face) {
         std::vector<Sample> const samples = face_samples(mesh, face);
@@ -591,20 +609,20 @@ std::unique_ptr<RowPackage> build_bfr_workload(b2fixture::Mesh const &mesh,
                          evaluate_bfr_surface(factory, face,
                                               samples[sample].u, samples[sample].v),
                          "Bfr");
+            observe_named_rss(rss, &RssLedger::afterEachCompletedFaceRowInsertion);
         }
-        if (peakRss) observe_rss(baseline, *peakRss);
     }
     finalize_payload(*package, static_cast<int>(mesh.faces.size()));
-    if (peakRss) observe_rss(baseline, *peakRss);
+    observe_named_rss(rss, &RssLedger::afterImmutablePackagePublication);
     return package;
 }
 
 Preparation prepare_bfr_case(b2fixture::Mesh const &mesh, int level,
-                             std::string const &mode, std::uint64_t baseline) {
+                             std::string const &mode, RssLedger *rss) {
     Preparation result;
     std::uint64_t const begin = continuous_nanoseconds();
     result.refiner = make_mesh_refiner(mesh);
-    observe_rss(baseline, result.peakRssBytes);
+    observe_named_rss(rss, &RssLedger::afterRefinerConstruction);
     Bfr::SurfaceFactory::Options options;
     options.EnableCaching(mode != "cache_disabled");
     options.SetApproxLevelSmooth(level);
@@ -613,9 +631,8 @@ Preparation prepare_bfr_case(b2fixture::Mesh const &mesh, int level,
         throw std::runtime_error("invalid Bfr numeric cache mode");
     }
     result.bfrFactory.reset(new Bfr::RefinerSurfaceFactory<>(*result.refiner, options));
-    observe_rss(baseline, result.peakRssBytes);
-    result.package = build_bfr_workload(mesh, *result.bfrFactory, baseline,
-                                        &result.peakRssBytes);
+    observe_named_rss(rss, &RssLedger::afterFactoryOrCacheConstruction);
+    result.package = build_bfr_workload(mesh, *result.bfrFactory, rss);
     result.elapsedNanoseconds = continuous_nanoseconds() - begin;
     return result;
 }
@@ -639,17 +656,16 @@ Rows rows_from_far_stencil(Far::LimitStencilReal<double> const &stencil) {
 }
 
 Preparation prepare_far_case(b2fixture::Mesh const &mesh, int level,
-                             std::uint64_t baseline) {
+                             RssLedger *rss) {
     Preparation result;
     std::uint64_t const begin = continuous_nanoseconds();
     result.refiner = make_mesh_refiner(mesh);
-    observe_rss(baseline, result.peakRssBytes);
+    observe_named_rss(rss, &RssLedger::afterRefinerConstruction);
     Far::PatchTableFactory::Options patchOptions(level);
     patchOptions.endCapType = Far::PatchTableFactory::Options::ENDCAP_GREGORY_BASIS;
     Far::TopologyRefiner::AdaptiveOptions adaptive = patchOptions.GetRefineAdaptiveOptions();
     adaptive.SetIsolationLevel(level);
     result.refiner->RefineAdaptive(adaptive);
-    observe_rss(baseline, result.peakRssBytes);
 
     using Factory = Far::LimitStencilTableFactoryReal<double>;
     std::vector<std::vector<Sample> > samplesByFace(mesh.faces.size());
@@ -675,14 +691,15 @@ Preparation prepare_far_case(b2fixture::Mesh const &mesh, int level,
     Factory::Options stencilOptions;
     stencilOptions.generate1stDerivatives = true;
     stencilOptions.generate2ndDerivatives = true;
-    std::unique_ptr<Far::LimitStencilTableReal<double> const,
-                    ConstDeleter<Far::LimitStencilTableReal<double> > > table(
+    result.farTable.reset(
         Factory::Create(*result.refiner, locations, nullptr, nullptr, stencilOptions));
+    observe_named_rss(rss, &RssLedger::afterFactoryOrCacheConstruction);
     std::size_t expectedCount = 0;
     for (std::size_t face = 0; face < samplesByFace.size(); ++face) {
         expectedCount += samplesByFace[face].size();
     }
-    if (!table || table->GetNumStencils() != static_cast<int>(expectedCount)) {
+    if (!result.farTable ||
+        result.farTable->GetNumStencils() != static_cast<int>(expectedCount)) {
         throw std::runtime_error("Far full-workload limit-stencil construction failed");
     }
     result.package.reset(new RowPackage());
@@ -691,12 +708,13 @@ Preparation prepare_far_case(b2fixture::Mesh const &mesh, int level,
         for (std::size_t sample = 0; sample < samplesByFace[static_cast<std::size_t>(face)].size(); ++sample) {
             append_group(*result.package, face,
                          samplesByFace[static_cast<std::size_t>(face)][sample],
-                         rows_from_far_stencil(table->GetLimitStencil(stencilIndex++)), "Far");
+                         rows_from_far_stencil(
+                             result.farTable->GetLimitStencil(stencilIndex++)), "Far");
+            observe_named_rss(rss, &RssLedger::afterEachCompletedFaceRowInsertion);
         }
-        observe_rss(baseline, result.peakRssBytes);
     }
     finalize_payload(*result.package, static_cast<int>(mesh.faces.size()));
-    observe_rss(baseline, result.peakRssBytes);
+    observe_named_rss(rss, &RssLedger::afterImmutablePackagePublication);
     result.elapsedNanoseconds = continuous_nanoseconds() - begin;
     return result;
 }
@@ -795,6 +813,33 @@ void emit_double_array(std::ostream &output, std::vector<double> const &values) 
     output << ']';
 }
 
+Preparation prepare_numeric_case(b2fixture::Mesh const &mesh,
+                                 std::string const &candidate, int level,
+                                 std::string const &mode, RssLedger *rss) {
+    if (candidate == "bfr") return prepare_bfr_case(mesh, level, mode, rss);
+    if (candidate == "far" && mode == "not_applicable_uncached") {
+        return prepare_far_case(mesh, level, rss);
+    }
+    throw std::runtime_error("candidate/mode pairing violates the frozen protocol");
+}
+
+void destroy_preparation(Preparation &preparation, RssLedger *rss) {
+    preparation.package.reset();
+    observe_named_rss(rss, &RssLedger::afterRowPackageDestruction);
+    preparation.bfrFactory.reset();
+    preparation.farTable.reset();
+    observe_named_rss(rss, &RssLedger::afterFactoryOrCacheDestruction);
+    preparation.refiner.reset();
+    observe_named_rss(rss, &RssLedger::afterRefinerDestruction);
+}
+
+std::string binary64_bits_hex(double value) {
+    std::ostringstream stream;
+    stream << std::hex << std::setfill('0') << std::setw(16)
+           << b2fixture::bits(value);
+    return stream.str();
+}
+
 int execute_case(char const *meshDirectory, char const *mutation,
                  std::string const &candidate, int level,
                  std::string const &mode, char const *contentIdentity) {
@@ -805,76 +850,118 @@ int execute_case(char const *meshDirectory, char const *mutation,
     b2fixture::Mesh mesh = b2fixture::read_mesh(meshDirectory);
     b2fixture::apply_mutation(mesh, mutation);
     b2fixture::validate_closed_oriented_two_manifold(mesh);
-    std::uint64_t const baseline = resident_bytes();
-    std::uint64_t peakRss = 0;
+    RssLedger rss;
+    rss.baseline = resident_bytes();
     std::vector<std::uint64_t> measured;
-    std::unique_ptr<RowPackage> retained;
+    std::size_t measuredRowGroupCount = 0;
     for (int repeat = 0; repeat < 18; ++repeat) {
-        Preparation preparation;
-        if (candidate == "bfr") {
-            preparation = prepare_bfr_case(mesh, level, mode, baseline);
-        } else if (candidate == "far" && mode == "not_applicable_uncached") {
-            preparation = prepare_far_case(mesh, level, baseline);
-        } else {
-            throw std::runtime_error("candidate/mode pairing violates the frozen protocol");
+        Preparation preparation = prepare_numeric_case(mesh, candidate, level, mode, &rss);
+        if (!preparation.package) throw std::runtime_error("numeric row package missing");
+        if (repeat == 0) measuredRowGroupCount = preparation.package->groups.size();
+        if (preparation.package->groups.size() != measuredRowGroupCount) {
+            throw std::runtime_error("numeric repeat row-group count drift");
         }
-        peakRss = std::max(peakRss, preparation.peakRssBytes);
         if (repeat >= 3) measured.push_back(preparation.elapsedNanoseconds);
-        if (repeat == 17) retained = std::move(preparation.package);
-        preparation.package.reset();
-        observe_rss(baseline, peakRss);
-        preparation.bfrFactory.reset();
-        observe_rss(baseline, peakRss);
-        preparation.refiner.reset();
-        observe_rss(baseline, peakRss);
+        destroy_preparation(preparation, &rss);
     }
-    if (!retained || measured.size() != 15) throw std::runtime_error("numeric repeat lifecycle incomplete");
+    if (measured.size() != 15 || measuredRowGroupCount == 0) {
+        throw std::runtime_error("numeric repeat lifecycle incomplete");
+    }
+    bool const rssComplete =
+        rss.afterRefinerConstruction == 18 &&
+        rss.afterFactoryOrCacheConstruction == 18 &&
+        rss.afterEachCompletedFaceRowInsertion == 18 * measuredRowGroupCount &&
+        rss.afterImmutablePackagePublication == 18 &&
+        rss.afterRowPackageDestruction == 18 &&
+        rss.afterFactoryOrCacheDestruction == 18 &&
+        rss.afterRefinerDestruction == 18;
+    std::uint64_t const expectedRssSamples =
+        UINT64_C(18) * (static_cast<std::uint64_t>(measuredRowGroupCount) + UINT64_C(6));
+    std::uint64_t const actualRssSamples =
+        rss.afterRefinerConstruction + rss.afterFactoryOrCacheConstruction +
+        rss.afterEachCompletedFaceRowInsertion + rss.afterImmutablePackagePublication +
+        rss.afterRowPackageDestruction + rss.afterFactoryOrCacheDestruction +
+        rss.afterRefinerDestruction;
+    if (!rssComplete || actualRssSamples != expectedRssSamples) {
+        throw std::runtime_error("MEASUREMENT_PROTOCOL_FAILURE_RSS_BOUNDARY_COUNT");
+    }
+
+    // Complete row JSON is generated by a separate replay.  It is deliberately
+    // outside all 18 preparation timings and all D12 RSS observations.
+    Preparation serialization = prepare_numeric_case(mesh, candidate, level, mode, nullptr);
+    if (!serialization.package ||
+        serialization.package->groups.size() != measuredRowGroupCount) {
+        throw std::runtime_error("untimed serialization replay coverage drift");
+    }
+    RowPackage const &package = *serialization.package;
     std::vector<std::uint64_t> ordered = measured;
     std::sort(ordered.begin(), ordered.end());
     static char const *rowNames[kRowCount] = {"position", "du", "dv", "duu", "duv", "dvv"};
-    std::cout << std::setprecision(17)
+    std::ostringstream output;
+    output << std::setprecision(17)
               << "{\"schema_version\":1,\"kind\":\"bfr_candidate_case\",\"status\":\"ok\","
               << "\"finite\":true,\"content_identity_key\":\"" << contentIdentity << "\","
               << "\"candidate\":\"" << candidate << "\",\"approximation_level\":" << level << ','
               << "\"applicable_mode\":\"" << mode << "\",\"warmup_count\":3,"
               << "\"preparation_ns\":[";
     for (std::size_t index = 0; index < measured.size(); ++index) {
-        if (index) std::cout << ',';
-        std::cout << measured[index];
+        if (index) output << ',';
+        output << measured[index];
     }
-    std::cout << "],\"preparation_median_ns\":" << ordered[7]
-              << ",\"peak_rss_delta_bytes\":" << peakRss
-              << ",\"rss_named_samples_complete\":true,\"retained_payload_bytes_per_face\":"
-              << retained->maxRetainedPayloadPerFace
-              << ",\"row_group_count\":" << retained->groups.size()
-              << ",\"max_row_sum_error\":" << retained->maxRowSumError
+    output << "],\"preparation_median_ns\":" << ordered[7]
+              << ",\"peak_rss_delta_bytes\":" << rss.peakDeltaBytes
+              << ",\"rss_baseline_sample_count\":1"
+              << ",\"rss_named_sample_count\":" << actualRssSamples
+              << ",\"rss_expected_named_sample_count\":" << expectedRssSamples
+              << ",\"rss_named_samples_complete\":" << (rssComplete ? "true" : "false")
+              << ",\"rss_named_sample_counts\":{"
+              << "\"after_refiner_construction\":" << rss.afterRefinerConstruction
+              << ",\"after_factory_or_cache_construction\":" << rss.afterFactoryOrCacheConstruction
+              << ",\"after_each_completed_face_row_insertion\":" << rss.afterEachCompletedFaceRowInsertion
+              << ",\"after_immutable_package_publication\":" << rss.afterImmutablePackagePublication
+              << ",\"after_row_package_destruction\":" << rss.afterRowPackageDestruction
+              << ",\"after_factory_or_cache_destruction\":" << rss.afterFactoryOrCacheDestruction
+              << ",\"after_refiner_destruction\":" << rss.afterRefinerDestruction << '}'
+              << ",\"untimed_serialization_replay\":true"
+              << ",\"serialization_replay_rss_sampled\":false"
+              << ",\"retained_payload_bytes_per_face\":"
+              << package.maxRetainedPayloadPerFace
+              << ",\"row_group_count\":" << package.groups.size()
+              << ",\"max_row_sum_error\":" << package.maxRowSumError
               << ",\"source_reconstruction_complete\":true,\"row_kind_counts\":{";
     for (int row = 0; row < kRowCount; ++row) {
-        if (row) std::cout << ',';
-        std::cout << '\"' << rowNames[row] << "\":" << retained->groups.size();
+        if (row) output << ',';
+        output << '\"' << rowNames[row] << "\":" << package.groups.size();
     }
-    std::cout << "},\"rows\":[";
+    output << "},\"rows\":[";
     bool first = true;
-    for (std::size_t groupIndex = 0; groupIndex < retained->groups.size(); ++groupIndex) {
-        RowGroup const &group = retained->groups[groupIndex];
+    for (std::size_t groupIndex = 0; groupIndex < package.groups.size(); ++groupIndex) {
+        RowGroup const &group = package.groups[groupIndex];
         for (int row = 0; row < kRowCount; ++row) {
-            if (!first) std::cout << ',';
+            if (!first) output << ',';
             first = false;
-            std::cout << "{\"face_row\":" << group.face
+            output << "{\"content_identity_key\":\"" << contentIdentity << "\""
+                      << ",\"candidate\":\"" << candidate << "\""
+                      << ",\"approximation_level\":" << level
+                      << ",\"applicable_mode\":\"" << mode << "\""
+                      << ",\"face_row\":" << group.face
                       << ",\"local_corner_or_none\":" << group.sample.localCorner
                       << ",\"sample_id\":\"" << group.sample.id << "\","
                       << "\"u_binary64\":" << group.sample.u << ",\"v_binary64\":" << group.sample.v
+                      << ",\"u_binary64_bits_hex\":\"" << binary64_bits_hex(group.sample.u) << "\""
+                      << ",\"v_binary64_bits_hex\":\"" << binary64_bits_hex(group.sample.v) << "\""
                       << ",\"weight_bits_hex\":\"3ff0000000000000\",\"row_kind\":\""
                       << rowNames[row] << "\",\"source_ids\":";
-            emit_int_array(std::cout, group.rows.ids[row]);
-            std::cout << ",\"coefficients\":";
-            emit_double_array(std::cout, group.rows.coefficients[row]);
-            std::cout << '}';
+            emit_int_array(output, group.rows.ids[row]);
+            output << ",\"coefficients\":";
+            emit_double_array(output, group.rows.coefficients[row]);
+            output << '}';
         }
     }
-    std::cout << "]}\n";
-    retained.reset();
-    observe_rss(baseline, peakRss);
+    output << "]}\n";
+    std::string const rendered = output.str();
+    destroy_preparation(serialization, nullptr);
+    std::cout << rendered;
     return 0;
 }
 
@@ -975,7 +1062,7 @@ int thread_case(char const *meshDirectory, char const *mutation, int level,
                 try {
                     barrier.wait();
                     std::unique_ptr<RowPackage> package =
-                        build_bfr_workload(mesh, *factory, 0, nullptr);
+                        build_bfr_workload(mesh, *factory, nullptr);
                     results[static_cast<std::size_t>(worker)] =
                         canonical_package_bytes(*package);
                 } catch (...) {

@@ -65,12 +65,36 @@ jobs:
         run: |
           set -euo pipefail
           MPFR_ROOT="$RUNNER_TEMP/b2-mpfr"
-          mkdir -p "$RUNNER_TEMP/b2-gmp-src" "$RUNNER_TEMP/b2-mpfr-src"
-          tar -xf "$RUNNER_TEMP/b2-downloads/gmp.tar.xz" -C "$RUNNER_TEMP/b2-gmp-src" --strip-components=1
-          tar -xf "$RUNNER_TEMP/b2-downloads/mpfr.tar.xz" -C "$RUNNER_TEMP/b2-mpfr-src" --strip-components=1
-          (cd "$RUNNER_TEMP/b2-gmp-src" && ./configure --prefix="$MPFR_ROOT" --enable-shared --disable-static && /usr/bin/make -j1 && /usr/bin/make install)
-          (cd "$RUNNER_TEMP/b2-mpfr-src" && ./configure --prefix="$MPFR_ROOT" --with-gmp="$MPFR_ROOT" --enable-shared --disable-static && /usr/bin/make -j1 && /usr/bin/make install)
+          GMP_BUILD_ROOT="$RUNNER_TEMP/b2-gmp-src"
+          MPFR_BUILD_ROOT="$RUNNER_TEMP/b2-mpfr-src"
+          mkdir -p "$GMP_BUILD_ROOT" "$MPFR_BUILD_ROOT"
+          tar -xf "$RUNNER_TEMP/b2-downloads/gmp.tar.xz" -C "$GMP_BUILD_ROOT" --strip-components=1
+          tar -xf "$RUNNER_TEMP/b2-downloads/mpfr.tar.xz" -C "$MPFR_BUILD_ROOT" --strip-components=1
+          build_autotools() {
+            local build_root="$1"
+            shift
+            local build_environment=(LANG=C LC_ALL=C SOURCE_DATE_EPOCH=0 TZ=UTC ZERO_AR_DATE=1)
+            local configure=("$build_root/configure" "--prefix=$MPFR_ROOT" "$@")
+            local build=(/usr/bin/make -j1)
+            local install=(/usr/bin/make install)
+            printf '%s\n' "${configure[@]}" > "$build_root/configure.args.txt"
+            printf '%s\n' "${build[@]}" > "$build_root/build.args.txt"
+            printf '%s\n' "${install[@]}" > "$build_root/install.args.txt"
+            printf '%s\n' LANG=C LC_ALL=C SOURCE_DATE_EPOCH=0 TZ=UTC ZERO_AR_DATE=1 \
+              > "$build_root/build-environment.txt"
+            (cd "$build_root" && env "${build_environment[@]}" "${configure[@]}" \
+              > configure.log 2>&1)
+            (cd "$build_root" && env "${build_environment[@]}" "${build[@]}" \
+              > build.log 2>&1)
+            (cd "$build_root" && env "${build_environment[@]}" "${install[@]}" \
+              > install.log 2>&1)
+          }
+          build_autotools "$GMP_BUILD_ROOT" --enable-shared --disable-static
+          build_autotools "$MPFR_BUILD_ROOT" "--with-gmp=$MPFR_ROOT" \
+            --enable-shared --disable-static
           echo "MPFR_ROOT=$MPFR_ROOT" >> "$GITHUB_ENV"
+          echo "GMP_BUILD_ROOT=$GMP_BUILD_ROOT" >> "$GITHUB_ENV"
+          echo "MPFR_BUILD_ROOT=$MPFR_BUILD_ROOT" >> "$GITHUB_ENV"
 
       - name: Prepare exact OpenSubdiv source checkout
         shell: bash
@@ -87,41 +111,60 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          common=(
-            -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Release
-            -DCMAKE_CXX_COMPILER=/Library/Developer/CommandLineTools/usr/bin/clang++
-            -DCMAKE_CXX_STANDARD=17 -DCMAKE_CXX_STANDARD_REQUIRED=ON -DCMAKE_CXX_EXTENSIONS=OFF
-            -DCMAKE_OSX_ARCHITECTURES=arm64 -DCMAKE_OSX_DEPLOYMENT_TARGET=26.0
-            -DCMAKE_OSX_SYSROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk
-            -DCMAKE_AR=/Library/Developer/CommandLineTools/usr/bin/ar
-            -DCMAKE_RANLIB=/Library/Developer/CommandLineTools/usr/bin/ranlib
-            -DCMAKE_MAKE_PROGRAM=/usr/bin/make -DCMAKE_INSTALL_LIBDIR=lib
-            -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DCMAKE_POSITION_INDEPENDENT_CODE=OFF
-            -DCMAKE_VERBOSE_MAKEFILE=ON -DBUILD_SHARED_LIBS=OFF -DNO_LIB=OFF
-            -DNO_EXAMPLES=ON -DNO_TUTORIALS=ON -DNO_REGRESSION=ON -DNO_PTEX=ON
-            -DNO_DOC=ON -DNO_OMP=ON -DNO_TBB=ON -DNO_CUDA=ON -DNO_OPENCL=ON
-            -DNO_CLEW=ON -DNO_OPENGL=ON -DNO_METAL=ON -DNO_DX=ON -DNO_TESTS=ON
-            -DNO_GLTESTS=ON -DNO_GLEW=ON -DNO_GLFW=ON -DNO_GLFW_X11=ON
-            -DNO_MACOS_FRAMEWORK=ON -DOSD_PATCH_SHADER_SOURCE_GLSL=OFF
-            -DOSD_PATCH_SHADER_SOURCE_HLSL=OFF -DOSD_PATCH_SHADER_SOURCE_MSL=OFF
-            -DOPENSUBDIV_GREGORY_EVAL_TRUE_DERIVATIVES=OFF -DSIMD=NONE
-          )
           build_profile() {
             local build_root="$1" install_root="$2" flags="$3"
-            cmake -S "$OPENSUBDIV_SOURCE" -B "$build_root" "${common[@]}" \
-              -DCMAKE_INSTALL_PREFIX="$install_root" -DCMAKE_CXX_FLAGS= \
-              -DCMAKE_CXX_FLAGS_RELEASE="$flags"
-            cmake --build "$build_root" --config Release --target osd_static_cpu --parallel 1 --verbose
-            cmake --install "$build_root" --config Release
+            local build_environment=(LANG=C LC_ALL=C SOURCE_DATE_EPOCH=0 TZ=UTC ZERO_AR_DATE=1)
+            local configure=(
+              /opt/homebrew/bin/cmake -S "$OPENSUBDIV_SOURCE" -B "$build_root"
+              -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Release
+              -DCMAKE_CXX_COMPILER=/Library/Developer/CommandLineTools/usr/bin/clang++
+              -DCMAKE_CXX_STANDARD=17 -DCMAKE_CXX_STANDARD_REQUIRED=ON
+              -DCMAKE_CXX_EXTENSIONS=OFF -DCMAKE_OSX_ARCHITECTURES=arm64
+              -DCMAKE_OSX_DEPLOYMENT_TARGET=26.0
+              -DCMAKE_OSX_SYSROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk
+              -DCMAKE_AR=/Library/Developer/CommandLineTools/usr/bin/ar
+              -DCMAKE_RANLIB=/Library/Developer/CommandLineTools/usr/bin/ranlib
+              -DCMAKE_MAKE_PROGRAM=/usr/bin/make
+              "-DCMAKE_INSTALL_PREFIX=$install_root" -DCMAKE_INSTALL_LIBDIR=lib
+              -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DCMAKE_POSITION_INDEPENDENT_CODE=OFF
+              -DCMAKE_VERBOSE_MAKEFILE=ON -DBUILD_SHARED_LIBS=OFF -DNO_LIB=OFF
+              -DNO_EXAMPLES=ON -DNO_TUTORIALS=ON -DNO_REGRESSION=ON -DNO_PTEX=ON
+              -DNO_DOC=ON -DNO_OMP=ON -DNO_TBB=ON -DNO_CUDA=ON -DNO_OPENCL=ON
+              -DNO_CLEW=ON -DNO_OPENGL=ON -DNO_METAL=ON -DNO_DX=ON -DNO_TESTS=ON
+              -DNO_GLTESTS=ON -DNO_GLEW=ON -DNO_GLFW=ON -DNO_GLFW_X11=ON
+              -DNO_MACOS_FRAMEWORK=ON -DOSD_PATCH_SHADER_SOURCE_GLSL=OFF
+              -DOSD_PATCH_SHADER_SOURCE_HLSL=OFF -DOSD_PATCH_SHADER_SOURCE_MSL=OFF
+              -DOPENSUBDIV_GREGORY_EVAL_TRUE_DERIVATIVES=OFF -DSIMD=NONE
+              -DCMAKE_CXX_FLAGS= "-DCMAKE_CXX_FLAGS_RELEASE=$flags"
+            )
+            local build=(/opt/homebrew/bin/cmake --build "$build_root" --config Release \
+              --target osd_static_cpu --parallel 1 --verbose)
+            local install=(/opt/homebrew/bin/cmake --install "$build_root" --config Release)
+            mkdir -p "$build_root"
+            printf '%s\n' "${configure[@]}" > "$build_root/configure.args.txt"
+            printf '%s\n' "${build[@]}" > "$build_root/build.args.txt"
+            printf '%s\n' "${install[@]}" > "$build_root/install.args.txt"
+            printf '%s\n' LANG=C LC_ALL=C SOURCE_DATE_EPOCH=0 TZ=UTC ZERO_AR_DATE=1 \
+              > "$build_root/build-environment.txt"
+            env "${build_environment[@]}" "${configure[@]}" \
+              > "$build_root/configure.log" 2>&1
+            env "${build_environment[@]}" "${build[@]}" \
+              > "$build_root/build.log" 2>&1
+            env "${build_environment[@]}" "${install[@]}" \
+              > "$build_root/install.log" 2>&1
           }
           OPENSUBDIV_ROOT="$RUNNER_TEMP/b2-osd-release"
           OPENSUBDIV_TSAN_ROOT="$RUNNER_TEMP/b2-osd-tsan"
-          build_profile "$RUNNER_TEMP/b2-osd-release-build" "$OPENSUBDIV_ROOT" \
+          OPENSUBDIV_RELEASE_BUILD_ROOT="$RUNNER_TEMP/b2-osd-release-build"
+          OPENSUBDIV_TSAN_BUILD_ROOT="$RUNNER_TEMP/b2-osd-tsan-build"
+          build_profile "$OPENSUBDIV_RELEASE_BUILD_ROOT" "$OPENSUBDIV_ROOT" \
             "-std=c++17 -O3 -DNDEBUG -fno-fast-math -ffp-contract=off -fno-omit-frame-pointer -isysroot /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk -mmacosx-version-min=26.0"
-          build_profile "$RUNNER_TEMP/b2-osd-tsan-build" "$OPENSUBDIV_TSAN_ROOT" \
+          build_profile "$OPENSUBDIV_TSAN_BUILD_ROOT" "$OPENSUBDIV_TSAN_ROOT" \
             "-std=c++17 -O1 -g -DNDEBUG -fno-fast-math -ffp-contract=off -fno-omit-frame-pointer -isysroot /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk -mmacosx-version-min=26.0 -fsanitize=thread"
           echo "OPENSUBDIV_ROOT=$OPENSUBDIV_ROOT" >> "$GITHUB_ENV"
           echo "OPENSUBDIV_TSAN_ROOT=$OPENSUBDIV_TSAN_ROOT" >> "$GITHUB_ENV"
+          echo "OPENSUBDIV_RELEASE_BUILD_ROOT=$OPENSUBDIV_RELEASE_BUILD_ROOT" >> "$GITHUB_ENV"
+          echo "OPENSUBDIV_TSAN_BUILD_ROOT=$OPENSUBDIV_TSAN_BUILD_ROOT" >> "$GITHUB_ENV"
 
       - name: Hosted correctness audit and full Release reproduction
         run: |
@@ -129,9 +172,17 @@ jobs:
           python3 scripts/run_bfr_qualification.py \
             --run-release-matrix \
             --mpfr-root "$MPFR_ROOT" \
+            --gmp-build-root "$GMP_BUILD_ROOT" \
+            --mpfr-build-root "$MPFR_BUILD_ROOT" \
             --opensubdiv-root "$OPENSUBDIV_ROOT" \
             --opensubdiv-tsan-root "$OPENSUBDIV_TSAN_ROOT" \
             --opensubdiv-source "$OPENSUBDIV_SOURCE" \
+            --opensubdiv-release-build-root "$OPENSUBDIV_RELEASE_BUILD_ROOT" \
+            --opensubdiv-tsan-build-root "$OPENSUBDIV_TSAN_BUILD_ROOT" \
+            --gmp-archive "$RUNNER_TEMP/b2-downloads/gmp.tar.xz" \
+            --mpfr-archive "$RUNNER_TEMP/b2-downloads/mpfr.tar.xz" \
+            --opensubdiv-archive "$RUNNER_TEMP/b2-downloads/opensubdiv.tar.gz" \
+            --proof-artifact-dir "$RUNNER_TEMP/bfr-proof-artifacts" \
             --release-checkpoint "$RUNNER_TEMP/bfr-release-checkpoint.json" \
             --artifact-dir "$RUNNER_TEMP/bfr-case-json" \
             --output "$RUNNER_TEMP/bfr-qualification-evidence.json"
@@ -146,4 +197,48 @@ jobs:
             ${{ runner.temp }}/bfr-qualification-evidence.json
             ${{ runner.temp }}/bfr-release-checkpoint.json
             ${{ runner.temp }}/bfr-case-json
+            ${{ runner.temp }}/bfr-proof-artifacts
+            ${{ runner.temp }}/b2-downloads
+            ${{ runner.temp }}/b2-gmp-src/configure.args.txt
+            ${{ runner.temp }}/b2-gmp-src/build.args.txt
+            ${{ runner.temp }}/b2-gmp-src/install.args.txt
+            ${{ runner.temp }}/b2-gmp-src/build-environment.txt
+            ${{ runner.temp }}/b2-gmp-src/configure.log
+            ${{ runner.temp }}/b2-gmp-src/config.status
+            ${{ runner.temp }}/b2-gmp-src/config.log
+            ${{ runner.temp }}/b2-gmp-src/Makefile
+            ${{ runner.temp }}/b2-gmp-src/build.log
+            ${{ runner.temp }}/b2-gmp-src/install.log
+            ${{ runner.temp }}/b2-mpfr-src/configure.args.txt
+            ${{ runner.temp }}/b2-mpfr-src/build.args.txt
+            ${{ runner.temp }}/b2-mpfr-src/install.args.txt
+            ${{ runner.temp }}/b2-mpfr-src/build-environment.txt
+            ${{ runner.temp }}/b2-mpfr-src/configure.log
+            ${{ runner.temp }}/b2-mpfr-src/config.status
+            ${{ runner.temp }}/b2-mpfr-src/config.log
+            ${{ runner.temp }}/b2-mpfr-src/Makefile
+            ${{ runner.temp }}/b2-mpfr-src/build.log
+            ${{ runner.temp }}/b2-mpfr-src/install.log
+            ${{ runner.temp }}/b2-osd-release-build/CMakeCache.txt
+            ${{ runner.temp }}/b2-osd-release-build/configure.log
+            ${{ runner.temp }}/b2-osd-release-build/configure.args.txt
+            ${{ runner.temp }}/b2-osd-release-build/build.log
+            ${{ runner.temp }}/b2-osd-release-build/build.args.txt
+            ${{ runner.temp }}/b2-osd-release-build/install.log
+            ${{ runner.temp }}/b2-osd-release-build/install.args.txt
+            ${{ runner.temp }}/b2-osd-release-build/build-environment.txt
+            ${{ runner.temp }}/b2-osd-release-build/compile_commands.json
+            ${{ runner.temp }}/b2-osd-release-build/install_manifest.txt
+            ${{ runner.temp }}/b2-osd-release-build/opensubdiv/CMakeFiles/osd_static_cpu.dir/link.txt
+            ${{ runner.temp }}/b2-osd-tsan-build/CMakeCache.txt
+            ${{ runner.temp }}/b2-osd-tsan-build/configure.log
+            ${{ runner.temp }}/b2-osd-tsan-build/configure.args.txt
+            ${{ runner.temp }}/b2-osd-tsan-build/build.log
+            ${{ runner.temp }}/b2-osd-tsan-build/build.args.txt
+            ${{ runner.temp }}/b2-osd-tsan-build/install.log
+            ${{ runner.temp }}/b2-osd-tsan-build/install.args.txt
+            ${{ runner.temp }}/b2-osd-tsan-build/build-environment.txt
+            ${{ runner.temp }}/b2-osd-tsan-build/compile_commands.json
+            ${{ runner.temp }}/b2-osd-tsan-build/install_manifest.txt
+            ${{ runner.temp }}/b2-osd-tsan-build/opensubdiv/CMakeFiles/osd_static_cpu.dir/link.txt
           if-no-files-found: error
