@@ -23,13 +23,15 @@ class CudaMeshStateInventoryTest(unittest.TestCase):
             "rollback()",
             "GeometryCandidateResult",
             "compute_candidate_geometry",
+            "MembraneCandidateResult",
+            "compute_candidate_membrane",
         ):
             self.assertIn(anchor, public)
         self.assertIn("DeviceOperations", (ROOT / "include/cuda/detail/Cuda_mesh_state_core.hpp").read_text())
         self.assertIn("MemoryBudgetExceeded", core)
         self.assertIn("topology replacement requires fresh dependent generations", core)
 
-    def test_step_is_geometry_only_and_not_production_routed(self):
+    def test_step_contains_membrane_formula_but_is_not_production_routed(self):
         paths = [
             ROOT / "include/cuda/Cuda_mesh_state.hpp",
             ROOT / "include/cuda/detail/Cuda_regular_geometry_cpu.hpp",
@@ -40,9 +42,12 @@ class CudaMeshStateInventoryTest(unittest.TestCase):
         text = "\n".join(path.read_text() for path in paths)
         self.assertIn("regular_geometry_kernel", text)
         self.assertIn("deterministic_geometry_reduction_kernel", text)
+        self.assertIn("regular_membrane_kernel", text)
+        self.assertIn("deterministic_membrane_reduction_kernel", text)
+        self.assertIn("occurrenceForces", text)
         self.assertNotIn("Compute_energy_and_force", text)
         self.assertNotIn("#include \"mesh/", text)
-        self.assertNotIn("force scatter", text.lower())
+        self.assertNotIn("forceTotal", text)
 
     def test_make_targets_are_explicit_and_mutually_exclusive(self):
         makefile = (ROOT / "Makefile").read_text()
@@ -156,6 +161,55 @@ class CudaMeshStateInventoryTest(unittest.TestCase):
         missing["geometry_cases"].pop("curved")
         self.assertFalse(module.geometry_complete(missing))
 
+    def test_runner_rejects_false_green_membrane(self):
+        path = ROOT / "scripts/run_cuda_mesh_state_report.py"
+        spec = importlib.util.spec_from_file_location("mesh_state_runner_membrane", path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        complete_case = {
+            "pass": True,
+            "cpu_parity": True,
+            "repeatable": True,
+            "structured_degeneracy": True,
+            "recoverable": True,
+            "permutation_equal": True,
+            "max_abs_error": 1.0e-12,
+        }
+        complete = {
+            "membrane_repeatable": True,
+            "membrane_degeneracy_handled": True,
+            "membrane_max_abs_error": 1.0e-12,
+            "membrane_cases": {
+                name: complete_case.copy()
+                for name in module.REQUIRED_MEMBRANE_CASES
+            },
+        }
+        self.assertTrue(module.membrane_complete(complete))
+        for key, invalid in (
+            ("membrane_repeatable", False),
+            ("membrane_degeneracy_handled", False),
+            ("membrane_max_abs_error", 1.0001e-12),
+            ("membrane_max_abs_error", "0"),
+        ):
+            with self.subTest(key=key, invalid=invalid):
+                report = complete.copy()
+                report[key] = invalid
+                self.assertFalse(module.membrane_complete(report))
+        for name in module.REQUIRED_MEMBRANE_CASES:
+            for key, invalid in (
+                ("pass", False),
+                ("cpu_parity", False),
+                ("repeatable", False),
+                ("structured_degeneracy", False),
+                ("recoverable", False),
+                ("permutation_equal", False),
+                ("max_abs_error", 1.0001e-12),
+            ):
+                with self.subTest(case=name, key=key):
+                    report = json.loads(json.dumps(complete))
+                    report["membrane_cases"][name][key] = invalid
+                    self.assertFalse(module.membrane_complete(report))
+
     def test_committed_rtx_evidence_meets_exit_gate(self):
         evidence = json.loads(
             (ROOT / "analysis/cuda_mesh_state_report_rtx4050.json").read_text()
@@ -166,6 +220,9 @@ class CudaMeshStateInventoryTest(unittest.TestCase):
         self.assertEqual(evidence["iterations"], 20)
         self.assertLessEqual(evidence["geometry_max_abs_error"], 1.0e-12)
         self.assertTrue(evidence["geometry_repeatable"])
+        self.assertLessEqual(evidence["membrane_max_abs_error"], 1.0e-12)
+        self.assertTrue(evidence["membrane_repeatable"])
+        self.assertTrue(evidence["membrane_degeneracy_handled"])
         self.assertEqual(
             set(evidence["geometry_cases"]),
             {
@@ -185,6 +242,25 @@ class CudaMeshStateInventoryTest(unittest.TestCase):
             self.assertTrue(case["ghost_zero"])
             self.assertTrue(case["degenerate_zero"])
             self.assertTrue(case["permutation_equal"])
+        self.assertEqual(
+            set(evidence["membrane_cases"]),
+            {
+                "natural",
+                "permuted",
+                "curved",
+                "boundary_ghost",
+                "degenerate",
+                "production_cpu",
+            },
+        )
+        for case in evidence["membrane_cases"].values():
+            self.assertTrue(case["pass"])
+            self.assertTrue(case["cpu_parity"])
+            self.assertTrue(case["repeatable"])
+            self.assertTrue(case["structured_degeneracy"])
+            self.assertTrue(case["recoverable"])
+            self.assertTrue(case["permutation_equal"])
+            self.assertLessEqual(case["max_abs_error"], 1.0e-12)
         self.assertTrue(evidence["no_warm_allocations"])
         self.assertTrue(evidence["transfers_complete"])
         self.assertTrue(evidence["closed"])

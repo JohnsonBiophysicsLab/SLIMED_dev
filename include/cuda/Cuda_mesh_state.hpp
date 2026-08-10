@@ -78,6 +78,8 @@ enum class TransferReason : std::size_t
     CandidateCoordinates,
     CandidateGeometry,
     GeometryDiagnostics,
+    CandidateMembrane,
+    MembraneDiagnostics,
     Count,
 };
 
@@ -142,6 +144,41 @@ struct GeometryCandidateResult
     bool ok() const noexcept { return error.ok(); }
 };
 
+enum class MembraneStatusCode : std::int32_t
+{
+    None = 0,
+    InvalidSource = 1,
+    DegenerateSample = 2,
+    NonFiniteIntermediate = 3,
+    NonFiniteOutput = 4,
+};
+
+struct MembraneCandidateResult
+{
+    std::vector<double> faceAreas;
+    std::vector<double> faceVolumes;
+    std::vector<double> faceBendingEnergies;
+    std::vector<double> faceMeanCurvatures;
+    std::vector<double> faceNormals;
+    std::vector<double> occurrenceForces;
+    std::vector<double> sampleSurfaceMeasures;
+    std::vector<double> sampleMeanCurvatures;
+    std::vector<double> sampleNormals;
+    std::vector<double> sampleBendingEnergies;
+    double totalArea = 0.0;
+    double totalVolume = 0.0;
+    std::uint64_t coordinateGeneration = 0;
+    MembraneStatusCode status = MembraneStatusCode::None;
+    std::uint64_t failedEvaluatedFace = 0;
+    std::uint32_t failedSample = 0;
+    DeviceStateError error;
+
+    bool ok() const noexcept
+    {
+        return error.ok() && status == MembraneStatusCode::None;
+    }
+};
+
 struct CudaMeshStateResult;
 
 class CudaMeshState final
@@ -158,6 +195,7 @@ class CudaMeshState final
         const std::vector<double> &coordinates,
         std::uint64_t generation);
     GeometryCandidateResult compute_candidate_geometry();
+    MembraneCandidateResult compute_candidate_membrane();
     DeviceStateError mark_computing();
     DeviceStateError mark_validated();
     DeviceStateError commit();
