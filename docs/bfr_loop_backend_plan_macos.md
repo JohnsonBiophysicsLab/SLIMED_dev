@@ -1320,6 +1320,26 @@ Exactly one of these is the deliverable. Both are valid results under **P9**.
    package to harden Far. No agent may select any of those by inference, and no
    configuration change may route production to Far.
 
+Far's own measured results are published either way, as comparator evidence. If
+Far fails the regular gate that is a severity-1 finding about the existing
+prototypes and is escalated on its own, but it neither qualifies nor
+disqualifies Bfr.
+
+In both outcomes, the measured near-vertex Far-Bfr disagreement magnitude is a
+required deliverable in its own right, reported strictly as **observed
+inter-method spread**.
+
+It is **not** a floor on achievable irregular row accuracy, and must never be
+described as one. Far and Bfr share an approximation *strategy* — local
+subdivision plus a Gregory-style end cap — so their errors are expected to be
+correlated. Correlated errors make the spread small while both methods are
+inaccurate, so agreement is weak evidence of accuracy and the spread bounds
+neither method's error. Any WP5.1 accuracy limit must be derived from converged
+independent-oracle error, or left unresolved. An earlier draft of this plan
+asserted the invalid floor interpretation; it is withdrawn.
+
+Suggested branch: `codex/bfr-qualification-proof`.
+
 ### B2a - invariant-preserving row-representation architecture preflight
 
 Objective: evaluate one different, invariant-preserving representation against
@@ -1370,25 +1390,71 @@ disagreement; coefficient mutation/omission; nonfinite product/sum/result; failu
 reproduce D9a; cache-mode disagreement; need to normalize a row or relax any
 frozen input; or any production, Far-selection, B3, D9b, or activation change.
 
-Far's own measured results are published either way, as comparator evidence. If
-Far fails the regular gate that is a severity-1 finding about the existing
-prototypes and is escalated on its own, but it neither qualifies nor
-disqualifies Bfr.
+**Recorded B2a result and architecture selection (2026-08-10).** PR 199 merged
+the reviewed preflight at exact head
+`2c6d455abde562d63967d4ab301c6365775d0662` as main merge commit
+`1a8763fc931ace724828504972b2fc3fc61a1795`. Verification, technical,
+scientific, and gatekeeper reviews passed; the hosted exact-head artifact
+reproduced all 294 cases and the disposition
+`REPRESENTATION_FEASIBLE_NOT_QUALIFIED`. The user then explicitly selected
+`anchored_difference_rows_v1` solely as the candidate for a separate proof-only
+qualification package. This does not qualify it, reopen D9a, unblock B3, select
+Far, decide D9b, or authorize production.
 
-In both outcomes, the measured near-vertex Far-Bfr disagreement magnitude is a
-required deliverable in its own right, reported strictly as **observed
-inter-method spread**.
+### B2b - anchored-row qualification input freeze
 
-It is **not** a floor on achievable irregular row accuracy, and must never be
-described as one. Far and Bfr share an approximation *strategy* — local
-subdivision plus a Gregory-style end cap — so their errors are expected to be
-correlated. Correlated errors make the spread small while both methods are
-inaccurate, so agreement is weak evidence of accuracy and the spread bounds
-neither method's error. Any WP5.1 accuracy limit must be derived from converged
-independent-oracle error, or left unresolved. An earlier draft of this plan
-asserted the invalid floor interpretation; it is withdrawn.
+Objective: freeze the independent oracle application, three-anchor sensitivity
+protocol, scientific targets, execution order, and verdict semantics before any
+qualification candidate runs.
 
-Suggested branch: `codex/bfr-qualification-proof`.
+Authority: the recorded candidate selection permits this non-executing input
+packet only. The packet is
+[`anchored_row_qualification_preflight.md`](anchored_row_qualification_preflight.md).
+It requires exact-SHA technical, scientific, and gatekeeper review followed by
+explicit user approval before a separate B2c proof implementation may start.
+
+Frozen proposal:
+
+- reuse the exact D10 MPFR/Stam oracle, fixtures, manifest hashes, row targets,
+  `1.0e-12` invariant, inner-radius exclusion, and D12 contract unchanged;
+- form effective rows with exact integer-over-`2^1074` dyadic arithmetic and
+  rigorously certified outward imports into the 544-bit oracle;
+- qualify the fixed first oriented corner while requiring both other coarse-face
+  corners and both frozen source-relabeling permutations to pass their gates;
+- propose new, explicitly approved `0.1 x D10` targets for pairwise anchor
+  sensitivity, ordered-binary64 evaluation fidelity, and each of the `6 -> 7`
+  and `7 -> 8` stabilization transitions; these are distinct from B2p's oracle
+  uncertainty allocation and are not fitted to B2a output;
+- require levels 7 and 8 to pass full D10, with exact effective rows owning
+  coefficient and geometry gates and the emitted binary64 evaluator owning a
+  separate direct-fixture-geometry gate; basis probes of rounded evaluation
+  remain diagnostic rather than a claimed linear operator bound;
+- freeze the binary64 instruction order and the fail-closed
+  `anchored-row-qualification-report-v1` bindings, RFC 8785 digest and fixed
+  scientific and D12 cell-key encodings, five constant-challenge keys,
+  closed unavailable-input reason codes, pre-result oracle request ledger with
+  the complete original D10 `UNCOVERED` reasons, explicitly rounded scalar
+  regular integrands, face/sample RSS insertion identities, named criterion
+  outcome ownership, the existing later-decision-only serial-only eligibility
+  after a detected threaded-cache race only, reference-bound concurrent row
+  digests, early-stop representation, and verdict precedence; and
+- preserve raw Bfr failure evidence separately, with no normalized or repaired
+  provider row and no Far comparison as truth.
+
+Allowed files for B2b: this plan and the new external Markdown input packet.
+Forbidden: every candidate/oracle executable or result; `src/**`, `include/**`,
+`experiments/**`, `scripts/**`, `tests/**`, workflows, fixtures, build files,
+tolerances, decision changes other than recording the user's exact candidate
+selection, B3, and production.
+
+Gate: exact-head verification, technical, scientific, and gatekeeper PASS, then
+explicit user approval of the B2b frozen inputs. Passing B2b does not authorize
+execution by itself; B2c remains a separately scoped proof package.
+
+Stop conditions: a target is derived from candidate qualification output; a D10
+or D12 input changes; an anchor may be selected from observed results; an
+oracle-uncovered item becomes candidate evidence; or the packet implies
+qualification, B3, D9b, Far promotion, or production.
 
 ### B3 - Bfr full-mesh provider
 
@@ -1774,10 +1840,11 @@ B0a inventory logic repair              (blocks everything; may start now)
               |
               +-- explicit user D9a: Bfr PASS or FAIL
                     |          \
-                    |           `-- FAIL: lane BLOCKS; B2a may study a different
-                    |               representation after explicit authorization,
-                    |               then exact-SHA T2 reviews and a new explicit
-                    |               architecture decision. No Far fallback.
+                    |           `-- FAIL: lane BLOCKS; B2a feasibility preflight
+                    |               -> explicit candidate selection -> B2b input
+                    |               freeze + approval -> separately authorized
+                    |               B2c proof -> exact-SHA reviews -> explicit
+                    |               qualification decision. No Far fallback.
                     |
                     +-- B3 Bfr full-mesh provider   [T2]
                           |   (owns the exact-version 30700 pin)
@@ -1821,7 +1888,9 @@ Nothing in this plan decides them.
 | KB2p | Frozen D10 targets, oracle contract, new fixtures and hashes, face correspondence | Merged as PR 193 at `b8ed8bd2dbbf994a4419695cf490b2a3e6f349a6`; D10 approved 2026-08-08 | T2 + explicit user D10 |
 | KB2r | B2-readiness budgets plus complete section-8/section-7 fixture execution manifest | Merged as PR 195 at `b8cb9470077c1c5e15449318eff7b61e7464cd51`; D12 approved 2026-08-10 before any candidate run | T2 + explicit user D12 |
 | KB2 | Bfr qualification evidence against B2p's and D12's frozen inputs; Far comparator results published | Merged as PR 197 at `5d49b7ff06160cbdfa25eb19c973b4bcccac59d9`; exact head `efbe73f94e42e9f364baf6b2531ef4c7104cded9` passed all T2 reviews; D9a recorded Bfr not qualified on 2026-08-10 | T2 verification + technical + scientific + gatekeeper completed; explicit user D9a decision recorded |
-| KB2a | Proof-only invariant-preserving row-representation architecture preflight; no selection or production | Authorized 2026-08-10; implementation pending exact-SHA technical, scientific, and gatekeeper review | T2 technical + scientific + gatekeeper, then explicit user architecture decision |
+| KB2a | Proof-only invariant-preserving row-representation architecture preflight; no production | Merged as PR 199 at `1a8763fc931ace724828504972b2fc3fc61a1795`; exact head `2c6d455abde562d63967d4ab301c6365775d0662` passed verification, technical, scientific, and gatekeeper review; user selected `anchored_difference_rows_v1` solely as a proof qualification candidate | Reviews complete; candidate selection recorded, not qualification |
+| KB2b | Freeze anchored-row independent-oracle application, all-three-anchor sensitivity protocol, scientific targets, and verdict semantics before execution | Proposed; no candidate run or result authorized | T2 verification + technical + scientific + gatekeeper, then explicit user frozen-input approval |
+| KB2c | Execute the separately scoped proof-only anchored-row qualification against approved B2b inputs | Blocked pending merged and explicitly approved KB2b plus separate package authorization | T2 verification + technical + scientific + gatekeeper, then explicit user qualification decision |
 | KB3 | Bfr full-mesh provider; owns the exact 30700 pin and the no-Far-in-production tests | Blocked by recorded D9a outcome: Bfr not qualified. Requires a new explicit architecture decision; no Far fallback. | T2, only after a new explicit architecture decision |
 | KB4 | Topology epoch cache, invalidation, flip-pair re-preparation cost | Pending B3 | Technical |
 | KB9b | D9b Bfr production-activation acceptance on integrated-functional evidence | Deferred to after WP5.2 | Scientific + explicit user |
