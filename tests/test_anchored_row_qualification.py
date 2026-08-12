@@ -108,9 +108,7 @@ class AnchoredRowQualificationTests(unittest.TestCase):
         executable_paths = MODULE.RESULT_CONTRACT.derive_schema_path_anchor(
             schema)
         self.assertEqual(executable_paths, documentation_paths)
-        documentation_manifest = (
-            MODULE.RESULT_CONTRACT.expand_mutation_manifest(
-                documentation_paths))
+        documentation_manifest = MODULE.literal_mutation_manifest()
         executable_manifest = MODULE.RESULT_CONTRACT.expand_mutation_manifest(
             executable_paths)
         self.assertEqual(executable_manifest, documentation_manifest)
@@ -132,6 +130,31 @@ class AnchoredRowQualificationTests(unittest.TestCase):
         self.assertEqual(counts["M11"], 32 * 6)
         self.assertEqual(counts["M12"], 32 * 9)
         self.assertEqual(counts["M16"], 26)
+
+    def test_report_reachable_references_use_only_reviewed_definitions(self):
+        schema = MODULE.load_schema()
+        self.assertEqual(schema["$defs"]["binary"]["properties"]["sources"][
+            "items"], {"$ref": "#/$defs/source_binding"})
+        self.assertEqual(schema["$defs"]["criterion"]["properties"][
+            "result_ledger_artifact"],
+            {"$ref": "#/$defs/result_ledger_artifact"})
+        self.assertEqual(schema["$defs"]["matrix"]["properties"][
+            "unexpected_paths"],
+            {"$ref": "#/$defs/unexpected_paths_target_v1"})
+        self.assertEqual(schema["properties"]["d12_artifact"],
+                         {"$ref": "#/$defs/d12_artifact_binding"})
+
+    def test_frozen_actual_fixture_inventory_is_const(self):
+        schema = MODULE.load_schema()
+        authority = MODULE.frozen_authority_record()
+        node = schema["$defs"]["authority"]["properties"][
+            "actual_fixture_files"]
+        MODULE.validate_schema_instance(
+            authority["actual_fixture_files"], node, schema)
+        mutation = copy.deepcopy(authority["actual_fixture_files"])
+        mutation[0]["sha256"] = "0" * 64
+        with self.assertRaises(MODULE.QualificationError):
+            MODULE.validate_schema_instance(mutation, node, schema)
 
     def test_m01_m02_m03_are_exhaustive_over_closed_schema_objects(self):
         schema = MODULE.load_schema()
@@ -568,18 +591,23 @@ class AnchoredRowQualificationTests(unittest.TestCase):
             duplicate.add_encoded(encoded, "PASS")
 
     def test_persistent_result_ledger_and_merkle_witness_are_exact(self):
+        def key(index):
+            return ["content", "cache_disabled", 2, index, None,
+                    "sample", "position", "emitted_binary64", "v0",
+                    "identity", None, None, None, None, "positive_zero"]
+
         records = [
-            [["criterion", 0], "PASS",
+            [key(0), "PASS",
              {"kind": "binary64_pair_v1",
               "observed_bits": "0000000000000000",
               "expected_bits": "0000000000000000"},
              None, None],
-            [["criterion", 1], "FAIL",
+            [key(1), "FAIL",
              {"kind": "binary64_pair_v1",
               "observed_bits": "3ff0000000000000",
               "expected_bits": "0000000000000000"},
              None, "CONSTANT_FIELD_BITS_MISMATCH"],
-            [["criterion", 2], "PASS",
+            [key(2), "PASS",
              {"kind": "binary64_pair_v1",
               "observed_bits": "4000000000000000",
               "expected_bits": "4000000000000000"},
@@ -822,6 +850,19 @@ class AnchoredRowQualificationTests(unittest.TestCase):
         self.assertTrue(all(item["omission_blocker"] ==
                             "oracle_coverage_and_crosscheck"
                             for item in partitions))
+        criterion = MODULE.criterion_record(
+            "oracle_coverage_and_crosscheck", "INCOMPLETE",
+            expected=MODULE.EXPECTED_CELL_COUNTS[
+                "oracle_coverage_and_crosscheck"])
+        self.assertEqual(criterion["result_ledger_artifact"]["availability"][
+            "reason_code"], "ORACLE_EXECUTION_UNAVAILABLE")
+        criteria = self.make_incomplete_criteria_fixture()
+        criteria[10] = criterion
+        MODULE.validate_criteria(criteria)
+        criteria[10]["result_ledger_artifact"]["availability"][
+            "reason_code"] = "EXECUTION_UNAVAILABLE"
+        with self.assertRaises(MODULE.QualificationError):
+            MODULE.validate_criteria(criteria)
 
     def test_numeric_maximum_witness_mutations_fail_closed(self):
         key = ["content", "cache_disabled", 7, 0, None, "sample", "du",
@@ -829,19 +870,21 @@ class AnchoredRowQualificationTests(unittest.TestCase):
                None, None]
         zero_signed = {"kind": "signed_dyadic_v1", "sign": 0,
                        "numerator_hex": "0", "denominator_power": 1074}
+        quarter_signed = {"kind": "signed_dyadic_v1", "sign": 1,
+                          "numerator_hex": format(1 << 1072, "x"),
+                          "denominator_power": 1074}
         maximum = {"kind": "absolute_dyadic_v1",
                    "numerator_hex": format(1 << 1072, "x"),
                    "denominator_power": 1074}
         exact_value = {
             "kind": "exact_coefficient_l1_v1", "source_ids": [0],
-            "observed": [zero_signed], "expected": [zero_signed],
-            "absolute_errors": [{"kind": "absolute_dyadic_v1",
-                                 "numerator_hex": "0",
-                                 "denominator_power": 1074}],
+            "observed": [quarter_signed], "expected": [zero_signed],
+            "absolute_errors": [maximum],
             "l1": maximum,
         }
         target = MODULE.absolute_rational_target("400000")
-        record = [key, "PASS", exact_value, target, None]
+        record = [key, "FAIL", exact_value, target,
+                  "ANCHOR_SENSITIVITY_TARGET_EXCEEDED"]
         witness = {"cell_key": key, "result_record": record,
                    "leaf_index": 0, "merkle_siblings": [],
                    "maximum_exact": maximum,
@@ -964,6 +1007,99 @@ class AnchoredRowQualificationTests(unittest.TestCase):
         with self.assertRaises(MODULE.QualificationError):
             MODULE.validate_scientific_cell_key(
                 pair, "anchor_sensitivity_exact_geometry")
+
+    def test_integrand_target_and_oracle_denominator_are_exact(self):
+        integrand_key = [
+            "content", "serial_cache", 8, 2, None, "sample",
+            "area_integrand", "exact_effective", "v2", "identity",
+            None, None, None, None, None]
+        self.assertEqual(MODULE._row_target_denominator(
+            "regular_analytic_area_integrand", integrand_key), "200000")
+        invalid_oracle_value = {
+            "kind": "oracle_coefficient_l1_v1", "source_ids": [0],
+            "observed": [{"kind": "signed_dyadic_v1", "sign": 0,
+                          "numerator_hex": "0", "denominator_power": 2148}],
+            "oracle_intervals": [{
+                "kind": "interval_rational_v1",
+                "lower": {"kind": "rational_v1", "numerator": "0",
+                          "denominator": "1"},
+                "upper": {"kind": "rational_v1", "numerator": "0",
+                          "denominator": "1"}}],
+            "absolute_error_uppers": [{
+                "kind": "absolute_rational_v1", "numerator": "0",
+                "denominator": "1"}],
+            "l1": {"kind": "absolute_rational_v1", "numerator": "0",
+                   "denominator": "1"}}
+        with self.assertRaises(MODULE.QualificationError):
+            MODULE.validate_contract_value(
+                "oracle_coefficient_l1_v1", invalid_oracle_value)
+
+    def test_geometry_and_d12_values_are_coupled_to_their_keys(self):
+        zero = {"kind": "rational_v1", "numerator": "0",
+                "denominator": "1"}
+        one = {"kind": "rational_v1", "numerator": "1",
+               "denominator": "1"}
+        interval_zero = {"kind": "interval_rational_v1",
+                         "lower": zero, "upper": zero}
+        geometry = {
+            "kind": "geometry_axis_v1", "axis": "x",
+            "view": "exact_effective",
+            "observed": {"kind": "signed_dyadic_v1", "sign": 0,
+                         "numerator_hex": "0", "denominator_power": 1074},
+            "reference_interval": interval_zero,
+            "normalized_bound": {
+                "kind": "normalized_interval_bound_v1",
+                "difference_interval": interval_zero,
+                "distance_upper": {"kind": "absolute_rational_v1",
+                                   "numerator": "0", "denominator": "1"},
+                "scale_squared_interval": {
+                    "kind": "interval_rational_v1", "lower": one,
+                    "upper": one},
+                "scale_lower": one,
+                "ideal_normalized": {
+                    "kind": "rational_over_sqrt_v1",
+                    "absolute_numerator": "0", "absolute_denominator": "1",
+                    "scale_squared_numerator": "1",
+                    "scale_squared_denominator": "1"},
+                "normalized_upper": {
+                    "kind": "absolute_rational_v1", "numerator": "0",
+                    "denominator": "1"}}}
+        geometry_key = [
+            "content", "cache_disabled", 7, 0, 0, "sample", "du",
+            "exact_effective", "v0", "identity", None, "x", None,
+            None, None]
+        geometry_record = [
+            geometry_key, "PASS", geometry,
+            MODULE.absolute_rational_target("40000"),
+            None]
+        MODULE.validate_contract_result_record(
+            "exact_effective_d10_geometry", geometry_record)
+        mismatched = copy.deepcopy(geometry_record)
+        mismatched[2]["axis"] = "y"
+        with self.assertRaises(MODULE.QualificationError):
+            MODULE.validate_contract_result_record(
+                "exact_effective_d10_geometry", mismatched)
+
+        payload_key = [
+            "content", 7, "release", "cache_disabled", None, None, None,
+            None, None, 3, None, None, None, "retained_payload_bytes"]
+        payload = {
+            "kind": "d12_payload_valid_v1", "payload_bytes": 1,
+            "face_id": 3, "platform_state": "QUALIFIED_PLATFORM",
+            "raw_observation": {
+                "kind": "d12_raw_observation_binding_v1",
+                "availability": MODULE.availability("PRESENT", "a" * 64),
+                "relative_path": "raw.json", "byte_offset": 0,
+                "byte_length": 1, "sha256": "a" * 64}}
+        payload_record = [
+            payload_key, "PASS", payload,
+            MODULE.report_criterion_target("d12_retained_payload"), None]
+        MODULE.validate_contract_result_record(
+            "d12_retained_payload", payload_record)
+        payload_record[2]["face_id"] = 4
+        with self.assertRaises(MODULE.QualificationError):
+            MODULE.validate_contract_result_record(
+                "d12_retained_payload", payload_record)
 
     def test_d12_nullable_dimensions_and_worker_bound_fail_closed(self):
         preparation = ["content", 7, "release", "cache_disabled", None,

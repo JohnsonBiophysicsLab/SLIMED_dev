@@ -31,6 +31,8 @@ from fractions import Fraction
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 SCHEMA_PATH = ROOT / "scripts/anchored_row_qualification_report_v1.schema.json"
+MUTATION_MANIFEST_PATH = (
+    ROOT / "scripts/anchored_row_contract_mutations_v1.txt")
 RESULT_CONTRACT_PATH = ROOT / "scripts/anchored_row_result_contract.py"
 RESULT_CONTRACT_SPEC = importlib.util.spec_from_file_location(
     "anchored_row_result_contract", RESULT_CONTRACT_PATH)
@@ -51,6 +53,8 @@ APPROVED_RESULT_EVIDENCE_AMENDMENT_MERGE = (
     "029816125619f58f99464e8055170ffa12e957e3")
 RESULT_EVIDENCE_PATH_ANCHOR_SHA256 = (
     "0e82d15b0244aaa779a1ca600fdc8b43ac501ab91aa615e8adb8dcd8682ecf66")
+RESULT_EVIDENCE_MUTATION_MANIFEST_SHA256 = (
+    "64f36072b248b20a748a4ee186bbadb1a56affc780ee384d2d5cc37e673176e6")
 RESULT_EVIDENCE_MUTATION_MANIFEST_ID = (
     "anchored-row-result-evidence-mutations-v1")
 RESULT_EVIDENCE_MUTATION_OPERATORS = RESULT_CONTRACT.MUTATION_OPERATORS
@@ -227,7 +231,8 @@ NON_PRESENT_REASONS = {
     "MISSING": {"EXPECTED_PATH_MISSING"},
     "UNAVAILABLE": {"DEPENDENCY_UNAVAILABLE", "TOOL_UNAVAILABLE",
                     "PLATFORM_UNAVAILABLE", "GIT_IDENTITY_UNAVAILABLE",
-                    "EXECUTION_UNAVAILABLE"},
+                    "EXECUTION_UNAVAILABLE"} |
+                   set(RESULT_CONTRACT.ORACLE_INFRASTRUCTURE_REASONS),
     "INVALID": {"HASH_MISMATCH", "SCHEMA_INVALID", "PROVENANCE_INVALID",
                 "CONTENT_INVALID", "WORKTREE_DIRTY",
                 "MEASUREMENT_PROTOCOL_INVALID"},
@@ -354,16 +359,134 @@ def _contract_kind(value):
     return value.get("kind") if isinstance(value, dict) else None
 
 
+def _rational_fraction(value):
+    return Fraction(int(value["numerator"]), int(value["denominator"]))
+
+
+def _signed_dyadic_fraction(value):
+    numerator = int(value["numerator_hex"], 16) * value.get("sign", 1)
+    return Fraction(numerator, 1 << value["denominator_power"])
+
+
+def _absolute_exact_fraction(value):
+    kind = _contract_kind(value)
+    if kind == "absolute_dyadic_v1":
+        return Fraction(int(value["numerator_hex"], 16),
+                        1 << value["denominator_power"])
+    if kind == "absolute_rational_v1":
+        return Fraction(int(value["numerator"]), int(value["denominator"]))
+    raise QualificationError("unsupported exact nonnegative scalar")
+
+
+def _scalar_fraction(value):
+    kind = _contract_kind(value)
+    if kind == "signed_dyadic_v1":
+        return _signed_dyadic_fraction(value)
+    if kind == "rational_v1":
+        return _rational_fraction(value)
+    if kind == "binary64_scalar_v1":
+        return Fraction.from_float(binary64_from_bits_hex(value["bits"]))
+    raise QualificationError("unsupported exact scalar")
+
+
+def _absolute_rational_descriptor(value):
+    value = abs(Fraction(value))
+    return {"kind": "absolute_rational_v1",
+            "numerator": str(value.numerator),
+            "denominator": str(value.denominator)}
+
+
+def _absolute_dyadic_descriptor(numerator, denominator_power=1074):
+    require(type(numerator) is int and numerator >= 0,
+            "absolute dyadic numerator")
+    return {"kind": "absolute_dyadic_v1",
+            "numerator_hex": format(numerator, "x") if numerator else "0",
+            "denominator_power": denominator_power}
+
+
+def _interval_fractions(value):
+    return (_rational_fraction(value["lower"]),
+            _rational_fraction(value["upper"]))
+
+
+def _interval_error_upper(observed, interval):
+    lower, upper = _interval_fractions(interval)
+    return max(abs(observed - lower), abs(observed - upper))
+
+
+def _record_measure_descriptor(criterion_id, exact_value):
+    field = RESULT_CONTRACT.CRITERION_BY_ID[criterion_id]["maximum_field"]
+    require(field is not None and exact_value is not None,
+            "criterion has no numeric measure")
+    value = exact_value
+    for component in field.split("."):
+        value = value[component]
+    if type(value) is int:
+        return _absolute_rational_descriptor(Fraction(value, 1))
+    require(_contract_kind(value) in {
+                "absolute_dyadic_v1", "absolute_rational_v1",
+                "rational_over_sqrt_v1"},
+            "criterion measure exact form")
+    return value
+
+
+def _exact_display_bits(value):
+    kind = _contract_kind(value)
+    if kind in {"absolute_dyadic_v1", "absolute_rational_v1"}:
+        return binary64_bits_hex(float(_absolute_exact_fraction(value)))
+    require(kind == "rational_over_sqrt_v1",
+            "maximum display exact form")
+    with localcontext() as context:
+        digit_count = sum(len(value[field]) for field in (
+            "absolute_numerator", "absolute_denominator",
+            "scale_squared_numerator", "scale_squared_denominator"))
+        context.prec = max(200, digit_count + 100)
+        numerator = Decimal(value["absolute_numerator"])
+        denominator = Decimal(value["absolute_denominator"])
+        scale = (Decimal(value["scale_squared_numerator"]) /
+                 Decimal(value["scale_squared_denominator"])).sqrt()
+        return binary64_bits_hex(float((numerator / denominator) / scale))
+
+
+def _measure_le_target(measure, target):
+    require(_contract_kind(target) == "absolute_rational_target_v1",
+            "numeric target exact form")
+    target_value = Fraction(int(target["numerator"]),
+                            int(target["denominator"]))
+    if _contract_kind(measure) == "rational_over_sqrt_v1":
+        q = Fraction(int(measure["absolute_numerator"]),
+                     int(measure["absolute_denominator"]))
+        scale_squared = Fraction(
+            int(measure["scale_squared_numerator"]),
+            int(measure["scale_squared_denominator"]))
+        return q * q <= target_value * target_value * scale_squared
+    return _absolute_exact_fraction(measure) <= target_value
+
+
+def _measure_squared(measure):
+    """Return an exact square so heterogeneous nonnegative maxima compare."""
+    if _contract_kind(measure) == "rational_over_sqrt_v1":
+        numerator = Fraction(int(measure["absolute_numerator"]),
+                             int(measure["absolute_denominator"]))
+        scale_squared = Fraction(
+            int(measure["scale_squared_numerator"]),
+            int(measure["scale_squared_denominator"]))
+        require(scale_squared > 0, "maximum scale must be positive")
+        return numerator * numerator / scale_squared
+    value = _absolute_exact_fraction(measure)
+    return value * value
+
+
 def _row_target_denominator(criterion_id, key):
     require(isinstance(key, list) and len(key) >= 7,
             "scientific target key shape")
-    row_kind = key[6]
-    require(row_kind in ROW_ORDER, "scientific target row kind")
     if criterion_id in {"regular_analytic_exact_rows",
                          "regular_analytic_emitted_geometry",
                          "regular_analytic_area_integrand",
                          "regular_analytic_legacy_volume_integrand"}:
         return "200000"
+    row_kind = key[6]
+    require(row_kind in ROW_ORDER, "scientific target row kind")
     derivative_class = ("position" if row_kind == "position" else
                         "first" if row_kind in ("du", "dv") else "second")
     if criterion_id in {"exact_effective_d10_coeff",
@@ -434,6 +557,21 @@ def validate_contract_value(kind, value):
     schema = cached_schema()
     validate_schema_instance(value, schema["$defs"][kind], schema,
                              "$contract.{}".format(kind))
+
+    def validate_nested(item):
+        if isinstance(item, dict):
+            nested_kind = _contract_kind(item)
+            if nested_kind is not None:
+                validate_contract_value(nested_kind, item)
+                return
+            for nested in item.values():
+                validate_nested(nested)
+        elif isinstance(item, list):
+            for nested in item:
+                validate_nested(nested)
+
+    for member in value.values():
+        validate_nested(member)
     if kind == "signed_dyadic_v1":
         numerator = int(value["numerator_hex"], 16)
         require((value["sign"] == 0) == (numerator == 0) and
@@ -492,11 +630,62 @@ def validate_contract_value(kind, value):
         require(all(item["denominator_power"] == 1074
                     for item in dyadics),
                 "exact coefficient descriptor denominator drift")
+        errors = [abs(_signed_dyadic_fraction(observed) -
+                      _signed_dyadic_fraction(expected))
+                  for observed, expected in
+                  zip(value["observed"], value["expected"])]
+        require(value["absolute_errors"] == [
+                    _absolute_dyadic_descriptor(
+                        error.numerator * (1 << 1074) // error.denominator)
+                    for error in errors] and
+                _absolute_exact_fraction(value["l1"]) == sum(errors),
+                "exact coefficient error/L1 mismatch")
+    if kind == "scalar_comparison_v1":
+        require(_absolute_exact_fraction(value["absolute_error"]) ==
+                abs(_scalar_fraction(value["observed"]) -
+                    _scalar_fraction(value["expected"])),
+                "scalar comparison exact error mismatch")
+    if kind == "oracle_coefficient_l1_v1":
+        require(all(item["denominator_power"] == 1074
+                    for item in value["observed"]),
+                "oracle coefficient observed denominator drift")
+        errors = [_interval_error_upper(_signed_dyadic_fraction(observed),
+                                        interval)
+                  for observed, interval in
+                  zip(value["observed"], value["oracle_intervals"])]
+        require(value["absolute_error_uppers"] == [
+                    _absolute_rational_descriptor(error)
+                    for error in errors] and
+                _absolute_exact_fraction(value["l1"]) == sum(errors),
+                "oracle coefficient error/L1 mismatch")
+    if kind == "coefficient_interval_vector_v1":
+        require(all(item["denominator_power"] == 1074
+                    for item in value["observed"]),
+                "analytic coefficient observed denominator drift")
+        errors = [_interval_error_upper(_signed_dyadic_fraction(observed),
+                                        interval)
+                  for observed, interval in
+                  zip(value["observed"], value["analytic_intervals"])]
+        first_index = max(range(len(errors)), key=lambda index: errors[index])
+        require(value["absolute_error_uppers"] == [
+                    _absolute_rational_descriptor(error)
+                    for error in errors] and
+                value["maximum_error_upper"] ==
+                    _absolute_rational_descriptor(errors[first_index]) and
+                value["first_maximum_source_id"] ==
+                    value["source_union_ids"][first_index],
+                "analytic coefficient interval error mismatch")
     if kind == "basis_value_v1":
         require(all(value[field]["denominator_power"] == 1074
                     for field in ("exact_effective", "source_error",
                                   "group_l1")),
                 "basis descriptor denominator drift")
+        emitted = Fraction.from_float(binary64_from_bits_hex(
+            value["emitted_basis_bits"]))
+        require(_absolute_exact_fraction(value["source_error"]) ==
+                abs(emitted - _signed_dyadic_fraction(
+                    value["exact_effective"])),
+                "basis source-error mismatch")
     if kind == "raw_d9a_value_v1":
         require(value["maximum_row_sum_residual"][
                     "denominator_power"] == 1074,
@@ -524,6 +713,53 @@ def validate_contract_value(kind, value):
                 (value["view"] == "exact_effective" and
                  observed_kind in {"signed_dyadic_v1", "rational_v1"}),
                 "geometry view/observed alternative mismatch")
+        observed = _scalar_fraction(value["observed"])
+        reference_lower, reference_upper = _interval_fractions(
+            value["reference_interval"])
+        difference = value["normalized_bound"]["difference_interval"]
+        require(_interval_fractions(difference) ==
+                (observed - reference_upper, observed - reference_lower),
+                "geometry difference interval mismatch")
+    if kind == "normalized_interval_bound_v1":
+        difference_lower, difference_upper = _interval_fractions(
+            value["difference_interval"])
+        distance = max(abs(difference_lower), abs(difference_upper))
+        scale_squared_lower, scale_squared_upper = _interval_fractions(
+            value["scale_squared_interval"])
+        scale_lower = _rational_fraction(value["scale_lower"])
+        require(scale_lower > 0 and scale_squared_lower >= 0 and
+                scale_squared_lower <= scale_squared_upper and
+                scale_lower * scale_lower <= scale_squared_lower and
+                value["distance_upper"] ==
+                    _absolute_rational_descriptor(distance) and
+                value["normalized_upper"] ==
+                    _absolute_rational_descriptor(distance / scale_lower),
+                "normalized interval conservative bound mismatch")
+        ideal = value["ideal_normalized"]
+        require(Fraction(int(ideal["absolute_numerator"]),
+                         int(ideal["absolute_denominator"])) == distance and
+                Fraction(int(ideal["scale_squared_numerator"]),
+                         int(ideal["scale_squared_denominator"])) ==
+                    scale_squared_lower,
+                "ideal normalized descriptor mismatch")
+    if kind == "integrand_exact_interval_v1":
+        observed_lower, observed_upper = _interval_fractions(
+            value["observed_interval"])
+        analytic_lower, analytic_upper = _interval_fractions(
+            value["analytic_interval"])
+        error = max(abs(observed_lower - analytic_upper),
+                    abs(observed_upper - analytic_lower))
+        require(value["absolute_error_upper"] ==
+                _absolute_rational_descriptor(error),
+                "exact integrand interval error mismatch")
+    if kind in {"integrand_emitted_interval_v1",
+                "emitted_interval_scalar_v1"}:
+        observed = Fraction.from_float(binary64_from_bits_hex(
+            value["observed_bits"]))
+        error = _interval_error_upper(observed, value["analytic_interval"])
+        require(value["absolute_error_upper"] ==
+                _absolute_rational_descriptor(error),
+                "emitted interval error mismatch")
     if kind == "oracle_covered_value_v1":
         source_count = len(value["source_ids"])
         d0 = value["first_regular_support_depth"]
@@ -576,6 +812,144 @@ def _validate_d12_sidecar_descriptor(sidecar):
                 "non-present D12 sidecar binding")
 
 
+def _validate_d12_result_coupling(
+        criterion_id, key, outcome, exact_value, target, reason):
+    quantity = key[13]
+    kind = _contract_kind(exact_value)
+    target_kind = _contract_kind(target)
+    if criterion_id == "d12_preparation_cost":
+        require(kind in {"d12_duration_valid_v1",
+                         "d12_duration_invalid_v1"} and
+                target_kind == "d12_duration_target_v1" and
+                exact_value["quantity"] == quantity and quantity in {
+                    "preparation_duration_ns", "preparation_median_ns"},
+                "D12 duration quantity/value/target coupling")
+        if kind == "d12_duration_valid_v1":
+            threshold = (target["median_ns"] if quantity ==
+                         "preparation_median_ns" else target["single_ns"])
+            expected = "PASS" if exact_value["duration_ns"] <= threshold else "FAIL"
+            require(outcome == ("INCOMPLETE" if exact_value["platform_state"] ==
+                                "UNQUALIFIED_PLATFORM" else expected),
+                    "D12 duration outcome/target mismatch")
+        else:
+            mapped_reason = (
+                "PREPARATION_MEASUREMENT_NONFINITE_OR_NEGATIVE"
+                if exact_value["invalid_state"] in {"NONFINITE", "NEGATIVE"}
+                else "PREPARATION_PROCESS_FAILURE")
+            require(outcome == ("INCOMPLETE" if exact_value["platform_state"] ==
+                                "UNQUALIFIED_PLATFORM" else "FAIL") and
+                    (reason == "D12_PLATFORM_UNQUALIFIED" or
+                     reason == mapped_reason),
+                    "D12 invalid-duration outcome/reason mismatch")
+    elif criterion_id == "d12_retained_payload":
+        require(quantity == "retained_payload_bytes" and
+                kind in {"d12_payload_valid_v1", "d12_payload_invalid_v1"} and
+                target_kind == "d12_payload_target_v1" and
+                exact_value["face_id"] == key[9],
+                "D12 payload value/target coupling")
+        if kind == "d12_payload_valid_v1":
+            expected = ("PASS" if exact_value["payload_bytes"] <=
+                        target["maximum_bytes"] else "FAIL")
+        else:
+            expected = "FAIL"
+            require(reason in {"RETAINED_PAYLOAD_INVALID",
+                               "D12_PLATFORM_UNQUALIFIED"},
+                    "D12 invalid-payload reason mismatch")
+        require(outcome == ("INCOMPLETE" if exact_value["platform_state"] ==
+                            "UNQUALIFIED_PLATFORM" else expected),
+                "D12 payload outcome/target mismatch")
+    elif criterion_id == "d12_peak_rss":
+        require(quantity == "rss_bytes" and
+                kind in {"d12_rss_valid_v1", "d12_rss_invalid_v1"} and
+                target_kind == "d12_rss_target_v1" and
+                exact_value["stage"] == key[12],
+                "D12 RSS value/target coupling")
+        if kind == "d12_rss_valid_v1":
+            expected = ("PASS" if exact_value["rss_delta_bytes"] <=
+                        target["maximum_delta_bytes"] else "FAIL")
+        else:
+            expected = "FAIL"
+            require(reason in {"RSS_SAMPLE_MISSING_OR_API_FAILURE",
+                               "D12_PLATFORM_UNQUALIFIED"},
+                    "D12 invalid-RSS reason mismatch")
+        require(outcome == ("INCOMPLETE" if exact_value["platform_state"] ==
+                            "UNQUALIFIED_PLATFORM" else expected),
+                "D12 RSS outcome/target mismatch")
+    elif criterion_id == "d12_cache_disabled_concurrency":
+        require(quantity == "row_digest" and
+                kind in {"d12_concurrency_value_v1",
+                         "d12_concurrency_abort_v1"} and
+                target_kind == "d12_output_reference_target_v1",
+                "D12 concurrency value/target coupling")
+        if kind == "d12_concurrency_abort_v1":
+            require(outcome == "FAIL" and reason == "CACHE_DISABLED_RACE",
+                    "D12 concurrency-abort outcome coupling")
+        else:
+            require(exact_value["provider_expected_sha256"] ==
+                    target["provider_expected_sha256"] and
+                    exact_value["representation_expected_sha256"] ==
+                    target["representation_expected_sha256"],
+                    "D12 concurrency target digest mismatch")
+            matches = (
+                exact_value["provider_observed_sha256"] ==
+                    target["provider_expected_sha256"] and
+                exact_value["representation_observed_sha256"] ==
+                    target["representation_expected_sha256"])
+            require(outcome == ("INCOMPLETE" if exact_value[
+                        "platform_state"] == "UNQUALIFIED_PLATFORM" else
+                        "PASS" if matches else "FAIL"),
+                    "D12 concurrency outcome/target mismatch")
+    else:
+        require(criterion_id == "d12_instrumented_tsan",
+                "unknown D12 result criterion")
+        expected = {
+            "instrumentation_coverage": (
+                "d12_tsan_instrumentation_summary_v1",
+                "d12_tsan_instrumentation_target_v1"),
+            "tsan_finding_count": ("d12_tsan_finding_summary_v1",
+                                   "d12_tsan_finding_target_v1"),
+            "row_digest": ("d12_tsan_threaded_row_value_v1",
+                           "d12_output_reference_target_v1"),
+        }[quantity]
+        if exact_value is None:
+            require(quantity == "row_digest" and outcome == "FAIL" and
+                    reason == "THREADED_CACHE_RACE" and
+                    target_kind == "d12_output_reference_target_v1",
+                    "D12 null-after-abort coupling")
+        else:
+            require((kind, target_kind) == expected,
+                    "D12 TSan quantity/value/target coupling")
+            if quantity == "instrumentation_coverage":
+                passing = (exact_value["instrumentation_complete"] is True and
+                           exact_value[
+                            "instrumented_translation_units_sha256"] ==
+                           target["expected_translation_units_sha256"])
+            elif quantity == "tsan_finding_count":
+                passing = (exact_value["finding_count"] == 0 and
+                           exact_value["sanitizer_abort"] is False)
+            else:
+                require(exact_value["provider_expected_sha256"] ==
+                        target["provider_expected_sha256"] and
+                        exact_value["representation_expected_sha256"] ==
+                        target["representation_expected_sha256"],
+                        "D12 TSan row target digest mismatch")
+                passing = (
+                    exact_value["provider_observed_sha256"] ==
+                        target["provider_expected_sha256"] and
+                    exact_value["representation_observed_sha256"] ==
+                        target["representation_expected_sha256"])
+            require(outcome == ("INCOMPLETE" if exact_value[
+                        "platform_state"] == "UNQUALIFIED_PLATFORM" else
+                        "PASS" if passing else "FAIL"),
+                    "D12 TSan outcome/target mismatch")
+    if exact_value is not None:
+        platform_state = exact_value.get("platform_state")
+        require((platform_state == "UNQUALIFIED_PLATFORM") ==
+                (outcome == "INCOMPLETE" and
+                 reason == "D12_PLATFORM_UNQUALIFIED"),
+                "D12 platform-state outcome coupling")
+
+
 def validate_contract_result_record(criterion_id, record):
     """Enforce the frozen per-criterion value/target/outcome/reason row."""
     require(criterion_id in RESULT_CONTRACT.CRITERION_BY_ID and
@@ -583,6 +957,22 @@ def validate_contract_result_record(criterion_id, record):
             "result-contract record/criterion")
     contract = RESULT_CONTRACT.CRITERION_BY_ID[criterion_id]
     key, outcome, exact_value, target, reason = record
+    if criterion_id == "bindings_and_independence":
+        require(key == ["bindings_and_independence",
+                        "exact_head_and_provenance"],
+                "binding result key")
+    elif criterion_id == "complete_artifact_inventory":
+        require(isinstance(key, list) and len(key) == 5 and
+                key[0] == criterion_id,
+                "artifact inventory result key")
+    elif criterion_id == "raw_bfr_d9a_reproduction":
+        require(isinstance(key, list) and len(key) == 4 and
+                key[0] == criterion_id,
+                "raw D9a result key")
+    elif criterion_id in D12_CRITERIA:
+        validate_d12_key(key, criterion_id)
+    else:
+        validate_scientific_cell_key(key, criterion_id)
     require(outcome in contract["complete_statuses"],
             "criterion result outcome ownership")
     if outcome == "PASS":
@@ -601,6 +991,11 @@ def validate_contract_result_record(criterion_id, record):
         else:
             raise QualificationError(
                 "incomplete oracle infrastructure cannot publish result records")
+    elif (criterion_id == "d12_instrumented_tsan" and exact_value is None and
+          isinstance(key, list) and len(key) == 14 and
+          key[13] == "row_digest"):
+        require(outcome == "FAIL" and reason == "THREADED_CACHE_RACE",
+                "D12 null-after-abort exact-value coupling")
     else:
         require(_contract_kind(exact_value) in
                 set(contract["exact_value_kinds"]),
@@ -623,6 +1018,74 @@ def validate_contract_result_record(criterion_id, record):
                 (_contract_kind(exact_value) ==
                  "structure_missing_anchor_v1"),
                 "structure missing-anchor outcome coupling")
+        require(exact_value["anchor_id"] == key[8],
+                "structure key/anchor mismatch")
+        if _contract_kind(exact_value) == "structure_present_v1":
+            require((outcome == "PASS") ==
+                    (exact_value["observed_sum"] ==
+                     exact_value["expected_sum"]),
+                    "structure outcome/sum mismatch")
+    if _contract_kind(exact_value) == "geometry_axis_v1":
+        require(exact_value["axis"] == key[11] and
+                exact_value["view"] == key[7],
+                "geometry result key/value mismatch")
+    if _contract_kind(exact_value) in {
+            "integrand_exact_interval_v1",
+            "integrand_emitted_interval_v1"}:
+        require(exact_value["view"] == key[7],
+                "integrand result key/view mismatch")
+    if _contract_kind(exact_value) == "oracle_covered_value_v1":
+        require(exact_value["row_kind"] == key[6],
+                "oracle result key/row mismatch")
+    if criterion_id == "constant_field_bits":
+        equal = exact_value["observed_bits"] == exact_value["expected_bits"]
+        require((outcome == "PASS") == equal,
+                "constant-field bit outcome mismatch")
+    if criterion_id == "relabel_exact_effective_coefficients":
+        require((outcome == "PASS") ==
+                (_absolute_exact_fraction(exact_value["l1"]) == 0),
+                "relabel exact L1 outcome mismatch")
+    if criterion_id == "cache_mode_bit_identity":
+        equal = (exact_value["cache_disabled_sha256"] ==
+                 exact_value["serial_cache_sha256"])
+        require((outcome == "PASS") == equal,
+                "cache identity outcome mismatch")
+    if criterion_id == "complete_artifact_inventory":
+        require(key[1:] == [target["content_id"], target["candidate"],
+                            target["level"], target["cache_mode"]],
+                "artifact inventory key/target mismatch")
+        comparable = {
+            "expected_slot_ordinal": exact_value["expected_slot_ordinal"],
+            "compressed_sha256": exact_value["compressed_sha256"],
+            "decompressed_json_sha256":
+                exact_value["decompressed_json_sha256"],
+            "canonical_b2rowv1_sha256":
+                exact_value["canonical_b2rowv1_sha256"],
+        }
+        expected = {
+            "expected_slot_ordinal": target["expected_slot_ordinal"],
+            "compressed_sha256": target["compressed_sha256"],
+            "decompressed_json_sha256": target["decompressed_json_sha256"],
+            "canonical_b2rowv1_sha256": target[
+                "canonical_b2rowv1_sha256"],
+        }
+        require((outcome == "PASS") ==
+                (comparable == expected and
+                 exact_value["expected_identity_matches"] is True and
+                 exact_value["availability"]["state"] == "PRESENT"),
+                "artifact inventory outcome mismatch")
+    if criterion_id == "raw_bfr_d9a_reproduction":
+        require((outcome == "PASS") == (exact_value == target),
+                "raw D9a outcome/target mismatch")
+    if (contract["maximum_field"] is not None and
+            criterion_id not in D12_CRITERIA and
+            criterion_id != "raw_bfr_d9a_reproduction"):
+        measure = _record_measure_descriptor(criterion_id, exact_value)
+        require((outcome == "PASS") == _measure_le_target(measure, target),
+                "scientific outcome/target mismatch")
+    if criterion_id in D12_CRITERIA:
+        _validate_d12_result_coupling(
+            criterion_id, key, outcome, exact_value, target, reason)
     return True
 
 
@@ -894,6 +1357,22 @@ def documentation_owned_schema_path_anchor():
     require(all(line.split("|", 1)[0] in allowed for line in lines),
             "result-evidence path-anchor record kind")
     return lines
+
+
+def literal_mutation_manifest():
+    """Load the independently materialized, digest-pinned M01--M23 list."""
+    raw = MUTATION_MANIFEST_PATH.read_bytes()
+    require(b"\r" not in raw and raw.endswith(b"\n") and
+            sha256_bytes(raw) == RESULT_EVIDENCE_MUTATION_MANIFEST_SHA256,
+            "result-evidence mutation-manifest byte binding")
+    entries = raw[:-1].decode("utf-8").split("\n")
+    require(len(entries) == 3501 and entries == sorted(entries) and
+            len(entries) == len(set(entries)),
+            "result-evidence mutation-manifest order/count")
+    require(tuple(entries) == RESULT_CONTRACT.expand_mutation_manifest(
+                documentation_owned_schema_path_anchor()),
+            "literal mutation manifest disagrees with approved path universe")
+    return tuple(entries)
 
 
 def documentation_owned_mutation_operators():
@@ -3456,9 +3935,13 @@ def criterion_record(criterion_id, status, blocker=None, expectation=None,
                   if criterion_id == "complete_artifact_inventory" else
                   report_criterion_target(criterion_id))
     if result_artifact is None:
+        unavailable_reason = (
+            "ORACLE_EXECUTION_UNAVAILABLE"
+            if criterion_id in ORACLE_CRITERIA and status == "INCOMPLETE"
+            else "EXECUTION_UNAVAILABLE")
         result_artifact = {
             "availability": availability(
-                "UNAVAILABLE", reason_code="EXECUTION_UNAVAILABLE"),
+                "UNAVAILABLE", reason_code=unavailable_reason),
             "relative_path": None, "byte_length": None,
             "record_count": None}
     return {"criterion_id": criterion_id, "target": target,
@@ -3542,6 +4025,11 @@ def validate_criteria(criteria):
                     artifact["byte_length"] is None and
                     artifact["record_count"] is None,
                     "non-present result sidecar binding")
+            if criterion_id in ORACLE_CRITERIA and status == "INCOMPLETE":
+                require(artifact["availability"]["state"] == "UNAVAILABLE" and
+                        artifact["availability"]["reason_code"] in
+                        RESULT_CONTRACT.ORACLE_INFRASTRUCTURE_REASONS,
+                        "oracle incomplete lacks closed infrastructure reason")
         if status.startswith("OMITTED_"):
             blocker = item["omission_blocker"]
             require(blocker in CRITERION_IDS and
@@ -3632,6 +4120,12 @@ def validate_criteria(criteria):
             validate_contract_value("maximum_witness", witness)
             validate_contract_result_record(
                 criterion_id, witness["result_record"])
+            require(witness["maximum_exact"] ==
+                    _record_measure_descriptor(
+                        criterion_id, witness["result_record"][2]) and
+                    witness["maximum_binary64_bits"] ==
+                    _exact_display_bits(witness["maximum_exact"]),
+                    "numeric maximum witness measure/display mismatch")
             validate_scientific_cell_key(witness["cell_key"], criterion_id)
             validate_result_merkle_witness(
                 jcs_bytes(witness["result_record"]), witness["leaf_index"],
@@ -3854,76 +4348,229 @@ def validate_report(report):
     return True
 
 
+def _iter_canonical_result_records(path, result_digest):
+    """Yield canonical record values/bytes without materializing a sidecar."""
+    with path.open("rb") as stream:
+        opening = stream.read(1)
+        require(opening == b"[", "result sidecar array prefix")
+        result_digest.update(opening)
+        state = "value_or_end"
+        buffer = bytearray()
+        depth = 0
+        in_string = False
+        escaped = False
+        done = False
+        while True:
+            chunk = stream.read(1024 * 1024)
+            if not chunk:
+                break
+            result_digest.update(chunk)
+            for byte in chunk:
+                require(not done, "result sidecar trailing bytes")
+                if state == "value_or_end":
+                    if byte == ord("]"):
+                        done = True
+                        continue
+                    require(byte == ord("["),
+                            "result sidecar record must be an array")
+                    buffer.append(byte)
+                    depth = 1
+                    in_string = False
+                    escaped = False
+                    state = "record"
+                    continue
+                if state == "separator":
+                    encoded = bytes(buffer)
+                    value = strict_json_bytes(encoded)
+                    require(jcs_bytes(value) == encoded,
+                            "result sidecar record is not canonical JCS")
+                    yield value, encoded
+                    buffer.clear()
+                    if byte == ord(","):
+                        state = "value_or_end"
+                    else:
+                        require(byte == ord("]"),
+                                "result sidecar record separator")
+                        done = True
+                    continue
+                buffer.append(byte)
+                if in_string:
+                    if escaped:
+                        escaped = False
+                    elif byte == ord("\\"):
+                        escaped = True
+                    elif byte == ord('"'):
+                        in_string = False
+                    continue
+                if byte == ord('"'):
+                    in_string = True
+                elif byte in (ord("["), ord("{")):
+                    depth += 1
+                elif byte in (ord("]"), ord("}")):
+                    depth -= 1
+                    require(depth >= 0, "result sidecar nesting")
+                    if depth == 0:
+                        state = "separator"
+        require(done and state != "record" and not buffer,
+                "result sidecar truncated or missing suffix")
+
+
+def _disk_merkle_commitment(leaves, count, witness_index):
+    """Reduce fixed-width leaf hashes on disk and retain one proof only."""
+    require(type(count) is int and count >= 0 and
+            (witness_index is None or
+             type(witness_index) is int and 0 <= witness_index < count),
+            "streamed result Merkle cardinality")
+    padded = 1
+    while padded < count:
+        padded <<= 1
+    for index in range(count, padded):
+        leaves.write(empty_result_leaf_sha256(index))
+    leaves.flush()
+    leaves.seek(0)
+    current = leaves
+    nodes = padded
+    cursor = witness_index
+    siblings = []
+    while nodes > 1:
+        parent = tempfile.TemporaryFile()
+        for pair_index in range(nodes // 2):
+            left, right = current.read(32), current.read(32)
+            require(len(left) == len(right) == 32,
+                    "streamed result Merkle level truncation")
+            if cursor is not None and pair_index == cursor // 2:
+                siblings.append((right if cursor % 2 == 0 else left).hex())
+            parent.write(result_node_sha256(left, right))
+        current.close()
+        parent.flush()
+        parent.seek(0)
+        current = parent
+        nodes //= 2
+        if cursor is not None:
+            cursor //= 2
+    root = current.read(32)
+    require(len(root) == 32 and current.read(1) == b"",
+            "streamed result Merkle root cardinality")
+    current.close()
+    return root.hex(), siblings
+
+
 def validate_result_sidecar_bundle(report, bundle_root):
-    """Rescan every persisted result byte and recompute its commitments."""
+    """Stream-rescan all result bytes, exact outcomes, maxima, and proofs."""
     validate_report(report)
     bundle_root = pathlib.Path(bundle_root).resolve()
     for criterion in report["criteria"]:
         descriptor = criterion["result_ledger_artifact"]
         if descriptor["availability"]["state"] != "PRESENT":
             continue
+        criterion_id = criterion["criterion_id"]
         relative_path = descriptor["relative_path"]
-        require(relative_path == result_ledger_relative_path(
-                    criterion["criterion_id"]),
+        require(relative_path == result_ledger_relative_path(criterion_id),
                 "result sidecar path drift")
         path = (bundle_root / relative_path).resolve()
-        require(path.parent.parent ==
-                (bundle_root / RESULT_LEDGER_DIRECTORY).resolve().parent and
+        require(path.parent ==
+                (bundle_root / RESULT_LEDGER_DIRECTORY).resolve() and
                 path.is_file(), "result sidecar missing from bundle")
-        raw = path.read_bytes()
-        require(len(raw) == descriptor["byte_length"] and
-                sha256_bytes(raw) == descriptor["availability"]["sha256"] ==
-                    criterion["result_ledger_sha256"],
-                "result sidecar byte binding mismatch")
-        records = strict_json_bytes(raw)
-        require(isinstance(records, list) and
-                len(records) == descriptor["record_count"] ==
-                    criterion["observed_cell_count"],
-                "result sidecar record-count mismatch")
-        commitment = canonical_result_ledger(
-            records, criterion_id=criterion["criterion_id"])
-        require(commitment["bytes"] == raw and
-                commitment["key_ledger_sha256"] ==
-                    criterion["key_ledger_sha256"] and
-                commitment["result_ledger_sha256"] ==
-                    criterion["result_ledger_sha256"] and
-                commitment["result_merkle_root_sha256"] ==
-                    criterion["result_merkle_root_sha256"],
-                "result sidecar commitment mismatch")
-        outcomes = [record[1] for record in records]
+        result_digest = hashlib.sha256()
+        key_digest = hashlib.sha256(b"[")
+        leaves = tempfile.TemporaryFile()
+        previous_key = None
+        outcomes = set()
+        first_failure = None
+        maximum = None
+        maximum_index = None
+        maximum_record = None
+        maximum_record_bytes = None
+        raw_fail_states = 0
+        count = 0
+        try:
+            for record, encoded_record in _iter_canonical_result_records(
+                    path, result_digest):
+                validate_contract_result_record(criterion_id, record)
+                encoded_key = jcs_bytes(record[0])
+                require(previous_key is None or previous_key < encoded_key,
+                        "result ledger duplicate or key-order drift")
+                if count:
+                    key_digest.update(b",")
+                key_digest.update(encoded_key)
+                previous_key = encoded_key
+                leaves.write(result_leaf_sha256(count, encoded_record))
+                outcomes.add(record[1])
+                if record[1] == "FAIL" and first_failure is None:
+                    first_failure = record[0]
+                if criterion_id == "raw_bfr_d9a_reproduction":
+                    raw_fail_states += (
+                        record[2]["raw_invariant_state"] == "FAIL")
+                field = RESULT_CONTRACT.CRITERION_BY_ID[criterion_id][
+                    "maximum_field"]
+                if field is not None:
+                    try:
+                        measure = _record_measure_descriptor(
+                            criterion_id, record[2])
+                    except (KeyError, TypeError):
+                        measure = None
+                    if (measure is not None and
+                            (maximum is None or
+                             _measure_squared(measure) >
+                             _measure_squared(maximum))):
+                        maximum = measure
+                        maximum_index = count
+                        maximum_record = record
+                        maximum_record_bytes = encoded_record
+                count += 1
+            key_digest.update(b"]")
+            require(path.stat().st_size == descriptor["byte_length"] and
+                    result_digest.hexdigest() ==
+                        descriptor["availability"]["sha256"] ==
+                        criterion["result_ledger_sha256"] and
+                    count == descriptor["record_count"] ==
+                        criterion["observed_cell_count"] and
+                    key_digest.hexdigest() == criterion[
+                        "key_ledger_sha256"],
+                    "result sidecar byte/count/key binding mismatch")
+        except BaseException:
+            leaves.close()
+            raise
+        root, siblings = _disk_merkle_commitment(
+            leaves, count, maximum_index)
+        require(root == criterion["result_merkle_root_sha256"],
+                "result sidecar Merkle root mismatch")
         status = criterion["status"]
         if status == "PASS":
-            require(outcomes and set(outcomes) == {"PASS"},
+            require(count and outcomes == {"PASS"},
                     "passing criterion contains non-PASS result")
         elif status == "FAIL":
-            require("FAIL" in outcomes and set(outcomes) <= {"PASS", "FAIL"},
-                    "failed criterion result ownership")
-            first = next(record[0] for record in records
-                         if record[1] == "FAIL")
-            require(criterion["first_failing_key"] == first,
-                    "criterion first failure is not canonical first")
+            require("FAIL" in outcomes and outcomes <= {"PASS", "FAIL"} and
+                    criterion["first_failing_key"] == first_failure,
+                    "failed criterion first-result ownership")
         elif status == "UNCOVERED":
-            require(outcomes and set(outcomes) == {"UNCOVERED"},
+            require(count and outcomes == {"UNCOVERED"},
                     "oracle uncovered result ownership")
         elif status == "INCOMPLETE":
-            require(outcomes and set(outcomes) == {"INCOMPLETE"},
+            require(count and outcomes == {"INCOMPLETE"},
                     "complete infrastructure ledger outcome ownership")
-
-        if criterion["criterion_id"] == "raw_bfr_d9a_reproduction":
-            fail_states = sum(record[2]["raw_invariant_state"] == "FAIL"
-                              for record in records)
-            require(fail_states == RAW_D9A_FROZEN_FAILING_CASE_COUNT,
+        if criterion_id == "raw_bfr_d9a_reproduction":
+            require(raw_fail_states == RAW_D9A_FROZEN_FAILING_CASE_COUNT,
                     "raw D9a persisted failing-case count")
-            maximum_index = max(
-                range(len(records)),
-                key=lambda index: (int(records[index][2][
-                    "maximum_row_sum_residual"]["numerator_hex"], 16),
-                                   -index))
+        if maximum is not None:
             witness = criterion["witness"]
-            require(witness["leaf_index"] == maximum_index and
-                    witness["result_record"] == records[maximum_index] and
-                    witness["maximum_exact"] == criterion["maximum"],
-                    "raw D9a maximum is not first canonical maximum")
+            require(criterion["maximum"] == maximum and
+                    isinstance(witness, dict) and
+                    witness["leaf_index"] == maximum_index and
+                    witness["cell_key"] == maximum_record[0] and
+                    witness["result_record"] == maximum_record and
+                    witness["maximum_exact"] == maximum and
+                    witness["maximum_binary64_bits"] ==
+                        _exact_display_bits(maximum) and
+                    witness["merkle_siblings"] == siblings,
+                    "criterion maximum is not first canonical maximum")
+            validate_result_merkle_witness(
+                maximum_record_bytes, maximum_index, siblings, root,
+                observed_count=count)
+        else:
+            require(criterion["maximum"] is None and
+                    criterion["witness"] is None,
+                    "criterion claims maximum without measurable record")
 
     unexpected = report["matrix"]["unexpected_paths"]
     inventory_criterion = report["criteria"][

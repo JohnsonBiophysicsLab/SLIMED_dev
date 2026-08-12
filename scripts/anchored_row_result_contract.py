@@ -1078,15 +1078,37 @@ def _authority_schema(authority):
     exact_object_names = {"d10", "component_targets", "d12_contract"}
     properties = {}
     for name, value in authority.items():
-        if name == "actual_fixture_files":
-            properties[name] = array(ref("hashBinding"), minimum=1)
-        elif name in exact_object_names:
+        if name in exact_object_names:
             properties[name] = closed(dict(
                 (member, {"const": member_value})
                 for member, member_value in value.items()))
         else:
             properties[name] = {"const": copy.deepcopy(value)}
     return closed(properties)
+
+
+def _base_criterion_schema():
+    nullable_sha = {"type": ["string", "null"], "pattern": SHA256_PATTERN}
+    nullable_key = {"type": ["array", "null"]}
+    return closed({
+        "criterion_id": NONEMPTY_STRING,
+        "target": {"type": ["object", "null"]},
+        "expectation": NONEMPTY_STRING,
+        "applicability": {"const": "frozen_B2b"},
+        "expected_cell_count": UINT64,
+        "observed_cell_count": UINT64,
+        "key_ledger_sha256": nullable_sha,
+        "result_ledger_sha256": nullable_sha,
+        "result_merkle_root_sha256": nullable_sha,
+        "result_ledger_artifact": ref("result_ledger_artifact"),
+        "status": {"enum": ["PASS", "FAIL", "INCOMPLETE", "UNCOVERED",
+                            "OMITTED_AFTER_CANDIDATE_FAILURE",
+                            "OMITTED_AFTER_INFRASTRUCTURE_FAILURE"]},
+        "maximum": {"type": ["object", "null"]},
+        "witness": {"type": ["object", "null"]},
+        "first_failing_key": nullable_key,
+        "omission_blocker": {"type": ["string", "null"]},
+    })
 
 
 def _property_schema(schema, dotted_path):
@@ -1126,6 +1148,29 @@ def install_report_schema_contract(schema, authority_values):
         if name != "availability":
             definitions[name] = copy.deepcopy(definition)
     definitions["authority"] = _authority_schema(authority_values)
+    definitions["criterion"] = _base_criterion_schema()
+    availability_schema = definitions["availability"]
+    availability_schema["properties"]["reason_code"]["enum"] = sorted(
+        set(availability_schema["properties"]["reason_code"]["enum"]) |
+        set(ORACLE_INFRASTRUCTURE_REASONS),
+        key=lambda value: "" if value is None else value)
+    for conditional in availability_schema["allOf"]:
+        if conditional["if"]["properties"]["state"].get("const") == \
+                "UNAVAILABLE":
+            conditional["then"]["properties"]["reason_code"]["enum"] = \
+                sorted(set(conditional["then"]["properties"][
+                    "reason_code"]["enum"]) |
+                       set(ORACLE_INFRASTRUCTURE_REASONS))
+
+    # Rebind every report-reachable legacy reference to the reviewed closed
+    # definitions.  The original schema used camelCase clones at these four
+    # boundaries; leaving even one clone reachable would make the 740-path
+    # derivation describe a different contract from the one reports execute.
+    definitions["binary"]["properties"]["sources"]["items"] = ref(
+        "source_binding")
+    definitions["matrix"]["properties"]["unexpected_paths"] = ref(
+        "unexpected_paths_target_v1")
+    schema["properties"]["d12_artifact"] = ref("d12_artifact_binding")
 
     schema["x-contract-object-name"] = "report"
     for name in sorted(set(OBJECT_SCHEMAS) | set(OBJECT_SCHEMA_ALIASES)):
@@ -1155,6 +1200,14 @@ def install_report_schema_contract(schema, authority_values):
         slot = definitions[name]
         overlay = slot["allOf"][1]["properties"]
         overlay["expectation"] = {"const": contract["expectation"]}
+        overlay["applicability"] = {"const": "frozen_B2b"}
+        overlay["status"] = {"enum": list(contract["complete_statuses"]) +
+                             (["OMITTED_AFTER_CANDIDATE_FAILURE"]
+                              if contract["ordinal"] >= 27 else
+                              ["OMITTED_AFTER_CANDIDATE_FAILURE",
+                               "OMITTED_AFTER_INFRASTRUCTURE_FAILURE"]
+                              if 3 <= contract["ordinal"] <= 26 and
+                              contract["ordinal"] != 10 else [])}
         overlay["target"] = _criterion_report_target_schema(
             contract["criterion_id"])
         maximum_schema, witness_schema = _criterion_maximum_schema(

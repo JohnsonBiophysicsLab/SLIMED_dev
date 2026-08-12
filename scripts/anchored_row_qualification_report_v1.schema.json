@@ -303,11 +303,352 @@
       "additionalProperties": false,
       "properties": {
         "actual_fixture_files": {
-          "items": {
-            "$ref": "#/$defs/hashBinding"
-          },
-          "minItems": 1,
-          "type": "array",
+          "const": [
+            {
+              "availability": {
+                "reason_code": null,
+                "sha256": "e92b244806eaecd9230a3f3f9977f61ddeff3875ee6550c2dfbdb211a8e05e04",
+                "state": "PRESENT"
+              },
+              "path": "data/fixtures/candidates/b2_readiness_v1/asymmetric_344_bipyramid/candidate_metadata.json"
+            },
+            {
+              "availability": {
+                "reason_code": null,
+                "sha256": "c621d95a16a6915ab443bf74f162bddde96a85ee82e06152cbef82f28ef87486",
+                "state": "PRESENT"
+              },
+              "path": "data/fixtures/candidates/b2_readiness_v1/asymmetric_344_bipyramid/faces.csv"
+            },
+            {
+              "availability": {
+                "reason_code": null,
+                "sha256": "b275aac1d1b422a131c3703eb7f56fd4d5bf21230b277835774bc27405d10a4e",
+                "state": "PRESENT"
+              },
+              "path": "data/fixtures/candidates/b2_readiness_v1/asymmetric_344_bipyramid/vertices.csv"
+            },
+            {
+              "availability": {
+                "reason_code": null,
+                "sha256": "f974fb5bb1d542561672c1e7d2d52bf5220acc09dd3b5510dc14f1d98343b0b5",
+                "state": "PRESENT"
+              },
+              "path": "data/fixtures/candidates/b2_readiness_v1/closed_566_refined_icosahedron/candidate_metadata.json"
+            },
+            {
+              "availability": {
+                "reason_code": null,
+                "sha256": "d72e02a882c536643e8a3405efe8bb32c745bc034cbc55dcc1af0d5eba11e1b8",
+                "state": "PRESENT"
+              },
+              "path": "data/fixtures/candidates/b2_readiness_v1/closed_566_refined_icosahedron/faces.csv"
+            },
+            {
+              "availability": {
+                "reason_code": null,
+                "sha256": "cb6c618c254b36bbe27ff354f5dc009222e95277188833a3385a4f3c378b0bd6",
+                "state": "PRESENT"
+              },
+              "path": "data/fixtures/candidates/b2_readiness_v1/closed_566_refined_icosahedron/vertices.csv"
+            },
+            {
+              "availability": {
+                "reason_code": null,
+                "sha256": "bdadac60281c0430789e079cefb819c0c8e127899d4ede4ba7227d233452a07b",
+                "state": "PRESENT"
+              },
+              "path": "data/fixtures/candidates/b2_readiness_v1/execution_manifest.json"
+            },
+            {
+              "availability": {
+                "reason_code": null,
+                "sha256": "11aba5339fced78cab1056b99d03766ecf3b0a7178e1c04c5376f1af01f2cf1c",
+                "state": "PRESENT"
+              },
+              "path": "data/fixtures/candidates/b2_readiness_v1/regular_all6_torus/candidate_metadata.json"
+            },
+            {
+              "availability": {
+                "reason_code": null,
+                "sha256": "7797a1ded38d99e83707fb85e23a2a193c5857f7425a5f678ceccb1506c67cd0",
+                "state": "PRESENT"
+              },
+              "path": "data/fixtures/candidates/b2_readiness_v1/regular_all6_torus/faces.csv"
+            },
+            {
+              "availability": {
+                "reason_code": null,
+                "sha256": "923914e925eaf0f60eb9a087f0150ad37b9e56bf0191ffc52b5d7fbd91b2903c",
+                "state": "PRESENT"
+              },
+              "path": "data/fixtures/candidates/b2_readiness_v1/regular_all6_torus/vertices.csv"
+            },
+            {
+              "availability": {
+                "reason_code": null,
+                "sha256": "6afd2ec0c0df1cd71a8597fa78889dbf9daea9627d10b97165acec1cd39f9cb0",
+                "state": "PRESENT"
+              },
+              "path": "data/fixtures/candidates/b2_readiness_v1/symmetric_344_bipyramid/candidate_metadata.json"
+            },
+            {
+              "availability": {
+                "reason_code": null,
+                "sha256": "c621d95a16a6915ab443bf74f162bddde96a85ee82e06152cbef82f28ef87486",
+                "state": "PRESENT"
+              },
+              "path": "data/fixtures/candidates/b2_readiness_v1/symmetric_344_bipyramid/faces.csv"
+            },
+            {
+              "availability": {
+                "reason_code": null,
+                "sha256": "bbce1680eb4006622e14dd5d724134df826471bb55e0332c19a208b5e92429a5",
+                "state": "PRESENT"
+              },
+              "path": "data/fixtures/candidates/b2_readiness_v1/symmetric_344_bipyramid/vertices.csv"
+            },
+            {
+              "availability": {
+                "reason_code": null,
+                "sha256": "de6bf74052e24f26049c3d194570a081d47bd5dcd278ad9b34c6b1cf39973d1b",
+                "state": "PRESENT"
+              },
+              "path": "data/fixtures/candidates/b2p_adjacent_extraordinary/candidate_metadata.json"
+            },
+            {
+              "availability": {
+                "reason_code": null,
+                "sha256": "1ecbe26328311f99b2e55ccdc7e1d614947099fe1fff124cfca83dc62f5dddbb",
+                "state": "PRESENT"
+              },
+              "path": "data/fixtures/candidates/b2p_adjacent_extraordinary/faces.csv"
+            },
+            {
+              "availability": {
+                "reason_code": null,
+                "sha256": "b650ff4c1aed263701d25305d846f520933a2deb457655558f17a855e65c88b7",
+                "state": "PRESENT"
+              },
+              "path": "data/fixtures/candidates/b2p_adjacent_extraordinary/vertices.csv"
+            },
+            {
+              "availability": {
+                "reason_code": null,
+                "sha256": "66c9ab55624afb0f7fc8b444e6e5d9479bde356483bb11a73e0d5c6ce3edd35d",
+                "state": "PRESENT"
+              },
+              "path": "data/fixtures/candidates/b2p_single_flip_family/base/candidate_metadata.json"
+            },
+            {
+              "availability": {
+                "reason_code": null,
+                "sha256": "bcc295b8c7e972982676afedb7ead94bbddfd4702f6d638a070630c9f32f7672",
+                "state": "PRESENT"
+              },
+              "path": "data/fixtures/candidates/b2p_single_flip_family/base/faces.csv"
+            },
+            {
+              "availability": {
+                "reason_code": null,
+                "sha256": "b538595170eca52b4b648cbc3c91e6f63ff6b0a40fc16a6f2a786d5b464c4f52",
+                "state": "PRESENT"
+              },
+              "path": "data/fixtures/candidates/b2p_single_flip_family/base/vertices.csv"
+            },
+            {
+              "availability": {
+                "reason_code": null,
+                "sha256": "c8ac7ea89681b72508a29b2bca8f8b97ef2c65acab6aebe19445ae8eb7136fa2",
+                "state": "PRESENT"
+              },
+              "path": "data/fixtures/candidates/b2p_single_flip_family/family_metadata.json"
+            },
+            {
+              "availability": {
+                "reason_code": null,
+                "sha256": "226312a46cb6f611efa54866b37787a01b68aa783d614936982b407bf0dc55d9",
+                "state": "PRESENT"
+              },
+              "path": "data/fixtures/candidates/b2p_single_flip_family/flip_000/candidate_metadata.json"
+            },
+            {
+              "availability": {
+                "reason_code": null,
+                "sha256": "744b5a91acbdf6926890eb378dd7410a580155bd84ffb583c49d63a6a56fca76",
+                "state": "PRESENT"
+              },
+              "path": "data/fixtures/candidates/b2p_single_flip_family/flip_000/faces.csv"
+            },
+            {
+              "availability": {
+                "reason_code": null,
+                "sha256": "b538595170eca52b4b648cbc3c91e6f63ff6b0a40fc16a6f2a786d5b464c4f52",
+                "state": "PRESENT"
+              },
+              "path": "data/fixtures/candidates/b2p_single_flip_family/flip_000/vertices.csv"
+            },
+            {
+              "availability": {
+                "reason_code": null,
+                "sha256": "b0315a513777cad7fb5f5ba9eed395959e3bce6848283c07cf7d7f0fccde974e",
+                "state": "PRESENT"
+              },
+              "path": "data/fixtures/candidates/b2p_single_flip_family/flip_001/candidate_metadata.json"
+            },
+            {
+              "availability": {
+                "reason_code": null,
+                "sha256": "58d78e761bcfb8172eff55084ad99968c14089ba08b2af78f3504ba621c9bc74",
+                "state": "PRESENT"
+              },
+              "path": "data/fixtures/candidates/b2p_single_flip_family/flip_001/faces.csv"
+            },
+            {
+              "availability": {
+                "reason_code": null,
+                "sha256": "b538595170eca52b4b648cbc3c91e6f63ff6b0a40fc16a6f2a786d5b464c4f52",
+                "state": "PRESENT"
+              },
+              "path": "data/fixtures/candidates/b2p_single_flip_family/flip_001/vertices.csv"
+            },
+            {
+              "availability": {
+                "reason_code": null,
+                "sha256": "a66f2872f64ca861ca6648118aa4981482fc5f247742c5c189ecc906288f934e",
+                "state": "PRESENT"
+              },
+              "path": "data/fixtures/candidates/b2p_single_flip_family/flip_002/candidate_metadata.json"
+            },
+            {
+              "availability": {
+                "reason_code": null,
+                "sha256": "7ee844bfaec6aad97892673d63c7a00522e141db3dc707b6615be6852fd83727",
+                "state": "PRESENT"
+              },
+              "path": "data/fixtures/candidates/b2p_single_flip_family/flip_002/faces.csv"
+            },
+            {
+              "availability": {
+                "reason_code": null,
+                "sha256": "b538595170eca52b4b648cbc3c91e6f63ff6b0a40fc16a6f2a786d5b464c4f52",
+                "state": "PRESENT"
+              },
+              "path": "data/fixtures/candidates/b2p_single_flip_family/flip_002/vertices.csv"
+            },
+            {
+              "availability": {
+                "reason_code": null,
+                "sha256": "f6a88b98adec1a90f4d591b9711aa20fd724b14755beadf064e42af8328a381b",
+                "state": "PRESENT"
+              },
+              "path": "data/fixtures/candidates/b2p_valence789/candidate_metadata.json"
+            },
+            {
+              "availability": {
+                "reason_code": null,
+                "sha256": "bcc295b8c7e972982676afedb7ead94bbddfd4702f6d638a070630c9f32f7672",
+                "state": "PRESENT"
+              },
+              "path": "data/fixtures/candidates/b2p_valence789/faces.csv"
+            },
+            {
+              "availability": {
+                "reason_code": null,
+                "sha256": "b538595170eca52b4b648cbc3c91e6f63ff6b0a40fc16a6f2a786d5b464c4f52",
+                "state": "PRESENT"
+              },
+              "path": "data/fixtures/candidates/b2p_valence789/vertices.csv"
+            },
+            {
+              "availability": {
+                "reason_code": null,
+                "sha256": "74ae00951e6ea20021722a45a887d0c47530d4d7248cb69f553cb1a66a60f14b",
+                "state": "PRESENT"
+              },
+              "path": "data/fixtures/candidates/closed_mixed_valence345/candidate_metadata.json"
+            },
+            {
+              "availability": {
+                "reason_code": null,
+                "sha256": "bc1db1bf7fb29e4e4bc7b41f93ea9c206fe80a022736f1f02d22063c0b800233",
+                "state": "PRESENT"
+              },
+              "path": "data/fixtures/candidates/closed_mixed_valence345/faces.csv"
+            },
+            {
+              "availability": {
+                "reason_code": null,
+                "sha256": "affa93eec68b8de9d5dcd12d31bf1d7222410722b0cca44c58495c558e3d7287",
+                "state": "PRESENT"
+              },
+              "path": "data/fixtures/candidates/closed_mixed_valence345/vertices.csv"
+            },
+            {
+              "availability": {
+                "reason_code": null,
+                "sha256": "3b2cf28dd5b4b52ea5a999e07fc89527513066ac8f2ef20b52137448fcb52660",
+                "state": "PRESENT"
+              },
+              "path": "data/fixtures/candidates/closed_valence3_tetrahedron/candidate_metadata.json"
+            },
+            {
+              "availability": {
+                "reason_code": null,
+                "sha256": "acfbd18a1922e465052f6badf5aa2567faa282add3edc7867f3bca7493e6e1aa",
+                "state": "PRESENT"
+              },
+              "path": "data/fixtures/candidates/closed_valence3_tetrahedron/faces.csv"
+            },
+            {
+              "availability": {
+                "reason_code": null,
+                "sha256": "4a82e312830953d67731970042f5cf7d174e6af9f8844b7cd2b321209e51b898",
+                "state": "PRESENT"
+              },
+              "path": "data/fixtures/candidates/closed_valence3_tetrahedron/vertices.csv"
+            },
+            {
+              "availability": {
+                "reason_code": null,
+                "sha256": "2109779d724d924ac416a127fa4a376cf1a72fbe9fa1391223995ebbccb60b74",
+                "state": "PRESENT"
+              },
+              "path": "data/fixtures/candidates/closed_valence4_octahedron/candidate_metadata.json"
+            },
+            {
+              "availability": {
+                "reason_code": null,
+                "sha256": "af9742137b89c25cc29e8b60e137967d8adfcdd80f33d3172fc13f1ed93838e8",
+                "state": "PRESENT"
+              },
+              "path": "data/fixtures/candidates/closed_valence4_octahedron/faces.csv"
+            },
+            {
+              "availability": {
+                "reason_code": null,
+                "sha256": "b650ff4c1aed263701d25305d846f520933a2deb457655558f17a855e65c88b7",
+                "state": "PRESENT"
+              },
+              "path": "data/fixtures/candidates/closed_valence4_octahedron/vertices.csv"
+            },
+            {
+              "availability": {
+                "reason_code": null,
+                "sha256": "561b3ec0c4aa6b1e684ef87c2738d8c20a474225bd4960a4a672d306a3e70327",
+                "state": "PRESENT"
+              },
+              "path": "data/fixtures/closed_valence5/faces.csv"
+            },
+            {
+              "availability": {
+                "reason_code": null,
+                "sha256": "d0dae733433503f9e2aba4f8eda80fa2d6842d0f5a7b922d7ffce158f505cb45",
+                "state": "PRESENT"
+              },
+              "path": "data/fixtures/closed_valence5/vertices.csv"
+            }
+          ],
           "x-contract-array-path": "authority.actual_fixture_files"
         },
         "anchor_order": {
@@ -937,10 +1278,15 @@
               "reason_code": {
                 "enum": [
                   "DEPENDENCY_UNAVAILABLE",
-                  "TOOL_UNAVAILABLE",
-                  "PLATFORM_UNAVAILABLE",
+                  "EXECUTION_UNAVAILABLE",
                   "GIT_IDENTITY_UNAVAILABLE",
-                  "EXECUTION_UNAVAILABLE"
+                  "ORACLE_EXECUTION_UNAVAILABLE",
+                  "ORACLE_REQUEST_LEDGER_INVALID",
+                  "ORACLE_REQUEST_LEDGER_UNAVAILABLE",
+                  "ORACLE_RESULT_LEDGER_INCOMPLETE",
+                  "ORACLE_RESULT_LEDGER_INVALID",
+                  "PLATFORM_UNAVAILABLE",
+                  "TOOL_UNAVAILABLE"
                 ]
               },
               "sha256": {
@@ -980,18 +1326,23 @@
         "reason_code": {
           "enum": [
             null,
-            "EXPECTED_PATH_MISSING",
-            "DEPENDENCY_UNAVAILABLE",
-            "TOOL_UNAVAILABLE",
-            "PLATFORM_UNAVAILABLE",
-            "GIT_IDENTITY_UNAVAILABLE",
-            "EXECUTION_UNAVAILABLE",
-            "HASH_MISMATCH",
-            "SCHEMA_INVALID",
-            "PROVENANCE_INVALID",
             "CONTENT_INVALID",
-            "WORKTREE_DIRTY",
-            "MEASUREMENT_PROTOCOL_INVALID"
+            "DEPENDENCY_UNAVAILABLE",
+            "EXECUTION_UNAVAILABLE",
+            "EXPECTED_PATH_MISSING",
+            "GIT_IDENTITY_UNAVAILABLE",
+            "HASH_MISMATCH",
+            "MEASUREMENT_PROTOCOL_INVALID",
+            "ORACLE_EXECUTION_UNAVAILABLE",
+            "ORACLE_REQUEST_LEDGER_INVALID",
+            "ORACLE_REQUEST_LEDGER_UNAVAILABLE",
+            "ORACLE_RESULT_LEDGER_INCOMPLETE",
+            "ORACLE_RESULT_LEDGER_INVALID",
+            "PLATFORM_UNAVAILABLE",
+            "PROVENANCE_INVALID",
+            "SCHEMA_INVALID",
+            "TOOL_UNAVAILABLE",
+            "WORKTREE_DIRTY"
           ],
           "type": [
             "string",
@@ -1111,7 +1462,7 @@
         },
         "sources": {
           "items": {
-            "$ref": "#/$defs/source"
+            "$ref": "#/$defs/source_binding"
           },
           "type": "array",
           "x-contract-array-path": "binary_binding.sources"
@@ -1724,94 +2075,20 @@
     },
     "criterion": {
       "additionalProperties": false,
-      "allOf": [
-        {
-          "if": {
-            "properties": {
-              "status": {
-                "enum": [
-                  "OMITTED_AFTER_CANDIDATE_FAILURE",
-                  "OMITTED_AFTER_INFRASTRUCTURE_FAILURE"
-                ]
-              }
-            },
-            "required": [
-              "status"
-            ]
-          },
-          "then": {
-            "properties": {
-              "first_failing_key": {
-                "const": null
-              },
-              "maximum": {
-                "const": null
-              },
-              "observed_cell_count": {
-                "const": 0
-              },
-              "omission_blocker": {
-                "minLength": 1,
-                "type": "string"
-              },
-              "result_ledger_sha256": {
-                "const": null
-              },
-              "result_merkle_root_sha256": {
-                "const": null
-              },
-              "witness": {
-                "const": null
-              }
-            }
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "status": {
-                "enum": [
-                  "PASS",
-                  "FAIL",
-                  "UNCOVERED"
-                ]
-              }
-            },
-            "required": [
-              "status"
-            ]
-          },
-          "then": {
-            "properties": {
-              "key_ledger_sha256": {
-                "pattern": "^[0-9a-f]{64}$",
-                "type": "string"
-              },
-              "omission_blocker": {
-                "const": null
-              },
-              "result_ledger_sha256": {
-                "pattern": "^[0-9a-f]{64}$",
-                "type": "string"
-              }
-            }
-          }
-        }
-      ],
       "properties": {
         "applicability": {
           "const": "frozen_B2b"
         },
         "criterion_id": {
+          "minLength": 1,
           "type": "string"
         },
         "expectation": {
-          "type": [
-            "string",
-            "null"
-          ]
+          "minLength": 1,
+          "type": "string"
         },
         "expected_cell_count": {
+          "maximum": 18446744073709551615,
           "minimum": 0,
           "type": "integer"
         },
@@ -1831,11 +2108,11 @@
         "maximum": {
           "type": [
             "object",
-            "number",
             "null"
           ]
         },
         "observed_cell_count": {
+          "maximum": 18446744073709551615,
           "minimum": 0,
           "type": "integer"
         },
@@ -1846,7 +2123,7 @@
           ]
         },
         "result_ledger_artifact": {
-          "$ref": "#/$defs/resultLedgerArtifact"
+          "$ref": "#/$defs/result_ledger_artifact"
         },
         "result_ledger_sha256": {
           "pattern": "^[0-9a-f]{64}$",
@@ -1875,14 +2152,12 @@
         "target": {
           "type": [
             "object",
-            "number",
             "null"
           ]
         },
         "witness": {
           "type": [
             "object",
-            "array",
             "null"
           ]
         }
@@ -1914,6 +2189,9 @@
         },
         {
           "properties": {
+            "applicability": {
+              "const": "frozen_B2b"
+            },
             "criterion_id": {
               "const": "bindings_and_independence"
             },
@@ -1950,6 +2228,9 @@
         },
         {
           "properties": {
+            "applicability": {
+              "const": "frozen_B2b"
+            },
             "criterion_id": {
               "const": "complete_artifact_inventory"
             },
@@ -1986,6 +2267,9 @@
         },
         {
           "properties": {
+            "applicability": {
+              "const": "frozen_B2b"
+            },
             "criterion_id": {
               "const": "raw_bfr_d9a_reproduction"
             },
@@ -2036,6 +2320,9 @@
         },
         {
           "properties": {
+            "applicability": {
+              "const": "frozen_B2b"
+            },
             "criterion_id": {
               "const": "representation_structure"
             },
@@ -2074,6 +2361,9 @@
         },
         {
           "properties": {
+            "applicability": {
+              "const": "frozen_B2b"
+            },
             "criterion_id": {
               "const": "constant_field_bits"
             },
@@ -2112,6 +2402,9 @@
         },
         {
           "properties": {
+            "applicability": {
+              "const": "frozen_B2b"
+            },
             "criterion_id": {
               "const": "relabel_exact_effective_coefficients"
             },
@@ -2150,6 +2443,9 @@
         },
         {
           "properties": {
+            "applicability": {
+              "const": "frozen_B2b"
+            },
             "criterion_id": {
               "const": "regular_analytic_exact_rows"
             },
@@ -2219,6 +2515,9 @@
         },
         {
           "properties": {
+            "applicability": {
+              "const": "frozen_B2b"
+            },
             "criterion_id": {
               "const": "regular_analytic_emitted_geometry"
             },
@@ -2288,6 +2587,9 @@
         },
         {
           "properties": {
+            "applicability": {
+              "const": "frozen_B2b"
+            },
             "criterion_id": {
               "const": "regular_analytic_area_integrand"
             },
@@ -2357,6 +2659,9 @@
         },
         {
           "properties": {
+            "applicability": {
+              "const": "frozen_B2b"
+            },
             "criterion_id": {
               "const": "regular_analytic_legacy_volume_integrand"
             },
@@ -2426,6 +2731,9 @@
         },
         {
           "properties": {
+            "applicability": {
+              "const": "frozen_B2b"
+            },
             "criterion_id": {
               "const": "oracle_coverage_and_crosscheck"
             },
@@ -2463,6 +2771,9 @@
         },
         {
           "properties": {
+            "applicability": {
+              "const": "frozen_B2b"
+            },
             "criterion_id": {
               "const": "exact_effective_d10_coeff"
             },
@@ -2583,6 +2894,9 @@
         },
         {
           "properties": {
+            "applicability": {
+              "const": "frozen_B2b"
+            },
             "criterion_id": {
               "const": "exact_effective_d10_geometry"
             },
@@ -2703,6 +3017,9 @@
         },
         {
           "properties": {
+            "applicability": {
+              "const": "frozen_B2b"
+            },
             "criterion_id": {
               "const": "emitted_direct_geometry_d10"
             },
@@ -2823,6 +3140,9 @@
         },
         {
           "properties": {
+            "applicability": {
+              "const": "frozen_B2b"
+            },
             "criterion_id": {
               "const": "anchor_sensitivity_exact_coeff"
             },
@@ -2943,6 +3263,9 @@
         },
         {
           "properties": {
+            "applicability": {
+              "const": "frozen_B2b"
+            },
             "criterion_id": {
               "const": "anchor_sensitivity_exact_geometry"
             },
@@ -3063,6 +3386,9 @@
         },
         {
           "properties": {
+            "applicability": {
+              "const": "frozen_B2b"
+            },
             "criterion_id": {
               "const": "anchor_sensitivity_emitted_geometry"
             },
@@ -3183,6 +3509,9 @@
         },
         {
           "properties": {
+            "applicability": {
+              "const": "frozen_B2b"
+            },
             "criterion_id": {
               "const": "binary64_basis_probe_diagnostic"
             },
@@ -3303,6 +3632,9 @@
         },
         {
           "properties": {
+            "applicability": {
+              "const": "frozen_B2b"
+            },
             "criterion_id": {
               "const": "binary64_direct_geometry_fidelity"
             },
@@ -3423,6 +3755,9 @@
         },
         {
           "properties": {
+            "applicability": {
+              "const": "frozen_B2b"
+            },
             "criterion_id": {
               "const": "relabel_emitted_geometry_fidelity"
             },
@@ -3543,6 +3878,9 @@
         },
         {
           "properties": {
+            "applicability": {
+              "const": "frozen_B2b"
+            },
             "criterion_id": {
               "const": "stabilization_6_7_exact_coeff"
             },
@@ -3663,6 +4001,9 @@
         },
         {
           "properties": {
+            "applicability": {
+              "const": "frozen_B2b"
+            },
             "criterion_id": {
               "const": "stabilization_6_7_exact_geometry"
             },
@@ -3783,6 +4124,9 @@
         },
         {
           "properties": {
+            "applicability": {
+              "const": "frozen_B2b"
+            },
             "criterion_id": {
               "const": "stabilization_6_7_emitted_geometry"
             },
@@ -3903,6 +4247,9 @@
         },
         {
           "properties": {
+            "applicability": {
+              "const": "frozen_B2b"
+            },
             "criterion_id": {
               "const": "stabilization_7_8_exact_coeff"
             },
@@ -4023,6 +4370,9 @@
         },
         {
           "properties": {
+            "applicability": {
+              "const": "frozen_B2b"
+            },
             "criterion_id": {
               "const": "stabilization_7_8_exact_geometry"
             },
@@ -4143,6 +4493,9 @@
         },
         {
           "properties": {
+            "applicability": {
+              "const": "frozen_B2b"
+            },
             "criterion_id": {
               "const": "stabilization_7_8_emitted_geometry"
             },
@@ -4263,6 +4616,9 @@
         },
         {
           "properties": {
+            "applicability": {
+              "const": "frozen_B2b"
+            },
             "criterion_id": {
               "const": "cache_mode_bit_identity"
             },
@@ -4301,6 +4657,9 @@
         },
         {
           "properties": {
+            "applicability": {
+              "const": "frozen_B2b"
+            },
             "criterion_id": {
               "const": "d12_preparation_cost"
             },
@@ -4353,6 +4712,9 @@
         },
         {
           "properties": {
+            "applicability": {
+              "const": "frozen_B2b"
+            },
             "criterion_id": {
               "const": "d12_retained_payload"
             },
@@ -4405,6 +4767,9 @@
         },
         {
           "properties": {
+            "applicability": {
+              "const": "frozen_B2b"
+            },
             "criterion_id": {
               "const": "d12_peak_rss"
             },
@@ -4457,6 +4822,9 @@
         },
         {
           "properties": {
+            "applicability": {
+              "const": "frozen_B2b"
+            },
             "criterion_id": {
               "const": "d12_cache_disabled_concurrency"
             },
@@ -4495,6 +4863,9 @@
         },
         {
           "properties": {
+            "applicability": {
+              "const": "frozen_B2b"
+            },
             "criterion_id": {
               "const": "d12_instrumented_tsan"
             },
@@ -7687,7 +8058,7 @@
           "type": "integer"
         },
         "unexpected_paths": {
-          "$ref": "#/$defs/unexpectedPathsTarget"
+          "$ref": "#/$defs/unexpected_paths_target_v1"
         }
       },
       "required": [
@@ -9187,7 +9558,7 @@
       "x-contract-array-path": "report.criteria"
     },
     "d12_artifact": {
-      "$ref": "#/$defs/d12Artifact"
+      "$ref": "#/$defs/d12_artifact_binding"
     },
     "identity": {
       "$ref": "#/$defs/identity"
