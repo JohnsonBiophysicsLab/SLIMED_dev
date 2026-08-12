@@ -20,6 +20,173 @@
 
 namespace {
 
+class Sha256 {
+public:
+    Sha256() { reset(); }
+
+    void update(void const *data, std::size_t size) {
+        unsigned char const *bytes = static_cast<unsigned char const *>(data);
+        total_bytes_ += static_cast<std::uint64_t>(size);
+        while (size != 0) {
+            std::size_t const take = std::min(size, block_.size() - used_);
+            std::memcpy(block_.data() + used_, bytes, take);
+            used_ += take;
+            bytes += take;
+            size -= take;
+            if (used_ == block_.size()) {
+                transform(block_.data());
+                used_ = 0;
+            }
+        }
+    }
+
+    void update(std::string const &value) { update(value.data(), value.size()); }
+
+    std::string finish_hex() {
+        std::uint64_t const bit_count = total_bytes_ * UINT64_C(8);
+        unsigned char marker = 0x80U;
+        update_without_count(&marker, 1);
+        unsigned char zero = 0;
+        while (used_ != 56U) update_without_count(&zero, 1);
+        std::array<unsigned char, 8> length{};
+        for (std::size_t index = 0; index < length.size(); ++index) {
+            length[7U - index] = static_cast<unsigned char>(
+                bit_count >> (index * 8U));
+        }
+        update_without_count(length.data(), length.size());
+        std::ostringstream output;
+        output << std::hex << std::setfill('0');
+        for (std::uint32_t word : state_) output << std::setw(8) << word;
+        return output.str();
+    }
+
+private:
+    static std::uint32_t rotate_right(std::uint32_t value, unsigned shift) {
+        return (value >> shift) | (value << (32U - shift));
+    }
+
+    void reset() {
+        state_ = {{UINT32_C(0x6a09e667), UINT32_C(0xbb67ae85),
+                   UINT32_C(0x3c6ef372), UINT32_C(0xa54ff53a),
+                   UINT32_C(0x510e527f), UINT32_C(0x9b05688c),
+                   UINT32_C(0x1f83d9ab), UINT32_C(0x5be0cd19)}};
+        block_.fill(0);
+        used_ = 0;
+        total_bytes_ = 0;
+    }
+
+    void update_without_count(void const *data, std::size_t size) {
+        unsigned char const *bytes = static_cast<unsigned char const *>(data);
+        while (size != 0) {
+            std::size_t const take = std::min(size, block_.size() - used_);
+            std::memcpy(block_.data() + used_, bytes, take);
+            used_ += take;
+            bytes += take;
+            size -= take;
+            if (used_ == block_.size()) {
+                transform(block_.data());
+                used_ = 0;
+            }
+        }
+    }
+
+    void transform(unsigned char const *block) {
+        static std::array<std::uint32_t, 64> const constants = {{
+            UINT32_C(0x428a2f98), UINT32_C(0x71374491), UINT32_C(0xb5c0fbcf), UINT32_C(0xe9b5dba5),
+            UINT32_C(0x3956c25b), UINT32_C(0x59f111f1), UINT32_C(0x923f82a4), UINT32_C(0xab1c5ed5),
+            UINT32_C(0xd807aa98), UINT32_C(0x12835b01), UINT32_C(0x243185be), UINT32_C(0x550c7dc3),
+            UINT32_C(0x72be5d74), UINT32_C(0x80deb1fe), UINT32_C(0x9bdc06a7), UINT32_C(0xc19bf174),
+            UINT32_C(0xe49b69c1), UINT32_C(0xefbe4786), UINT32_C(0x0fc19dc6), UINT32_C(0x240ca1cc),
+            UINT32_C(0x2de92c6f), UINT32_C(0x4a7484aa), UINT32_C(0x5cb0a9dc), UINT32_C(0x76f988da),
+            UINT32_C(0x983e5152), UINT32_C(0xa831c66d), UINT32_C(0xb00327c8), UINT32_C(0xbf597fc7),
+            UINT32_C(0xc6e00bf3), UINT32_C(0xd5a79147), UINT32_C(0x06ca6351), UINT32_C(0x14292967),
+            UINT32_C(0x27b70a85), UINT32_C(0x2e1b2138), UINT32_C(0x4d2c6dfc), UINT32_C(0x53380d13),
+            UINT32_C(0x650a7354), UINT32_C(0x766a0abb), UINT32_C(0x81c2c92e), UINT32_C(0x92722c85),
+            UINT32_C(0xa2bfe8a1), UINT32_C(0xa81a664b), UINT32_C(0xc24b8b70), UINT32_C(0xc76c51a3),
+            UINT32_C(0xd192e819), UINT32_C(0xd6990624), UINT32_C(0xf40e3585), UINT32_C(0x106aa070),
+            UINT32_C(0x19a4c116), UINT32_C(0x1e376c08), UINT32_C(0x2748774c), UINT32_C(0x34b0bcb5),
+            UINT32_C(0x391c0cb3), UINT32_C(0x4ed8aa4a), UINT32_C(0x5b9cca4f), UINT32_C(0x682e6ff3),
+            UINT32_C(0x748f82ee), UINT32_C(0x78a5636f), UINT32_C(0x84c87814), UINT32_C(0x8cc70208),
+            UINT32_C(0x90befffa), UINT32_C(0xa4506ceb), UINT32_C(0xbef9a3f7), UINT32_C(0xc67178f2),
+        }};
+        std::array<std::uint32_t, 64> words{};
+        for (std::size_t index = 0; index < 16U; ++index) {
+            words[index] = (static_cast<std::uint32_t>(block[index * 4U]) << 24U) |
+                (static_cast<std::uint32_t>(block[index * 4U + 1U]) << 16U) |
+                (static_cast<std::uint32_t>(block[index * 4U + 2U]) << 8U) |
+                static_cast<std::uint32_t>(block[index * 4U + 3U]);
+        }
+        for (std::size_t index = 16U; index < words.size(); ++index) {
+            std::uint32_t const s0 = rotate_right(words[index - 15U], 7U) ^
+                rotate_right(words[index - 15U], 18U) ^
+                (words[index - 15U] >> 3U);
+            std::uint32_t const s1 = rotate_right(words[index - 2U], 17U) ^
+                rotate_right(words[index - 2U], 19U) ^
+                (words[index - 2U] >> 10U);
+            words[index] = words[index - 16U] + s0 + words[index - 7U] + s1;
+        }
+        std::array<std::uint32_t, 8> work = state_;
+        for (std::size_t index = 0; index < words.size(); ++index) {
+            std::uint32_t const upper = rotate_right(work[4], 6U) ^
+                rotate_right(work[4], 11U) ^ rotate_right(work[4], 25U);
+            std::uint32_t const choose = (work[4] & work[5]) ^
+                ((~work[4]) & work[6]);
+            std::uint32_t const temporary1 = work[7] + upper + choose +
+                constants[index] + words[index];
+            std::uint32_t const lower = rotate_right(work[0], 2U) ^
+                rotate_right(work[0], 13U) ^ rotate_right(work[0], 22U);
+            std::uint32_t const majority = (work[0] & work[1]) ^
+                (work[0] & work[2]) ^ (work[1] & work[2]);
+            std::uint32_t const temporary2 = lower + majority;
+            work[7] = work[6]; work[6] = work[5]; work[5] = work[4];
+            work[4] = work[3] + temporary1;
+            work[3] = work[2]; work[2] = work[1]; work[1] = work[0];
+            work[0] = temporary1 + temporary2;
+        }
+        for (std::size_t index = 0; index < state_.size(); ++index) {
+            state_[index] += work[index];
+        }
+    }
+
+    std::array<std::uint32_t, 8> state_{};
+    std::array<unsigned char, 64> block_{};
+    std::size_t used_ = 0;
+    std::uint64_t total_bytes_ = 0;
+};
+
+class OutcomeStream {
+public:
+    OutcomeStream() { digest_.update("anchored-row-candidate-outcome-v1\0", 34); }
+
+    void add(bool passed, std::string const &exact_value,
+             std::string const &target, std::string const &reason) {
+        unsigned char outcome = passed ? 1U : 0U;
+        digest_.update(&outcome, 1);
+        add_string(exact_value);
+        add_string(target);
+        add_string(reason);
+        ++count_;
+    }
+
+    std::uint64_t count() const { return count_; }
+    std::string finish_hex() { return digest_.finish_hex(); }
+
+private:
+    void add_string(std::string const &value) {
+        std::array<unsigned char, 8> length{};
+        std::uint64_t const size = static_cast<std::uint64_t>(value.size());
+        for (std::size_t index = 0; index < length.size(); ++index) {
+            length[7U - index] = static_cast<unsigned char>(
+                size >> (index * 8U));
+        }
+        digest_.update(length.data(), length.size());
+        digest_.update(value);
+    }
+
+    Sha256 digest_;
+    std::uint64_t count_ = 0;
+};
+
 // Every finite binary64 value over the common denominator 2^1074 has a
 // numerator below 2^2098.  Thirty-four two's-complement limbs leave ample
 // headroom for the exact sums of every validated B2 row without importing a
@@ -88,6 +255,15 @@ struct FixedInt {
 
     friend bool operator!=(FixedInt const &left, FixedInt const &right) {
         return !(left == right);
+    }
+
+    std::string twos_complement_hex() const {
+        std::ostringstream output;
+        output << std::hex << std::setfill('0');
+        for (std::size_t index = limbs.size(); index != 0; --index) {
+            output << std::setw(16) << limbs[index - 1U];
+        }
+        return output.str();
     }
 };
 
@@ -292,6 +468,18 @@ struct BigUnsigned {
                 std::ldexp(1.0L, static_cast<int>(top_bits - 1U + 64U));
         }
         return std::make_pair(mantissa, exponent);
+    }
+
+    std::string to_hex() const {
+        if (is_zero()) return "0";
+        std::ostringstream output;
+        output << std::hex << std::nouppercase;
+        output << limbs.back();
+        output << std::setfill('0');
+        for (std::size_t index = limbs.size() - 1U; index != 0; --index) {
+            output << std::setw(16) << limbs[index - 1U];
+        }
+        return output.str();
     }
 };
 
@@ -522,8 +710,8 @@ int audit_stream() {
         throw std::runtime_error("FE_TONEAREST unavailable");
     }
     static std::array<std::string, 5> const challenge_labels = {{
-        "0000000000000000", "3ff0000000000000", "bff0000000000000",
-        "4130000000000000", "c130000000000000",
+        "c130000000000000", "bff0000000000000", "4130000000000000",
+        "3ff0000000000000", "0000000000000000",
     }};
     std::array<double, 5> challenges;
     for (std::size_t index = 0; index < challenges.size(); ++index) {
@@ -538,6 +726,7 @@ int audit_stream() {
     std::uint64_t constant_failures = 0;
     std::uint64_t relabel_failures = 0;
     AuditFailure first_structure, first_constant, first_relabel;
+    OutcomeStream structure_outcomes, constant_outcomes, relabel_outcomes;
 
     std::string line;
     while (std::getline(std::cin, line)) {
@@ -577,6 +766,8 @@ int audit_stream() {
             if (anchor_iterator == source_ids.end() || *anchor_iterator != anchor_source) {
                 ++structure_failures;
                 record_failure(first_structure, rows, anchor_index, 0);
+                structure_outcomes.add(false, "anchor_absent", "exact_sum_rule",
+                                       "STRUCTURE_ANCHOR_ABSENT");
                 continue;
             }
             std::size_t const original_anchor = static_cast<std::size_t>(
@@ -585,7 +776,12 @@ int audit_stream() {
             expected_effective[original_anchor] += target - exact_sum;
             FixedInt effective_sum;
             for (FixedInt const &value : expected_effective) effective_sum += value;
-            if (effective_sum != target) {
+            bool const structure_passed = effective_sum == target;
+            structure_outcomes.add(
+                structure_passed, effective_sum.twos_complement_hex(),
+                target.twos_complement_hex(),
+                structure_passed ? "" : "EXACT_SUM_RULE_FAILED");
+            if (!structure_passed) {
                 ++structure_failures;
                 record_failure(first_structure, rows, anchor_index, 0);
             }
@@ -627,7 +823,12 @@ int audit_stream() {
                                                      mapped_coefficients, sources);
                     double const expected = position
                         ? challenges[static_cast<std::size_t>(challenge)] : 0.0;
-                    if (to_bits(observed) != to_bits(expected)) {
+                    bool const constant_passed =
+                        to_bits(observed) == to_bits(expected);
+                    constant_outcomes.add(
+                        constant_passed, to_bits(observed), to_bits(expected),
+                        constant_passed ? "" : "CONSTANT_BITS_MISMATCH");
+                    if (!constant_passed) {
                         ++constant_failures;
                         record_failure(first_constant, rows, anchor_index,
                                        relabel, challenge);
@@ -647,6 +848,10 @@ int audit_stream() {
                             break;
                         }
                     }
+                    relabel_outcomes.add(
+                        identical, "inverse_canonical_exact_coefficients",
+                        "bitwise_equal_fixed_dyadic_numerators",
+                        identical ? "" : "RELABEL_EXACT_MISMATCH");
                     if (!identical) {
                         ++relabel_failures;
                         record_failure(first_relabel, rows, anchor_index, relabel);
@@ -659,8 +864,15 @@ int audit_stream() {
     if (std::fegetround() != FE_TONEAREST) {
         throw std::runtime_error("rounding mode after audit");
     }
+    if (structure_outcomes.count() != structure_cells ||
+        constant_outcomes.count() != constant_cells ||
+        relabel_outcomes.count() != relabel_cells) {
+        throw std::runtime_error("preoracle outcome commitment incomplete");
+    }
     std::cout << "{\"constant_cell_count\":" << constant_cells
               << ",\"constant_failure_count\":" << constant_failures << ',';
+    std::cout << "\"constant_result_stream_sha256\":\""
+              << constant_outcomes.finish_hex() << "\",";
     emit_failure("first_constant_failure", first_constant);
     std::cout << ',';
     emit_failure("first_relabel_exact_failure", first_relabel);
@@ -669,12 +881,16 @@ int audit_stream() {
     std::cout << ",\"kind\":\"anchored_row_preoracle_audit\""
               << ",\"relabel_exact_cell_count\":" << relabel_cells
               << ",\"relabel_exact_failure_count\":" << relabel_failures
+              << ",\"relabel_exact_result_stream_sha256\":\""
+              << relabel_outcomes.finish_hex() << "\""
               << ",\"row_count\":" << rows
               << ",\"status\":\""
               << ((structure_failures || constant_failures || relabel_failures)
                       ? "candidate_failure" : "ok")
               << "\",\"structure_cell_count\":" << structure_cells
-              << ",\"structure_failure_count\":" << structure_failures << "}\n";
+              << ",\"structure_failure_count\":" << structure_failures
+              << ",\"structure_result_stream_sha256\":\""
+              << structure_outcomes.finish_hex() << "\"}\n";
     return 0;
 }
 
@@ -877,7 +1093,14 @@ struct ComponentStatistic {
     std::uint64_t cells = 0;
     std::uint64_t failures = 0;
     long double maximum = 0.0L;
+    bool maximum_present = false;
+    BigUnsigned maximum_numerator;
+    BigUnsigned maximum_scale;
+    unsigned maximum_denominator_power = 0;
+    bool maximum_normalized = false;
+    ComponentFailure maximum_witness;
     ComponentFailure first;
+    OutcomeStream outcomes;
 };
 
 static std::array<char const *, 12> const kComponentCriteria = {{
@@ -1079,14 +1302,55 @@ long double geometry_magnitude(BigUnsigned const &difference,
 }
 
 void observe_component(ComponentStatistic &statistic, bool passed,
+                       BigUnsigned const &numerator,
+                       BigUnsigned const &scale_numerator,
+                       unsigned denominator_power, bool normalized,
                        long double magnitude, std::uint64_t row,
                        int anchor = -1, int relabel = -1, int axis = -1,
-                       int pair = -1, int basis_source = -1) {
+                       int pair = -1, int basis_source = -1,
+                       std::string const &cell_detail = "") {
     ++statistic.cells;
     if (!std::isfinite(magnitude) || magnitude < 0.0L) {
         throw std::runtime_error("nonfinite component magnitude");
     }
-    statistic.maximum = std::max(statistic.maximum, magnitude);
+    std::string const exact_descriptor = normalized
+        ? (numerator.to_hex() + "/(sqrt(" + scale_numerator.to_hex() +
+           ")*2^" + std::to_string(denominator_power - 1074U) + ")")
+        : (numerator.to_hex() + "/2^" +
+           std::to_string(denominator_power));
+    statistic.outcomes.add(
+        passed, exact_descriptor + cell_detail, "row_order_0.1xD10",
+        passed ? "" : "TARGET_EXCEEDED");
+    bool replace_maximum = !statistic.maximum_present;
+    if (statistic.maximum_present) {
+        int ordering = 0;
+        if (normalized) {
+            BigUnsigned const left = (numerator * numerator) *
+                statistic.maximum_scale;
+            BigUnsigned const right =
+                (statistic.maximum_numerator *
+                 statistic.maximum_numerator) * scale_numerator;
+            ordering = compare(left, right);
+        } else {
+            ordering = compare(numerator, statistic.maximum_numerator);
+        }
+        replace_maximum = ordering > 0;
+    }
+    if (replace_maximum) {
+        statistic.maximum_present = true;
+        statistic.maximum = magnitude;
+        statistic.maximum_numerator = numerator;
+        statistic.maximum_scale = scale_numerator;
+        statistic.maximum_denominator_power = denominator_power;
+        statistic.maximum_normalized = normalized;
+        statistic.maximum_witness.present = true;
+        statistic.maximum_witness.row = row;
+        statistic.maximum_witness.anchor = anchor;
+        statistic.maximum_witness.relabel = relabel;
+        statistic.maximum_witness.axis = axis;
+        statistic.maximum_witness.pair = pair;
+        statistic.maximum_witness.basis_source = basis_source;
+    }
     if (passed) return;
     ++statistic.failures;
     if (!statistic.first.present) {
@@ -1241,9 +1505,16 @@ int component_audit_stream() {
                 high, high_effective[static_cast<std::size_t>(right)]);
             observe_component(statistics[kAnchorExactCoefficient],
                 coefficient_within_target(coefficient_difference, target_numerator),
-                coefficient_magnitude(coefficient_difference), row_ordinal,
+                coefficient_difference, BigUnsigned::from_uint64(1), 1074U,
+                false, coefficient_magnitude(coefficient_difference), row_ordinal,
                 -1, -1, -1, pair);
-            for (int axis = 0; axis < 3; ++axis) {
+        }
+        // Axis precedes anchor_pair in the frozen scientific key, so each
+        // per-criterion outcome stream follows axis-major canonical order.
+        for (int axis = 0; axis < 3; ++axis) {
+            for (int pair = 0; pair < 3; ++pair) {
+                int const left = pairs[static_cast<std::size_t>(pair)][0];
+                int const right = pairs[static_cast<std::size_t>(pair)][1];
                 BigUnsigned const exact_difference = absolute_difference(
                     high_exact_geometry[static_cast<std::size_t>(left)]
                                        [static_cast<std::size_t>(axis)],
@@ -1251,6 +1522,7 @@ int component_audit_stream() {
                                        [static_cast<std::size_t>(axis)]);
                 observe_component(statistics[kAnchorExactGeometry],
                     geometry_within_target(exact_difference, boundary2148),
+                    exact_difference, scale_numerator, 2148U, true,
                     geometry_magnitude(exact_difference, scale_numerator, 2148),
                     row_ordinal, -1, -1, axis, pair);
                 BigUnsigned const emitted_difference = absolute_difference(
@@ -1262,6 +1534,7 @@ int component_audit_stream() {
                                        [static_cast<std::size_t>(axis)]))));
                 observe_component(statistics[kAnchorEmittedGeometry],
                     geometry_within_target(emitted_difference, boundary1074),
+                    emitted_difference, scale_numerator, 1074U, true,
                     geometry_magnitude(emitted_difference, scale_numerator, 1074),
                     row_ordinal, -1, -1, axis, pair);
             }
@@ -1275,21 +1548,96 @@ int component_audit_stream() {
                 *anchor_iterator != anchors[static_cast<std::size_t>(anchor)]) {
                 throw std::runtime_error("component basis anchor absent");
             }
-            std::size_t const anchor_index = static_cast<std::size_t>(
-                anchor_iterator - high.source_ids.begin());
-            std::vector<double> source_basis(high.source_ids.size(), 0.0);
-            for (std::size_t source = 0; source < high.source_ids.size(); ++source) {
-                source_basis[source] = 1.0;
-                double const observed = evaluate(high.position, anchor_index,
-                                                 high.coefficients, source_basis);
-                source_basis[source] = 0.0;
-                BigUnsigned const difference = absolute_difference(
-                    exact_binary64_big(bits_from_label(to_bits(observed))),
-                    high_effective[static_cast<std::size_t>(anchor)][source]);
-                observe_component(statistics[kBasisDiagnostic],
-                    coefficient_within_target(difference, target_numerator),
-                    coefficient_magnitude(difference), row_ordinal, anchor,
-                    0, -1, -1, high.source_ids[source]);
+            // The frozen fidelity diagnostic is one exact L1 decision for
+            // every row/anchor/relabel group.  Each source-basis contribution
+            // remains an individually ledgered cell, but individually small
+            // errors may not hide a failing aggregate.
+            for (int relabel = 0; relabel < 3; ++relabel) {
+                std::vector<std::pair<int, std::size_t> > permutation;
+                for (std::size_t source = 0; source < high.source_ids.size();
+                     ++source) {
+                    int mapped = high.source_ids[source];
+                    if (relabel == 1) {
+                        mapped = static_cast<int>(vertex_count) - 1 - mapped;
+                    }
+                    if (relabel == 2) {
+                        mapped = (mapped + 1) % static_cast<int>(vertex_count);
+                    }
+                    permutation.push_back(std::make_pair(mapped, source));
+                }
+                std::sort(permutation.begin(), permutation.end());
+                std::vector<int> mapped_ids;
+                std::vector<double> mapped_coefficients;
+                std::vector<std::size_t> canonical_to_mapped(
+                    high.source_ids.size(), 0);
+                for (std::size_t mapped_index = 0;
+                     mapped_index < permutation.size(); ++mapped_index) {
+                    mapped_ids.push_back(permutation[mapped_index].first);
+                    mapped_coefficients.push_back(
+                        high.coefficients[permutation[mapped_index].second]);
+                    canonical_to_mapped[permutation[mapped_index].second] =
+                        mapped_index;
+                }
+                int mapped_anchor = anchors[static_cast<std::size_t>(anchor)];
+                if (relabel == 1) {
+                    mapped_anchor = static_cast<int>(vertex_count) - 1 -
+                        mapped_anchor;
+                }
+                if (relabel == 2) {
+                    mapped_anchor = (mapped_anchor + 1) %
+                        static_cast<int>(vertex_count);
+                }
+                std::vector<int>::const_iterator const mapped_anchor_iterator =
+                    std::lower_bound(mapped_ids.begin(), mapped_ids.end(),
+                                     mapped_anchor);
+                if (mapped_anchor_iterator == mapped_ids.end() ||
+                    *mapped_anchor_iterator != mapped_anchor) {
+                    throw std::runtime_error("component mapped basis anchor absent");
+                }
+                std::size_t const mapped_anchor_index =
+                    static_cast<std::size_t>(mapped_anchor_iterator -
+                                             mapped_ids.begin());
+                std::vector<double> source_basis(mapped_ids.size(), 0.0);
+                std::vector<BigUnsigned> differences;
+                differences.reserve(high.source_ids.size());
+                BigUnsigned aggregate_l1;
+                for (std::size_t source = 0; source < high.source_ids.size();
+                     ++source) {
+                    std::size_t const mapped_source =
+                        canonical_to_mapped[source];
+                    source_basis[mapped_source] = 1.0;
+                    double const observed = evaluate(
+                        high.position, mapped_anchor_index,
+                        mapped_coefficients, source_basis);
+                    source_basis[mapped_source] = 0.0;
+                    BigUnsigned const difference = absolute_difference(
+                        exact_binary64_big(bits_from_label(to_bits(observed))),
+                        high_effective[static_cast<std::size_t>(anchor)][source]);
+                    aggregate_l1 += difference;
+                    differences.push_back(difference);
+                }
+                bool const group_passed = coefficient_within_target(
+                    aggregate_l1, target_numerator);
+                long double const group_magnitude =
+                    coefficient_magnitude(aggregate_l1);
+                std::vector<std::size_t> canonical_source_order(
+                    differences.size(), 0);
+                for (std::size_t source = 0; source < differences.size();
+                     ++source) canonical_source_order[source] = source;
+                std::sort(canonical_source_order.begin(),
+                          canonical_source_order.end(),
+                          [&high](std::size_t left, std::size_t right) {
+                              return std::to_string(high.source_ids[left]) <
+                                  std::to_string(high.source_ids[right]);
+                          });
+                for (std::size_t source : canonical_source_order) {
+                    observe_component(statistics[kBasisDiagnostic],
+                        group_passed, aggregate_l1,
+                        BigUnsigned::from_uint64(1), 1074U, false,
+                        group_magnitude, row_ordinal, anchor,
+                        relabel, -1, -1, high.source_ids[source],
+                        ";basis_contribution=" + differences[source].to_hex());
+                }
             }
 
             for (int relabel = 0; relabel < 3; ++relabel) {
@@ -1305,6 +1653,7 @@ int component_audit_stream() {
                                            [static_cast<std::size_t>(axis)]);
                     observe_component(statistics[kDirectGeometry],
                         geometry_within_target(direct_difference, boundary2148),
+                        direct_difference, scale_numerator, 2148U, true,
                         geometry_magnitude(direct_difference, scale_numerator, 2148),
                         row_ordinal, anchor, relabel, axis);
                     if (relabel != 0) {
@@ -1318,6 +1667,7 @@ int component_audit_stream() {
                                                [static_cast<std::size_t>(axis)]))));
                         observe_component(statistics[kRelabelGeometry],
                             geometry_within_target(relabel_difference, boundary1074),
+                            relabel_difference, scale_numerator, 1074U, true,
                             geometry_magnitude(relabel_difference, scale_numerator, 1074),
                             row_ordinal, anchor, relabel, axis);
                     }
@@ -1338,6 +1688,8 @@ int component_audit_stream() {
                 low, low_effective[static_cast<std::size_t>(anchor)]);
             observe_component(statistics[stabilization_coefficient],
                 coefficient_within_target(coefficient_difference, target_numerator),
+                coefficient_difference, BigUnsigned::from_uint64(1), 1074U,
+                false,
                 coefficient_magnitude(coefficient_difference), row_ordinal, anchor);
             for (int axis = 0; axis < 3; ++axis) {
                 BigUnsigned const exact_difference = absolute_difference(
@@ -1347,6 +1699,7 @@ int component_audit_stream() {
                                       [static_cast<std::size_t>(axis)]);
                 observe_component(statistics[stabilization_exact_geometry],
                     geometry_within_target(exact_difference, boundary2148),
+                    exact_difference, scale_numerator, 2148U, true,
                     geometry_magnitude(exact_difference, scale_numerator, 2148),
                     row_ordinal, anchor, -1, axis);
                 BigUnsigned const emitted_difference = absolute_difference(
@@ -1358,6 +1711,7 @@ int component_audit_stream() {
                                       [static_cast<std::size_t>(axis)]))));
                 observe_component(statistics[stabilization_emitted_geometry],
                     geometry_within_target(emitted_difference, boundary1074),
+                    emitted_difference, scale_numerator, 1074U, true,
                     geometry_magnitude(emitted_difference, scale_numerator, 1074),
                     row_ordinal, anchor, -1, axis);
             }
@@ -1371,14 +1725,37 @@ int component_audit_stream() {
     std::cout << "{\"criteria\":{";
     for (std::size_t index = 0; index < statistics.size(); ++index) {
         if (index != 0) std::cout << ',';
-        ComponentStatistic const &statistic = statistics[index];
+        ComponentStatistic &statistic = statistics[index];
         any_failure = any_failure || statistic.failures != 0;
-        std::cout << '"' << kComponentCriteria[index] << "\":{\"cell_count\":"
-                  << statistic.cells << ",\"failure_count\":"
+        if (statistic.outcomes.count() != statistic.cells ||
+            (statistic.cells != 0 && !statistic.maximum_present)) {
+            throw std::runtime_error("component outcome commitment incomplete");
+        }
+        std::cout << '"' << kComponentCriteria[index]
+                  << "\":{\"candidate_result_stream_sha256\":\""
+                  << statistic.outcomes.finish_hex()
+                  << "\",\"cell_count\":" << statistic.cells
+                  << ",\"failure_count\":"
                   << statistic.failures << ",\"first_failure\":";
         emit_component_failure(statistic.first);
         std::cout << ",\"maximum\":" << std::setprecision(17)
-                  << static_cast<double>(statistic.maximum) << '}';
+                  << static_cast<double>(statistic.maximum)
+                  << ",\"maximum_exact\":";
+        if (statistic.maximum_present) {
+            std::cout << "{\"denominator_power\":"
+                      << statistic.maximum_denominator_power
+                      << ",\"normalized_by_sqrt_scale\":"
+                      << (statistic.maximum_normalized ? "true" : "false")
+                      << ",\"numerator_hex\":\""
+                      << statistic.maximum_numerator.to_hex()
+                      << "\",\"scale_numerator_hex\":\""
+                      << statistic.maximum_scale.to_hex() << "\"}";
+        } else {
+            std::cout << "null";
+        }
+        std::cout << ",\"maximum_witness\":";
+        emit_component_failure(statistic.maximum_witness);
+        std::cout << '}';
     }
     std::cout << "},\"kind\":\"anchored_row_component_audit\",\"row_count\":"
               << row_ordinal << ",\"status\":\""
@@ -1389,6 +1766,12 @@ int component_audit_stream() {
 int self_test() {
     if (std::fesetround(FE_TONEAREST) != 0 || std::fegetround() != FE_TONEAREST) {
         throw std::runtime_error("FE_TONEAREST unavailable");
+    }
+    Sha256 sha_test;
+    sha_test.update("abc");
+    if (sha_test.finish_hex() !=
+        "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad") {
+        throw std::runtime_error("SHA-256 self-test");
     }
     std::vector<double> coefficients{0.25, 0.5, 0.25};
     std::vector<double> constant(3, 1048576.0);

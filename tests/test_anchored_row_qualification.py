@@ -8,6 +8,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -18,6 +19,34 @@ SPEC.loader.exec_module(MODULE)
 
 
 class AnchoredRowQualificationTests(unittest.TestCase):
+    def make_incomplete_criteria_fixture(self):
+        digest = "a" * 64
+        records = []
+        for criterion_id in MODULE.CRITERION_IDS:
+            expected = MODULE.EXPECTED_CELL_COUNTS[criterion_id]
+            if criterion_id in MODULE.INFRASTRUCTURE_CRITERIA:
+                records.append(MODULE.criterion_record(
+                    criterion_id, "INCOMPLETE", expected=expected))
+            elif criterion_id in MODULE.ORACLE_CRITERIA:
+                result_digest = "b" * 64
+                records.append(MODULE.criterion_record(
+                    criterion_id, "UNCOVERED", expected=expected,
+                    observed=expected, ledger=digest,
+                    result_ledger=result_digest,
+                    expectation="EIGENBASIS_CERTIFICATION_FAILED",
+                    witness=["EIGENBASIS_CERTIFICATION_FAILED", expected,
+                             result_digest]))
+            elif criterion_id in MODULE.D12_CRITERIA:
+                records.append(MODULE.criterion_record(
+                    criterion_id, "INCOMPLETE", expected=expected,
+                    ledger=digest))
+            else:
+                records.append(MODULE.criterion_record(
+                    criterion_id, "OMITTED_AFTER_INFRASTRUCTURE_FAILURE",
+                    blocker=MODULE.CRITERION_IDS[0], expected=expected,
+                    ledger=digest))
+        return records
+
     def test_self_test_freezes_scope_and_honest_oracle_gap(self):
         completed = subprocess.run(
             [sys.executable, str(RUNNER), "--self-test", "--json"],
@@ -138,11 +167,20 @@ class AnchoredRowQualificationTests(unittest.TestCase):
                              "EXECUTION_UNAVAILABLE")
 
     def test_criterion_set_is_exact_and_omission_needs_real_blocker(self):
-        records = [MODULE.criterion_record(
-            criterion_id, "INCOMPLETE" if index == 0 else
-            "OMITTED_AFTER_INFRASTRUCTURE_FAILURE",
-            blocker=None if index == 0 else MODULE.CRITERION_IDS[0])
-            for index, criterion_id in enumerate(MODULE.CRITERION_IDS)]
+        records = []
+        for criterion_id in MODULE.CRITERION_IDS:
+            if criterion_id in MODULE.INFRASTRUCTURE_CRITERIA:
+                status, blocker = "INCOMPLETE", None
+            elif criterion_id in MODULE.ORACLE_CRITERIA:
+                status, blocker = "INCOMPLETE", None
+            elif criterion_id in MODULE.D12_CRITERIA:
+                status, blocker = "INCOMPLETE", None
+            else:
+                status = "OMITTED_AFTER_INFRASTRUCTURE_FAILURE"
+                blocker = MODULE.CRITERION_IDS[0]
+            records.append(MODULE.criterion_record(
+                criterion_id, status, blocker=blocker,
+                expected=MODULE.EXPECTED_CELL_COUNTS[criterion_id]))
         MODULE.validate_criteria(records)
         mutation = copy.deepcopy(records)
         mutation[-1]["criterion_id"] = "invented"
@@ -151,6 +189,60 @@ class AnchoredRowQualificationTests(unittest.TestCase):
         with self.assertRaises(MODULE.QualificationError):
             MODULE.criterion_record(MODULE.CRITERION_IDS[1],
                                     "OMITTED_AFTER_INFRASTRUCTURE_FAILURE")
+
+    def test_schema_freezes_every_criterion_slot_and_status_owner(self):
+        schema = MODULE.load_schema()
+        criteria_schema = schema["properties"]["criteria"]
+        records = self.make_incomplete_criteria_fixture()
+        MODULE.validate_schema_instance(records, criteria_schema, schema)
+        self.assertEqual(len(criteria_schema["prefixItems"]), 32)
+        for index, criterion_id in enumerate(MODULE.CRITERION_IDS):
+            with self.subTest(index=index, mutation="id"):
+                mutation = copy.deepcopy(records)
+                mutation[index]["criterion_id"] = criterion_id + "_invented"
+                with self.assertRaises(MODULE.QualificationError):
+                    MODULE.validate_schema_instance(
+                        mutation, criteria_schema, schema)
+            with self.subTest(index=index, mutation="count"):
+                mutation = copy.deepcopy(records)
+                mutation[index]["expected_cell_count"] += 1
+                with self.assertRaises(MODULE.QualificationError):
+                    MODULE.validate_schema_instance(
+                        mutation, criteria_schema, schema)
+        swapped = copy.deepcopy(records)
+        swapped[3], swapped[4] = swapped[4], swapped[3]
+        with self.assertRaises(MODULE.QualificationError):
+            MODULE.validate_schema_instance(swapped, criteria_schema, schema)
+        illegal_statuses = {0: "FAIL", 10: "FAIL", 14: "UNCOVERED",
+                            27: "OMITTED_AFTER_INFRASTRUCTURE_FAILURE"}
+        for index, status in illegal_statuses.items():
+            with self.subTest(index=index, status=status):
+                mutation = copy.deepcopy(records)
+                mutation[index]["status"] = status
+                with self.assertRaises(MODULE.QualificationError):
+                    MODULE.validate_schema_instance(
+                        mutation, criteria_schema, schema)
+        missing_result = copy.deepcopy(records)
+        del missing_result[10]["result_ledger_sha256"]
+        with self.assertRaises(MODULE.QualificationError):
+            MODULE.validate_schema_instance(
+                missing_result, criteria_schema, schema)
+
+    def test_status_causality_rejects_later_or_wrong_class_blockers(self):
+        records = self.make_incomplete_criteria_fixture()
+        MODULE.validate_criteria(records)
+        later = copy.deepcopy(records)
+        later[3]["omission_blocker"] = MODULE.CRITERION_IDS[10]
+        with self.assertRaises(MODULE.QualificationError):
+            MODULE.validate_criteria(later)
+        wrong_class = copy.deepcopy(records)
+        wrong_class[3]["status"] = "OMITTED_AFTER_CANDIDATE_FAILURE"
+        with self.assertRaises(MODULE.QualificationError):
+            MODULE.validate_criteria(wrong_class)
+        infrastructure_fail = copy.deepcopy(records)
+        infrastructure_fail[0]["status"] = "FAIL"
+        with self.assertRaises(MODULE.QualificationError):
+            MODULE.validate_criteria(infrastructure_fail)
 
     def test_missing_oracle_binding_is_infrastructure_incomplete(self):
         cases = [{"content_identity_key": "content-{:03d}".format(index),
@@ -165,6 +257,9 @@ class AnchoredRowQualificationTests(unittest.TestCase):
         self.assertEqual(criteria[0]["status"], "INCOMPLETE")
         self.assertEqual(criteria[3]["status"],
                          "OMITTED_AFTER_INFRASTRUCTURE_FAILURE")
+        self.assertEqual(criteria[10]["status"], "UNCOVERED")
+        self.assertTrue(all(criteria[index]["status"] == "INCOMPLETE"
+                            for index in range(27, 32)))
 
     def test_omitted_result_retains_materialized_pre_result_ledger(self):
         digest = "a" * 64
@@ -180,9 +275,10 @@ class AnchoredRowQualificationTests(unittest.TestCase):
         } for criterion_id in MODULE.CRITERION_IDS]
         criteria = MODULE.make_criteria(
             MODULE.worktree_observation(True), False, ledgers)
-        self.assertEqual(criteria[10]["status"],
-                         "OMITTED_AFTER_INFRASTRUCTURE_FAILURE")
-        self.assertEqual(criteria[10]["observed_cell_count"], 0)
+        self.assertEqual(criteria[10]["status"], "UNCOVERED")
+        self.assertEqual(criteria[10]["observed_cell_count"],
+                         MODULE.EXPECTED_CELL_COUNTS[
+                             "oracle_coverage_and_crosscheck"])
         self.assertEqual(criteria[10]["key_ledger_sha256"], digest)
 
     def test_verdict_precedence_never_turns_uncovered_into_pass(self):
@@ -197,6 +293,54 @@ class AnchoredRowQualificationTests(unittest.TestCase):
                          "oracle_coverage_and_crosscheck")
         records[3] = MODULE.criterion_record("representation_structure", "FAIL")
         self.assertEqual(MODULE.calculate_verdict(records)["status"], "FAIL")
+
+    def test_verdict_uses_single_frozen_order_for_uncovered_and_incomplete(self):
+        records = [MODULE.criterion_record(identifier, "PASS")
+                   for identifier in MODULE.CRITERION_IDS]
+        records[10] = MODULE.criterion_record(
+            "oracle_coverage_and_crosscheck", "UNCOVERED")
+        records[27] = MODULE.criterion_record(
+            "d12_preparation_cost", "INCOMPLETE")
+        self.assertEqual(MODULE.calculate_verdict(records)[
+            "first_decisive_criterion"], "oracle_coverage_and_crosscheck")
+        records[0] = MODULE.criterion_record(
+            "bindings_and_independence", "INCOMPLETE")
+        self.assertEqual(MODULE.calculate_verdict(records)[
+            "first_decisive_criterion"], "bindings_and_independence")
+
+    def test_serial_only_disposition_is_exactly_race_only(self):
+        records = [MODULE.criterion_record(identifier, "PASS")
+                   for identifier in MODULE.CRITERION_IDS]
+        records[-1] = MODULE.criterion_record(
+            "d12_instrumented_tsan", "FAIL")
+        key = ["content", 7, "tsan", "threaded_cache", 2, 1, 0,
+               None, None, None, None, None, "thread_result", "row_digest"]
+        context = {"complete_tsan_tuple_count": 588,
+                   "complete_tsan_cell_count": MODULE.EXPECTED_CELL_COUNTS[
+                       "d12_instrumented_tsan"],
+                   "cache_disabled_tsan_pass": True,
+                   "failures": [{"key": key,
+                                  "reason": "THREADED_CACHE_RACE"}]}
+        verdict = MODULE.calculate_verdict(records, context)
+        self.assertTrue(verdict["serial_only_qualification_eligible"])
+        self.assertEqual(verdict["serial_only_reason"],
+                         "ELIGIBLE_PENDING_EXPLICIT_USER_DECISION")
+        self.assertEqual(verdict["threaded_only_failure_ledger_sha256"],
+                         MODULE.generic_key_ledger_sha256([key]))
+        for mutation in (
+                {"complete_tsan_tuple_count": 587},
+                {"cache_disabled_tsan_pass": False},
+                {"failures": [{"key": key,
+                               "reason": "THREADED_CACHE_OUTPUT_MISMATCH"}]},
+                {"failures": []}):
+            changed = copy.deepcopy(context)
+            changed.update(mutation)
+            self.assertFalse(MODULE.calculate_verdict(
+                records, changed)["serial_only_qualification_eligible"])
+        scientific_fail = copy.deepcopy(records)
+        scientific_fail[3]["status"] = "FAIL"
+        self.assertFalse(MODULE.calculate_verdict(
+            scientific_fail, context)["serial_only_qualification_eligible"])
 
     def test_git_binding_rejects_old_checkpoint_and_midrun_head_change(self):
         head = "a" * 40
@@ -242,6 +386,65 @@ class AnchoredRowQualificationTests(unittest.TestCase):
         with self.assertRaises(MODULE.QualificationError):
             duplicate.add_encoded(encoded[0])
 
+    def test_result_ledger_binds_outcome_value_and_rejects_duplicate_key(self):
+        key = ["content", "cache_disabled", 7, 0, None, "sample",
+               "position", "structural", "v0", "identity", None, None,
+               None, None, None]
+        encoded = MODULE.jcs_bytes(key)
+        first = MODULE.StreamingResultLedger("first")
+        first.add_encoded(encoded, "PASS", "01", "01", None)
+        first_digest = first.finish()
+        changed = MODULE.StreamingResultLedger("changed")
+        changed.add_encoded(encoded, "FAIL", "00", "01", "MISMATCH")
+        self.assertNotEqual(first_digest, changed.finish())
+        duplicate = MODULE.StreamingResultLedger("duplicate")
+        duplicate.add_encoded(encoded, "PASS")
+        with self.assertRaises(MODULE.QualificationError):
+            duplicate.add_encoded(encoded, "PASS")
+
+    def test_oracle_absence_is_empty_covered_full_uncovered(self):
+        request_digest = "c" * 64
+        count = MODULE.EXPECTED_CELL_COUNTS[
+            "oracle_coverage_and_crosscheck"]
+        partitions = MODULE.oracle_absent_partition_ledgers(
+            request_digest, count)
+        self.assertEqual([item["partition"] for item in partitions],
+                         ["covered", "uncovered"])
+        self.assertEqual(partitions[0]["observed_count"], 0)
+        self.assertEqual(partitions[0]["key_ledger_sha256"],
+                         MODULE.sha256_bytes(b"[]"))
+        self.assertEqual(partitions[1]["observed_count"], count)
+        self.assertEqual(partitions[1]["key_ledger_sha256"], request_digest)
+        self.assertTrue(all(item["availability"]["state"] == "PRESENT"
+                            for item in partitions))
+
+    def test_numeric_maximum_witness_mutations_fail_closed(self):
+        records = self.make_incomplete_criteria_fixture()
+        index = MODULE.CRITERION_IDS.index(
+            "anchor_sensitivity_exact_coeff")
+        key = ["content", "cache_disabled", 7, 0, None, "sample", "du",
+               "exact_effective", None, "identity", None, None, "v0_v1",
+               None, None]
+        digest = "d" * 64
+        maximum = 0.25
+        records[index] = MODULE.criterion_record(
+            "anchor_sensitivity_exact_coeff", "PASS",
+            expected=MODULE.EXPECTED_CELL_COUNTS[
+                "anchor_sensitivity_exact_coeff"],
+            observed=MODULE.EXPECTED_CELL_COUNTS[
+                "anchor_sensitivity_exact_coeff"],
+            ledger="e" * 64, result_ledger=digest, maximum=maximum,
+            witness=[key, {"numerator": 1, "denominator": 4},
+                     MODULE.binary64_bits_hex(maximum), digest])
+        MODULE.validate_criteria(records)
+        for witness_index, replacement in ((0, ["bad"]),
+                                           (2, MODULE.binary64_bits_hex(0.5)),
+                                           (3, "f" * 64)):
+            mutation = copy.deepcopy(records)
+            mutation[index]["witness"][witness_index] = replacement
+            with self.assertRaises(MODULE.QualificationError):
+                MODULE.validate_criteria(mutation)
+
     def test_preoracle_suffixes_cover_exact_frozen_dimensions(self):
         suffixes = MODULE._validate_suffix_definitions()
         self.assertEqual(len(suffixes["representation_structure"]), 3)
@@ -251,6 +454,13 @@ class AnchoredRowQualificationTests(unittest.TestCase):
         self.assertEqual(len(suffixes["cache_mode_bit_identity"]), 3)
         self.assertEqual(set(MODULE.CANDIDATE_CHALLENGES),
                          set(MODULE.CHALLENGES))
+        basis = MODULE._frozen_scientific_suffixes()
+        self.assertNotIn("binary64_basis_probe_diagnostic", basis)
+        basis_key = ["content", "cache_disabled", 7, 0, None, "sample",
+                     "du", "emitted_binary64", "v1", "rank_rotate_1", 9,
+                     None, None, None, None]
+        MODULE.validate_scientific_cell_key(
+            basis_key, "binary64_basis_probe_diagnostic")
 
     def test_exact_regular_box_spline_rows_and_patch_inventory(self):
         rows = MODULE.regular_box_spline_rows(
@@ -349,6 +559,66 @@ class AnchoredRowQualificationTests(unittest.TestCase):
         with self.assertRaises(MODULE.QualificationError):
             MODULE.validate_d12_key(rss, "d12_peak_rss")
 
+    def test_d12_observed_head_probe_and_worktree_are_not_synthesized(self):
+        head = "1" * 40
+        probe_fingerprint = {"architecture": "observed-test-host",
+                             "chip": "not-the-frozen-expected-chip"}
+        evidence = {
+            "release_checkpoint": {"binding": {"git_head": head}},
+            "platform_qualification": {
+                "status": "UNQUALIFIED_PLATFORM",
+                "git_identity": {"head": head, "head_query_ok": True,
+                                 "worktree_empty": True},
+                "current_probe": {"fingerprint": probe_fingerprint},
+            },
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            path = pathlib.Path(temporary) / "d12.json"
+            path.write_text(json.dumps(evidence), encoding="utf-8")
+            with mock.patch.object(MODULE.B2, "validate_evidence_document",
+                                   return_value=True):
+                record, expectation = MODULE.inspect_d12_evidence(path, head)
+                self.assertEqual(record["availability"]["state"], "PRESENT")
+                self.assertEqual(record["exact_head"], head)
+                self.assertEqual(
+                    record["physical_fingerprint_sha256"],
+                    MODULE.sha256_bytes(MODULE.jcs_bytes(probe_fingerprint)))
+                self.assertIn("representation work is not included",
+                              expectation)
+
+                old_head, _ = MODULE.inspect_d12_evidence(path, "2" * 40)
+                self.assertEqual(old_head["availability"]["state"], "INVALID")
+                dirty = copy.deepcopy(evidence)
+                dirty["platform_qualification"]["git_identity"][
+                    "worktree_empty"] = False
+                path.write_text(json.dumps(dirty), encoding="utf-8")
+                dirty_record, _ = MODULE.inspect_d12_evidence(path, head)
+                self.assertEqual(dirty_record["availability"]["state"],
+                                 "INVALID")
+
+    def test_d12_malformed_and_qualified_without_representation_fail_closed(self):
+        head = "3" * 40
+        with tempfile.TemporaryDirectory() as temporary:
+            path = pathlib.Path(temporary) / "d12.json"
+            path.write_text('{"duplicate":1,"duplicate":2}',
+                            encoding="utf-8")
+            record, _ = MODULE.inspect_d12_evidence(path, head)
+            self.assertEqual(record["availability"]["state"], "INVALID")
+            qualified = {
+                "release_checkpoint": {"binding": {"git_head": head}},
+                "platform_qualification": {
+                    "status": "QUALIFIED",
+                    "git_identity": {"head": head, "head_query_ok": True,
+                                     "worktree_empty": True},
+                    "current_probe": {"fingerprint": {"chip": "Apple M5"}},
+                },
+            }
+            path.write_text(json.dumps(qualified), encoding="utf-8")
+            with mock.patch.object(MODULE.B2, "validate_evidence_document",
+                                   return_value=True):
+                record, _ = MODULE.inspect_d12_evidence(path, head)
+            self.assertEqual(record["availability"]["state"], "INVALID")
+
     def test_pre_result_ledger_partition_is_never_empty(self):
         cases = []
         for index in range(294):
@@ -377,6 +647,13 @@ class AnchoredRowQualificationTests(unittest.TestCase):
             [item["partition"] for item in ledgers
              if item["criterion_id"] == "oracle_coverage_and_crosscheck"],
             ["oracle_request", "covered", "uncovered"])
+        schema = MODULE.load_schema()
+        ledger_schema = schema["$defs"]["matrix"]["properties"]["ledgers"]
+        MODULE.validate_schema_instance(ledgers, ledger_schema, schema)
+        reordered = copy.deepcopy(ledgers)
+        reordered[3], reordered[4] = reordered[4], reordered[3]
+        with self.assertRaises(MODULE.QualificationError):
+            MODULE.validate_schema_instance(reordered, ledger_schema, schema)
 
     def test_candidate_cpp_has_observable_round_points_and_executes(self):
         source = ROOT / "experiments/anchored_row_qualification/candidate.cpp"
@@ -468,7 +745,7 @@ class AnchoredRowQualificationTests(unittest.TestCase):
             self.assertEqual(component_value["row_count"], 1)
             self.assertEqual(component_value["status"], "ok")
             self.assertEqual(component_value["criteria"][
-                "binary64_basis_probe_diagnostic"]["cell_count"], 9)
+                "binary64_basis_probe_diagnostic"]["cell_count"], 27)
             self.assertEqual(component_value["criteria"][
                 "binary64_direct_geometry_fidelity"]["cell_count"], 27)
             bad_coefficients = ",".join(MODULE.binary64_bits_hex(value)

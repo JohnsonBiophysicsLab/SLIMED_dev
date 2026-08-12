@@ -1,8 +1,7 @@
 # B2c anchored-row qualification evidence
 
-Status: **package implementation `INCOMPLETE`; all 20 oracle-independent
-candidate criteria have exhaustive development evidence, but no qualification
-result exists**
+Status: **review-remediation implementation pending clean exact-head replay;
+package remains `INCOMPLETE` and no qualification result exists**
 
 Candidate: `anchored_difference_rows_v1`
 
@@ -40,7 +39,8 @@ route.
 
 The proof report uses schema ID
 `anchored-row-qualification-report-v1`. The checked-in executable JSON Schema
-closes every report object, freezes all 32 criterion IDs, and includes
+closes every report object, freezes all 32 criterion IDs and all 34 ordered
+ledger partitions, and includes
 state-conditioned availability, Git identity, dependency provenance,
 scientific-key, and D12-operational-key definitions. The validator additionally
 enforces:
@@ -58,6 +58,12 @@ enforces:
   terms, and 37,649,808 anchor-term views; and
 - deterministic `FAIL`/`INCOMPLETE`/`PASS` precedence with all decision and
   activation fields fixed false.
+
+The review-remediation version also requires a cryptographic result commitment
+for every executed or uncovered criterion in addition to its pre-result key
+ledger.  The proposed encoding is frozen in
+`docs/anchored_row_qualification_result_ledger_hardening.md`.  Aggregate counts
+or a display maximum alone cannot support `PASS`.
 
 No unavailable value receives an invented all-zero hash. The report binds an
 unavailable dependency or executable through its closed state/reason object.
@@ -101,18 +107,21 @@ with no failures:
 | `regular_analytic_area_integrand` | 50,880 | 0 | `1.164920199724114e-15` | `19752de9524c3dda9b07671bfb7c504896e2ab6d748fb624dddf1ebb9b7d0fbc` |
 | `regular_analytic_legacy_volume_integrand` | 50,880 | 0 | `3.277470150033568e-15` | `ccb982f45e38cc44f38949c4de391646979d311348fe6fb1580d7e7e3c9a5a81` |
 
-The compact exact component audit processed 396,000 paired high-level rows in
-about 102 seconds. It did not emit or reparse the 10,757,088 basis probes or
-the geometry values: the actual binary64 evaluator accumulated the frozen
-comparisons internally, while the validator independently materialized the
-complete canonical pre-result ledgers. All 12 component criteria passed:
+The table below is a **superseded observation from exact SHA `9820e95a`; it is
+not evidence for the review-remediation implementation and must be regenerated
+at its later clean exact SHA**.  That older compact audit processed 396,000
+paired high-level rows in about 102 seconds.  The repaired audit commits every
+candidate-owned outcome, applies the basis diagnostic to the exact L1 sum per
+row/anchor/relabel group, and covers identity, rank reversal, and rank rotation.
+Its derived basis applicability is therefore 32,271,264 source-contribution
+cells rather than the older identity-only 10,757,088 cells.
 
 | Criterion | Cells | Failures | Maximum normalized error | Canonical ledger SHA-256 |
 | --- | ---: | ---: | ---: | --- |
 | `anchor_sensitivity_exact_coeff` | 1,188,000 | 0 | `4.073848235749272e-11` | `e8eac011dfcf7f383afca576fa59c18ce996588a4a502a56b89739bcb6b41ba1` |
 | `anchor_sensitivity_exact_geometry` | 3,564,000 | 0 | `2.0293204775959214e-11` | `c809d3379479a88a34ff47d38c380ee7b5c0705d6fca6dc418a73bd08320048d` |
 | `anchor_sensitivity_emitted_geometry` | 3,564,000 | 0 | `2.029310053330846e-11` | `7130d508a75052f306909c33fad50b7e0dbb8825dbb5ee1f181ced33abf541dd` |
-| `binary64_basis_probe_diagnostic` | 10,757,088 | 0 | `1.2859052811822237e-14` | `86e9a5a1d01eace5f5185e17b916d7452787e8ba11547abb4e53b3e2bd235b53` |
+| `binary64_basis_probe_diagnostic` | 10,757,088 (superseded identity-only run) | 0 | `1.2859052811822237e-14` | `86e9a5a1d01eace5f5185e17b916d7452787e8ba11547abb4e53b3e2bd235b53` |
 | `binary64_direct_geometry_fidelity` | 10,692,000 | 0 | `1.5825605585155187e-14` | `2f8775b6e54fb0b27fb5039f457a2164191f12613c4ff2388c6f591ffe4e203d` |
 | `relabel_emitted_geometry_fidelity` | 7,128,000 | 0 | `1.5083718607505153e-14` | `4a9f7756f530db8a728fcbbcba97da13a645399c94fc76b49251fa9e09d9e699` |
 | `stabilization_6_7_exact_coeff` | 594,000 | 0 | `0` | `fe9f4cdba31f25473f88f208a84c7b25100637b3e61f738af901fd486a6e5e98` |
@@ -132,13 +141,18 @@ after the frozen GMP 6.3.0, MPFR 4.2.2, and OpenSubdiv 3.7.0 inputs are
 provisioned. It then revalidates the complete B2 checkpoint and all 294
 artifacts, reproduces the raw D9a observation, writes canonical B2c evidence,
 and asserts that the only permitted current disposition is implementation
-`INCOMPLETE`. It publishes explicit unavailable cell-ledger partitions and the
-exact causal validator blocker; it does not label unconstructed oracle request
-cells `COVERED` or `UNCOVERED`.
+`INCOMPLETE`. The complete 1,188,000-cell oracle request is now partitioned as
+an empty present `COVERED` ledger and a full present `UNCOVERED` ledger, with
+every result bound to exact reason `EIGENBASIS_CERTIFICATION_FAILED`.
 
 Hosted macOS D12 evidence remains `UNQUALIFIED_PLATFORM`; it cannot pass or
-fail the frozen physical-host numeric budgets. The workflow publishes raw
-evidence and does not automatically select, qualify, or activate anything.
+fail the frozen physical-host numeric budgets. The runner strictly parses the
+artifact and records its observed Git head and observed probe fingerprint. It
+never copies the expected command-line head or frozen expected fingerprint
+into observed fields. An old physical B2 artifact that omits anchored-row
+construction/evaluation work is invalid for B2c D12; hosted inherited raw
+evidence remains explicit `INCOMPLETE`. No such state selects, qualifies, or
+activates anything.
 
 ## Required next scientific work
 

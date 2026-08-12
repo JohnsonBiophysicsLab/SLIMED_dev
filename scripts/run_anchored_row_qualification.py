@@ -23,7 +23,7 @@ import re
 import struct
 import subprocess
 import sys
-from decimal import Decimal
+from decimal import Decimal, localcontext
 from fractions import Fraction
 
 
@@ -46,8 +46,7 @@ ANCHORS = ("v0", "v1", "v2")
 RELABELS = ("identity", "rank_reverse", "rank_rotate_1")
 CHALLENGES = ("negative_2p20", "negative_one", "positive_2p20",
               "positive_one", "positive_zero")
-CANDIDATE_CHALLENGES = ("positive_zero", "positive_one", "negative_one",
-                        "positive_2p20", "negative_2p20")
+CANDIDATE_CHALLENGES = CHALLENGES
 D10 = {"position": 5.0e-6, "first_derivative": 2.5e-5,
        "second_derivative": 1.25e-4}
 COMPONENT_TARGETS = {"position": 5.0e-7, "first_derivative": 2.5e-6,
@@ -133,6 +132,17 @@ CRITERION_IDS = (
     "d12_instrumented_tsan",
 )
 
+INFRASTRUCTURE_CRITERIA = frozenset(CRITERION_IDS[:3])
+ORACLE_CRITERIA = frozenset(("oracle_coverage_and_crosscheck",))
+D12_CRITERIA = frozenset(CRITERION_IDS[27:])
+CANDIDATE_SCIENTIFIC_CRITERIA = frozenset(CRITERION_IDS[3:27]) - ORACLE_CRITERIA
+CATEGORICAL_CRITERIA = frozenset((
+    "bindings_and_independence", "complete_artifact_inventory",
+    "raw_bfr_d9a_reproduction", "representation_structure",
+    "constant_field_bits", "relabel_exact_effective_coefficients",
+    "cache_mode_bit_identity",
+))
+
 # Exact formula cardinalities that are independent of numerical results.
 EXPECTED_CELL_COUNTS = {
     "bindings_and_independence": 1,
@@ -152,7 +162,10 @@ EXPECTED_CELL_COUNTS = {
     "anchor_sensitivity_exact_coeff": 1188000,
     "anchor_sensitivity_exact_geometry": 3564000,
     "anchor_sensitivity_emitted_geometry": 3564000,
-    "binary64_basis_probe_diagnostic": 10757088,
+    # One result cell for every source-basis contribution in each frozen
+    # anchor/relabel group.  The criterion decision is made on the exact L1
+    # sum of those contributions, not on each contribution independently.
+    "binary64_basis_probe_diagnostic": 32271264,
     "binary64_direct_geometry_fidelity": 10692000,
     "relabel_emitted_geometry_fidelity": 7128000,
     "stabilization_6_7_exact_coeff": 594000,
@@ -319,6 +332,9 @@ def validate_schema_instance(value, schema=None, root=None, path="$" ):
         else:
             raise QualificationError("{} violates not".format(path))
     for clause in schema.get("allOf", []):
+        if "if" not in clause:
+            validate_schema_instance(value, clause, root, path)
+            continue
         condition_matches = True
         if "if" in clause:
             try:
@@ -655,8 +671,8 @@ def validate_scientific_cell_key(key, criterion_id=None):
     if criterion_id == "constant_field_bits":
         require(relabel in RELABELS, "constant relabel coverage")
     elif criterion_id == "binary64_basis_probe_diagnostic":
-        require(relabel == "identity",
-                "basis-probe ledger uses the unrelabelled source basis")
+        require(relabel in RELABELS,
+                "basis-probe ledger requires all frozen relabelings")
     elif criterion_id == "binary64_direct_geometry_fidelity":
         require(relabel in RELABELS, "binary64 fidelity relabel coverage")
     elif criterion_id in ("relabel_exact_effective_coefficients",
@@ -834,6 +850,43 @@ class StreamingJcsLedger:
 
     def finish(self):
         require(self.count > 0, "empty frozen key ledger")
+        self.digest.update(b"]")
+        return self.digest.hexdigest()
+
+
+class StreamingResultLedger:
+    """Hash canonical per-cell result records in frozen key order.
+
+    A record is ``[key, outcome, exact_value, target, reason]``.  The exact
+    value may be a closed integer/dyadic descriptor or a binary64 bit label;
+    categorical and coverage records use null where no numerical value exists.
+    """
+
+    def __init__(self, label):
+        self.label = label
+        self.digest = hashlib.sha256()
+        self.digest.update(b"[")
+        self.count = 0
+        self.previous_key = None
+
+    def add_encoded(self, encoded_key, outcome, exact_value=None, target=None,
+                    reason=None):
+        require(isinstance(encoded_key, bytes) and
+                encoded_key.startswith(b"[") and encoded_key.endswith(b"]"),
+                "result-ledger key encoding")
+        require(self.previous_key is None or self.previous_key < encoded_key,
+                "{} result ledger duplicate or order drift".format(self.label))
+        suffix = jcs_bytes([outcome, exact_value, target, reason])
+        record = b"[" + encoded_key + b"," + suffix[1:]
+        if self.count:
+            self.digest.update(b",")
+        self.digest.update(record)
+        self.previous_key = encoded_key
+        self.count += 1
+
+    def finish(self, allow_empty=False):
+        require(allow_empty or self.count > 0,
+                "empty executed result ledger")
         self.digest.update(b"]")
         return self.digest.hexdigest()
 
@@ -1086,6 +1139,7 @@ def _failure_key(checkpoint, artifact_root, failure, criterion_id):
 def _populate_cache_identity_ledger(checkpoint, artifact_root, topology,
                                     suffixes, ledger):
     """Build the cache pre-result ledger before candidate output is read."""
+    results = StreamingResultLedger("cache_mode_bit_identity")
     by_identity = {(case["content_identity_key"], case["approximation_level"],
                     case["applicable_mode"]): case
                    for case in checkpoint["numeric_cases"]
@@ -1109,7 +1163,13 @@ def _populate_cache_identity_ledger(checkpoint, artifact_root, topology,
                 prefix = scientific_base_prefix(disabled_case, disabled_row,
                                                 cache_mode="cache_pair")
                 for suffix, dimensions in suffixes:
-                    ledger.add_encoded(prefix + suffix)
+                    encoded_key = prefix + suffix
+                    ledger.add_encoded(encoded_key)
+                    results.add_encoded(
+                        encoded_key, "PASS" if equal else "FAIL",
+                        exact_value="B2ROWV1_BIT_IDENTITY",
+                        target="BITWISE_EQUAL",
+                        reason=None if equal else "CACHE_MODE_BITS_MISMATCH")
                     if not equal:
                         failure_count += 1
                         if first_failure is None:
@@ -1121,7 +1181,7 @@ def _populate_cache_identity_ledger(checkpoint, artifact_root, topology,
                                 else disabled_row["local_corner_or_none"],
                                 disabled_row["sample_id"], disabled_row["row_kind"],
                                 None, anchor, None, None, None, None, None, None]
-    return failure_count, first_failure
+    return failure_count, first_failure, results.finish()
 
 
 def execute_four_preoracle_criteria(candidate_binary, checkpoint, artifact_root,
@@ -1153,7 +1213,8 @@ def execute_four_preoracle_criteria(candidate_binary, checkpoint, artifact_root,
         process.stdin.close()
         # All four pre-result ledgers are complete before the candidate's
         # numeric summary is read from stdout.
-        cache_failure_count, cache_first_failure = _populate_cache_identity_ledger(
+        cache_failure_count, cache_first_failure, cache_result_digest = \
+            _populate_cache_identity_ledger(
             checkpoint, artifact_root, topology,
             suffixes["cache_mode_bit_identity"],
             ledgers["cache_mode_bit_identity"])
@@ -1168,10 +1229,12 @@ def execute_four_preoracle_criteria(candidate_binary, checkpoint, artifact_root,
     audit = strict_json_bytes(stdout.encode("utf-8"))
     require(set(audit) == {
         "constant_cell_count", "constant_failure_count",
+        "constant_result_stream_sha256",
         "first_constant_failure", "first_relabel_exact_failure",
         "first_structure_failure", "kind", "relabel_exact_cell_count",
-        "relabel_exact_failure_count", "row_count", "status",
-        "structure_cell_count", "structure_failure_count",
+        "relabel_exact_failure_count", "relabel_exact_result_stream_sha256",
+        "row_count", "status", "structure_cell_count",
+        "structure_failure_count", "structure_result_stream_sha256",
     } and audit["kind"] == "anchored_row_preoracle_audit" and
             audit["status"] in ("ok", "candidate_failure"),
             "candidate exhaustive audit output schema")
@@ -1204,6 +1267,12 @@ def execute_four_preoracle_criteria(candidate_binary, checkpoint, artifact_root,
         "cache_mode_bit_identity": cache_first_failure,
     }
     result = {}
+    stream_fields = {
+        "representation_structure": "structure_result_stream_sha256",
+        "constant_field_bits": "constant_result_stream_sha256",
+        "relabel_exact_effective_coefficients":
+            "relabel_exact_result_stream_sha256",
+    }
     for criterion_id in ledgers:
         digest = ledgers[criterion_id].finish()
         require(observed[criterion_id] == EXPECTED_CELL_COUNTS[criterion_id] and
@@ -1211,11 +1280,25 @@ def execute_four_preoracle_criteria(candidate_binary, checkpoint, artifact_root,
                 "{} exhaustive count drift".format(criterion_id))
         if first[criterion_id] is not None:
             validate_scientific_cell_key(first[criterion_id], criterion_id)
+        status = "PASS" if failures[criterion_id] == 0 else "FAIL"
+        if criterion_id == "cache_mode_bit_identity":
+            result_digest = canonical_result_commitment(
+                digest, observed[criterion_id], status, cache_result_digest)
+        else:
+            candidate_stream = audit[stream_fields[criterion_id]]
+            require(SHA256_RE.fullmatch(candidate_stream or "") is not None,
+                    "candidate preoracle result commitment")
+            result_digest = result_commitment(
+                digest, observed[criterion_id], status,
+                {"candidate_result_stream_encoding":
+                     "anchored-row-candidate-outcome-v1",
+                 "candidate_result_stream_sha256": candidate_stream})
         result[criterion_id] = {
             "digest": digest, "observed_count": observed[criterion_id],
+            "result_digest": result_digest,
             "failure_count": failures[criterion_id],
             "first_failing_key": first[criterion_id],
-            "status": "PASS" if failures[criterion_id] == 0 else "FAIL",
+            "status": status,
         }
     return result
 
@@ -1228,6 +1311,9 @@ def execute_regular_row_criteria(candidate_binary, checkpoint, artifact_root,
     exact_ledger = StreamingScientificLedger("regular_analytic_exact_rows")
     emitted_ledger = StreamingScientificLedger(
         "regular_analytic_emitted_geometry")
+    exact_results = StreamingResultLedger("regular_analytic_exact_rows")
+    emitted_results = StreamingResultLedger(
+        "regular_analytic_emitted_geometry")
     target = Fraction(5, 1000000)
     exact_maximum = Fraction(0)
     emitted_maximum = Fraction(0)
@@ -1235,6 +1321,8 @@ def execute_regular_row_criteria(candidate_binary, checkpoint, artifact_root,
     emitted_failures = 0
     first_exact = None
     first_emitted = None
+    maximum_exact_key = None
+    maximum_emitted_key = None
     binary = pathlib.Path(candidate_binary).resolve()
     require(binary.is_file(), "candidate binary unavailable for regular audit")
 
@@ -1243,6 +1331,7 @@ def execute_regular_row_criteria(candidate_binary, checkpoint, artifact_root,
 
     def flush_pending():
         nonlocal emitted_maximum, emitted_failures, first_emitted
+        nonlocal maximum_emitted_key
         if not pending_lines:
             return
         completed = subprocess.run(
@@ -1258,9 +1347,24 @@ def execute_regular_row_criteria(candidate_binary, checkpoint, artifact_root,
         for label, (key, expected) in zip(labels, pending_cells):
             observed = Fraction.from_float(binary64_from_bits_hex(label))
             difference = abs(observed - expected)
-            if difference > emitted_maximum:
+            encoded_key = jcs_bytes(key)
+            passed = difference <= target
+            emitted_results.add_encoded(
+                encoded_key, "PASS" if passed else "FAIL",
+                exact_value={
+                    "absolute_difference": [difference.numerator,
+                                            difference.denominator],
+                    "observed_binary64_bits": label,
+                    "expected": [expected.numerator, expected.denominator],
+                }, target=[target.numerator, target.denominator],
+                reason=None if passed else "REGULAR_TARGET_EXCEEDED")
+            if (difference > emitted_maximum or
+                    (difference == emitted_maximum and
+                     (maximum_emitted_key is None or
+                      encoded_key < jcs_bytes(maximum_emitted_key)))):
                 emitted_maximum = difference
-            if difference > target:
+                maximum_emitted_key = key
+            if not passed:
                 emitted_failures += 1
                 if first_emitted is None:
                     first_emitted = key
@@ -1302,9 +1406,24 @@ def execute_regular_row_criteria(candidate_binary, checkpoint, artifact_root,
                 validate_scientific_cell_key(
                     exact_key, "regular_analytic_exact_rows")
                 exact_ledger.add_encoded(jcs_bytes(exact_key))
-                if coefficient_difference > exact_maximum:
+                exact_passed = coefficient_difference <= target
+                exact_results.add_encoded(
+                    jcs_bytes(exact_key),
+                    "PASS" if exact_passed else "FAIL",
+                    exact_value={
+                        "absolute_difference": [
+                            coefficient_difference.numerator,
+                            coefficient_difference.denominator]},
+                    target=[target.numerator, target.denominator],
+                    reason=None if exact_passed else
+                    "REGULAR_TARGET_EXCEEDED")
+                if (coefficient_difference > exact_maximum or
+                        (coefficient_difference == exact_maximum and
+                         (maximum_exact_key is None or
+                          jcs_bytes(exact_key) < jcs_bytes(maximum_exact_key)))):
                     exact_maximum = coefficient_difference
-                if coefficient_difference > target:
+                    maximum_exact_key = exact_key
+                if not exact_passed:
                     exact_failures += 1
                     if first_exact is None:
                         first_exact = exact_key
@@ -1340,6 +1459,12 @@ def execute_regular_row_criteria(candidate_binary, checkpoint, artifact_root,
 
     exact_digest = exact_ledger.finish()
     emitted_digest = emitted_ledger.finish()
+    exact_result_digest = canonical_result_commitment(
+        exact_digest, exact_ledger.count,
+        "PASS" if exact_failures == 0 else "FAIL", exact_results.finish())
+    emitted_result_digest = canonical_result_commitment(
+        emitted_digest, emitted_ledger.count,
+        "PASS" if emitted_failures == 0 else "FAIL", emitted_results.finish())
     require(exact_ledger.count ==
             EXPECTED_CELL_COUNTS["regular_analytic_exact_rows"],
             "regular exact-row execution cardinality")
@@ -1349,9 +1474,15 @@ def execute_regular_row_criteria(candidate_binary, checkpoint, artifact_root,
     return {
         "regular_analytic_exact_rows": {
             "digest": exact_digest, "observed_count": exact_ledger.count,
+            "result_digest": exact_result_digest,
             "failure_count": exact_failures,
             "first_failing_key": first_exact,
             "maximum": float(exact_maximum),
+            "witness": [maximum_exact_key,
+                        {"numerator": exact_maximum.numerator,
+                         "denominator": exact_maximum.denominator},
+                        binary64_bits_hex(float(exact_maximum)),
+                        exact_result_digest],
             "status": "PASS" if exact_failures == 0 else "FAIL",
             "target": 5.0e-6,
             "expectation":
@@ -1359,10 +1490,16 @@ def execute_regular_row_criteria(candidate_binary, checkpoint, artifact_root,
         },
         "regular_analytic_emitted_geometry": {
             "digest": emitted_digest,
+            "result_digest": emitted_result_digest,
             "observed_count": emitted_ledger.count,
             "failure_count": emitted_failures,
             "first_failing_key": first_emitted,
             "maximum": float(emitted_maximum),
+            "witness": [maximum_emitted_key,
+                        {"numerator": emitted_maximum.numerator,
+                         "denominator": emitted_maximum.denominator},
+                        binary64_bits_hex(float(emitted_maximum)),
+                        emitted_result_digest],
             "status": "PASS" if emitted_failures == 0 else "FAIL",
             "target": 5.0e-6,
             "expectation":
@@ -1395,14 +1532,22 @@ def execute_regular_integrand_criteria(candidate_binary, boundary_binary,
     }
     ledgers = {criterion: StreamingScientificLedger(criterion)
                for criterion in criterion_quantity}
+    results = {criterion: StreamingResultLedger(criterion)
+               for criterion in criterion_quantity}
     failures = {criterion: 0 for criterion in criterion_quantity}
     maxima = {criterion: 0.0 for criterion in criterion_quantity}
     first = {criterion: None for criterion in criterion_quantity}
+    maximum_keys = {criterion: None for criterion in criterion_quantity}
     pending = []
 
-    def record_result(criterion_id, key, status, upper_bits):
+    def record_result(batch, criterion_id, key, status, upper_bits):
         value = binary64_from_bits_hex(upper_bits)
-        maxima[criterion_id] = max(maxima[criterion_id], value)
+        if (value > maxima[criterion_id] or
+                (value == maxima[criterion_id] and
+                 (maximum_keys[criterion_id] is None or
+                  jcs_bytes(key) < jcs_bytes(maximum_keys[criterion_id])))):
+            maxima[criterion_id] = value
+            maximum_keys[criterion_id] = key
         if status == "FAIL":
             failures[criterion_id] += 1
             if (first[criterion_id] is None or
@@ -1410,6 +1555,7 @@ def execute_regular_integrand_criteria(candidate_binary, boundary_binary,
                 first[criterion_id] = key
         else:
             require(status == "PASS", "integrand comparison status")
+        batch[criterion_id].append((jcs_bytes(key), status, upper_bits))
 
     def flush_pending():
         if not pending:
@@ -1464,23 +1610,34 @@ def execute_regular_integrand_criteria(candidate_binary, boundary_binary,
         require(len(comparisons) == len(pending) * 2 and
                 all(len(item) == 4 for item in comparisons),
                 "MPFR regular-integrand output cardinality")
+        result_batch = {criterion: [] for criterion in criterion_quantity}
         for index, item in enumerate(pending):
             exact_result = comparisons[2 * index]
             emitted_result = comparisons[2 * index + 1]
-            record_result("regular_analytic_area_integrand",
+            record_result(result_batch, "regular_analytic_area_integrand",
                           item["keys"]["area_integrand"]["exact_effective"],
                           exact_result[0], exact_result[2])
             record_result(
-                "regular_analytic_legacy_volume_integrand",
+                result_batch, "regular_analytic_legacy_volume_integrand",
                 item["keys"]["legacy_volume_integrand"]["exact_effective"],
                 exact_result[1], exact_result[3])
-            record_result("regular_analytic_area_integrand",
+            record_result(result_batch, "regular_analytic_area_integrand",
                           item["keys"]["area_integrand"]["emitted_binary64"],
                           emitted_result[0], emitted_result[2])
             record_result(
-                "regular_analytic_legacy_volume_integrand",
+                result_batch, "regular_analytic_legacy_volume_integrand",
                 item["keys"]["legacy_volume_integrand"]["emitted_binary64"],
                 emitted_result[1], emitted_result[3])
+        for criterion_id, records in result_batch.items():
+            for encoded_key, status, upper_bits in sorted(
+                    records, key=lambda item: item[0]):
+                results[criterion_id].add_encoded(
+                    encoded_key, status,
+                    exact_value={"upper_binary64_bits": upper_bits},
+                    target={"upper_binary64_bits":
+                            binary64_bits_hex(5.0e-6)},
+                    reason=None if status == "PASS" else
+                    "REGULAR_INTEGRAND_TARGET_EXCEEDED")
         pending[:] = []
 
     for case in ordered_bfr_cases(checkpoint):
@@ -1571,14 +1728,23 @@ def execute_regular_integrand_criteria(candidate_binary, boundary_binary,
     result = {}
     for criterion_id, ledger in ledgers.items():
         digest = ledger.finish()
+        status = "PASS" if failures[criterion_id] == 0 else "FAIL"
+        result_digest = canonical_result_commitment(
+            digest, ledger.count, status, results[criterion_id].finish())
         require(ledger.count == EXPECTED_CELL_COUNTS[criterion_id],
                 "{} execution cardinality".format(criterion_id))
         result[criterion_id] = {
             "digest": digest, "observed_count": ledger.count,
+            "result_digest": result_digest,
             "failure_count": failures[criterion_id],
             "first_failing_key": first[criterion_id],
             "maximum": maxima[criterion_id],
-            "status": "PASS" if failures[criterion_id] == 0 else "FAIL",
+            "witness": [maximum_keys[criterion_id],
+                        {"upper_binary64_bits":
+                         binary64_bits_hex(maxima[criterion_id])},
+                        binary64_bits_hex(maxima[criterion_id]),
+                        result_digest],
+            "status": status,
             "target": 5.0e-6,
             "expectation": (
                 "absolute 544-bit MPFR-enclosed exact/emitted area-integrand difference"
@@ -1809,7 +1975,8 @@ def execute_component_criteria(candidate_binary, checkpoint, artifact_root,
     for criterion_id in criterion_ids:
         statistic = audit["criteria"][criterion_id]
         require(set(statistic) == {
-            "cell_count", "failure_count", "first_failure", "maximum",
+            "candidate_result_stream_sha256", "cell_count", "failure_count",
+            "first_failure", "maximum", "maximum_exact", "maximum_witness",
         } and statistic["cell_count"] ==
                 EXPECTED_CELL_COUNTS[criterion_id] and
                 type(statistic["failure_count"]) is int and
@@ -1817,6 +1984,19 @@ def execute_component_criteria(candidate_binary, checkpoint, artifact_root,
                 type(statistic["maximum"]) in (int, float) and
                 math.isfinite(statistic["maximum"]) and
                 statistic["maximum"] >= 0 and
+                SHA256_RE.fullmatch(
+                    statistic["candidate_result_stream_sha256"] or "") is not None and
+                isinstance(statistic["maximum_exact"], dict) and
+                set(statistic["maximum_exact"]) == {
+                    "denominator_power", "normalized_by_sqrt_scale",
+                    "numerator_hex", "scale_numerator_hex"} and
+                statistic["maximum_exact"]["denominator_power"] in (1074, 2148) and
+                type(statistic["maximum_exact"][
+                    "normalized_by_sqrt_scale"]) is bool and
+                re.fullmatch(r"[0-9a-f]+", statistic["maximum_exact"][
+                    "numerator_hex"]) is not None and
+                re.fullmatch(r"[0-9a-f]+", statistic["maximum_exact"][
+                    "scale_numerator_hex"]) is not None and
                 ((statistic["first_failure"] is None) ==
                  (statistic["failure_count"] == 0)),
                 "{} component summary".format(criterion_id))
@@ -1826,12 +2006,51 @@ def execute_component_criteria(candidate_binary, checkpoint, artifact_root,
         ledger = scientific_ledgers[criterion_id]
         require(ledger["count"] == statistic["cell_count"],
                 "{} component ledger count".format(criterion_id))
+        maximum_key = _component_failure_key(
+            checkpoint, artifact_root, manifest,
+            statistic["maximum_witness"], criterion_id)
+        require(maximum_key is not None,
+                "{} maximum witness missing".format(criterion_id))
+        exact_maximum = statistic["maximum_exact"]
+        numerator = int(exact_maximum["numerator_hex"], 16)
+        scale = int(exact_maximum["scale_numerator_hex"], 16)
+        with localcontext() as context:
+            context.prec = 100
+            if exact_maximum["normalized_by_sqrt_scale"]:
+                require(scale > 0 and
+                        exact_maximum["denominator_power"] in (1074, 2148),
+                        "normalized maximum exact descriptor")
+                exact_display = (Decimal(numerator) /
+                                 Decimal(scale).sqrt() /
+                                 (Decimal(2) **
+                                  (exact_maximum["denominator_power"] - 1074)))
+            else:
+                require(scale == 1 and
+                        exact_maximum["denominator_power"] == 1074,
+                        "coefficient maximum exact descriptor")
+                exact_display = (Decimal(numerator) /
+                                 (Decimal(2) ** 1074))
+        require(math.isclose(float(exact_display), statistic["maximum"],
+                             rel_tol=2.0e-15, abs_tol=0.0) or
+                (exact_display == 0 and statistic["maximum"] == 0),
+                "component maximum display/exact mismatch")
+        result_digest = result_commitment(
+            ledger["digest"], statistic["cell_count"],
+            "PASS" if statistic["failure_count"] == 0 else "FAIL",
+            {"candidate_result_stream_encoding":
+                 "anchored-row-candidate-outcome-v1",
+             "candidate_result_stream_sha256":
+                 statistic["candidate_result_stream_sha256"]})
         result[criterion_id] = {
             "digest": ledger["digest"],
+            "result_digest": result_digest,
             "observed_count": statistic["cell_count"],
             "failure_count": statistic["failure_count"],
             "first_failing_key": first,
             "maximum": statistic["maximum"],
+            "witness": [maximum_key, statistic["maximum_exact"],
+                        binary64_bits_hex(statistic["maximum"]),
+                        result_digest],
             "status": ("PASS" if statistic["failure_count"] == 0 else
                        "FAIL"),
             "target": None,
@@ -1889,13 +2108,18 @@ def make_pre_result_ledgers(checkpoint, executed=None):
         })
         if criterion_id == "oracle_coverage_and_crosscheck":
             for partition in ("covered", "uncovered"):
+                uncovered = partition == "uncovered"
+                digest = (present_ledgers.get(criterion_id) or
+                          generic_key_ledger_sha256([[criterion_id, "synthetic"]]))
+                partition_digest = digest if uncovered else sha256_bytes(b"[]")
                 records.append({
                     "criterion_id": criterion_id, "partition": partition,
-                    "expected_count": None, "observed_count": 0,
-                    "key_ledger_sha256": None,
-                    "availability": availability(
-                        "UNAVAILABLE", reason_code="EXECUTION_UNAVAILABLE"),
-                    "omission_blocker": "bindings_and_independence",
+                    "expected_count": None,
+                    "observed_count": (EXPECTED_CELL_COUNTS[criterion_id]
+                                       if uncovered else 0),
+                    "key_ledger_sha256": partition_digest,
+                    "availability": availability("PRESENT", partition_digest),
+                    "omission_blocker": None,
                 })
     require(len(records) == 34, "pre-result ledger partition count")
     return records
@@ -1990,6 +2214,8 @@ def make_scientific_pre_result_ledgers(checkpoint, artifact_root, manifest):
     criterion_ids = CRITERION_IDS[6:26]
     ledgers = {criterion_id: StreamingScientificLedger(criterion_id)
                for criterion_id in criterion_ids}
+    oracle_uncovered_results = StreamingResultLedger(
+        "oracle_coverage_and_crosscheck:uncovered")
     suffixes = _frozen_scientific_suffixes()
     regular_faces, regular_samples = _regular_coverage(manifest)
     integrands = {
@@ -2004,8 +2230,15 @@ def make_scientific_pre_result_ledgers(checkpoint, artifact_root, manifest):
         report = _artifact_report(artifact_root, case)
         for row in ordered_case_rows(report):
             prefix = scientific_base_prefix(case, row)
+            oracle_id = "oracle_coverage_and_crosscheck"
+            oracle_suffixes = suffixes[oracle_id]
+            for suffix in oracle_suffixes:
+                encoded_key = prefix + suffix
+                ledgers[oracle_id].add_encoded(encoded_key)
+                oracle_uncovered_results.add_encoded(
+                    encoded_key, "UNCOVERED", reason=
+                    "EIGENBASIS_CERTIFICATION_FAILED")
             for criterion_id in (
-                    "oracle_coverage_and_crosscheck",
                     "exact_effective_d10_coeff",
                     "exact_effective_d10_geometry",
                     "emitted_direct_geometry_d10",
@@ -2019,8 +2252,9 @@ def make_scientific_pre_result_ledgers(checkpoint, artifact_root, manifest):
 
             basis_suffixes = sorted(
                 scientific_suffix_full("emitted_binary64", anchor,
-                                       "identity", basis_source_id=source_id)
-                for anchor in ANCHORS for source_id in row["source_ids"])
+                                       relabel, basis_source_id=source_id)
+                for anchor in ANCHORS for relabel in RELABELS
+                for source_id in row["source_ids"])
             _add_sorted_suffixes(
                 ledgers["binary64_basis_probe_diagnostic"], prefix,
                 basis_suffixes)
@@ -2060,6 +2294,11 @@ def make_scientific_pre_result_ledgers(checkpoint, artifact_root, manifest):
         require(ledger.count == EXPECTED_CELL_COUNTS[criterion_id],
                 "{} pre-result cardinality drift".format(criterion_id))
         result[criterion_id] = {"digest": digest, "count": ledger.count}
+    oracle = result["oracle_coverage_and_crosscheck"]
+    require(oracle_uncovered_results.count == oracle["count"],
+            "oracle uncovered/result cardinality drift")
+    oracle["uncovered_result_digest"] = oracle_uncovered_results.finish()
+    oracle["covered_result_digest"] = sha256_bytes(b"[]")
     return result
 
 
@@ -2221,17 +2460,31 @@ def make_complete_pre_result_ledgers(checkpoint, artifact_root, manifest,
             "availability": availability("PRESENT", digest),
             "omission_blocker": None})
         if criterion_id == "oracle_coverage_and_crosscheck":
-            for coverage_partition in ("covered", "uncovered"):
-                records.append({
-                    "criterion_id": criterion_id,
-                    "partition": coverage_partition,
-                    "expected_count": None, "observed_count": 0,
-                    "key_ledger_sha256": None,
-                    "availability": availability(
-                        "UNAVAILABLE", reason_code="EXECUTION_UNAVAILABLE"),
-                    "omission_blocker": "bindings_and_independence"})
+            records.extend(oracle_absent_partition_ledgers(digest, count))
     require(len(records) == 34, "complete pre-result ledger partition count")
     return records
+
+
+def oracle_absent_partition_ledgers(request_digest, request_count):
+    """Return the exact empty-covered/full-uncovered absent-oracle split."""
+    require(SHA256_RE.fullmatch(request_digest or "") is not None and
+            request_count == EXPECTED_CELL_COUNTS[
+                "oracle_coverage_and_crosscheck"],
+            "oracle request partition input")
+    empty = sha256_bytes(b"[]")
+    return [
+        {"criterion_id": "oracle_coverage_and_crosscheck",
+         "partition": "covered", "expected_count": None,
+         "observed_count": 0, "key_ledger_sha256": empty,
+         "availability": availability("PRESENT", empty),
+         "omission_blocker": None},
+        {"criterion_id": "oracle_coverage_and_crosscheck",
+         "partition": "uncovered", "expected_count": None,
+         "observed_count": request_count,
+         "key_ledger_sha256": request_digest,
+         "availability": availability("PRESENT", request_digest),
+         "omission_blocker": None},
+    ]
 
 
 def run_json(binary, argument, expected_kind):
@@ -2341,7 +2594,8 @@ def binary_record(path, source_paths, capability, dependencies,
 
 def criterion_record(criterion_id, status, blocker=None, expectation=None,
                      expected=0, observed=0, ledger=None, target=None,
-                     maximum=None, witness=None, first_failure=None):
+                     result_ledger=None, maximum=None, witness=None,
+                     first_failure=None):
     require(criterion_id in CRITERION_IDS and status in STATUSES, "criterion record enum")
     if status.startswith("OMITTED_"):
         require(blocker in CRITERION_IDS and observed == 0 and maximum is None and witness is None,
@@ -2351,7 +2605,8 @@ def criterion_record(criterion_id, status, blocker=None, expectation=None,
     return {"criterion_id": criterion_id, "target": target,
             "expectation": expectation, "applicability": "frozen_B2b",
             "expected_cell_count": expected, "observed_cell_count": observed,
-            "key_ledger_sha256": ledger, "status": status,
+            "key_ledger_sha256": ledger,
+            "result_ledger_sha256": result_ledger, "status": status,
             "maximum": maximum, "witness": witness,
             "first_failing_key": first_failure, "omission_blocker": blocker}
 
@@ -2362,18 +2617,150 @@ def validate_criteria(criteria):
     for item in criteria:
         require(set(item) == {"criterion_id", "target", "expectation", "applicability",
                               "expected_cell_count", "observed_cell_count",
-                              "key_ledger_sha256", "status", "maximum", "witness",
+                              "key_ledger_sha256", "result_ledger_sha256",
+                              "status", "maximum", "witness",
                               "first_failing_key", "omission_blocker"},
                 "criterion object is not closed")
-        require(item["status"] in STATUSES, "criterion status")
-        if item["status"].startswith("OMITTED_"):
-            require(item["omission_blocker"] in CRITERION_IDS and
-                    item["observed_cell_count"] == 0 and item["maximum"] is None and
-                    item["witness"] is None, "invalid omitted criterion")
+        criterion_id = item["criterion_id"]
+        status = item["status"]
+        index = CRITERION_IDS.index(criterion_id)
+        require(status in STATUSES, "criterion status")
+        if criterion_id in INFRASTRUCTURE_CRITERIA:
+            require(status in {"PASS", "INCOMPLETE"},
+                    "infrastructure status ownership")
+        elif criterion_id in ORACLE_CRITERIA:
+            require(status in {"PASS", "UNCOVERED", "INCOMPLETE"},
+                    "oracle status ownership")
+        elif criterion_id in D12_CRITERIA:
+            require(status in {"PASS", "FAIL", "INCOMPLETE",
+                               "OMITTED_AFTER_CANDIDATE_FAILURE"},
+                    "D12 status ownership")
+        else:
+            require(status in {"PASS", "FAIL",
+                               "OMITTED_AFTER_CANDIDATE_FAILURE",
+                               "OMITTED_AFTER_INFRASTRUCTURE_FAILURE"},
+                    "candidate-scientific status ownership")
+        require(item["expected_cell_count"] ==
+                EXPECTED_CELL_COUNTS[criterion_id],
+                "criterion expected-count drift")
+        if status.startswith("OMITTED_"):
+            blocker = item["omission_blocker"]
+            require(blocker in CRITERION_IDS and
+                    CRITERION_IDS.index(blocker) < index and
+                    item["observed_cell_count"] == 0 and
+                    item["result_ledger_sha256"] is None and
+                    item["maximum"] is None and item["witness"] is None and
+                    item["first_failing_key"] is None,
+                    "invalid omitted criterion")
+            blocker_status = criteria[CRITERION_IDS.index(blocker)]["status"]
+            if status == "OMITTED_AFTER_CANDIDATE_FAILURE":
+                require(blocker_status == "FAIL" and
+                        blocker not in INFRASTRUCTURE_CRITERIA | ORACLE_CRITERIA,
+                        "candidate omission lacks earlier candidate failure")
+            else:
+                require(blocker_status == "INCOMPLETE",
+                        "infrastructure omission lacks earlier incomplete blocker")
+        else:
+            require(item["omission_blocker"] is None,
+                    "executed criterion has omission blocker")
+        if status in {"PASS", "FAIL", "UNCOVERED"}:
+            require(item["observed_cell_count"] == item["expected_cell_count"] and
+                    SHA256_RE.fullmatch(item["key_ledger_sha256"] or "") is not None and
+                    SHA256_RE.fullmatch(item["result_ledger_sha256"] or "") is not None,
+                    "executed criterion lacks complete key/result binding")
+        if status == "FAIL":
+            require(item["first_failing_key"] is not None,
+                    "candidate failure lacks first failing key")
+        elif status != "FAIL":
+            require(item["first_failing_key"] is None,
+                    "non-failure carries first failing key")
+        if item["first_failing_key"] is not None:
+            if criterion_id in D12_CRITERIA:
+                validate_d12_key(item["first_failing_key"], criterion_id)
+            else:
+                validate_scientific_cell_key(
+                    item["first_failing_key"], criterion_id)
+        if criterion_id in CATEGORICAL_CRITERIA:
+            require(item["maximum"] is None and item["witness"] is None,
+                    "categorical criterion carries numeric witness")
+        elif (criterion_id in CANDIDATE_SCIENTIFIC_CRITERIA and
+              status in {"PASS", "FAIL"}):
+            witness = item["witness"]
+            require(type(item["maximum"]) in (int, float) and
+                    math.isfinite(item["maximum"]) and
+                    item["maximum"] >= 0 and
+                    isinstance(witness, list) and len(witness) == 4 and
+                    isinstance(witness[0], list) and
+                    isinstance(witness[1], dict) and
+                    binary64_from_bits_hex(witness[2]) == item["maximum"] and
+                    witness[3] == item["result_ledger_sha256"],
+                    "numeric criterion lacks reconstructible maximum witness")
+            validate_scientific_cell_key(witness[0], criterion_id)
+        if criterion_id in ORACLE_CRITERIA and status == "UNCOVERED":
+            require(item["maximum"] is None and
+                    item["witness"] == [
+                        "EIGENBASIS_CERTIFICATION_FAILED",
+                        EXPECTED_CELL_COUNTS[criterion_id],
+                        item["result_ledger_sha256"]],
+                    "oracle uncovered reason/result binding")
+        if status == "INCOMPLETE":
+            require(item["maximum"] is None and item["witness"] is None and
+                    item["first_failing_key"] is None,
+                    "incomplete criterion carries invented result")
     return True
 
 
-def calculate_verdict(criteria):
+def calculate_serial_only_disposition(criteria, context=None):
+    """Evaluate the closed race-only serial qualification exception."""
+    ineligible = {
+        "serial_only_qualification_eligible": False,
+        "serial_only_reason": "NOT_ELIGIBLE",
+        "threaded_only_failure_ledger_sha256": None,
+    }
+    if context is None:
+        return ineligible
+    require(set(context) == {"complete_tsan_tuple_count",
+                             "complete_tsan_cell_count",
+                             "cache_disabled_tsan_pass", "failures"},
+            "serial-only context shape")
+    if (context["complete_tsan_tuple_count"] != 588 or
+            context["complete_tsan_cell_count"] !=
+            EXPECTED_CELL_COUNTS["d12_instrumented_tsan"] or
+            context["cache_disabled_tsan_pass"] is not True):
+        return ineligible
+    statuses = {item["criterion_id"]: item["status"] for item in criteria}
+    if (statuses.get("d12_instrumented_tsan") != "FAIL" or
+            any(statuses[criterion_id] != "PASS"
+                for criterion_id in CRITERION_IDS
+                if criterion_id != "d12_instrumented_tsan")):
+        return ineligible
+    failures = context["failures"]
+    if not isinstance(failures, list) or not failures:
+        return ineligible
+    keys = []
+    for item in failures:
+        if (not isinstance(item, dict) or set(item) != {"key", "reason"} or
+                item["reason"] != "THREADED_CACHE_RACE"):
+            return ineligible
+        try:
+            validate_d12_key(item["key"], "d12_instrumented_tsan")
+        except QualificationError:
+            return ineligible
+        if item["key"][3] != "threaded_cache":
+            return ineligible
+        keys.append(item["key"])
+    try:
+        failure_digest = generic_key_ledger_sha256(keys)
+    except QualificationError:
+        return ineligible
+    return {
+        "serial_only_qualification_eligible": True,
+        "serial_only_reason": "ELIGIBLE_PENDING_EXPLICIT_USER_DECISION",
+        "threaded_only_failure_ledger_sha256": failure_digest,
+    }
+
+
+def calculate_verdict(criteria, serial_context=None):
     failed = [item["criterion_id"] for item in criteria if item["status"] == "FAIL"]
     incomplete = [item["criterion_id"] for item in criteria if item["status"] == "INCOMPLETE"]
     uncovered = [item["criterion_id"] for item in criteria if item["status"] == "UNCOVERED"]
@@ -2382,16 +2769,21 @@ def calculate_verdict(criteria):
         status, decisive = "FAIL", failed[0]
     elif incomplete or uncovered:
         status = "INCOMPLETE"
-        decisive = (incomplete + uncovered)[0]
+        decisive = next(item["criterion_id"] for item in criteria
+                        if item["status"] in {"INCOMPLETE", "UNCOVERED"})
     else:
         require(all(item["status"] == "PASS" for item in criteria),
                 "PASS attempted with non-PASS criterion")
         status, decisive = "PASS", None
+    serial = calculate_serial_only_disposition(criteria, serial_context)
     return {"status": status, "first_decisive_criterion": decisive,
             "failed": failed, "incomplete": incomplete, "uncovered": uncovered,
-            "omitted": omitted, "serial_only_qualification_eligible": False,
-            "serial_only_reason": "NOT_ELIGIBLE",
-            "threaded_only_failure_ledger_sha256": None,
+            "omitted": omitted,
+            "serial_only_qualification_eligible":
+                serial["serial_only_qualification_eligible"],
+            "serial_only_reason": serial["serial_only_reason"],
+            "threaded_only_failure_ledger_sha256":
+                serial["threaded_only_failure_ledger_sha256"],
             "report_content_sha256": ZERO_SHA256,
             "qualification_decided": False, "d9a_reopened": False,
             "b3_unblocked": False, "far_selected": False,
@@ -2443,14 +2835,29 @@ def validate_report(report):
                     "pre-result ledger expected-count drift")
         if item["availability"]["state"] == "PRESENT":
             require(item["key_ledger_sha256"] == item["availability"]["sha256"] and
-                    item["observed_count"] == item["expected_count"] and
                     item["omission_blocker"] is None,
                     "present ledger binding mismatch")
+            if item["partition"] not in ("covered", "uncovered"):
+                require(item["observed_count"] == item["expected_count"],
+                        "present pre-result ledger count mismatch")
         else:
             require(item["key_ledger_sha256"] is None and
                     item["observed_count"] == 0 and
                     item["omission_blocker"] == "bindings_and_independence",
                     "unavailable ledger lacks exact causal omission")
+    oracle_request = by_key[("oracle_coverage_and_crosscheck",
+                             "oracle_request")]
+    oracle_covered = by_key[("oracle_coverage_and_crosscheck", "covered")]
+    oracle_uncovered = by_key[("oracle_coverage_and_crosscheck", "uncovered")]
+    require(oracle_covered["availability"]["state"] == "PRESENT" and
+            oracle_covered["observed_count"] == 0 and
+            oracle_covered["key_ledger_sha256"] == sha256_bytes(b"[]") and
+            oracle_uncovered["availability"]["state"] == "PRESENT" and
+            oracle_uncovered["observed_count"] ==
+                EXPECTED_CELL_COUNTS["oracle_coverage_and_crosscheck"] and
+            oracle_uncovered["key_ledger_sha256"] ==
+                oracle_request["key_ledger_sha256"],
+            "oracle covered/uncovered partition is not empty/request")
     primary_ledgers = {criterion: by_key[(criterion,
                                          "oracle_request" if criterion ==
                                          "oracle_coverage_and_crosscheck" else "all")]
@@ -2462,6 +2869,24 @@ def validate_report(report):
         ledger = primary_ledgers[criterion["criterion_id"]]
         require(criterion["key_ledger_sha256"] == ledger["key_ledger_sha256"],
                 "criterion/matrix ledger digest mismatch")
+    d12 = report["d12_artifact"]
+    d12_statuses = {item["status"] for item in report["criteria"]
+                    if item["criterion_id"] in D12_CRITERIA}
+    if d12["execution_state"] == "UNQUALIFIED_PLATFORM":
+        require(d12["availability"]["state"] == "PRESENT" and
+                d12["exact_head"] == report["identity"]["git_end"]["git_commit"] and
+                SHA256_RE.fullmatch(d12["physical_fingerprint_sha256"] or "") and
+                d12_statuses == {"INCOMPLETE"},
+                "hosted D12 state/result mismatch")
+    elif d12["execution_state"] == "QUALIFIED_PLATFORM":
+        require(d12["availability"]["state"] == "PRESENT" and
+                d12["exact_head"] == report["identity"]["git_end"]["git_commit"] and
+                d12_statuses.issubset({"PASS", "FAIL"}),
+                "qualified D12 state/result mismatch")
+    else:
+        require(d12["availability"]["state"] != "PRESENT" and
+                d12_statuses == {"INCOMPLETE"},
+                "non-present D12 state/result mismatch")
     expected = calculate_verdict(report["criteria"])
     for key in expected:
         if key != "report_content_sha256":
@@ -2492,6 +2917,77 @@ def fixture_hash_bindings():
         actual.append({"path": relative, "availability": observed})
     require(expected == actual, "frozen fixture file hash inventory drift")
     return expected, actual
+
+
+def inspect_d12_evidence(path_text, expected_head):
+    """Authenticate observed D12 bytes without synthesizing their bindings."""
+    if not path_text:
+        return ({"availability": availability(
+                    "UNAVAILABLE", reason_code="PLATFORM_UNAVAILABLE"),
+                 "execution_state": "OMITTED_AFTER_INFRASTRUCTURE_FAILURE",
+                 "exact_head": None, "physical_fingerprint_sha256": None,
+                 "omission_blocker": "bindings_and_independence"},
+                "D12 evidence unavailable")
+    path = pathlib.Path(path_text).resolve()
+    if not path.is_file():
+        return ({"availability": availability(
+                    "MISSING", reason_code="EXPECTED_PATH_MISSING"),
+                 "execution_state": "OMITTED_AFTER_INFRASTRUCTURE_FAILURE",
+                 "exact_head": None, "physical_fingerprint_sha256": None,
+                 "omission_blocker": "bindings_and_independence"},
+                "D12 evidence path missing")
+    try:
+        raw = path.read_bytes()
+        value = strict_json_bytes(raw)
+        require(isinstance(value, dict), "D12 evidence root")
+        B2.validate_evidence_document(value)
+        checkpoint_head = value["release_checkpoint"]["binding"]["git_head"]
+        platform = value["platform_qualification"]
+        git_observation = platform["git_identity"]
+        require(checkpoint_head == expected_head and
+                git_observation.get("head_query_ok") is True and
+                git_observation.get("head") == checkpoint_head and
+                git_observation.get("worktree_empty") is True,
+                "D12 artifact exact-head/worktree binding mismatch")
+        probe = platform["current_probe"]
+        require(isinstance(probe, dict) and
+                isinstance(probe.get("fingerprint"), dict),
+                "D12 artifact physical probe missing")
+        observed_fingerprint_sha256 = sha256_bytes(
+            jcs_bytes(probe["fingerprint"]))
+        hosted = platform.get("status") == "UNQUALIFIED_PLATFORM"
+        qualified = platform.get("status") == "QUALIFIED"
+        require(hosted or qualified, "D12 platform state")
+        # The inherited B2 artifact is valuable hosted raw evidence, but it
+        # does not claim that anchored-row construction/evaluation work was
+        # included.  It can therefore authenticate an UNQUALIFIED_PLATFORM
+        # observation only; it can never qualify or fail a B2c D12 gate.
+        b2c = value.get("anchored_row_representation_d12")
+        representation_included = (
+            isinstance(b2c, dict) and
+            b2c.get("candidate") == CANDIDATE and
+            b2c.get("construction_and_evaluation_work_included") is True)
+        require(hosted or representation_included,
+                "qualified D12 artifact omits anchored representation work")
+        expectation = ("hosted D12 evidence is unqualified and anchored "
+                       "representation work is not included"
+                       if not representation_included else
+                       "hosted D12 evidence is unqualified")
+        return ({"availability": availability(
+                    "PRESENT", sha256_bytes(raw)),
+                 "execution_state": ("UNQUALIFIED_PLATFORM" if hosted else
+                                     "QUALIFIED_PLATFORM"),
+                 "exact_head": checkpoint_head,
+                 "physical_fingerprint_sha256":
+                     observed_fingerprint_sha256,
+                 "omission_blocker": None}, expectation)
+    except Exception:
+        return ({"availability": availability(
+                    "INVALID", reason_code="PROVENANCE_INVALID"),
+                 "execution_state": "OMITTED_AFTER_INFRASTRUCTURE_FAILURE",
+                 "exact_head": None, "physical_fingerprint_sha256": None,
+                 "omission_blocker": "bindings_and_independence"},
+                "D12 artifact malformed, cross-head, dirty, or invalid provenance")
 
 
 def canonical_sample_order(manifest):
@@ -2552,8 +3048,33 @@ def make_artifacts(checkpoint):
     return result
 
 
+def result_commitment(key_ledger_sha256, observed_count, status, details):
+    """Bind an execution-owned result stream or closed coverage disposition."""
+    require(SHA256_RE.fullmatch(key_ledger_sha256 or "") is not None,
+            "result commitment key ledger")
+    return sha256_bytes(jcs_bytes({
+        "encoding": "anchored-row-result-ledger-v1",
+        "key_ledger_sha256": key_ledger_sha256,
+        "observed_count": observed_count,
+        "status": status,
+        "stream_commitment": details,
+    }))
+
+
+def canonical_result_commitment(key_ledger_sha256, observed_count, status,
+                                canonical_stream_sha256):
+    require(SHA256_RE.fullmatch(canonical_stream_sha256 or "") is not None,
+            "canonical result stream digest")
+    return result_commitment(
+        key_ledger_sha256, observed_count, status,
+        {"canonical_result_stream_encoding":
+             "rfc8785-key-outcome-exact-target-reason-v1",
+         "canonical_result_stream_sha256": canonical_stream_sha256})
+
+
 def make_criteria(worktree, all_required_bindings_present, ledgers,
-                  executed=None):
+                  executed=None, oracle_result_digest=None,
+                  d12_expectation="qualified physical B2c D12 evidence unavailable"):
     # This implementation deliberately self-identifies as incomplete until it
     # can construct every pre-result ledger and execute all pre-oracle cells.
     # The missing scientific oracle is separately recorded by its capability;
@@ -2566,20 +3087,31 @@ def make_criteria(worktree, all_required_bindings_present, ledgers,
         if ledger["partition"] in ("all", "oracle_request"):
             ledger_by_criterion[ledger["criterion_id"]] = ledger
     records = []
-    records.append(criterion_record("bindings_and_independence", binding_status,
-                                    expectation="all bindings present and independent",
-                                    expected=1, observed=1,
-                                    ledger=ledger_by_criterion[
-                                        "bindings_and_independence"]["key_ledger_sha256"]))
+    binding_ledger = ledger_by_criterion[
+        "bindings_and_independence"]["key_ledger_sha256"]
+    records.append(criterion_record(
+        "bindings_and_independence", binding_status,
+        expectation="all bindings present and independent",
+        expected=1, observed=1, ledger=binding_ledger,
+        result_ledger=result_commitment(
+            binding_ledger, 1, binding_status, "validated_binding_record")))
+    inventory_ledger = ledger_by_criterion[
+        "complete_artifact_inventory"]["key_ledger_sha256"]
     records.append(criterion_record("complete_artifact_inventory", "PASS",
                                     expectation="exact 294 slots", expected=294, observed=294,
-                                    ledger=ledger_by_criterion[
-                                        "complete_artifact_inventory"]["key_ledger_sha256"]))
+                                    ledger=inventory_ledger,
+                                    result_ledger=result_commitment(
+                                        inventory_ledger, 294, "PASS",
+                                        "validated_artifact_inventory")))
+    raw_ledger = ledger_by_criterion[
+        "raw_bfr_d9a_reproduction"]["key_ledger_sha256"]
     records.append(criterion_record("raw_bfr_d9a_reproduction", "PASS",
                                     expectation="124 failing Bfr cases and frozen maximum",
                                     expected=196, observed=196,
-                                    ledger=ledger_by_criterion[
-                                        "raw_bfr_d9a_reproduction"]["key_ledger_sha256"]))
+                                    ledger=raw_ledger,
+                                    result_ledger=result_commitment(
+                                        raw_ledger, 196, "PASS",
+                                        "validated_raw_d9a_reproduction")))
     blocker = "bindings_and_independence"
     for criterion_id in CRITERION_IDS[3:]:
         if criterion_id in executed:
@@ -2594,26 +3126,63 @@ def make_criteria(worktree, all_required_bindings_present, ledgers,
                 "cache_mode_bit_identity":
                     "cache-disabled and serial-cache rows are bitwise identical",
             }
+            key_digest = item["digest"]
+            result_digest = item.get("result_digest") or result_commitment(
+                key_digest, item["observed_count"], item["status"],
+                item.get("stream_commitment", {
+                    "failure_count": item["failure_count"],
+                    "maximum": item.get("maximum"),
+                }))
+            categorical = criterion_id in CATEGORICAL_CRITERIA
+            maximum = None if categorical else item.get("maximum")
+            witness = None if categorical else item.get("witness")
+            if not categorical and witness is None:
+                witness = [result_digest, maximum,
+                           binary64_bits_hex(maximum)]
             records.append(criterion_record(
                 criterion_id, item["status"],
                 expectation=item.get("expectation",
                                      default_expectations.get(criterion_id)),
                 expected=EXPECTED_CELL_COUNTS[criterion_id],
-                observed=item["observed_count"], ledger=item["digest"],
+                observed=item["observed_count"], ledger=key_digest,
+                result_ledger=result_digest,
                 target=item.get("target", 0.0),
-                maximum=item.get("maximum", float(item["failure_count"])),
-                witness=[item["observed_count"], item["failure_count"]],
+                maximum=maximum, witness=witness,
                 first_failure=item["first_failing_key"]))
+            continue
+        if criterion_id == "oracle_coverage_and_crosscheck":
+            key_digest = ledger_by_criterion[criterion_id]["key_ledger_sha256"]
+            if key_digest is None:
+                key_digest = next(
+                    item["key_ledger_sha256"] for item in ledgers
+                    if item["criterion_id"] == criterion_id and
+                    item["partition"] == "uncovered")
+            result_digest = (canonical_result_commitment(
+                key_digest, EXPECTED_CELL_COUNTS[criterion_id], "UNCOVERED",
+                oracle_result_digest) if oracle_result_digest else
+                result_commitment(
+                    key_digest, EXPECTED_CELL_COUNTS[criterion_id],
+                    "UNCOVERED", "EIGENBASIS_CERTIFICATION_FAILED"))
+            records.append(criterion_record(
+                criterion_id, "UNCOVERED",
+                expectation="EIGENBASIS_CERTIFICATION_FAILED",
+                expected=EXPECTED_CELL_COUNTS[criterion_id],
+                observed=EXPECTED_CELL_COUNTS[criterion_id],
+                ledger=key_digest, result_ledger=result_digest,
+                witness=["EIGENBASIS_CERTIFICATION_FAILED",
+                         EXPECTED_CELL_COUNTS[criterion_id], result_digest]))
+            continue
+        if criterion_id in D12_CRITERIA:
+            records.append(criterion_record(
+                criterion_id, "INCOMPLETE", expectation=d12_expectation,
+                expected=EXPECTED_CELL_COUNTS[criterion_id], observed=0,
+                ledger=ledger_by_criterion[criterion_id]["key_ledger_sha256"]))
             continue
         records.append(criterion_record(criterion_id,
                                         "OMITTED_AFTER_INFRASTRUCTURE_FAILURE",
                                         blocker=blocker,
-                                        expectation=(
-                                            "EIGENBASIS_CERTIFICATION_FAILED: missing primary "
-                                            "and uniform oracle implementation"
-                                            if criterion_id ==
-                                            "oracle_coverage_and_crosscheck" else
-                                            "requires complete frozen proof infrastructure"),
+                                        expectation=
+                                            "requires complete frozen proof infrastructure",
                                         expected=EXPECTED_CELL_COUNTS[criterion_id],
                                         observed=0,
                                         ledger=ledger_by_criterion[
@@ -2741,12 +3310,14 @@ def execute(args):
     ledgers = make_complete_pre_result_ledgers(
         checkpoint, pathlib.Path(args.artifact_dir).resolve(), manifest,
         executed, scientific_ledgers)
-    criteria = make_criteria(worktree_end, oracle_present, ledgers, executed)
+    d12_record, d12_expectation = inspect_d12_evidence(
+        args.d12_evidence, expected_head)
+    criteria = make_criteria(
+        worktree_end, oracle_present, ledgers, executed,
+        oracle_result_digest=scientific_ledgers[
+            "oracle_coverage_and_crosscheck"]["uncovered_result_digest"],
+        d12_expectation=d12_expectation)
     fingerprint_hash = sha256_bytes(jcs_bytes(B2.EXPECTED_PLATFORM_FINGERPRINT))
-    d12_path = pathlib.Path(args.d12_evidence).resolve() if args.d12_evidence else None
-    d12_availability = (availability("PRESENT", sha256_file(d12_path))
-                        if d12_path and d12_path.is_file()
-                        else availability("UNAVAILABLE", reason_code="PLATFORM_UNAVAILABLE"))
     report = {
         "identity": {"schema_id": SCHEMA_ID, "candidate": CANDIDATE,
                      "implementation_state":
@@ -2789,12 +3360,7 @@ def execute(args):
                    "expected_anchor_terms": 37649808, "observed_anchor_terms": observations["bfr_coefficient_terms_examined"] * 3,
                    "ledgers": ledgers, "unexpected_paths": []},
         "criteria": criteria,
-        "d12_artifact": {"availability": d12_availability,
-                         "execution_state": ("UNQUALIFIED_PLATFORM" if d12_availability["state"] == "PRESENT"
-                                             else "OMITTED_AFTER_INFRASTRUCTURE_FAILURE"),
-                         "exact_head": expected_head if d12_availability["state"] == "PRESENT" else None,
-                         "physical_fingerprint_sha256": fingerprint_hash if d12_availability["state"] == "PRESENT" else None,
-                         "omission_blocker": None if d12_availability["state"] == "PRESENT" else "bindings_and_independence"},
+        "d12_artifact": d12_record,
         "verdict": calculate_verdict(criteria),
     }
     digest_copy = copy.deepcopy(report)
@@ -2809,6 +3375,21 @@ def self_test_report():
     require(schema["additionalProperties"] is False, "top-level schema not closed")
     require(len(CRITERION_IDS) == 32 and len(set(CRITERION_IDS)) == 32,
             "criterion set cardinality")
+    criteria_schema = schema["properties"]["criteria"]
+    require(criteria_schema.get("items") is False and
+            len(criteria_schema.get("prefixItems", [])) == len(CRITERION_IDS),
+            "schema criterion slots are not frozen")
+    schema_ids = []
+    for slot in criteria_schema["prefixItems"]:
+        definition = schema["$defs"][slot["$ref"].split("/")[-1]]
+        schema_ids.append(definition["allOf"][1]["properties"][
+            "criterion_id"]["const"])
+    require(schema_ids == list(CRITERION_IDS),
+            "schema criterion order differs from executable order")
+    ledger_schema = schema["$defs"]["matrix"]["properties"]["ledgers"]
+    require(ledger_schema.get("items") is False and
+            len(ledger_schema.get("prefixItems", [])) == 34,
+            "schema ledger slots are not frozen")
     require(exact_binary64_numerator(1.0) == 1 << 1074, "exact dyadic 1.0")
     require(exact_binary64_numerator(2.0 ** -1074) == 1, "exact dyadic minimum subnormal")
     synthetic = {"row_kind": "position", "source_ids": [2, 5, 9],
