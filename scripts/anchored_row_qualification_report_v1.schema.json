@@ -80,12 +80,46 @@
       "additionalProperties": false,
       "properties": {
         "authority": {
-          "type": "object"
+          "$ref": "#/$defs/authority"
         },
         "binaries": {
+          "additionalProperties": false,
+          "properties": {
+            "provider_release": {
+              "$ref": "#/$defs/d12_binary"
+            },
+            "provider_tsan": {
+              "$ref": "#/$defs/d12_binary"
+            },
+            "representation_release": {
+              "$ref": "#/$defs/d12_binary"
+            },
+            "representation_tsan": {
+              "$ref": "#/$defs/d12_binary"
+            }
+          },
+          "required": [
+            "provider_release",
+            "provider_tsan",
+            "representation_release",
+            "representation_tsan"
+          ],
           "type": "object"
         },
         "build_profiles": {
+          "additionalProperties": false,
+          "properties": {
+            "release": {
+              "$ref": "#/$defs/d12_build_profile"
+            },
+            "tsan": {
+              "$ref": "#/$defs/d12_build_profile"
+            }
+          },
+          "required": [
+            "release",
+            "tsan"
+          ],
           "type": "object"
         },
         "candidate": {
@@ -96,12 +130,89 @@
           "type": "string"
         },
         "criteria": {
+          "items": false,
           "maxItems": 5,
           "minItems": 5,
+          "prefixItems": [
+            {
+              "$ref": "#/$defs/criterion_27"
+            },
+            {
+              "$ref": "#/$defs/criterion_28"
+            },
+            {
+              "$ref": "#/$defs/criterion_29"
+            },
+            {
+              "$ref": "#/$defs/criterion_30"
+            },
+            {
+              "$ref": "#/$defs/criterion_31"
+            }
+          ],
           "type": "array",
           "x-contract-array-path": "d12.criteria"
         },
         "dependencies": {
+          "additionalProperties": false,
+          "properties": {
+            "gmp": {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/d12_dependency"
+                },
+                {
+                  "properties": {
+                    "archive_sha256": {
+                      "const": "a3c2b80201b89e68616f4ad30bc66aee4927c3ce50e33929ca819d5c43538898"
+                    },
+                    "version": {
+                      "const": "6.3.0"
+                    }
+                  }
+                }
+              ]
+            },
+            "mpfr": {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/d12_dependency"
+                },
+                {
+                  "properties": {
+                    "archive_sha256": {
+                      "const": "b67ba0383ef7e8a8563734e2e889ef5ec3c3b898a01d00fa0a6869ad81c6ce01"
+                    },
+                    "version": {
+                      "const": "4.2.2"
+                    }
+                  }
+                }
+              ]
+            },
+            "opensubdiv": {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/d12_dependency"
+                },
+                {
+                  "properties": {
+                    "archive_sha256": {
+                      "const": "f843eb49daf20264007d807cbc64516a1fed9cdb1149aaf84ff47691d97491f9"
+                    },
+                    "version": {
+                      "const": "3.7.0"
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "required": [
+            "gmp",
+            "mpfr",
+            "opensubdiv"
+          ],
           "type": "object"
         },
         "git": {

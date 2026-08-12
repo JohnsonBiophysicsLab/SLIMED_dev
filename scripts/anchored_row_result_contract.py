@@ -517,11 +517,46 @@ OBJECT_SCHEMAS.update({
         "schema_id": {"const": "anchored-row-representation-d12-v1"},
         "content_sha256": SHA256,
         "candidate": {"const": "anchored_difference_rows_v1"},
-        "git": ref("d12_git"), "binaries": {"type": "object"},
-        "dependencies": {"type": "object"}, "build_profiles": {"type": "object"},
-        "platform": ref("d12_platform"), "authority": {"type": "object"},
+        "git": ref("d12_git"),
+        "binaries": closed({
+            "provider_release": ref("d12_binary"),
+            "provider_tsan": ref("d12_binary"),
+            "representation_release": ref("d12_binary"),
+            "representation_tsan": ref("d12_binary"),
+        }),
+        "dependencies": closed({
+            "gmp": {"allOf": [ref("d12_dependency"), {
+                "properties": {
+                    "version": {"const": "6.3.0"},
+                    "archive_sha256": {"const":
+                        "a3c2b80201b89e68616f4ad30bc66aee4927c3ce50e33929ca819d5c43538898"},
+                }}]},
+            "mpfr": {"allOf": [ref("d12_dependency"), {
+                "properties": {
+                    "version": {"const": "4.2.2"},
+                    "archive_sha256": {"const":
+                        "b67ba0383ef7e8a8563734e2e889ef5ec3c3b898a01d00fa0a6869ad81c6ce01"},
+                }}]},
+            "opensubdiv": {"allOf": [ref("d12_dependency"), {
+                "properties": {
+                    "version": {"const": "3.7.0"},
+                    "archive_sha256": {"const":
+                        "f843eb49daf20264007d807cbc64516a1fed9cdb1149aaf84ff47691d97491f9"},
+                }}]},
+        }),
+        "build_profiles": closed({
+            "release": ref("d12_build_profile"),
+            "tsan": ref("d12_build_profile"),
+        }),
+        "platform": ref("d12_platform"), "authority": ref("authority"),
         "workload": ref("d12_workload"),
-        "criteria": {"type": "array", "minItems": 5, "maxItems": 5},
+        "criteria": {"type": "array", "minItems": 5, "maxItems": 5,
+                     "prefixItems": [ref("criterion_27"),
+                                     ref("criterion_28"),
+                                     ref("criterion_29"),
+                                     ref("criterion_30"),
+                                     ref("criterion_31")],
+                     "items": False},
         "serial_only_context": ref("serial_only_context"),
     }),
 })

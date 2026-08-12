@@ -70,6 +70,7 @@ ZERO_SHA256 = "0" * 64
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 GIT_RE = re.compile(r"^[0-9a-f]{40}$")
 _SCHEMA_CACHE = None
+_FACE_ANCHOR_CACHE = None
 ROW_ORDER = ("position", "du", "dv", "duu", "duv", "dvv")
 ANCHORS = ("v0", "v1", "v2")
 RELABELS = ("identity", "rank_reverse", "rank_rotate_1")
@@ -968,8 +969,10 @@ def _validate_d12_result_coupling(
                            "d12_output_reference_target_v1"),
         }[quantity]
         if exact_value is None:
-            require(quantity == "row_digest" and outcome == "FAIL" and
-                    reason == "THREADED_CACHE_RACE" and
+            require(quantity == "row_digest" and
+                    (outcome, reason) in {
+                        ("FAIL", "THREADED_CACHE_RACE"),
+                        ("INCOMPLETE", "D12_PLATFORM_UNQUALIFIED")} and
                     target_kind == "d12_output_reference_target_v1",
                     "D12 null-after-abort coupling")
         else:
@@ -1071,10 +1074,41 @@ def _binding_outcome_reason(value):
     return "PASS", None
 
 
+def _validate_binding_against_report(value, report):
+    identity = report["identity"]
+    binaries = report["binaries"]
+    expected = {
+        "git_start": identity["git_start"]["git_commit"],
+        "git_end": identity["git_end"]["git_commit"],
+        "worktree_start_clean": identity["worktree_start"]["clean"],
+        "worktree_end_clean": identity["worktree_end"]["clean"],
+        "validator_sha256": identity["validator"]["sha256"],
+        "oracle_independence_audit": binaries[
+            "oracle_independence_audit"],
+    }
+    for prefix, binary_name in (
+            ("row_provider", "row_provider"),
+            ("representation", "representation_candidate"),
+            ("exact_boundary", "exact_dyadic_boundary"),
+            ("independent_oracle", "independent_oracle")):
+        availability_record = binaries[binary_name]["availability"]
+        expected[prefix + "_availability"] = availability_record["state"]
+        expected[prefix + "_sha256"] = availability_record["sha256"]
+    require(all(value[key] == expected_value
+                for key, expected_value in expected.items()),
+            "binding result does not match report/runtime bindings")
+    return True
+
+
 def _validate_structure_derivation(key, value):
     ids = value["canonical_source_ids"]
     provider = [exact_binary64_numerator(binary64_from_bits_hex(bits))
                 for bits in value["provider_coefficient_bits"]]
+    effective_values = value.get("effective_coefficients")
+    require(value["source_count"] == len(ids) == len(provider) and
+            (effective_values is None or len(effective_values) == len(ids)) and
+            ids == sorted(ids) and len(ids) == len(set(ids)),
+            "structure source-vector cardinality/order mismatch")
     row_digest = hashlib.sha256()
     row_digest.update(b"B2ROWV1")
     row_digest.update(struct.pack("<i", key[3]))
@@ -1089,13 +1123,26 @@ def _validate_structure_derivation(key, value):
     require(value["provider_row_sha256"] == row_digest.hexdigest(),
             "structure provider-row digest mismatch")
     expected_sum = 1 << 1074 if key[6] == "position" else 0
+    global _FACE_ANCHOR_CACHE
+    if _FACE_ANCHOR_CACHE is None:
+        _FACE_ANCHOR_CACHE = {}
+        for job in B2.valid_content_jobs(B2.load_manifest()):
+            _, faces, _ = B2.independent_mesh(job)
+            _FACE_ANCHOR_CACHE[job["content_identity_key"]] = faces
+    faces = _FACE_ANCHOR_CACHE.get(key[0])
+    require(faces is not None and 0 <= key[3] < len(faces),
+            "structure key has no frozen oriented face")
+    face = faces[key[3]]
+    anchor_source_id = face[ANCHORS.index(key[8])]
     require(_signed_dyadic_fraction(value["expected_sum"]) ==
             Fraction(expected_sum, 1 << 1074),
             "structure expected sum/row mismatch")
     if _contract_kind(value) == "structure_missing_anchor_v1":
+        require(value["missing_anchor_source_id"] == anchor_source_id,
+                "structure missing source is not oriented-face anchor")
         return False
     effective = [int(item["numerator_hex"], 16) * item["sign"]
-                 for item in value["effective_coefficients"]]
+                 for item in effective_values]
     observed_sum = sum(effective)
     require(_signed_dyadic_fraction(value["observed_sum"]) ==
             Fraction(observed_sum, 1 << 1074),
@@ -1105,19 +1152,18 @@ def _validate_structure_derivation(key, value):
     required_delta = expected_sum - sum(provider)
     anchor_derivation_matches = (
         (not changed and required_delta == 0) or
-        (len(changed) == 1 and
+        (len(changed) == 1 and ids[changed[0]] == anchor_source_id and
          effective[changed[0]] - provider[changed[0]] == required_delta))
     return anchor_derivation_matches and observed_sum == expected_sum
 
 
-def validate_contract_result_record(criterion_id, record,
-                                    defer_basis_group=False):
-    """Enforce the frozen per-criterion value/target/outcome/reason row."""
+def validate_result_record_envelope(criterion_id, record):
+    """Validate the criterion-owned key/status/reason five-field envelope."""
     require(criterion_id in RESULT_CONTRACT.CRITERION_BY_ID and
             isinstance(record, list) and len(record) == 5,
             "result-contract record/criterion")
     contract = RESULT_CONTRACT.CRITERION_BY_ID[criterion_id]
-    key, outcome, exact_value, target, reason = record
+    key, outcome, _, _, reason = record
     if criterion_id == "bindings_and_independence":
         require(key == ["bindings_and_independence",
                         "exact_head_and_provenance"],
@@ -1141,6 +1187,15 @@ def validate_contract_result_record(criterion_id, record,
     else:
         require(reason in contract["reasons"],
                 "criterion result reason ownership")
+    return True
+
+
+def validate_contract_result_record(criterion_id, record,
+                                    defer_basis_group=False):
+    """Enforce the frozen per-criterion value/target/outcome/reason row."""
+    validate_result_record_envelope(criterion_id, record)
+    contract = RESULT_CONTRACT.CRITERION_BY_ID[criterion_id]
+    key, outcome, exact_value, target, reason = record
     if criterion_id == "oracle_coverage_and_crosscheck":
         if outcome == "PASS":
             require(_contract_kind(exact_value) == "oracle_covered_value_v1",
@@ -1155,7 +1210,9 @@ def validate_contract_result_record(criterion_id, record,
     elif (criterion_id == "d12_instrumented_tsan" and exact_value is None and
           isinstance(key, list) and len(key) == 14 and
           key[13] == "row_digest"):
-        require(outcome == "FAIL" and reason == "THREADED_CACHE_RACE",
+        require((outcome, reason) in {
+                    ("FAIL", "THREADED_CACHE_RACE"),
+                    ("INCOMPLETE", "D12_PLATFORM_UNQUALIFIED")},
                 "D12 null-after-abort exact-value coupling")
     else:
         require(_contract_kind(exact_value) in
@@ -1212,38 +1269,40 @@ def validate_contract_result_record(criterion_id, record,
                  ("FAIL", "CONSTANT_FIELD_BITS_MISMATCH")),
                 "constant-field bit/result mismatch")
     if criterion_id == "relabel_exact_effective_coefficients":
-        require((outcome == "PASS") ==
-                (_absolute_exact_fraction(exact_value["l1"]) == 0),
-                "relabel exact L1 outcome mismatch")
+        passing = _absolute_exact_fraction(exact_value["l1"]) == 0
+        require((outcome, reason) ==
+                (("PASS", None) if passing else
+                 ("FAIL", "RELABEL_EXACT_MISMATCH")),
+                "relabel exact L1 outcome/reason mismatch")
     if criterion_id == "cache_mode_bit_identity":
         equal = (exact_value["cache_disabled_sha256"] ==
                  exact_value["serial_cache_sha256"])
-        require((outcome == "PASS") == equal,
-                "cache identity outcome mismatch")
+        require((outcome, reason) ==
+                (("PASS", None) if equal else
+                 ("FAIL", "CACHE_MODE_BITS_MISMATCH")),
+                "cache identity outcome/reason mismatch")
     if criterion_id == "complete_artifact_inventory":
         require(key[1:] == [target["content_id"], target["candidate"],
                             target["level"], target["cache_mode"]],
                 "artifact inventory key/target mismatch")
-        comparable = {
-            "expected_slot_ordinal": exact_value["expected_slot_ordinal"],
-            "compressed_sha256": exact_value["compressed_sha256"],
-            "decompressed_json_sha256":
-                exact_value["decompressed_json_sha256"],
-            "canonical_b2rowv1_sha256":
-                exact_value["canonical_b2rowv1_sha256"],
-        }
-        expected = {
-            "expected_slot_ordinal": target["expected_slot_ordinal"],
-            "compressed_sha256": target["compressed_sha256"],
-            "decompressed_json_sha256": target["decompressed_json_sha256"],
-            "canonical_b2rowv1_sha256": target[
-                "canonical_b2rowv1_sha256"],
-        }
-        require((outcome == "PASS") ==
-                (comparable == expected and
-                 exact_value["expected_identity_matches"] is True and
-                 exact_value["availability"]["state"] == "PRESENT"),
-                "artifact inventory outcome mismatch")
+        if exact_value["availability"]["state"] != "PRESENT":
+            expected_result = "INCOMPLETE", "ARTIFACT_MISSING"
+        elif (exact_value["compressed_sha256"] !=
+              target["compressed_sha256"]):
+            expected_result = "INCOMPLETE", "ARTIFACT_HASH_MISMATCH"
+        elif (exact_value["decompressed_json_sha256"] !=
+              target["decompressed_json_sha256"] or
+              exact_value["canonical_b2rowv1_sha256"] !=
+              target["canonical_b2rowv1_sha256"]):
+            expected_result = "INCOMPLETE", "ARTIFACT_CONTENT_MISMATCH"
+        elif (exact_value["expected_slot_ordinal"] !=
+              target["expected_slot_ordinal"] or
+              exact_value["expected_identity_matches"] is not True):
+            expected_result = "INCOMPLETE", "ARTIFACT_IDENTITY_MISMATCH"
+        else:
+            expected_result = "PASS", None
+        require((outcome, reason) == expected_result,
+                "artifact inventory outcome/reason mismatch")
     if criterion_id == "raw_bfr_d9a_reproduction":
         require((outcome == "PASS") == (exact_value == target),
                 "raw D9a outcome/target mismatch")
@@ -1347,6 +1406,40 @@ def validate_result_merkle_witness(record_bytes, leaf_index, siblings,
             current = result_node_sha256(current, sibling)
         cursor //= 2
     require(current.hex() == expected_root, "result witness root mismatch")
+    return True
+
+
+def validate_maximum_witness_binding(witness, maximum, record, record_bytes,
+                                     index, siblings, root, count):
+    require(isinstance(witness, dict) and
+            witness["leaf_index"] == index and
+            witness["cell_key"] == record[0] and
+            witness["result_record"] == record and
+            witness["maximum_exact"] == maximum and
+            witness["maximum_binary64_bits"] ==
+                _exact_display_bits(maximum) and
+            witness["merkle_siblings"] == siblings,
+            "criterion maximum is not first canonical maximum")
+    validate_result_merkle_witness(
+        record_bytes, index, siblings, root, observed_count=count)
+    return True
+
+
+def validate_first_failure_binding(records, claimed_key):
+    expected = next((record[0] for record in records
+                     if record[1] == "FAIL"), None)
+    require(claimed_key == expected,
+            "criterion first-failure key is not first canonical failure")
+    return True
+
+
+def validate_oracle_partition(request, covered, uncovered, outcome,
+                              exact_value, reason):
+    require(covered | uncovered == request and
+            not covered & uncovered and
+            outcome == "UNCOVERED" and exact_value is None and
+            reason in ORACLE_UNCOVERED_REASONS,
+            "oracle request/covered/uncovered partition mismatch")
     return True
 
 
@@ -1630,13 +1723,446 @@ def literal_mutation_manifest():
     return tuple(entries)
 
 
+def _schema_exemplar(node, root, path="$exemplar"):
+    """Construct and validate a deterministic witness for a schema node."""
+    if "$ref" in node:
+        require(node["$ref"].startswith("#/$defs/"),
+                "exemplar local reference")
+        return _schema_exemplar(
+            root["$defs"][node["$ref"].split("/")[-1]], root, path)
+    if "allOf" in node and "type" not in node:
+        value = {}
+        for clause in node["allOf"]:
+            if "$ref" in clause:
+                fragment = _schema_exemplar(clause, root, path)
+                if isinstance(fragment, dict):
+                    value.update(fragment)
+            for member, member_schema in clause.get(
+                    "properties", {}).items():
+                value[member] = _schema_exemplar(
+                    member_schema, root, path + "." + member)
+        validate_schema_instance(value, node, root, path)
+        return value
+    if "const" in node:
+        return copy.deepcopy(node["const"])
+    if "oneOf" in node:
+        errors = []
+        for branch in node["oneOf"]:
+            try:
+                value = _schema_exemplar(branch, root, path)
+                validate_schema_instance(value, node, root, path)
+                return value
+            except QualificationError as error:
+                errors.append(str(error))
+        raise QualificationError("no exemplar for {}: {}".format(
+            path, "; ".join(errors)))
+    object_name = node.get("x-contract-object-name")
+    if object_name == "availability":
+        return availability("PRESENT", "a" * 64)
+    if object_name == "git_identity":
+        return {"state": "PRESENT", "git_commit": "a" * 40,
+                "reason_code": None}
+    if object_name == "worktree_observation":
+        return {"state": "PRESENT", "clean": True,
+                "reason_code": None}
+    declared = node.get("type")
+    types = declared if isinstance(declared, list) else [declared]
+    types = [kind for kind in types if kind is not None]
+    if "object" in types or "properties" in node:
+        value = {}
+        for member in node.get("required", []):
+            value[member] = _schema_exemplar(
+                node["properties"][member], root, path + "." + member)
+    elif "array" in types or "items" in node or "prefixItems" in node:
+        value = [_schema_exemplar(child, root, path + "[]")
+                 for child in node.get("prefixItems", [])]
+        minimum = node.get("minItems", 0)
+        item_schema = node.get("items", {})
+        while len(value) < minimum:
+            value.append(_schema_exemplar(item_schema, root, path + "[]"))
+    elif "string" in types:
+        candidates = ["a", "0", "1", "a" * 16, "a" * 40, "a" * 64,
+                      "0000000000000000", "1970-01-01T00:00:00Z"]
+        if "enum" in node:
+            candidates = list(node["enum"])
+        value = None
+        for candidate in candidates:
+            try:
+                validate_schema_instance(candidate, node, root, path)
+                value = candidate
+                break
+            except QualificationError:
+                pass
+        require(value is not None, "string exemplar unavailable: " + path)
+    elif "integer" in types:
+        value = max(0, node.get("minimum", 0))
+    elif "number" in types:
+        value = float(max(0, node.get("minimum", 0)))
+    elif "boolean" in types:
+        value = True
+    elif "null" in types:
+        value = None
+    elif "enum" in node:
+        value = copy.deepcopy(node["enum"][0])
+    else:
+        value = {}
+    validate_schema_instance(value, node, root, path)
+    return value
+
+
+def _wrong_schema_type(value):
+    candidates = [None, {}, [], "__wrong_type__", 0, True]
+    return next(candidate for candidate in candidates
+                if type(candidate) is not type(value))
+
+
+def validate_bound_jcs_array(raw, descriptor):
+    """Validate one closed JCS array against its byte/count commitment."""
+    value = strict_json_bytes(raw)
+    require(isinstance(value, list) and jcs_bytes(value) == raw and
+            len(raw) == descriptor["byte_length"] and
+            len(value) == descriptor["record_count"] and
+            sha256_bytes(raw) == descriptor["sha256"] ==
+            descriptor["availability"]["sha256"],
+            "JCS array differs from bound byte/count/hash commitment")
+    return value
+
+
+def _criteria_contract_fixture():
+    """Return one schema/semantic-valid closed 32-slot criterion vector."""
+    digest = "a" * 64
+    result = []
+    for criterion_id in CRITERION_IDS:
+        expected = EXPECTED_CELL_COUNTS[criterion_id]
+        if criterion_id in INFRASTRUCTURE_CRITERIA:
+            target = None
+            if criterion_id == "complete_artifact_inventory":
+                empty_digest = sha256_bytes(b"[]")
+                target = {
+                    "kind": "unexpected_paths_target_v1",
+                    "required_record_count": 0,
+                    "sidecar": {
+                        "availability": availability(
+                            "PRESENT", empty_digest),
+                        "relative_path": RESULT_LEDGER_DIRECTORY +
+                            "/unexpected-artifact-paths.json",
+                        "byte_length": 2, "record_count": 0,
+                        "sha256": empty_digest}}
+            result.append(criterion_record(
+                criterion_id, "INCOMPLETE", expected=expected,
+                target=target))
+        elif criterion_id in ORACLE_CRITERIA:
+            result_digest = "b" * 64
+            result.append(criterion_record(
+                criterion_id, "UNCOVERED", expected=expected,
+                observed=expected, ledger=digest,
+                result_ledger=result_digest,
+                result_merkle_root="c" * 64,
+                result_artifact={
+                    "availability": availability("PRESENT", result_digest),
+                    "relative_path": result_ledger_relative_path(
+                        criterion_id),
+                    "byte_length": 2, "record_count": expected},
+                witness=None))
+        elif criterion_id in D12_CRITERIA:
+            result.append(criterion_record(
+                criterion_id, "INCOMPLETE", expected=expected,
+                ledger=digest))
+        else:
+            result.append(criterion_record(
+                criterion_id, "OMITTED_AFTER_INFRASTRUCTURE_FAILURE",
+                blocker=CRITERION_IDS[0], expected=expected,
+                ledger=digest))
+    validate_criteria(result)
+    return result
+
+
+def _pre_result_ledger_contract_fixture():
+    result = []
+    schema = cached_schema()
+    slots = schema["$defs"]["matrix"]["properties"]["ledgers"][
+        "prefixItems"]
+    for slot in slots:
+        fixed = schema["$defs"][slot["$ref"].split("/")[-1]]["allOf"][1][
+            "properties"]
+        criterion_id = fixed["criterion_id"]["const"]
+        partition = fixed["partition"]["const"]
+        expected = EXPECTED_CELL_COUNTS[criterion_id]
+        if partition in {"covered", "uncovered"}:
+            item = {
+                "criterion_id": criterion_id, "partition": partition,
+                "expected_count": None, "observed_count": 0,
+                "key_ledger_sha256": None,
+                "availability": availability(
+                    "UNAVAILABLE", reason_code="EXECUTION_UNAVAILABLE"),
+                "omission_blocker": "oracle_coverage_and_crosscheck"}
+        else:
+            item = {
+                "criterion_id": criterion_id, "partition": partition,
+                "expected_count": expected, "observed_count": expected,
+                "key_ledger_sha256": "a" * 64,
+                "availability": availability("PRESENT", "a" * 64),
+                "omission_blocker": None}
+        result.append(item)
+    _validate_pre_result_ledgers(result)
+    return result
+
+
+def _criterion_mutation_key(criterion_id):
+    if criterion_id == "bindings_and_independence":
+        return [criterion_id, "exact_head_and_provenance"]
+    if criterion_id == "complete_artifact_inventory":
+        return [criterion_id, "content", "bfr", 2, "cache_disabled"]
+    if criterion_id == "raw_bfr_d9a_reproduction":
+        return [criterion_id, "content", 2, "cache_disabled"]
+    if criterion_id == "d12_preparation_cost":
+        return ["content", 2, "release", "cache_disabled", None, None,
+                None, "measured", 0, None, None, None, None,
+                "preparation_duration_ns"]
+    if criterion_id == "d12_retained_payload":
+        return ["content", 2, "release", "cache_disabled", None, None,
+                None, None, None, 0, None, None, None,
+                "retained_payload_bytes"]
+    if criterion_id == "d12_peak_rss":
+        return ["content", 2, "release", "cache_disabled", None, None,
+                None, None, None, None, None, None,
+                "pre_refiner_baseline", "rss_bytes"]
+    if criterion_id == "d12_cache_disabled_concurrency":
+        return ["content", 2, "tsan", "cache_disabled", 1, 0, 0,
+                None, None, None, None, None, "thread_result",
+                "row_digest"]
+    if criterion_id == "d12_instrumented_tsan":
+        return ["content", 2, "tsan", "threaded_cache", 1, None, None,
+                None, None, None, None, None, "sanitizer_summary",
+                "tsan_finding_count"]
+    pair_criteria = {
+        "anchor_sensitivity_exact_coeff",
+        "anchor_sensitivity_exact_geometry",
+        "anchor_sensitivity_emitted_geometry"}
+    stabilization = criterion_id.startswith("stabilization_")
+    axis_criteria = {
+        "regular_analytic_emitted_geometry",
+        "exact_effective_d10_geometry", "emitted_direct_geometry_d10",
+        "anchor_sensitivity_exact_geometry",
+        "anchor_sensitivity_emitted_geometry",
+        "binary64_direct_geometry_fidelity",
+        "relabel_emitted_geometry_fidelity",
+        "stabilization_6_7_exact_geometry",
+        "stabilization_6_7_emitted_geometry",
+        "stabilization_7_8_exact_geometry",
+        "stabilization_7_8_emitted_geometry"}
+    exact_view = {
+        "relabel_exact_effective_coefficients",
+        "regular_analytic_exact_rows", "exact_effective_d10_coeff",
+        "exact_effective_d10_geometry", "anchor_sensitivity_exact_coeff",
+        "anchor_sensitivity_exact_geometry",
+        "stabilization_6_7_exact_coeff",
+        "stabilization_6_7_exact_geometry",
+        "stabilization_7_8_exact_coeff",
+        "stabilization_7_8_exact_geometry"}
+    emitted_view = {
+        "constant_field_bits", "regular_analytic_emitted_geometry",
+        "emitted_direct_geometry_d10",
+        "anchor_sensitivity_emitted_geometry",
+        "binary64_basis_probe_diagnostic",
+        "binary64_direct_geometry_fidelity",
+        "relabel_emitted_geometry_fidelity",
+        "stabilization_6_7_emitted_geometry",
+        "stabilization_7_8_emitted_geometry"}
+    quantity = "position"
+    view = ("structural" if criterion_id == "representation_structure" else
+            "exact_effective" if criterion_id in exact_view else
+            "emitted_binary64" if criterion_id in emitted_view else None)
+    if criterion_id == "regular_analytic_area_integrand":
+        quantity, view = "area_integrand", "exact_effective"
+    elif criterion_id == "regular_analytic_legacy_volume_integrand":
+        quantity, view = "legacy_volume_integrand", "exact_effective"
+    anchor = None if criterion_id in pair_criteria else "v0"
+    relabel = (None if criterion_id == "cache_mode_bit_identity" else
+               "rank_reverse" if criterion_id in {
+                    "relabel_exact_effective_coefficients",
+                    "relabel_emitted_geometry_fidelity"} else "identity")
+    if criterion_id == "constant_field_bits":
+        relabel = "identity"
+    level = (7 if criterion_id.startswith("stabilization_6_7") else
+             8 if criterion_id.startswith("stabilization_7_8") else
+             2 if criterion_id in {
+                "representation_structure", "constant_field_bits",
+                "relabel_exact_effective_coefficients",
+                "cache_mode_bit_identity"} else 7)
+    key = ["content",
+           "cache_pair" if criterion_id == "cache_mode_bit_identity" else
+           "cache_disabled",
+           level, 0, None, "sample", quantity, view, anchor, relabel,
+           0 if criterion_id == "binary64_basis_probe_diagnostic" else None,
+           "x" if criterion_id in axis_criteria else None,
+           "v0_v1" if criterion_id in pair_criteria else None,
+           ("6_7" if criterion_id.startswith("stabilization_6_7") else
+            "7_8" if criterion_id.startswith("stabilization_7_8") else
+            None),
+           "positive_zero" if criterion_id == "constant_field_bits" else
+           None]
+    validate_scientific_cell_key(key, criterion_id)
+    return key
+
+
+def _d12_envelope_contract_fixture():
+    schema = cached_schema()
+    value = _schema_exemplar(
+        schema["$defs"]["anchored_row_representation_d12"], schema,
+        "$mutation.d12")
+    value["git"] = {"head": "a" * 40, "head_query_ok": True,
+                    "worktree_clean": True}
+    for binary in value["binaries"].values():
+        binary["source_inventory"] = [
+            {"path": "source.cpp", "sha256": "a" * 64}]
+    value["build_profiles"]["release"]["flags"] = ["-O3"]
+    value["build_profiles"]["release"]["compile_commands"] = [
+        ["clang++", "-O3"]]
+    value["build_profiles"]["release"]["link_commands"] = [
+        ["clang++", "-O3"]]
+    value["build_profiles"]["tsan"]["flags"] = ["-fsanitize=thread"]
+    value["build_profiles"]["tsan"]["compile_commands"] = [
+        ["clang++", "-fsanitize=thread"]]
+    value["build_profiles"]["tsan"]["link_commands"] = [
+        ["clang++", "-fsanitize=thread"]]
+    value["platform"] = {
+        "platform_state": "UNQUALIFIED_PLATFORM",
+        "expected_fingerprint": {"machine": "physical"},
+        "observed_fingerprint": {"machine": "hosted"},
+        "field_mismatches": ["machine"],
+        "compiler_identity": "clang", "github_hosted": True,
+        "virtualization_observation": {"hosted": True},
+        "power_thermal_observations": [{"state": "observed"}]}
+    value["authority"] = frozen_authority_record()
+
+    def sidecar(path, count, digest):
+        return {"availability": availability("PRESENT", digest),
+                "relative_path": path, "byte_length": 2,
+                "record_count": count, "sha256": digest}
+
+    value["workload"]["provider_serial_reference"] = sidecar(
+        "anchored-row-d12-v1/serial/provider-rows.b2rowv1",
+        693000, "b" * 64)
+    value["workload"]["representation_serial_reference"] = sidecar(
+        "anchored-row-d12-v1/serial/representation-outputs.json",
+        5544000, "c" * 64)
+    value["workload"]["process_observation_sidecar"] = sidecar(
+        "anchored-row-d12-v1/process/process-observations.json",
+        4189640, "d" * 64)
+    value["workload"]["sidecars"] = [sidecar(
+        "anchored-row-d12-v1/workers/cache_disabled/content/level-2/"
+        "workers-1/round-00/worker-0-provider.b2rowv1", 1, "e" * 64)]
+    full_criteria = _criteria_contract_fixture()
+    for criterion_id in D12_CRITERIA:
+        index = CRITERION_IDS.index(criterion_id)
+        expected = EXPECTED_CELL_COUNTS[criterion_id]
+        result_digest = format(index + 1, "064x")
+        full_criteria[index] = criterion_record(
+            criterion_id, "INCOMPLETE", expected=expected,
+            observed=expected, ledger="a" * 64,
+            result_ledger=result_digest, result_merkle_root="f" * 64,
+            result_artifact={
+                "availability": availability("PRESENT", result_digest),
+                "relative_path": result_ledger_relative_path(criterion_id),
+                "byte_length": 2, "record_count": expected})
+    validate_criteria(full_criteria)
+    value["criteria"] = full_criteria[-5:]
+    value["serial_only_context"]["failure_records_sha256"] = sha256_bytes(
+        jcs_bytes(value["serial_only_context"]["failure_records"]))
+    value["content_sha256"] = ZERO_SHA256
+    value["content_sha256"] = sha256_bytes(jcs_bytes(value))
+    validate_d12_envelope_contract(value, "a" * 40)
+    return value
+
+
+def validate_d12_envelope_contract(value, expected_head):
+    validate_contract_value("anchored_row_representation_d12", value)
+    digest_copy = copy.deepcopy(value)
+    digest_copy["content_sha256"] = ZERO_SHA256
+    require(value["content_sha256"] == sha256_bytes(jcs_bytes(digest_copy)),
+            "D12 envelope content digest mismatch")
+    require(value["git"] == {"head": expected_head,
+                              "head_query_ok": True,
+                              "worktree_clean": True},
+            "D12 envelope exact-head/worktree mismatch")
+    for binary in value["binaries"].values():
+        require(binary["availability"]["state"] == "PRESENT" and
+                binary["sha256"] == binary["availability"]["sha256"] and
+                all(SHA256_RE.fullmatch(binary[field] or "") is not None
+                    for field in ("compiler_command_sha256",
+                                  "link_map_sha256",
+                                  "dynamic_dependency_sha256")) and
+                binary["source_inventory"],
+                "D12 binary provenance incomplete")
+    for profile_name, profile in value["build_profiles"].items():
+        require(profile["flags"] and profile["compile_commands"] and
+                profile["link_commands"],
+                "D12 build profile lacks commands/flags")
+        if profile_name == "tsan":
+            require("-fsanitize=thread" in profile["flags"] and
+                    all("-fsanitize=thread" in command
+                        for command in profile["compile_commands"] +
+                        profile["link_commands"]),
+                    "D12 TSan profile is not instrumented")
+    platform = value["platform"]
+    require((platform["field_mismatches"] == []) ==
+            (platform["expected_fingerprint"] ==
+             platform["observed_fingerprint"]),
+            "D12 fingerprint mismatch ledger is inconsistent")
+    if platform["platform_state"] == "QUALIFIED_PLATFORM":
+        require(platform["github_hosted"] is False and
+                platform["expected_fingerprint"] ==
+                    platform["observed_fingerprint"] and
+                platform["field_mismatches"] == [],
+                "hosted/mismatched platform cannot be qualified")
+    else:
+        require(platform["github_hosted"] is True or
+                platform["field_mismatches"],
+                "unqualified platform lacks observed mismatch")
+    require(value["authority"] == frozen_authority_record(),
+            "D12 envelope authority differs from frozen authority")
+    workload = value["workload"]
+    expected_references = (
+        ("provider_serial_reference",
+         "anchored-row-d12-v1/serial/provider-rows.b2rowv1", 693000),
+        ("representation_serial_reference",
+         "anchored-row-d12-v1/serial/representation-outputs.json", 5544000),
+        ("process_observation_sidecar",
+         "anchored-row-d12-v1/process/process-observations.json", 4189640))
+    for member, path, count in expected_references:
+        sidecar = workload[member]
+        require(sidecar["availability"]["state"] == "PRESENT" and
+                sidecar["relative_path"] == path and
+                sidecar["record_count"] == count and
+                sidecar["sha256"] == sidecar["availability"]["sha256"],
+                "D12 serial/process reference binding mismatch")
+    require(workload["sidecars"] and
+            all(sidecar["availability"]["state"] == "PRESENT"
+                for sidecar in workload["sidecars"]),
+            "D12 worker sidecar inventory incomplete")
+    combined = _criteria_contract_fixture()[:27] + value["criteria"]
+    validate_criteria(combined)
+    statuses = {item["status"] for item in value["criteria"]}
+    require((platform["platform_state"] == "QUALIFIED_PLATFORM" and
+             statuses <= {"PASS", "FAIL"}) or
+            (platform["platform_state"] == "UNQUALIFIED_PLATFORM" and
+             statuses == {"INCOMPLETE"}),
+            "D12 platform/result status mismatch")
+    context = value["serial_only_context"]
+    require(context["failure_records_sha256"] ==
+            sha256_bytes(jcs_bytes(context["failure_records"])),
+            "D12 failure-record digest mismatch")
+    return True
+
+
 def execute_literal_mutation_suite():
     """Dispatch every immutable M01--M23 entry to an executable rejection.
 
-    The exhaustive schema/path families use their actual executable nodes.
-    Contextual ledger families execute a canonical mutation sentinel for each
-    frozen operand; their scientific semantics are exercised separately by
-    the criterion-specific negative probes in the same CI suite.
+    Object/criterion/ledger mutations reach their production validators;
+    array/sidecar/record mutations reach canonical byte/count/hash bindings;
+    and scientific/global mutations reach their owning derivation validators.
+    No manifest entry is accepted by membership or changed-value comparison.
     """
     schema = load_schema()
     objects = {}
@@ -1658,6 +2184,11 @@ def execute_literal_mutation_suite():
                 collect(child)
 
     collect(schema)
+    object_exemplars = {
+        name: _schema_exemplar(node, schema, "$mutation." + name)
+        for name, node in objects.items()}
+    criteria_fixture = _criteria_contract_fixture()
+    ledger_fixture = _pre_result_ledger_contract_fixture()
     entries = literal_mutation_manifest()
     rejected = []
     handlers = set()
@@ -1668,29 +2199,68 @@ def execute_literal_mutation_suite():
         if operator in {"M01", "M02", "M03"}:
             object_name, separator, member = operand.partition(".")
             node = objects[object_name]
+            candidate = copy.deepcopy(object_exemplars[object_name])
             if operator == "M01":
-                did_reject = bool(separator and member in node["required"])
+                require(separator and member in candidate,
+                        "M01 operand is not a required exemplar member")
+                del candidate[member]
             elif operator == "M02":
-                did_reject = (not separator and
-                              node.get("additionalProperties") is False and
-                              "__mutation_unknown__" not in
-                              node["properties"])
+                require(not separator, "M02 operand must name one object")
+                candidate["__mutation_unknown__"] = True
             else:
-                member_schema = node["properties"][member]
-                for wrong in (None, {}, [], "__wrong_type__", 0, False):
+                require(separator and member in candidate,
+                        "M03 operand is not a required exemplar member")
+                original = candidate[member]
+                for wrong in (None, {}, [], "__wrong_type__", 0, True):
+                    if wrong == original and type(wrong) is type(original):
+                        continue
+                    candidate[member] = wrong
                     try:
                         validate_schema_instance(
-                            wrong, member_schema, schema,
-                            "$mutation.{}.{}".format(object_name, member))
+                            candidate, node, schema,
+                            "$mutation.{}".format(object_name))
                     except QualificationError:
                         did_reject = True
                         break
+            if operator != "M03":
+                try:
+                    validate_schema_instance(
+                        candidate, node, schema,
+                        "$mutation.{}".format(object_name))
+                except QualificationError:
+                    did_reject = True
         elif operator in {"M04", "M05", "M06", "M07"}:
             node = arrays[operand]
-            baseline = copy.deepcopy(node.get("const", ["first", "middle",
-                                                         "last"]))
+            baseline = _schema_exemplar(node, schema,
+                                        "$mutation.array." + operand)
             if len(baseline) < 3:
-                baseline = ["first", "middle", "last"]
+                item_schema = node.get("items", {})
+                sample = (_schema_exemplar(item_schema, schema,
+                                            "$mutation.array.item")
+                          if item_schema is not False else None)
+                while len(baseline) < 3:
+                    carrier = copy.deepcopy(sample)
+                    if carrier in baseline:
+                        carrier = {"anchored_array_path": operand,
+                                   "representative_ordinal": len(baseline)}
+                    baseline.append(carrier)
+            seen_carriers = set()
+            for carrier_index, carrier in enumerate(baseline):
+                encoded_carrier = jcs_bytes(carrier)
+                if encoded_carrier in seen_carriers:
+                    baseline[carrier_index] = {
+                        "anchored_array_path": operand,
+                        "representative_ordinal": carrier_index}
+                    encoded_carrier = jcs_bytes(baseline[carrier_index])
+                seen_carriers.add(encoded_carrier)
+            baseline_raw = jcs_bytes(baseline)
+            descriptor = {
+                "availability": availability(
+                    "PRESENT", sha256_bytes(baseline_raw)),
+                "byte_length": len(baseline_raw),
+                "record_count": len(baseline),
+                "sha256": sha256_bytes(baseline_raw)}
+            validate_bound_jcs_array(baseline_raw, descriptor)
             observed = copy.deepcopy(baseline)
             position = mutation.rsplit("-", 1)[1]
             index = {"first": 0, "middle": len(observed) // 2,
@@ -1705,46 +2275,80 @@ def execute_literal_mutation_suite():
                 adjacent = index + 1 if index + 1 < len(observed) else index - 1
                 observed[index], observed[adjacent] = (
                     observed[adjacent], observed[index])
-            did_reject = observed != baseline
+            try:
+                validate_bound_jcs_array(jcs_bytes(observed), descriptor)
+            except QualificationError:
+                did_reject = True
         elif operator == "M08":
             ordinal, criterion_id, count = operand.split(":", 2)
-            expected = ("{:02d}".format(CRITERION_IDS.index(criterion_id)),
-                        criterion_id, str(EXPECTED_CELL_COUNTS[criterion_id]))
-            candidate = list(expected)
+            index = int(ordinal)
+            require(CRITERION_IDS[index] == criterion_id and
+                    EXPECTED_CELL_COUNTS[criterion_id] == int(count),
+                    "M08 operand differs from frozen criterion slot")
+            candidate = copy.deepcopy(criteria_fixture)
             if mutation == "wrong-id":
-                candidate[1] += "_mutation"
+                candidate[index]["criterion_id"] += "_mutation"
             elif mutation == "wrong-ordinal":
-                candidate[0] = "99"
+                other = (index + 1) % len(candidate)
+                candidate[index], candidate[other] = (
+                    candidate[other], candidate[index])
             elif mutation == "count-minus-one":
-                candidate[2] = str(int(count) - 1)
+                candidate[index]["expected_cell_count"] -= 1
             else:
-                candidate[2] = str(int(count) + 1)
-            did_reject = tuple(candidate) != expected and (
-                ordinal, criterion_id, count) == expected
+                candidate[index]["expected_cell_count"] += 1
+            try:
+                validate_criteria(candidate)
+            except QualificationError:
+                did_reject = True
         elif operator == "M09":
-            _, criterion_id, _ = operand.split(":", 2)
-            contract = RESULT_CONTRACT.CRITERION_BY_ID[criterion_id]
-            frozen = (contract["expectation"], "frozen_B2b",
-                      contract["target_kinds"], contract["complete_statuses"],
-                      "closed-nullability")
-            candidate = list(frozen)
-            candidate[{"expectation": 0, "applicability": 1, "target": 2,
-                       "allowed-status": 3, "nullability": 4}[mutation]] = \
-                "__mutation__"
-            did_reject = tuple(candidate) != frozen
+            ordinal, criterion_id, _ = operand.split(":", 2)
+            index = int(ordinal)
+            require(CRITERION_IDS[index] == criterion_id,
+                    "M09 operand differs from frozen criterion slot")
+            candidate = copy.deepcopy(criteria_fixture)
+            item = candidate[index]
+            if mutation == "expectation":
+                item["expectation"] += "_mutation"
+            elif mutation == "applicability":
+                item["applicability"] = "invented"
+            elif mutation == "target":
+                item["target"] = {} if item["target"] is None else None
+            elif mutation == "allowed-status":
+                item["status"] = "INVENTED"
+            else:
+                del item["witness"]
+            try:
+                validate_schema_instance(
+                    candidate, schema["properties"]["criteria"], schema,
+                    "$mutation.criteria")
+                validate_criteria(candidate)
+            except QualificationError:
+                did_reject = True
         elif operator == "M10":
-            ordinal, criterion_id, partition = operand.split(":", 2)
-            baseline = [ordinal, criterion_id, partition,
-                        EXPECTED_CELL_COUNTS[criterion_id], "a" * 64]
-            candidate = list(baseline)
-            candidate[{"wrong-id": 1, "wrong-partition": 2,
-                       "wrong-count": 3, "wrong-key-digest": 4}[mutation]] = \
-                "__mutation__"
-            did_reject = candidate != baseline
+            _, criterion_id, partition = operand.split(":", 2)
+            candidate = copy.deepcopy(ledger_fixture)
+            index = next(index for index, item in enumerate(candidate)
+                         if item["criterion_id"] == criterion_id and
+                         item["partition"] == partition)
+            item = candidate[index]
+            if mutation == "wrong-id":
+                item["criterion_id"] += "_mutation"
+            elif mutation == "wrong-partition":
+                item["partition"] += "_mutation"
+            elif mutation == "wrong-count":
+                item["observed_count"] += 1
+            else:
+                item["key_ledger_sha256"] = "b" * 64
+            try:
+                _validate_pre_result_ledgers(candidate)
+            except QualificationError:
+                did_reject = True
         elif operator == "M11":
-            descriptor = {"availability": availability("PRESENT", "a" * 64),
-                          "relative_path": "result.json", "byte_length": 2,
-                          "record_count": 0}
+            empty_digest = sha256_bytes(b"[]")
+            descriptor = {
+                "availability": availability("PRESENT", empty_digest),
+                "relative_path": "result.json", "byte_length": 2,
+                "record_count": 0}
             candidate = copy.deepcopy(descriptor)
             if mutation == "missing":
                 del candidate["byte_length"]
@@ -1758,19 +2362,45 @@ def execute_literal_mutation_suite():
                 candidate["availability"]["sha256"] = "b" * 64
             else:
                 try:
-                    trailing = b"[]\n"
-                    value = strict_json_bytes(trailing)
-                    require(jcs_bytes(value) == trailing,
-                            "trailing result sidecar byte")
+                    validate_bound_jcs_array(
+                        b"[]\n", {"availability": availability(
+                            "PRESENT", empty_digest), "byte_length": 2,
+                            "record_count": 0, "sha256": empty_digest})
                 except QualificationError:
                     did_reject = True
             if mutation != "trailing-byte":
-                did_reject = (set(candidate) != set(descriptor) or
-                              candidate != descriptor)
+                try:
+                    validate_schema_instance(
+                        candidate, schema["$defs"][
+                            "result_ledger_artifact"], schema,
+                        "$mutation.result_sidecar")
+                    validate_bound_jcs_array(
+                        b"[]", {"availability": candidate["availability"],
+                                "byte_length": candidate["byte_length"],
+                                "record_count": candidate["record_count"],
+                                "sha256": candidate["availability"][
+                                    "sha256"]})
+                except (QualificationError, KeyError):
+                    did_reject = True
         elif operator == "M12":
-            first = [["a"], "PASS", None, None, None]
-            second = [["b"], "PASS", None, None, None]
-            baseline = canonical_result_ledger([first, second])
+            _, criterion_id, _ = operand.split(":", 2)
+            outcome = ("UNCOVERED" if criterion_id in ORACLE_CRITERIA else
+                       "PASS")
+            reason = ("ORACLE_EXECUTION_UNAVAILABLE"
+                      if outcome == "UNCOVERED" else None)
+            first = [_criterion_mutation_key(criterion_id), outcome,
+                     None, None, reason]
+            validate_result_record_envelope(criterion_id, first)
+            second = [["mutation-carrier", criterion_id], "PASS",
+                      None, None, None]
+            baseline_records = [first, second]
+            baseline_raw = jcs_bytes(baseline_records)
+            descriptor = {
+                "availability": availability(
+                    "PRESENT", sha256_bytes(baseline_raw)),
+                "byte_length": len(baseline_raw), "record_count": 2,
+                "sha256": sha256_bytes(baseline_raw)}
+            validate_bound_jcs_array(baseline_raw, descriptor)
             candidate_records = copy.deepcopy([first, second])
             if mutation == "missing":
                 candidate_records[0].pop()
@@ -1787,17 +2417,19 @@ def execute_literal_mutation_suite():
                     ["z"] if field == 0 else "FAIL" if field == 1 else
                     {"mutation": True} if field in (2, 3) else "MUTATION")
             try:
-                changed = canonical_result_ledger(candidate_records)
-                require(changed["result_ledger_sha256"] ==
-                        baseline["result_ledger_sha256"],
-                        "result mutation changed committed bytes")
+                validate_bound_jcs_array(
+                    jcs_bytes(candidate_records), descriptor)
             except QualificationError:
                 did_reject = True
         elif operator == "M13":
             record = [["cell"], "PASS", None, None, None]
+            tied_record = [["other"], "PASS", None, None, None]
             maximum = _absolute_rational_descriptor(Fraction(1, 4))
+            encoded_records = [jcs_bytes(record), jcs_bytes(tied_record)]
+            root, siblings = result_merkle_commitment(
+                encoded_records, witness_index=0)
             witness = {"cell_key": record[0], "result_record": record,
-                       "leaf_index": 0, "merkle_siblings": [],
+                       "leaf_index": 0, "merkle_siblings": siblings,
                        "maximum_exact": maximum,
                        "maximum_binary64_bits": binary64_bits_hex(0.25)}
             candidate = copy.deepcopy(witness)
@@ -1814,13 +2446,16 @@ def execute_literal_mutation_suite():
                 candidate["maximum_binary64_bits"] = binary64_bits_hex(0.5)
             else:
                 candidate["leaf_index"] = 1
-            did_reject = not (
-                candidate["cell_key"] == record[0] and
-                candidate["result_record"] == record and
-                candidate["leaf_index"] == 0 and
-                candidate["maximum_exact"] == maximum and
-                candidate["maximum_binary64_bits"] ==
-                    binary64_bits_hex(0.25))
+                candidate["cell_key"] = tied_record[0]
+                candidate["result_record"] = tied_record
+                _, candidate["merkle_siblings"] = result_merkle_commitment(
+                    encoded_records, witness_index=1)
+            try:
+                validate_maximum_witness_binding(
+                    candidate, maximum, record, encoded_records[0], 0,
+                    siblings, root, 2)
+            except QualificationError:
+                did_reject = True
         elif operator == "M14":
             record_bytes = jcs_bytes([["cell"], "PASS", None, None, None])
             other_bytes = jcs_bytes([["other"], "PASS", None, None, None])
@@ -1858,9 +2493,13 @@ def execute_literal_mutation_suite():
                 candidate = keys[2]
             else:
                 candidate = ["outside"]
-            derived = next(key for key, outcome in zip(keys, outcomes)
-                           if outcome == "FAIL")
-            did_reject = candidate != derived
+            try:
+                validate_first_failure_binding(
+                    [[key, outcome, None, None,
+                      None if outcome == "PASS" else "FAILURE"]
+                     for key, outcome in zip(keys, outcomes)], candidate)
+            except QualificationError:
+                did_reject = True
         elif operator == "M16":
             node = authorities[operand]
             try:
@@ -1869,27 +2508,49 @@ def execute_literal_mutation_suite():
             except QualificationError:
                 did_reject = True
         elif operator == "M18":
-            key = ["content", "cache_disabled", 7, 0, None, "sample",
-                   "du", "emitted_binary64", "v0", "identity", 0, None,
-                   None, None, None]
+            key = _criterion_mutation_key(
+                "binary64_basis_probe_diagnostic")
             zero_signed = {"kind": "signed_dyadic_v1", "sign": 0,
                            "numerator_hex": "0",
                            "denominator_power": 1074}
             zero_absolute = {"kind": "absolute_dyadic_v1",
                              "numerator_hex": "0",
                              "denominator_power": 1074}
-            forged_l1 = {"kind": "absolute_dyadic_v1",
-                         "numerator_hex": "1",
-                         "denominator_power": 1074}
             record = [key, "PASS", {
                 "kind": "basis_value_v1",
                 "emitted_basis_bits": "0000000000000000",
                 "exact_effective": zero_signed,
-                "source_error": zero_absolute, "group_l1": forged_l1},
+                "source_error": zero_absolute,
+                "group_l1": copy.deepcopy(zero_absolute)},
                 absolute_rational_target("2000000"), None]
+            if mutation in {"identity-only-failure", "reverse-only-failure",
+                            "rotate-only-failure"}:
+                record[0][9] = {
+                    "identity-only-failure": "identity",
+                    "reverse-only-failure": "rank_reverse",
+                    "rotate-only-failure": "rank_rotate_1"}[mutation]
+                record[2]["group_l1"] = {
+                    "kind": "absolute_dyadic_v1", "numerator_hex": "1",
+                    "denominator_power": 1074}
+            elif mutation == "distributed-per-source-error":
+                record[2]["source_error"] = {
+                    "kind": "absolute_dyadic_v1", "numerator_hex": "1",
+                    "denominator_power": 1074}
+            elif mutation == "signed-coefficient":
+                record[2]["exact_effective"] = {
+                    "kind": "signed_dyadic_v1", "sign": 1,
+                    "numerator_hex": "1", "denominator_power": 1074}
+            elif mutation == "wrong-inverse-map":
+                duplicate = copy.deepcopy(record)
+                record = [record, duplicate]
+            else:
+                record[2]["group_l1"] = {
+                    "kind": "absolute_dyadic_v1", "numerator_hex": "1",
+                    "denominator_power": 1074}
             try:
                 canonical_result_ledger(
-                    [record], criterion_id=
+                    record if mutation == "wrong-inverse-map" else [record],
+                    criterion_id=
                     "binary64_basis_probe_diagnostic")
             except QualificationError:
                 did_reject = True
@@ -1912,50 +2573,169 @@ def execute_literal_mutation_suite():
                 reason = None
             else:
                 exact_value = {"coverage": "UNIFORM_ONLY"}
-            did_reject = not (
-                covered | uncovered == request and
-                not covered & uncovered and
-                outcome == "UNCOVERED" and exact_value is None and
-                reason in ORACLE_UNCOVERED_REASONS)
+            try:
+                validate_oracle_partition(
+                    request, covered, uncovered, outcome, exact_value,
+                    reason)
+            except QualificationError:
+                did_reject = True
         elif operator == "M19":
-            exact = int(RAW_D9A_FROZEN_MAXIMUM_NUMERATOR_HEX, 16)
-            displayed = Fraction.from_float(binary64_from_bits_hex(
-                RAW_D9A_FROZEN_MAXIMUM_BITS))
-            baseline = (RAW_D9A_FROZEN_FAILING_CASE_COUNT, exact,
-                        displayed)
-            candidate = list(baseline)
-            candidate[{"case-state": 0, "case-digest": 1,
-                       "failing-row-count": 0, "124-count": 0,
-                       "exact-numerator": 1, "maximum-bits": 2,
-                       "maximum-witness": 2}[mutation]] = "__mutation__"
-            did_reject = (tuple(candidate) != baseline and
-                          displayed == Fraction(exact, 1 << 1074))
-        elif operator == "M20":
-            checks = {
-                "malformed": True, "duplicate-key": True,
-                "content-hash": True, "cross-head": True, "dirty": True,
-                "old-B2": True, "boolean-only": True,
-                "missing-provenance": True, "fingerprint": True,
-                "hosted-as-qualified": True, "workload": True,
-                "reference-digest": True, "instrumentation": True,
-                "operational-gap": True,
-            }
-            checks[mutation] = False
-            did_reject = not all(checks.values())
-        elif operator == "M22":
-            context = {"complete_tsan_tuple_count": 588,
-                       "complete_tsan_cell_count": EXPECTED_CELL_COUNTS[
-                           "d12_instrumented_tsan"],
-                       "cache_disabled_tsan_pass": True,
-                       "failures": []}
-            if mutation == "missing-tuple":
-                context["complete_tsan_tuple_count"] -= 1
-            elif mutation == "cache-disabled-failure":
-                context["cache_disabled_tsan_pass"] = False
+            maximum = {
+                "kind": "absolute_dyadic_v1",
+                "numerator_hex": RAW_D9A_FROZEN_MAXIMUM_NUMERATOR_HEX,
+                "denominator_power": 1074}
+            records = []
+            for index in range(196):
+                state = ("FAIL" if index <
+                         RAW_D9A_FROZEN_FAILING_CASE_COUNT else "PASS")
+                value = {
+                    "kind": "raw_d9a_value_v1",
+                    "case_identity": ["content-{:03d}".format(index), 2,
+                                      "cache_disabled"],
+                    "raw_invariant_state": state,
+                    "maximum_row_sum_residual":
+                        copy.deepcopy(maximum if index == 0 else
+                                      {"kind": "absolute_dyadic_v1",
+                                       "numerator_hex": "0",
+                                       "denominator_power": 1074}),
+                    "failing_row_count": 1 if state == "FAIL" else 0,
+                    "canonical_raw_rows_sha256": "a" * 64}
+                records.append([["raw_bfr_d9a_reproduction",
+                                 "content-{:03d}".format(index), 2,
+                                 "cache_disabled"], "PASS", value,
+                                copy.deepcopy(value), None])
+            validate_raw_d9a_frozen_global(
+                records, maximum, RAW_D9A_FROZEN_MAXIMUM_BITS)
+            baseline_raw = jcs_bytes(records)
+            descriptor = {
+                "availability": availability(
+                    "PRESENT", sha256_bytes(baseline_raw)),
+                "byte_length": len(baseline_raw), "record_count": 196,
+                "sha256": sha256_bytes(baseline_raw)}
+            candidate_records = copy.deepcopy(records)
+            candidate_maximum = copy.deepcopy(maximum)
+            candidate_bits = RAW_D9A_FROZEN_MAXIMUM_BITS
+            if mutation in {"case-state", "124-count"}:
+                candidate_records[0][2]["raw_invariant_state"] = "PASS"
+            elif mutation == "case-digest":
+                candidate_records[0][2]["canonical_raw_rows_sha256"] = \
+                    "b" * 64
+            elif mutation == "failing-row-count":
+                candidate_records[0][2]["failing_row_count"] = 0
+            elif mutation == "exact-numerator":
+                candidate_maximum["numerator_hex"] = "1"
+            elif mutation == "maximum-bits":
+                candidate_bits = "0000000000000000"
             else:
-                context["failures"] = [{"key": [], "reason": mutation}]
-            did_reject = calculate_serial_only_disposition(
-                [], context)["serial_only_qualification_eligible"] is False
+                candidate_records[0][2]["maximum_row_sum_residual"] = {
+                    "kind": "absolute_dyadic_v1", "numerator_hex": "1",
+                    "denominator_power": 1074}
+            try:
+                validate_raw_d9a_frozen_global(
+                    candidate_records, candidate_maximum, candidate_bits)
+                validate_bound_jcs_array(
+                    jcs_bytes(candidate_records), descriptor)
+            except QualificationError:
+                did_reject = True
+        elif operator == "M20":
+            envelope = _d12_envelope_contract_fixture()
+            candidate = copy.deepcopy(envelope)
+            raw_override = None
+            if mutation == "malformed":
+                raw_override = b"{"
+            elif mutation == "duplicate-key":
+                raw_override = b'{"schema_id":"a","schema_id":"b"}'
+            elif mutation == "content-hash":
+                candidate["content_sha256"] = "a" * 64
+            elif mutation == "cross-head":
+                candidate["git"]["head"] = "b" * 40
+            elif mutation == "dirty":
+                candidate["git"]["worktree_clean"] = False
+            elif mutation == "old-B2":
+                candidate["authority"]["manifest_file_sha256"] = "b" * 64
+            elif mutation == "boolean-only":
+                candidate = {"representation_work": True}
+            elif mutation == "missing-provenance":
+                candidate["binaries"]["provider_release"][
+                    "source_inventory"] = []
+            elif mutation == "fingerprint":
+                candidate["platform"]["field_mismatches"] = []
+            elif mutation == "hosted-as-qualified":
+                candidate["platform"]["platform_state"] = \
+                    "QUALIFIED_PLATFORM"
+            elif mutation == "workload":
+                candidate["workload"][
+                    "construction_and_evaluation_included"] = False
+            elif mutation == "reference-digest":
+                candidate["workload"]["provider_serial_reference"][
+                    "sha256"] = "f" * 64
+            elif mutation == "instrumentation":
+                candidate["build_profiles"]["tsan"]["flags"] = ["-O1"]
+            else:
+                candidate["criteria"][0]["observed_cell_count"] -= 1
+            if (raw_override is None and mutation != "content-hash" and
+                    isinstance(candidate, dict) and
+                    "content_sha256" in candidate):
+                candidate["content_sha256"] = ZERO_SHA256
+                candidate["content_sha256"] = sha256_bytes(
+                    jcs_bytes(candidate))
+            try:
+                if raw_override is not None:
+                    candidate = strict_json_bytes(raw_override)
+                validate_d12_envelope_contract(candidate, "a" * 40)
+            except (QualificationError, UnicodeDecodeError,
+                    json.JSONDecodeError):
+                did_reject = True
+        elif operator == "M22":
+            race_key = _criterion_mutation_key(
+                "d12_instrumented_tsan")
+            race_key[5] = 0
+            race_key[6] = 0
+            race_key[12] = "thread_result"
+            race_key[13] = "row_digest"
+            statuses = [
+                {"criterion_id": criterion_id,
+                 "status": ("FAIL" if criterion_id ==
+                            "d12_instrumented_tsan" else "PASS")}
+                for criterion_id in CRITERION_IDS]
+            failures = [[race_key, "THREADED_CACHE_RACE"]]
+            context = {
+                "tuple_count": 588, "all_tuple_keys_sha256": "a" * 64,
+                "cache_disabled_concurrency_cell_count": 13720,
+                "cache_disabled_concurrency_ledger_sha256": "a" * 64,
+                "cache_disabled_concurrency_pass": True,
+                "cache_disabled_tsan_summary_cell_count": 588,
+                "cache_disabled_tsan_summary_sha256": "a" * 64,
+                "cache_disabled_tsan_pass": True,
+                "threaded_tsan_summary_cell_count": 588,
+                "threaded_tsan_summary_sha256": "a" * 64,
+                "threaded_tsan_row_digest_cell_count": 13720,
+                "threaded_tsan_row_digest_sha256": "a" * 64,
+                "all_tsan_cell_count": 14896,
+                "all_tsan_result_ledger_sha256": "a" * 64,
+                "failure_records": failures,
+                "failure_records_sha256": sha256_bytes(
+                    jcs_bytes(failures))}
+            if mutation == "missing-tuple":
+                context["tuple_count"] -= 1
+            elif mutation == "cache-disabled-failure":
+                context["cache_disabled_concurrency_pass"] = False
+            elif mutation == "output-mismatch":
+                context["failure_records"][0][1] = \
+                    "THREADED_CACHE_OUTPUT_MISMATCH"
+            elif mutation == "nonrace-failure":
+                statuses[3]["status"] = "FAIL"
+            elif mutation == "incomplete-evidence":
+                context["all_tsan_cell_count"] -= 1
+            if mutation not in {"missing-tuple", "cache-disabled-failure",
+                                "nonrace-failure",
+                                "exact-race-only-eligibility"}:
+                context["failure_records_sha256"] = sha256_bytes(
+                    jcs_bytes(context["failure_records"]))
+            eligible = calculate_serial_only_disposition(
+                statuses, context)["serial_only_qualification_eligible"]
+            did_reject = (eligible if mutation ==
+                          "exact-race-only-eligibility" else not eligible)
         elif operator == "M21":
             statuses = [{"criterion_id": criterion_id, "status": "PASS"}
                         for criterion_id in CRITERION_IDS]
@@ -1989,12 +2769,8 @@ def execute_literal_mutation_suite():
                     json.JSONDecodeError):
                 did_reject = True
         else:
-            # Global families are closed literal enums. Unknown variants fail
-            # before a mutation may reach a qualification decision.
-            allowed = {item.split("|", 2)[2]
-                       for item in entries
-                       if item.startswith(operator + "|global|")}
-            did_reject = mutation in allowed and operand == "global"
+            raise QualificationError(
+                "mutation operator lacks executable handler: " + operator)
         require(did_reject, "mutation was not rejected: " + entry)
         rejected.append(entry)
     require(len(rejected) == 3501 and tuple(rejected) ==
@@ -2750,7 +3526,8 @@ def _artifact_report(artifact_root, case):
     except (OSError, EOFError) as error:
         raise QualificationError("artifact gzip changed during execution") from error
     report = strict_json_bytes(raw)
-    require(isinstance(report, dict) and isinstance(report.get("rows"), list),
+    require(sha256_bytes(raw) == case["complete_json_sha256"] and
+            isinstance(report, dict) and isinstance(report.get("rows"), list),
             "artifact rows unavailable")
     return report
 
@@ -4647,6 +5424,9 @@ def validate_criteria(criteria):
                     type(artifact["byte_length"]) is int and
                     artifact["byte_length"] >= 2,
                     "present result sidecar binding")
+            require(item["observed_cell_count"] ==
+                    item["expected_cell_count"],
+                    "present result sidecar is not a complete expected set")
         else:
             require(item["result_ledger_sha256"] is None and
                     item["result_merkle_root_sha256"] is None and
@@ -4782,13 +5562,11 @@ def calculate_serial_only_disposition(criteria, context=None):
     }
     if context is None:
         return ineligible
-    require(set(context) == {"complete_tsan_tuple_count",
-                             "complete_tsan_cell_count",
-                             "cache_disabled_tsan_pass", "failures"},
-            "serial-only context shape")
-    if (context["complete_tsan_tuple_count"] != 588 or
-            context["complete_tsan_cell_count"] !=
-            EXPECTED_CELL_COUNTS["d12_instrumented_tsan"] or
+    try:
+        validate_contract_value("serial_only_context", context)
+    except QualificationError:
+        return ineligible
+    if (context["cache_disabled_concurrency_pass"] is not True or
             context["cache_disabled_tsan_pass"] is not True):
         return ineligible
     statuses = {item["criterion_id"]: item["status"] for item in criteria}
@@ -4797,24 +5575,21 @@ def calculate_serial_only_disposition(criteria, context=None):
                 for criterion_id in CRITERION_IDS
                 if criterion_id != "d12_instrumented_tsan")):
         return ineligible
-    failures = context["failures"]
+    failures = context["failure_records"]
     if not isinstance(failures, list) or not failures:
         return ineligible
-    keys = []
     for item in failures:
-        if (not isinstance(item, dict) or set(item) != {"key", "reason"} or
-                item["reason"] != "THREADED_CACHE_RACE"):
+        if (not isinstance(item, list) or len(item) != 2 or
+                item[1] != "THREADED_CACHE_RACE"):
             return ineligible
         try:
-            validate_d12_key(item["key"], "d12_instrumented_tsan")
+            validate_d12_key(item[0], "d12_instrumented_tsan")
         except QualificationError:
             return ineligible
-        if item["key"][3] != "threaded_cache":
+        if item[0][3] != "threaded_cache":
             return ineligible
-        keys.append(item["key"])
-    try:
-        failure_digest = generic_key_ledger_sha256(keys)
-    except QualificationError:
+    failure_digest = sha256_bytes(jcs_bytes(failures))
+    if context["failure_records_sha256"] != failure_digest:
         return ineligible
     return {
         "serial_only_qualification_eligible": True,
@@ -4853,9 +5628,63 @@ def calculate_verdict(criteria, serial_context=None):
             "production_authorized": False}
 
 
-def validate_report(report):
+def _validate_pre_result_ledgers(ledgers):
+    schema = cached_schema()
+    validate_schema_instance(
+        ledgers, schema["$defs"]["matrix"]["properties"]["ledgers"],
+        schema, "$matrix.ledgers")
+    require(len(ledgers) == 34 and
+            {item["criterion_id"] for item in ledgers} == set(CRITERION_IDS),
+            "matrix criterion-ledger coverage")
+    by_key = {(item["criterion_id"], item["partition"]): item
+              for item in ledgers}
+    require(len(by_key) == len(ledgers),
+            "duplicate criterion ledger partition")
+    require([partition for criterion, partition in by_key
+             if criterion == "oracle_coverage_and_crosscheck"] ==
+            ["oracle_request", "covered", "uncovered"],
+            "oracle ledger partitions")
+    for item in ledgers:
+        criterion_id = item["criterion_id"]
+        expected = EXPECTED_CELL_COUNTS[criterion_id]
+        if item["partition"] in ("covered", "uncovered"):
+            require(item["expected_count"] is None,
+                    "post-oracle partition predicted before oracle")
+        else:
+            require(item["expected_count"] == expected,
+                    "pre-result ledger expected-count drift")
+        if item["availability"]["state"] == "PRESENT":
+            require(item["key_ledger_sha256"] ==
+                    item["availability"]["sha256"] and
+                    item["omission_blocker"] is None,
+                    "present ledger binding mismatch")
+            if item["partition"] not in ("covered", "uncovered"):
+                require(item["observed_count"] == item["expected_count"],
+                        "present pre-result ledger count mismatch")
+        else:
+            expected_blocker = (
+                "oracle_coverage_and_crosscheck"
+                if item["partition"] in ("covered", "uncovered") else
+                "bindings_and_independence")
+            require(item["key_ledger_sha256"] is None and
+                    item["observed_count"] == 0 and
+                    item["omission_blocker"] == expected_blocker,
+                    "unavailable ledger lacks exact causal omission")
+    return by_key
+
+
+def validate_report(report, serial_context=None):
     validate_schema_instance(report)
     validate_criteria(report["criteria"])
+    checkpoint = report["checkpoint"]
+    require(checkpoint["availability"]["state"] == "PRESENT" and
+            checkpoint["release_complete"] is True and
+            checkpoint["git_head"] ==
+                report["identity"]["git_end"]["git_commit"] and
+            checkpoint["row_provider_binary_sha256"] ==
+                report["binaries"]["row_provider"]["availability"][
+                    "sha256"],
+            "report checkpoint/head/provider binding mismatch")
     for binary_name in ("row_provider", "representation_candidate",
                         "exact_dyadic_boundary"):
         binary = report["binaries"][binary_name]
@@ -4877,41 +5706,7 @@ def validate_report(report):
                     "{} {} provenance incomplete".format(
                         binary_name, dependency_name))
     ledgers = report["matrix"]["ledgers"]
-    require(len(ledgers) == 34 and
-            {item["criterion_id"] for item in ledgers} == set(CRITERION_IDS),
-            "matrix criterion-ledger coverage")
-    by_key = {(item["criterion_id"], item["partition"]): item
-              for item in ledgers}
-    require(len(by_key) == len(ledgers), "duplicate criterion ledger partition")
-    require([partition for criterion, partition in by_key
-             if criterion == "oracle_coverage_and_crosscheck"] ==
-            ["oracle_request", "covered", "uncovered"],
-            "oracle ledger partitions")
-    for item in ledgers:
-        criterion_id = item["criterion_id"]
-        expected = EXPECTED_CELL_COUNTS[criterion_id]
-        if item["partition"] in ("covered", "uncovered"):
-            require(item["expected_count"] is None,
-                    "post-oracle partition predicted before oracle")
-        else:
-            require(item["expected_count"] == expected,
-                    "pre-result ledger expected-count drift")
-        if item["availability"]["state"] == "PRESENT":
-            require(item["key_ledger_sha256"] == item["availability"]["sha256"] and
-                    item["omission_blocker"] is None,
-                    "present ledger binding mismatch")
-            if item["partition"] not in ("covered", "uncovered"):
-                require(item["observed_count"] == item["expected_count"],
-                        "present pre-result ledger count mismatch")
-        else:
-            expected_blocker = (
-                "oracle_coverage_and_crosscheck"
-                if item["partition"] in ("covered", "uncovered") else
-                "bindings_and_independence")
-            require(item["key_ledger_sha256"] is None and
-                    item["observed_count"] == 0 and
-                    item["omission_blocker"] == expected_blocker,
-                    "unavailable ledger lacks exact causal omission")
+    by_key = _validate_pre_result_ledgers(ledgers)
     oracle_request = by_key[("oracle_coverage_and_crosscheck",
                              "oracle_request")]
     oracle_covered = by_key[("oracle_coverage_and_crosscheck", "covered")]
@@ -4965,7 +5760,7 @@ def validate_report(report):
                 d12["representation_work"] == "UNAVAILABLE" and
                 d12_statuses == {"INCOMPLETE"},
                 "non-present D12 state/result mismatch")
-    expected = calculate_verdict(report["criteria"])
+    expected = calculate_verdict(report["criteria"], serial_context)
     for key in expected:
         if key != "report_content_sha256":
             require(report["verdict"][key] == expected[key],
@@ -5086,12 +5881,410 @@ def _disk_merkle_commitment(leaves, count, witness_index):
     return root.hex(), siblings
 
 
-def validate_result_sidecar_bundle(report, bundle_root):
+class D12EvidenceVerifier:
+    """Authenticate D12 worker artifacts and raw observation slices."""
+
+    def __init__(self, bundle_root):
+        self.bundle_root = pathlib.Path(bundle_root).resolve()
+        self.file_bindings = {}
+
+    def _path(self, relative_path):
+        require(isinstance(relative_path, str) and relative_path and
+                not pathlib.PurePosixPath(relative_path).is_absolute(),
+                "D12 evidence relative path")
+        path = (self.bundle_root / relative_path).resolve()
+        require(path.is_relative_to(self.bundle_root) and path.is_file(),
+                "D12 evidence path missing/outside bundle")
+        return path
+
+    def sidecar(self, descriptor):
+        require(descriptor["availability"]["state"] == "PRESENT" and
+                type(descriptor["byte_length"]) is int and
+                descriptor["byte_length"] > 0 and
+                type(descriptor["record_count"]) is int and
+                descriptor["record_count"] > 0,
+                "D12 complete sidecar must contain records")
+        path = self._path(descriptor["relative_path"])
+        observed = self.file_bindings.get(path)
+        if observed is None:
+            observed = (path.stat().st_size, sha256_file(path))
+            self.file_bindings[path] = observed
+        require(observed == (descriptor["byte_length"],
+                             descriptor["sha256"]) and
+                descriptor["availability"]["sha256"] ==
+                descriptor["sha256"],
+                "D12 sidecar byte/hash binding mismatch")
+        if path.suffix == ".json":
+            digest = hashlib.sha256()
+            count = sum(1 for _ in _iter_canonical_result_records(
+                path, digest))
+            require(count == descriptor["record_count"] and
+                    digest.hexdigest() == descriptor["sha256"],
+                    "D12 JSON sidecar canonical record-count mismatch")
+        elif path.suffix == ".b2rowv1":
+            count = 0
+            with path.open("rb") as stream:
+                while stream.tell() < observed[0]:
+                    require(stream.read(7) == b"B2ROWV1",
+                            "D12 provider sidecar row magic")
+                    require(len(stream.read(4)) == 4,
+                            "D12 provider sidecar face-row truncation")
+                    raw_length = stream.read(4)
+                    require(len(raw_length) == 4,
+                            "D12 provider sample-length truncation")
+                    sample_length = struct.unpack("<I", raw_length)[0]
+                    sample = stream.read(sample_length)
+                    require(len(sample) == sample_length and b"\0" not in
+                            sample, "D12 provider sample-id truncation/NUL")
+                    sample.decode("utf-8", errors="strict")
+                    raw_ordinal = stream.read(4)
+                    raw_terms = stream.read(4)
+                    require(len(raw_ordinal) == len(raw_terms) == 4,
+                            "D12 provider row header truncation")
+                    require(struct.unpack("<I", raw_ordinal)[0] <
+                            len(ROW_ORDER),
+                            "D12 provider row-kind ordinal")
+                    term_count = struct.unpack("<I", raw_terms)[0]
+                    require(term_count > 0,
+                            "D12 provider row has no coefficients")
+                    previous_source = None
+                    for _ in range(term_count):
+                        raw_source = stream.read(4)
+                        raw_bits = stream.read(8)
+                        require(len(raw_source) == 4 and len(raw_bits) == 8,
+                                "D12 provider coefficient truncation")
+                        source = struct.unpack("<i", raw_source)[0]
+                        coefficient = struct.unpack("<d", raw_bits)[0]
+                        require((previous_source is None or
+                                 previous_source < source) and
+                                math.isfinite(coefficient),
+                                "D12 provider source order/nonfinite")
+                        previous_source = source
+                    count += 1
+                final_position = stream.tell()
+            require(count == descriptor["record_count"] and
+                    final_position == observed[0],
+                    "D12 provider sidecar record-count mismatch")
+        return True
+
+    def raw_observation(self, key, binding):
+        require(binding["availability"]["state"] == "PRESENT" and
+                binding["availability"]["sha256"] == binding["sha256"] and
+                type(binding["byte_offset"]) is int and
+                type(binding["byte_length"]) is int and
+                binding["byte_length"] > 0,
+                "D12 raw observation must be a present nonempty slice")
+        path = self._path(binding["relative_path"])
+        require(path in self.file_bindings,
+                "D12 raw slice lacks a rescanned enclosing sidecar")
+        require(binding["byte_offset"] + binding["byte_length"] <=
+                path.stat().st_size,
+                "D12 raw observation slice outside artifact")
+        with path.open("rb") as stream:
+            stream.seek(binding["byte_offset"])
+            raw = stream.read(binding["byte_length"])
+        require(len(raw) == binding["byte_length"] and
+                sha256_bytes(raw) == binding["sha256"],
+                "D12 raw observation slice hash mismatch")
+        record = strict_json_bytes(raw)
+        require(jcs_bytes(record) == raw,
+                "D12 raw observation slice is not canonical")
+        if isinstance(record, list):
+            observed_key = record[0] if record else None
+        elif isinstance(record, dict):
+            observed_key = record.get("operational_key", record.get("key"))
+        else:
+            observed_key = None
+        require(observed_key == key,
+                "D12 raw observation does not own result key")
+        return True
+
+    def result_record(self, key, exact_value):
+        if exact_value is None:
+            return True
+        kind = _contract_kind(exact_value)
+        raw = exact_value.get("raw_observation")
+        if raw is not None:
+            self.raw_observation(key, raw)
+        if kind in {"d12_concurrency_value_v1",
+                    "d12_tsan_threaded_row_value_v1"}:
+            self.sidecar(exact_value["provider_sidecar"])
+            self.sidecar(exact_value["representation_sidecar"])
+        return True
+
+
+class D12CrossRecordValidator:
+    """Enforce D12 statistics whose truth spans canonical result records."""
+
+    def __init__(self):
+        self.preparation = {}
+        self.rss = {}
+        self.abort_summary_keys = set()
+        self.race_summary_keys = set()
+
+    @staticmethod
+    def case_key(key):
+        return tuple(key[:4])
+
+    def add(self, criterion_id, record):
+        key, outcome, value, target, reason = record
+        kind = _contract_kind(value)
+        if criterion_id == "d12_preparation_cost":
+            group = self.preparation.setdefault(
+                self.case_key(key), {"measured": {}, "median": None})
+            if kind == "d12_duration_valid_v1":
+                if key[13] == "preparation_duration_ns":
+                    require(key[8] not in group["measured"],
+                            "D12 duplicate preparation repeat")
+                    group["measured"][key[8]] = value["duration_ns"]
+                else:
+                    require(group["median"] is None,
+                            "D12 duplicate preparation median")
+                    group["median"] = value["duration_ns"]
+        elif criterion_id == "d12_peak_rss":
+            group = self.rss.setdefault(
+                self.case_key(key), {"baseline": None, "saw_baseline": False})
+            claimed = value.get("baseline_rss_bytes") if value else None
+            if claimed is not None:
+                if group["baseline"] is None:
+                    group["baseline"] = claimed
+                require(claimed == group["baseline"],
+                        "D12 RSS record changed frozen case baseline")
+            if key[12] == "pre_refiner_baseline":
+                require(not group["saw_baseline"] and
+                        kind == "d12_rss_valid_v1" and
+                        value["observed_rss_bytes"] == claimed and
+                        value["rss_delta_bytes"] == 0,
+                        "D12 RSS frozen baseline record mismatch")
+                group["saw_baseline"] = True
+        elif (criterion_id == "d12_cache_disabled_concurrency" and
+              kind == "d12_concurrency_abort_v1"):
+            self.abort_summary_keys.add(jcs_bytes(
+                value["tsan_finding_summary_key"]))
+        elif (criterion_id == "d12_instrumented_tsan" and
+              key[13] == "tsan_finding_count" and value is not None and
+              value.get("sanitizer_abort") is True and
+              SHA256_RE.fullmatch(value.get(
+                  "sanitizer_report_sha256") or "") is not None):
+            self.race_summary_keys.add(jcs_bytes(key))
+
+    def finish(self):
+        for group in self.preparation.values():
+            if group["median"] is not None:
+                require(sorted(group["measured"]) == list(range(15)) and
+                        group["median"] == sorted(
+                            group["measured"].values())[7],
+                        "D12 preparation median is not eighth sorted repeat")
+        require(all(group["saw_baseline"] and group["baseline"] is not None
+                    for group in self.rss.values()),
+                "D12 RSS case lacks one frozen baseline")
+        require(self.abort_summary_keys <= self.race_summary_keys,
+                "D12 concurrency abort lacks same-tuple TSan abort report")
+        return True
+
+
+class FilteredJcsLedger:
+    """Hash a selected canonical-record subsequence as one JCS array."""
+
+    def __init__(self):
+        self.digest = hashlib.sha256(b"[")
+        self.count = 0
+
+    def add(self, encoded):
+        if self.count:
+            self.digest.update(b",")
+        self.digest.update(encoded)
+        self.count += 1
+
+    def finish(self):
+        value = self.digest.copy()
+        value.update(b"]")
+        return value.hexdigest()
+
+
+class D12SerialContextVerifier:
+    """Recompute every serial-only-context field from result ledgers."""
+
+    def __init__(self):
+        self.cache_concurrency = FilteredJcsLedger()
+        self.cache_tsan_summary = FilteredJcsLedger()
+        self.threaded_tsan_summary = FilteredJcsLedger()
+        self.threaded_tsan_rows = FilteredJcsLedger()
+        self.all_tsan = FilteredJcsLedger()
+        self.failure_records = []
+        self.failure_ledger = FilteredJcsLedger()
+        self.tuple_keys = set()
+        self.cache_concurrency_pass = True
+        self.cache_tsan_pass = True
+
+    def add(self, criterion_id, record, encoded_record):
+        key, outcome, _, _, reason = record
+        if criterion_id == "d12_cache_disabled_concurrency":
+            self.cache_concurrency.add(encoded_record)
+            self.cache_concurrency_pass &= outcome == "PASS"
+            return
+        if criterion_id != "d12_instrumented_tsan":
+            return
+        self.all_tsan.add(encoded_record)
+        mode, quantity = key[3], key[13]
+        if quantity in {"instrumentation_coverage", "tsan_finding_count"}:
+            tuple_key = [key[0], key[1], key[4], quantity]
+            self.tuple_keys.add(jcs_bytes(tuple_key))
+            if mode == "cache_disabled":
+                self.cache_tsan_summary.add(encoded_record)
+                self.cache_tsan_pass &= outcome == "PASS"
+            else:
+                self.threaded_tsan_summary.add(encoded_record)
+        elif mode == "threaded_cache" and quantity == "row_digest":
+            self.threaded_tsan_rows.add(encoded_record)
+        if mode == "threaded_cache" and outcome == "FAIL":
+            failure = [key, reason]
+            self.failure_records.append(failure)
+            self.failure_ledger.add(jcs_bytes(failure))
+
+    def finish(self):
+        tuple_keys = [strict_json_bytes(value)
+                      for value in sorted(self.tuple_keys)]
+        require(len(tuple_keys) in (0, 588),
+                "D12 serial context tuple universe incomplete")
+        return {
+            "tuple_count": len(tuple_keys),
+            "all_tuple_keys_sha256": sha256_bytes(jcs_bytes(tuple_keys)),
+            "cache_disabled_concurrency_cell_count":
+                self.cache_concurrency.count,
+            "cache_disabled_concurrency_ledger_sha256":
+                self.cache_concurrency.finish(),
+            "cache_disabled_concurrency_pass":
+                self.cache_concurrency_pass,
+            "cache_disabled_tsan_summary_cell_count":
+                self.cache_tsan_summary.count,
+            "cache_disabled_tsan_summary_sha256":
+                self.cache_tsan_summary.finish(),
+            "cache_disabled_tsan_pass": self.cache_tsan_pass,
+            "threaded_tsan_summary_cell_count":
+                self.threaded_tsan_summary.count,
+            "threaded_tsan_summary_sha256":
+                self.threaded_tsan_summary.finish(),
+            "threaded_tsan_row_digest_cell_count":
+                self.threaded_tsan_rows.count,
+            "threaded_tsan_row_digest_sha256":
+                self.threaded_tsan_rows.finish(),
+            "all_tsan_cell_count": self.all_tsan.count,
+            "all_tsan_result_ledger_sha256": self.all_tsan.finish(),
+            "failure_records": self.failure_records,
+            "failure_records_sha256": self.failure_ledger.finish(),
+        }
+
+
+def _bound_d12_envelope(report, bundle_root):
+    """Load a qualified complete D12 envelope by its report-bound digest."""
+    binding = report.get("d12_artifact")
+    if binding is None:
+        return None
+    if binding["execution_state"] != "QUALIFIED_PLATFORM":
+        return None
+    expected_sha256 = binding["availability"]["sha256"]
+    matches = []
+    for path in pathlib.Path(bundle_root).glob("*.json"):
+        if path.is_file() and sha256_file(path) == expected_sha256:
+            matches.append(path)
+    require(len(matches) == 1,
+            "qualified D12 envelope is not uniquely present in bundle")
+    raw = matches[0].read_bytes()
+    root = strict_json_bytes(raw)
+    require(jcs_bytes(root) == raw,
+            "qualified D12 artifact bytes are not canonical JCS")
+    envelope = (root.get("anchored_row_representation_d12")
+                if isinstance(root, dict) else None)
+    if envelope is None and isinstance(root, dict) and root.get(
+            "schema_id") == "anchored-row-representation-d12-v1":
+        envelope = root
+    require(isinstance(envelope, dict),
+            "qualified D12 envelope missing from bound artifact")
+    validate_d12_envelope_contract(
+        envelope, report["identity"]["git_end"]["git_commit"])
+    return envelope
+
+
+class ProviderRowVerifier:
+    """Bind structure rows to the authenticated checkpoint artifacts."""
+
+    def __init__(self, checkpoint_path, artifact_root, report):
+        require(checkpoint_path is not None and artifact_root is not None,
+                "structure validation requires checkpoint and provider artifacts")
+        self.checkpoint_path = pathlib.Path(checkpoint_path).resolve()
+        self.artifact_root = pathlib.Path(artifact_root).resolve()
+        require(self.checkpoint_path.is_file() and self.artifact_root.is_dir(),
+                "structure checkpoint/provider artifact path missing")
+        require(sha256_file(self.checkpoint_path) ==
+                report["checkpoint"]["availability"]["sha256"],
+                "structure checkpoint does not match report binding")
+        checkpoint = strict_json_bytes(self.checkpoint_path.read_bytes())
+        require(checkpoint.get("complete") is True and
+                checkpoint.get("binding", {}).get("git_head") ==
+                report["checkpoint"]["git_head"],
+                "structure checkpoint completion/head mismatch")
+        self.cases = {}
+        for case in ordered_bfr_cases(checkpoint):
+            case_key = (case["content_identity_key"],
+                        normalized_cache_mode(case["applicable_mode"]),
+                        case["approximation_level"])
+            require(case_key not in self.cases,
+                    "structure checkpoint duplicate case")
+            self.cases[case_key] = case
+        self.loaded_case_key = None
+        self.rows = None
+
+    def result_record(self, key, exact_value):
+        case_key = tuple(key[:3])
+        case = self.cases.get(case_key)
+        require(case is not None, "structure row has no checkpoint case")
+        if case_key != self.loaded_case_key:
+            artifact_path = self.artifact_root / case["complete_json_artifact"]
+            require(sha256_file(artifact_path) ==
+                    case["complete_json_artifact_sha256"],
+                    "structure provider artifact archive hash mismatch")
+            artifact = _artifact_report(self.artifact_root, case)
+            self.rows = {}
+            for row in artifact["rows"]:
+                row_key = (row["face_row"],
+                           None if row["local_corner_or_none"] == -1 else
+                           row["local_corner_or_none"],
+                           row["sample_id"], row["row_kind"])
+                require(row_key not in self.rows,
+                        "structure provider artifact duplicate row")
+                self.rows[row_key] = row
+            self.loaded_case_key = case_key
+        row_key = (key[3], key[4], key[5], key[6])
+        row = self.rows.get(row_key)
+        require(row is not None, "structure provider row missing")
+        require(exact_value["canonical_source_ids"] == row["source_ids"] and
+                exact_value["provider_coefficient_bits"] == [
+                    binary64_bits_hex(coefficient)
+                    for coefficient in row["coefficients"]],
+                "structure result differs from authenticated provider row")
+        return True
+
+
+def validate_result_sidecar_bundle(report, bundle_root, checkpoint_path=None,
+                                   artifact_root=None):
     """Stream-rescan all result bytes, exact outcomes, maxima, and proofs."""
-    validate_report(report)
     bundle_root = pathlib.Path(bundle_root).resolve()
-    d12_abort_summary_keys = set()
-    d12_race_summary_keys = set()
+    d12_envelope = _bound_d12_envelope(report, bundle_root)
+    serial_context = (None if d12_envelope is None else
+                      d12_envelope["serial_only_context"])
+    validate_report(report, serial_context)
+    d12_evidence = D12EvidenceVerifier(bundle_root)
+    if d12_envelope is not None:
+        workload = d12_envelope["workload"]
+        d12_evidence.sidecar(workload["provider_serial_reference"])
+        d12_evidence.sidecar(workload["representation_serial_reference"])
+        d12_evidence.sidecar(workload["process_observation_sidecar"])
+        for sidecar in workload["sidecars"]:
+            d12_evidence.sidecar(sidecar)
+    d12_cross_records = D12CrossRecordValidator()
+    d12_serial_context = D12SerialContextVerifier()
+    provider_rows = None
     for criterion in report["criteria"]:
         descriptor = criterion["result_ledger_artifact"]
         if descriptor["availability"]["state"] != "PRESENT":
@@ -5125,6 +6318,18 @@ def validate_result_sidecar_bundle(report, bundle_root):
                     basis_groups.add(record)
                 else:
                     validate_contract_result_record(criterion_id, record)
+                if criterion_id == "bindings_and_independence":
+                    _validate_binding_against_report(record[2], report)
+                elif criterion_id == "representation_structure":
+                    if provider_rows is None:
+                        provider_rows = ProviderRowVerifier(
+                            checkpoint_path, artifact_root, report)
+                    provider_rows.result_record(record[0], record[2])
+                elif criterion_id in D12_CRITERIA:
+                    d12_evidence.result_record(record[0], record[2])
+                    d12_cross_records.add(criterion_id, record)
+                    d12_serial_context.add(
+                        criterion_id, record, encoded_record)
                 encoded_key = jcs_bytes(record[0])
                 require(previous_key is None or previous_key < encoded_key,
                         "result ledger duplicate or key-order drift")
@@ -5139,16 +6344,6 @@ def validate_result_sidecar_bundle(report, bundle_root):
                 if criterion_id == "raw_bfr_d9a_reproduction":
                     raw_fail_states += (
                         record[2]["raw_invariant_state"] == "FAIL")
-                if (criterion_id == "d12_cache_disabled_concurrency" and
-                        _contract_kind(record[2]) ==
-                        "d12_concurrency_abort_v1"):
-                    d12_abort_summary_keys.add(
-                        jcs_bytes(record[2]["tsan_finding_summary_key"]))
-                if (criterion_id == "d12_instrumented_tsan" and
-                        record[0][13] == "tsan_finding_count" and
-                        record[1:2] == ["FAIL"] and
-                        record[4] == "CACHE_DISABLED_RACE"):
-                    d12_race_summary_keys.add(jcs_bytes(record[0]))
                 field = RESULT_CONTRACT.CRITERION_BY_ID[criterion_id][
                     "maximum_field"]
                 if field is not None:
@@ -5202,25 +6397,21 @@ def validate_result_sidecar_bundle(report, bundle_root):
         if maximum is not None:
             witness = criterion["witness"]
             require(criterion["maximum"] == maximum and
-                    isinstance(witness, dict) and
-                    witness["leaf_index"] == maximum_index and
-                    witness["cell_key"] == maximum_record[0] and
-                    witness["result_record"] == maximum_record and
-                    witness["maximum_exact"] == maximum and
-                    witness["maximum_binary64_bits"] ==
-                        _exact_display_bits(maximum) and
-                    witness["merkle_siblings"] == siblings,
-                    "criterion maximum is not first canonical maximum")
-            validate_result_merkle_witness(
-                maximum_record_bytes, maximum_index, siblings, root,
-                observed_count=count)
+                    criterion["maximum"] == witness["maximum_exact"],
+                    "criterion maximum differs from witness")
+            validate_maximum_witness_binding(
+                witness, maximum, maximum_record, maximum_record_bytes,
+                maximum_index, siblings, root, count)
         else:
             require(criterion["maximum"] is None and
                     criterion["witness"] is None,
                     "criterion claims maximum without measurable record")
 
-    require(d12_abort_summary_keys <= d12_race_summary_keys,
-            "D12 concurrency abort lacks same-tuple TSan race summary")
+    d12_cross_records.finish()
+    computed_serial_context = d12_serial_context.finish()
+    if serial_context is not None:
+        require(computed_serial_context == serial_context,
+                "D12 serial-only context differs from complete result ledgers")
 
     unexpected = report["matrix"]["unexpected_paths"]
     inventory_criterion = report["criteria"][
@@ -5452,6 +6643,15 @@ def validate_raw_d9a_frozen_global(records, maximum_exact,
     """Bind the 196 reproduced cases to the amendment's exact D9a literals."""
     require(isinstance(records, list) and len(records) == 196,
             "raw D9a frozen case cardinality")
+    for record in records:
+        require(isinstance(record, list) and len(record) == 5 and
+                _contract_kind(record[2]) == "raw_d9a_value_v1" and
+                (record[2]["raw_invariant_state"] == "FAIL") ==
+                    (record[2]["failing_row_count"] > 0) and
+                SHA256_RE.fullmatch(
+                    record[2]["canonical_raw_rows_sha256"] or "") is not
+                    None,
+                "raw D9a case state/count/digest coupling")
     require(sum(record[2]["raw_invariant_state"] == "FAIL"
                 for record in records) == RAW_D9A_FROZEN_FAILING_CASE_COUNT,
             "raw D9a frozen failing-case count")
@@ -6062,15 +7262,20 @@ def main(argv=None):
             encoded = jcs_bytes(value) + b"\n"
         elif args.validate_report:
             supplied = [value for key, value in vars(args).items()
-                        if key not in ("validate_report", "json")]
+                        if key not in ("validate_report", "json",
+                                       "checkpoint", "artifact_dir")]
             require(not any(supplied),
-                    "report validation accepts only its report path")
+                    "report validation accepts only report/checkpoint/artifacts")
+            require(bool(args.checkpoint) == bool(args.artifact_dir),
+                    "report validation provider inputs must be paired")
             report_path = pathlib.Path(args.validate_report).resolve()
             raw = report_path.read_bytes()
             value = strict_json_bytes(raw)
             require(jcs_bytes(value) == raw,
                     "qualification report bytes are not canonical JCS")
-            validate_result_sidecar_bundle(value, report_path.parent)
+            validate_result_sidecar_bundle(
+                value, report_path.parent, args.checkpoint,
+                args.artifact_dir)
             encoded = jcs_bytes({
                 "kind": "anchored_row_qualification_bundle_validation",
                 "report_sha256": sha256_bytes(raw), "status": "ok"}) + b"\n"

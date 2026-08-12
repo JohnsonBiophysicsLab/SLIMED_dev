@@ -311,6 +311,8 @@ jobs:
             --output "$RUNNER_TEMP/anchored-row-qualification-report.json"
           python3 scripts/run_anchored_row_qualification.py \
             --validate-report "$RUNNER_TEMP/anchored-row-qualification-report.json" \
+            --checkpoint "$RUNNER_TEMP/bfr-release-checkpoint.json" \
+            --artifact-dir "$RUNNER_TEMP/bfr-case-json" \
             --json
           python3 -c 'import json, os; value=json.load(open(os.environ["RUNNER_TEMP"] + "/anchored-row-qualification-report.json")); assert value["identity"]["implementation_state"] == "INCOMPLETE_MISSING_ORACLE_DEPENDENT_CELL_EXECUTION_D12_EXECUTION_AND_PRIMARY_STAM_UNIFORM_ORACLES"; assert value["verdict"]["status"] == "INCOMPLETE"; assert value["criteria"][10]["status"] == "INCOMPLETE"; assert value["criteria"][10]["result_ledger_sha256"] is None; assert value["criteria"][10]["observed_cell_count"] == 0'
 

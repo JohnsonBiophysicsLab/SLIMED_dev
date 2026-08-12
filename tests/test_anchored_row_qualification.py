@@ -507,26 +507,41 @@ class AnchoredRowQualificationTests(unittest.TestCase):
             "d12_instrumented_tsan", "FAIL")
         key = ["content", 7, "tsan", "threaded_cache", 2, 1, 0,
                None, None, None, None, None, "thread_result", "row_digest"]
-        context = {"complete_tsan_tuple_count": 588,
-                   "complete_tsan_cell_count": MODULE.EXPECTED_CELL_COUNTS[
-                       "d12_instrumented_tsan"],
-                   "cache_disabled_tsan_pass": True,
-                   "failures": [{"key": key,
-                                  "reason": "THREADED_CACHE_RACE"}]}
+        failures = [[key, "THREADED_CACHE_RACE"]]
+        context = {
+            "tuple_count": 588, "all_tuple_keys_sha256": "a" * 64,
+            "cache_disabled_concurrency_cell_count": 13720,
+            "cache_disabled_concurrency_ledger_sha256": "a" * 64,
+            "cache_disabled_concurrency_pass": True,
+            "cache_disabled_tsan_summary_cell_count": 588,
+            "cache_disabled_tsan_summary_sha256": "a" * 64,
+            "cache_disabled_tsan_pass": True,
+            "threaded_tsan_summary_cell_count": 588,
+            "threaded_tsan_summary_sha256": "a" * 64,
+            "threaded_tsan_row_digest_cell_count": 13720,
+            "threaded_tsan_row_digest_sha256": "a" * 64,
+            "all_tsan_cell_count": 14896,
+            "all_tsan_result_ledger_sha256": "a" * 64,
+            "failure_records": failures,
+            "failure_records_sha256": MODULE.sha256_bytes(
+                MODULE.jcs_bytes(failures))}
         verdict = MODULE.calculate_verdict(records, context)
         self.assertTrue(verdict["serial_only_qualification_eligible"])
         self.assertEqual(verdict["serial_only_reason"],
                          "ELIGIBLE_PENDING_EXPLICIT_USER_DECISION")
         self.assertEqual(verdict["threaded_only_failure_ledger_sha256"],
-                         MODULE.generic_key_ledger_sha256([key]))
+                         MODULE.sha256_bytes(MODULE.jcs_bytes(failures)))
         for mutation in (
-                {"complete_tsan_tuple_count": 587},
+                {"tuple_count": 587},
                 {"cache_disabled_tsan_pass": False},
-                {"failures": [{"key": key,
-                               "reason": "THREADED_CACHE_OUTPUT_MISMATCH"}]},
-                {"failures": []}):
+                {"failure_records": [
+                    [key, "THREADED_CACHE_OUTPUT_MISMATCH"]]},
+                {"failure_records": []}):
             changed = copy.deepcopy(context)
             changed.update(mutation)
+            if "failure_records" in mutation:
+                changed["failure_records_sha256"] = MODULE.sha256_bytes(
+                    MODULE.jcs_bytes(changed["failure_records"]))
             self.assertFalse(MODULE.calculate_verdict(
                 records, changed)["serial_only_qualification_eligible"])
         scientific_fail = copy.deepcopy(records)
@@ -669,9 +684,12 @@ class AnchoredRowQualificationTests(unittest.TestCase):
     def test_raw_d9a_global_literals_are_exact_and_mutation_binding(self):
         records = []
         for index in range(196):
+            state = "FAIL" if index < 124 else "PASS"
             records.append([["raw", index], "PASS", {
-                "raw_invariant_state": "FAIL" if index < 124 else "PASS"},
-                None, None])
+                "kind": "raw_d9a_value_v1",
+                "raw_invariant_state": state,
+                "failing_row_count": 1 if state == "FAIL" else 0,
+                "canonical_raw_rows_sha256": "a" * 64}, None, None])
         maximum = {
             "kind": "absolute_dyadic_v1",
             "numerator_hex": MODULE.RAW_D9A_FROZEN_MAXIMUM_NUMERATOR_HEX,
@@ -819,6 +837,33 @@ class AnchoredRowQualificationTests(unittest.TestCase):
                 "matrix": {"unexpected_paths": evidence[
                     "complete_artifact_inventory"]["unexpected_paths"]},
             }
+            binding_record = json.loads((
+                output / evidence["bindings_and_independence"]["artifact"][
+                    "relative_path"]).read_text(encoding="utf-8"))[0][2]
+            report["identity"] = {
+                "git_start": {"git_commit": binding_record["git_start"]},
+                "git_end": {"git_commit": binding_record["git_end"]},
+                "worktree_start": {
+                    "clean": binding_record["worktree_start_clean"]},
+                "worktree_end": {
+                    "clean": binding_record["worktree_end_clean"]},
+                "validator": {"sha256": binding_record["validator_sha256"]},
+            }
+            report["binaries"] = {
+                "oracle_independence_audit": binding_record[
+                    "oracle_independence_audit"]}
+            for prefix, binary_name in (
+                    ("row_provider", "row_provider"),
+                    ("representation", "representation_candidate"),
+                    ("exact_boundary", "exact_dyadic_boundary"),
+                    ("independent_oracle", "independent_oracle")):
+                report["binaries"][binary_name] = {
+                    "availability": MODULE.availability(
+                        binding_record[prefix + "_availability"],
+                        binding_record[prefix + "_sha256"],
+                        reason_code=(None if binding_record[
+                            prefix + "_availability"] == "PRESENT" else
+                            "EXECUTION_UNAVAILABLE"))}
             with mock.patch.object(MODULE, "validate_report",
                                    return_value=True):
                 self.assertTrue(MODULE.validate_result_sidecar_bundle(
@@ -1115,6 +1160,54 @@ class AnchoredRowQualificationTests(unittest.TestCase):
                 [basis_record], criterion_id=
                 "binary64_basis_probe_diagnostic")
 
+    def test_structure_rows_bind_to_checkpoint_provider_artifact(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary)
+            artifacts = root / "artifacts"
+            artifacts.mkdir()
+            row = {"face_row": 0, "local_corner_or_none": -1,
+                   "sample_id": "sample", "row_kind": "position",
+                   "source_ids": [0, 1], "coefficients": [0.25, 0.75]}
+            raw = MODULE.jcs_bytes({"rows": [row]})
+            archive = gzip.compress(raw, mtime=0)
+            archive_path = artifacts / "case-000.json.gz"
+            archive_path.write_bytes(archive)
+            cases = []
+            for index in range(196):
+                cases.append({
+                    "content_identity_key": "content-{:03d}".format(index),
+                    "candidate": "bfr", "approximation_level": 2,
+                    "applicable_mode": "cache_disabled",
+                    "complete_json_artifact":
+                        "case-000.json.gz" if index == 0 else
+                        "unused-{:03d}.json.gz".format(index),
+                    "complete_json_artifact_sha256":
+                        MODULE.sha256_bytes(archive),
+                    "complete_json_sha256": MODULE.sha256_bytes(raw)})
+            checkpoint = {"complete": True,
+                          "binding": {"git_head": "a" * 40},
+                          "numeric_cases": cases}
+            checkpoint_path = root / "checkpoint.json"
+            checkpoint_path.write_bytes(MODULE.jcs_bytes(checkpoint))
+            report = {"checkpoint": {
+                "availability": MODULE.availability(
+                    "PRESENT", MODULE.sha256_file(checkpoint_path)),
+                "git_head": "a" * 40}}
+            verifier = MODULE.ProviderRowVerifier(
+                checkpoint_path, artifacts, report)
+            key = ["content-000", "cache_disabled", 2, 0, None,
+                   "sample", "position", "structural", "v0", "identity",
+                   None, None, None, None, None]
+            value = {"canonical_source_ids": [0, 1],
+                     "provider_coefficient_bits": [
+                         MODULE.binary64_bits_hex(0.25),
+                         MODULE.binary64_bits_hex(0.75)]}
+            self.assertTrue(verifier.result_record(key, value))
+            value["provider_coefficient_bits"][0] = \
+                MODULE.binary64_bits_hex(0.5)
+            with self.assertRaises(MODULE.QualificationError):
+                verifier.result_record(key, value)
+
     def test_geometry_and_d12_values_are_coupled_to_their_keys(self):
         zero = {"kind": "rational_v1", "numerator": "0",
                 "denominator": "1"}
@@ -1270,6 +1363,88 @@ class AnchoredRowQualificationTests(unittest.TestCase):
         rss[8] = 3
         with self.assertRaises(MODULE.QualificationError):
             MODULE.validate_d12_key(rss, "d12_peak_rss")
+
+    def test_d12_evidence_rescans_enclosing_json_and_b2row_bytes(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary)
+            key = ["content", 2, "release", "cache_disabled", None,
+                   None, None, "measured", 0, None, None, None, None,
+                   "preparation_duration_ns"]
+            encoded_record = MODULE.jcs_bytes([key, {"token": "1"}, {}])
+            process_raw = b"[" + encoded_record + b"]"
+            process_path = root / "process.json"
+            process_path.write_bytes(process_raw)
+            process_digest = MODULE.sha256_bytes(process_raw)
+            process_descriptor = {
+                "availability": MODULE.availability(
+                    "PRESENT", process_digest),
+                "relative_path": "process.json",
+                "byte_length": len(process_raw), "record_count": 1,
+                "sha256": process_digest}
+            verifier = MODULE.D12EvidenceVerifier(root)
+            verifier.sidecar(process_descriptor)
+            binding = {
+                "availability": MODULE.availability(
+                    "PRESENT", MODULE.sha256_bytes(encoded_record)),
+                "relative_path": "process.json", "byte_offset": 1,
+                "byte_length": len(encoded_record),
+                "sha256": MODULE.sha256_bytes(encoded_record)}
+            self.assertTrue(verifier.raw_observation(key, binding))
+            changed = copy.deepcopy(binding)
+            changed["byte_offset"] = 0
+            with self.assertRaises(MODULE.QualificationError):
+                verifier.raw_observation(key, changed)
+
+            row = (b"B2ROWV1" + struct.pack("<i", 0) +
+                   struct.pack("<I", 6) + b"sample" +
+                   struct.pack("<I", 0) + struct.pack("<I", 1) +
+                   struct.pack("<i", 0) + struct.pack("<d", 1.0))
+            row_path = root / "provider.b2rowv1"
+            row_path.write_bytes(row)
+            row_digest = MODULE.sha256_bytes(row)
+            self.assertTrue(verifier.sidecar({
+                "availability": MODULE.availability("PRESENT", row_digest),
+                "relative_path": "provider.b2rowv1",
+                "byte_length": len(row), "record_count": 1,
+                "sha256": row_digest}))
+
+    def test_d12_cross_record_statistics_are_recomputed(self):
+        validator = MODULE.D12CrossRecordValidator()
+        for repeat in range(15):
+            key = ["content", 2, "release", "cache_disabled", None,
+                   None, None, "measured", repeat, None, None, None, None,
+                   "preparation_duration_ns"]
+            validator.add("d12_preparation_cost", [
+                key, "PASS", {"kind": "d12_duration_valid_v1",
+                               "duration_ns": repeat}, None, None])
+        median_key = ["content", 2, "release", "cache_disabled", None,
+                      None, None, None, None, None, None, None, None,
+                      "preparation_median_ns"]
+        validator.add("d12_preparation_cost", [
+            median_key, "PASS", {"kind": "d12_duration_valid_v1",
+                                  "duration_ns": 7}, None, None])
+        baseline_key = ["content", 2, "release", "cache_disabled", None,
+                        None, None, None, None, None, None, None,
+                        "pre_refiner_baseline", "rss_bytes"]
+        validator.add("d12_peak_rss", [
+            baseline_key, "PASS", {"kind": "d12_rss_valid_v1",
+                                    "baseline_rss_bytes": 10,
+                                    "observed_rss_bytes": 10,
+                                    "rss_delta_bytes": 0}, None, None])
+        self.assertTrue(validator.finish())
+        changed = MODULE.D12CrossRecordValidator()
+        for repeat in range(15):
+            key = ["content", 2, "release", "cache_disabled", None,
+                   None, None, "measured", repeat, None, None, None, None,
+                   "preparation_duration_ns"]
+            changed.add("d12_preparation_cost", [
+                key, "PASS", {"kind": "d12_duration_valid_v1",
+                               "duration_ns": repeat}, None, None])
+        changed.add("d12_preparation_cost", [
+            median_key, "PASS", {"kind": "d12_duration_valid_v1",
+                                  "duration_ns": 8}, None, None])
+        with self.assertRaises(MODULE.QualificationError):
+            changed.finish()
 
     def test_d12_observed_head_probe_and_worktree_are_not_synthesized(self):
         head = "1" * 40
