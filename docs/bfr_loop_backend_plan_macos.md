@@ -1413,6 +1413,17 @@ packet only. The packet is
 It requires exact-SHA technical, scientific, and gatekeeper review followed by
 explicit user approval before a separate B2c proof implementation may start.
 
+Review of the first B2c development execution exposed a result-evidence gap.
+The separate documentation-only
+[`anchored_row_qualification_result_ledger_amendment.md`](anchored_row_qualification_result_ledger_amendment.md)
+is therefore proposed as an additive B2b input amendment. It freezes complete
+criterion result records and commitments, non-forgeable maximum membership,
+the all-relabel basis ownership/cardinality, real infrastructure/raw-D9a
+records, a closed B2c D12 representation-work envelope, and exhaustive
+mutation requirements. It changes no scientific or operational target. It is
+not authority until it independently passes the B2b T2 gate and receives
+explicit user approval; development results cannot supply that approval.
+
 Frozen proposal:
 
 - reuse the exact D10 MPFR/Stam oracle, fixtures, manifest hashes, row targets,
@@ -1889,8 +1900,8 @@ Nothing in this plan decides them.
 | KB2r | B2-readiness budgets plus complete section-8/section-7 fixture execution manifest | Merged as PR 195 at `b8cb9470077c1c5e15449318eff7b61e7464cd51`; D12 approved 2026-08-10 before any candidate run | T2 + explicit user D12 |
 | KB2 | Bfr qualification evidence against B2p's and D12's frozen inputs; Far comparator results published | Merged as PR 197 at `5d49b7ff06160cbdfa25eb19c973b4bcccac59d9`; exact head `efbe73f94e42e9f364baf6b2531ef4c7104cded9` passed all T2 reviews; D9a recorded Bfr not qualified on 2026-08-10 | T2 verification + technical + scientific + gatekeeper completed; explicit user D9a decision recorded |
 | KB2a | Proof-only invariant-preserving row-representation architecture preflight; no production | Merged as PR 199 at `1a8763fc931ace724828504972b2fc3fc61a1795`; exact head `2c6d455abde562d63967d4ab301c6365775d0662` passed verification, technical, scientific, and gatekeeper review; user selected `anchored_difference_rows_v1` solely as a proof qualification candidate | Reviews complete; candidate selection recorded, not qualification |
-| KB2b | Freeze anchored-row independent-oracle application, all-three-anchor sensitivity protocol, scientific targets, and verdict semantics before execution | Proposed; no candidate run or result authorized | T2 verification + technical + scientific + gatekeeper, then explicit user frozen-input approval |
-| KB2c | Execute the separately scoped proof-only anchored-row qualification against approved B2b inputs | Blocked pending merged and explicitly approved KB2b plus separate package authorization | T2 verification + technical + scientific + gatekeeper, then explicit user qualification decision |
+| KB2b | Freeze anchored-row independent-oracle application, all-three-anchor sensitivity protocol, scientific targets, verdict semantics, and the separately reviewed complete result-evidence amendment before authoritative execution | Original input packet merged and approved; additive result-evidence amendment proposed after B2c review and still requires T2 PASS plus explicit user approval | T2 verification + technical + scientific + gatekeeper, then explicit user amendment approval |
+| KB2c | Execute the separately scoped proof-only anchored-row qualification against approved B2b inputs | Development execution remains non-authoritative and blocked pending merged and explicitly approved B2b result-evidence amendment plus a corrected exact-SHA package | T2 verification + technical + scientific + gatekeeper, then explicit user qualification decision |
 | KB3 | Bfr full-mesh provider; owns the exact 30700 pin and the no-Far-in-production tests | Blocked by recorded D9a outcome: Bfr not qualified. Requires a new explicit architecture decision; no Far fallback. | T2, only after a new explicit architecture decision |
 | KB4 | Topology epoch cache, invalidation, flip-pair re-preparation cost | Pending B3 | Technical |
 | KB9b | D9b Bfr production-activation acceptance on integrated-functional evidence | Deferred to after WP5.2 | Scientific + explicit user |
