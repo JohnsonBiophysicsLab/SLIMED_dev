@@ -131,6 +131,10 @@ class AnchoredRowQualificationTests(unittest.TestCase):
         self.assertEqual(counts["M12"], 32 * 9)
         self.assertEqual(counts["M16"], 26)
 
+    def test_all_3501_literal_mutations_have_executable_rejections(self):
+        rejected = MODULE.execute_literal_mutation_suite()
+        self.assertEqual(rejected, MODULE.literal_mutation_manifest())
+
     def test_report_reachable_references_use_only_reviewed_definitions(self):
         schema = MODULE.load_schema()
         self.assertEqual(schema["$defs"]["binary"]["properties"]["sources"][
@@ -609,8 +613,8 @@ class AnchoredRowQualificationTests(unittest.TestCase):
              None, "CONSTANT_FIELD_BITS_MISMATCH"],
             [key(2), "PASS",
              {"kind": "binary64_pair_v1",
-              "observed_bits": "4000000000000000",
-              "expected_bits": "4000000000000000"},
+              "observed_bits": "0000000000000000",
+              "expected_bits": "0000000000000000"},
              None, None],
         ]
         commitment = MODULE.canonical_result_ledger(records, witness_index=1)
@@ -1034,6 +1038,83 @@ class AnchoredRowQualificationTests(unittest.TestCase):
             MODULE.validate_contract_value(
                 "oracle_coefficient_l1_v1", invalid_oracle_value)
 
+    def test_runner_derives_binding_structure_constant_and_basis_truth(self):
+        binding = {
+            "kind": "binding_value_v1", "git_start": "a" * 40,
+            "git_end": "a" * 40, "worktree_start_clean": True,
+            "worktree_end_clean": True, "validator_sha256": "a" * 64,
+            "row_provider_availability": "PRESENT",
+            "row_provider_sha256": "b" * 64,
+            "representation_availability": "PRESENT",
+            "representation_sha256": "c" * 64,
+            "exact_boundary_availability": "PRESENT",
+            "exact_boundary_sha256": "d" * 64,
+            "independent_oracle_availability": "PRESENT",
+            "independent_oracle_sha256": "e" * 64,
+            "oracle_independence_audit": "PASS",
+            "manifest_file_sha256": MODULE.B2.MANIFEST_FILE_SHA256,
+            "manifest_contract_sha256": MODULE.B2.MANIFEST_CONTRACT_SHA256,
+            "gmp_identity": "gmp-6.3.0", "mpfr_identity": "mpfr-4.2.2",
+            "opensubdiv_identity": "opensubdiv-3.7.0",
+            "provenance_complete": True}
+        record = [["bindings_and_independence",
+                   "exact_head_and_provenance"],
+                  "PASS", binding, None, None]
+        MODULE.validate_contract_result_record(
+            "bindings_and_independence", record)
+        record[2]["provenance_complete"] = False
+        with self.assertRaises(MODULE.QualificationError):
+            MODULE.validate_contract_result_record(
+                "bindings_and_independence", record)
+
+        structure_key = [
+            "content", "cache_disabled", 2, 0, None, "sample", "position",
+            "structural", "v0", "identity", None, None, None, None, None]
+        one = {"kind": "signed_dyadic_v1", "sign": 1,
+               "numerator_hex": format(1 << 1074, "x"),
+               "denominator_power": 1074}
+        zero = {"kind": "signed_dyadic_v1", "sign": 0,
+                "numerator_hex": "0", "denominator_power": 1074}
+        structure = {
+            "kind": "structure_present_v1", "anchor_id": "v0",
+            "anchor_present": True, "canonical_source_ids": [0, 1],
+            "provider_coefficient_bits": ["3fe0000000000000",
+                                          "3fe0000000000000"],
+            "provider_row_sha256": "a" * 64,
+            "effective_coefficients": [zero, one],
+            "observed_sum": one, "expected_sum": one, "source_count": 2}
+        forged = [structure_key, "PASS", structure, None, None]
+        with self.assertRaises(MODULE.QualificationError):
+            MODULE.validate_contract_result_record(
+                "representation_structure", forged)
+
+        constant_key = list(structure_key)
+        constant_key[7] = "emitted_binary64"
+        constant_key[14] = "positive_one"
+        fabricated = [constant_key, "PASS", {
+            "kind": "binary64_pair_v1", "observed_bits": "0000000000000000",
+            "expected_bits": "0000000000000000"}, None, None]
+        with self.assertRaises(MODULE.QualificationError):
+            MODULE.validate_contract_result_record(
+                "constant_field_bits", fabricated)
+
+        basis_key = list(structure_key)
+        basis_key[7] = "emitted_binary64"
+        basis_key[10] = 0
+        half = {"kind": "absolute_dyadic_v1", "numerator_hex": "1",
+                "denominator_power": 1074}
+        basis = {"kind": "basis_value_v1",
+                 "emitted_basis_bits": "0000000000000000",
+                 "exact_effective": zero, "source_error": {
+                     "kind": "absolute_dyadic_v1", "numerator_hex": "0",
+                     "denominator_power": 1074}, "group_l1": half}
+        basis_record = [basis_key, "PASS", basis,
+                        MODULE.absolute_rational_target("2000000"), None]
+        with self.assertRaises(MODULE.QualificationError):
+            MODULE.canonical_result_ledger(
+                [basis_record], criterion_id=
+                "binary64_basis_probe_diagnostic")
+
     def test_geometry_and_d12_values_are_coupled_to_their_keys(self):
         zero = {"kind": "rational_v1", "numerator": "0",
                 "denominator": "1"}
@@ -1100,6 +1181,57 @@ class AnchoredRowQualificationTests(unittest.TestCase):
         with self.assertRaises(MODULE.QualificationError):
             MODULE.validate_contract_result_record(
                 "d12_retained_payload", payload_record)
+
+        qualified_overrun = copy.deepcopy(payload_record)
+        qualified_overrun[2]["face_id"] = 3
+        qualified_overrun[2]["payload_bytes"] = 131073
+        qualified_overrun[1] = "FAIL"
+        qualified_overrun[4] = "D12_PLATFORM_UNQUALIFIED"
+        with self.assertRaises(MODULE.QualificationError):
+            MODULE.validate_contract_result_record(
+                "d12_retained_payload", qualified_overrun)
+
+        invalid_payload = {
+            "kind": "d12_payload_invalid_v1", "payload_bytes": None,
+            "face_id": 3, "invalid_state": "MISSING_COUNT",
+            "platform_state": "QUALIFIED_PLATFORM",
+            "raw_observation": copy.deepcopy(payload["raw_observation"])}
+        self.assertIsNone(MODULE._record_numeric_measure_or_none(
+            "d12_retained_payload", invalid_payload))
+
+        concurrency_key = [
+            "content", 7, "tsan", "cache_disabled", 2, 1, 3, None,
+            None, None, None, None, "thread_result", "row_digest"]
+        target = {"kind": "d12_output_reference_target_v1",
+                  "provider_expected_sha256": "b" * 64,
+                  "representation_expected_sha256": "c" * 64}
+        unavailable_sidecar = {
+            "availability": MODULE.availability(
+                "UNAVAILABLE", reason_code="EXECUTION_UNAVAILABLE"),
+            "relative_path": None, "byte_length": None,
+            "record_count": None, "sha256": None}
+        normal = {
+            "kind": "d12_concurrency_value_v1",
+            "provider_sidecar": copy.deepcopy(unavailable_sidecar),
+            "representation_sidecar": copy.deepcopy(unavailable_sidecar),
+            "provider_observed_sha256": None,
+            "provider_expected_sha256": "b" * 64,
+            "representation_observed_sha256": None,
+            "representation_expected_sha256": "c" * 64,
+            "platform_state": "QUALIFIED_PLATFORM"}
+        with self.assertRaises(MODULE.QualificationError):
+            MODULE.validate_contract_result_record(
+                "d12_cache_disabled_concurrency",
+                [concurrency_key, "FAIL", normal, target,
+                 "CACHE_DISABLED_CONCURRENCY_MISMATCH"])
+        abort = copy.deepcopy(normal)
+        abort["kind"] = "d12_concurrency_abort_v1"
+        abort["tsan_finding_summary_key"] = ["arbitrary"]
+        with self.assertRaises(MODULE.QualificationError):
+            MODULE.validate_contract_result_record(
+                "d12_cache_disabled_concurrency",
+                [concurrency_key, "FAIL", abort, target,
+                 "CACHE_DISABLED_RACE"])
 
     def test_d12_nullable_dimensions_and_worker_bound_fail_closed(self):
         preparation = ["content", 7, "release", "cache_disabled", None,
