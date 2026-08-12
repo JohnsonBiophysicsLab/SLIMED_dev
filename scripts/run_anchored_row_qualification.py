@@ -2615,7 +2615,9 @@ def make_criteria(worktree, all_required_bindings_present, ledgers,
                                             "oracle_coverage_and_crosscheck" else
                                             "requires complete frozen proof infrastructure"),
                                         expected=EXPECTED_CELL_COUNTS[criterion_id],
-                                        observed=0, ledger=None))
+                                        observed=0,
+                                        ledger=ledger_by_criterion[
+                                            criterion_id]["key_ledger_sha256"]))
     require(len(records) == 32, "criterion record count")
     return records
 

@@ -166,6 +166,25 @@ class AnchoredRowQualificationTests(unittest.TestCase):
         self.assertEqual(criteria[3]["status"],
                          "OMITTED_AFTER_INFRASTRUCTURE_FAILURE")
 
+    def test_omitted_result_retains_materialized_pre_result_ledger(self):
+        digest = "a" * 64
+        ledgers = [{
+            "criterion_id": criterion_id,
+            "partition": ("oracle_request" if criterion_id ==
+                          "oracle_coverage_and_crosscheck" else "all"),
+            "expected_count": MODULE.EXPECTED_CELL_COUNTS[criterion_id],
+            "observed_count": MODULE.EXPECTED_CELL_COUNTS[criterion_id],
+            "key_ledger_sha256": digest,
+            "availability": MODULE.availability("PRESENT", digest),
+            "omission_blocker": None,
+        } for criterion_id in MODULE.CRITERION_IDS]
+        criteria = MODULE.make_criteria(
+            MODULE.worktree_observation(True), False, ledgers)
+        self.assertEqual(criteria[10]["status"],
+                         "OMITTED_AFTER_INFRASTRUCTURE_FAILURE")
+        self.assertEqual(criteria[10]["observed_cell_count"], 0)
+        self.assertEqual(criteria[10]["key_ledger_sha256"], digest)
+
     def test_verdict_precedence_never_turns_uncovered_into_pass(self):
         records = [MODULE.criterion_record(identifier, "PASS")
                    for identifier in MODULE.CRITERION_IDS]
