@@ -1911,8 +1911,8 @@ def _component_failure_key(checkpoint, artifact_root, manifest, failure,
         transition_value = transition
     else:
         transition_value = None
-    key = prefix + [view, anchors, relabel, basis, axis, pair,
-                    transition_value, None]
+    key = strict_json_bytes(prefix + scientific_suffix_full(
+        view, anchors, relabel, basis, axis, pair, transition_value, None))
     validate_scientific_cell_key(key, criterion_id)
     return key
 

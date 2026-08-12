@@ -445,6 +445,28 @@ class AnchoredRowQualificationTests(unittest.TestCase):
             with self.assertRaises(MODULE.QualificationError):
                 MODULE.validate_criteria(mutation)
 
+    def test_component_maximum_witness_reconstructs_canonical_key(self):
+        case = {"content_identity_key": "content",
+                "applicable_mode": "cache_disabled",
+                "approximation_level": 7}
+        row = {"face_row": 0, "local_corner_or_none": -1,
+               "sample_id": "sample", "row_kind": "du"}
+        failure = {"anchor_index": 0, "anchor_pair_index": None,
+                   "axis_index": None, "basis_source_id": 9,
+                   "relabel_index": 2, "row_ordinal": 0}
+        component_row = (case, row, case, row, {}, "6_7")
+        with mock.patch.object(
+                MODULE, "iter_component_row_pairs",
+                return_value=iter([component_row])):
+            key = MODULE._component_failure_key(
+                {}, pathlib.Path("/tmp"), {}, failure,
+                "binary64_basis_probe_diagnostic")
+        self.assertEqual(
+            key,
+            ["content", "cache_disabled", 7, 0, None, "sample", "du",
+             "emitted_binary64", "v0", "rank_rotate_1", 9, None, None,
+             None, None])
+
     def test_preoracle_suffixes_cover_exact_frozen_dimensions(self):
         suffixes = MODULE._validate_suffix_definitions()
         self.assertEqual(len(suffixes["representation_structure"]), 3)
