@@ -45,7 +45,8 @@ class AnchoredRowQualificationTests(unittest.TestCase):
                             "relative_path":
                                 "anchored-row-result-ledgers-v1/"
                                 "unexpected-artifact-paths.json",
-                            "byte_length": 2, "record_count": 0}}
+                            "byte_length": 2, "record_count": 0,
+                            "sha256": MODULE.sha256_bytes(b"[]")}}
                 records.append(MODULE.criterion_record(
                     criterion_id, "INCOMPLETE", expected=expected,
                     target=target))
@@ -58,7 +59,6 @@ class AnchoredRowQualificationTests(unittest.TestCase):
                     result_merkle_root="c" * 64,
                     result_artifact=self.present_result_artifact(
                         criterion_id, result_digest, expected),
-                    expectation="EIGENBASIS_CERTIFICATION_FAILED",
                     witness=None))
             elif criterion_id in MODULE.D12_CRITERIA:
                 records.append(MODULE.criterion_record(
@@ -101,6 +101,126 @@ class AnchoredRowQualificationTests(unittest.TestCase):
         self.assertEqual(
             MODULE.APPROVED_RESULT_EVIDENCE_AMENDMENT_MERGE,
             "029816125619f58f99464e8055170ffa12e957e3")
+
+    def test_executable_schema_rederives_anchor_and_full_mutation_manifest(self):
+        schema = MODULE.load_schema()
+        documentation_paths = MODULE.documentation_owned_schema_path_anchor()
+        executable_paths = MODULE.RESULT_CONTRACT.derive_schema_path_anchor(
+            schema)
+        self.assertEqual(executable_paths, documentation_paths)
+        documentation_manifest = (
+            MODULE.RESULT_CONTRACT.expand_mutation_manifest(
+                documentation_paths))
+        executable_manifest = MODULE.RESULT_CONTRACT.expand_mutation_manifest(
+            executable_paths)
+        self.assertEqual(executable_manifest, documentation_manifest)
+        counts = {}
+        for mutation in executable_manifest:
+            operator = mutation.split("|", 1)[0]
+            counts[operator] = counts.get(operator, 0) + 1
+        self.assertEqual(set(counts),
+                         {"M{:02d}".format(index)
+                          for index in range(1, 24)})
+        self.assertEqual(counts["M01"], 577)
+        self.assertEqual(counts["M02"], 97)
+        self.assertEqual(counts["M03"], 577)
+        for operator in ("M04", "M05", "M06", "M07"):
+            self.assertEqual(counts[operator], 71 * 3)
+        self.assertEqual(counts["M08"], 32 * 4)
+        self.assertEqual(counts["M09"], 32 * 5)
+        self.assertEqual(counts["M10"], 34 * 4)
+        self.assertEqual(counts["M11"], 32 * 6)
+        self.assertEqual(counts["M12"], 32 * 9)
+        self.assertEqual(counts["M16"], 26)
+
+    def test_m01_m02_m03_are_exhaustive_over_closed_schema_objects(self):
+        schema = MODULE.load_schema()
+        approved = MODULE.documentation_owned_schema_path_anchor()
+        objects = []
+
+        def collect(node):
+            if isinstance(node, dict):
+                if "x-contract-object-name" in node:
+                    objects.append(node)
+                for value in node.values():
+                    collect(value)
+            elif isinstance(node, list):
+                for value in node:
+                    collect(value)
+
+        collect(schema)
+        self.assertEqual(len(objects), 97)
+        examined_members = 0
+        for object_schema in objects:
+            self.assertFalse(object_schema["additionalProperties"])
+            required = object_schema["required"]
+            properties = object_schema["properties"]
+            self.assertEqual(set(required), set(properties))
+            for index, member in enumerate(tuple(required)):
+                examined_members += 1
+                removed = required.pop(index)
+                self.assertNotEqual(
+                    MODULE.RESULT_CONTRACT.derive_schema_path_anchor(schema),
+                    approved)
+                required.insert(index, removed)
+                with self.assertRaises(MODULE.QualificationError):
+                    MODULE.validate_schema_instance(
+                        (), properties[member], schema,
+                        "$wrong_type.{}.{}".format(
+                            object_schema["x-contract-object-name"], member))
+            required.append("__unexpected_contract_member__")
+            properties["__unexpected_contract_member__"] = {}
+            self.assertNotEqual(
+                MODULE.RESULT_CONTRACT.derive_schema_path_anchor(schema),
+                approved)
+            required.pop()
+            del properties["__unexpected_contract_member__"]
+        self.assertEqual(examined_members, 577)
+
+    def test_m09_freezes_every_criterion_expectation_target_and_nullability(self):
+        schema = MODULE.load_schema()
+        criteria_schema = schema["properties"]["criteria"]
+        records = self.make_incomplete_criteria_fixture()
+        MODULE.validate_schema_instance(records, criteria_schema, schema)
+        for index, record in enumerate(records):
+            for field, replacement in (
+                    ("expectation", record["expectation"] + "_drift"),
+                    ("applicability", "invented"),
+                    ("target", {} if record["target"] is None else None),
+                    ("status", "INVENTED")):
+                with self.subTest(index=index, field=field):
+                    mutation = copy.deepcopy(records)
+                    mutation[index][field] = replacement
+                    with self.assertRaises(MODULE.QualificationError):
+                        MODULE.validate_schema_instance(
+                            mutation, criteria_schema, schema)
+            mutation = copy.deepcopy(records)
+            del mutation[index]["witness"]
+            with self.assertRaises(MODULE.QualificationError):
+                MODULE.validate_schema_instance(
+                    mutation, criteria_schema, schema)
+
+    def test_inventory_target_binds_canonical_empty_sidecar(self):
+        digest = MODULE.sha256_bytes(b"[]")
+        target = {
+            "kind": "unexpected_paths_target_v1",
+            "required_record_count": 0,
+            "sidecar": {
+                "availability": MODULE.availability("PRESENT", digest),
+                "relative_path":
+                    "anchored-row-result-ledgers-v1/"
+                    "unexpected-artifact-paths.json",
+                "byte_length": 2, "record_count": 0, "sha256": digest}}
+        MODULE.validate_contract_value("unexpected_paths_target_v1", target)
+        for field, replacement in (("relative_path", "other.json"),
+                                   ("byte_length", 3),
+                                   ("record_count", 1),
+                                   ("sha256", "0" * 64)):
+            mutation = copy.deepcopy(target)
+            mutation["sidecar"][field] = replacement
+            with self.assertRaises(MODULE.QualificationError):
+                MODULE.validate_contract_value(
+                    "unexpected_paths_target_v1", mutation)
 
     def test_exact_binary64_common_denominator_covers_extremes(self):
         self.assertEqual(MODULE.exact_binary64_numerator(0.0), 0)
@@ -450,13 +570,19 @@ class AnchoredRowQualificationTests(unittest.TestCase):
     def test_persistent_result_ledger_and_merkle_witness_are_exact(self):
         records = [
             [["criterion", 0], "PASS",
-             {"kind": "binary64_scalar_v1", "bits": "0000000000000000"},
+             {"kind": "binary64_pair_v1",
+              "observed_bits": "0000000000000000",
+              "expected_bits": "0000000000000000"},
              None, None],
             [["criterion", 1], "FAIL",
-             {"kind": "binary64_scalar_v1", "bits": "3ff0000000000000"},
+             {"kind": "binary64_pair_v1",
+              "observed_bits": "3ff0000000000000",
+              "expected_bits": "0000000000000000"},
              None, "CONSTANT_FIELD_BITS_MISMATCH"],
             [["criterion", 2], "PASS",
-             {"kind": "binary64_scalar_v1", "bits": "4000000000000000"},
+             {"kind": "binary64_pair_v1",
+              "observed_bits": "4000000000000000",
+              "expected_bits": "4000000000000000"},
              None, None],
         ]
         commitment = MODULE.canonical_result_ledger(records, witness_index=1)
@@ -698,37 +824,48 @@ class AnchoredRowQualificationTests(unittest.TestCase):
                             for item in partitions))
 
     def test_numeric_maximum_witness_mutations_fail_closed(self):
-        records = self.make_incomplete_criteria_fixture()
-        index = MODULE.CRITERION_IDS.index(
-            "anchor_sensitivity_exact_coeff")
         key = ["content", "cache_disabled", 7, 0, None, "sample", "du",
                "exact_effective", None, "identity", None, None, "v0_v1",
                None, None]
-        digest = "d" * 64
-        maximum = 0.25
-        records[index] = MODULE.criterion_record(
-            "anchor_sensitivity_exact_coeff", "PASS",
-            expected=MODULE.EXPECTED_CELL_COUNTS[
-                "anchor_sensitivity_exact_coeff"],
-            observed=MODULE.EXPECTED_CELL_COUNTS[
-                "anchor_sensitivity_exact_coeff"],
-            ledger="e" * 64, result_ledger=digest,
-            result_merkle_root="f" * 64,
-            result_artifact=self.present_result_artifact(
-                "anchor_sensitivity_exact_coeff", digest,
-                MODULE.EXPECTED_CELL_COUNTS[
-                    "anchor_sensitivity_exact_coeff"]),
-            maximum=maximum,
-            witness=[key, {"numerator": 1, "denominator": 4},
-                     MODULE.binary64_bits_hex(maximum), digest])
-        MODULE.validate_criteria(records)
-        for witness_index, replacement in ((0, ["bad"]),
-                                           (2, MODULE.binary64_bits_hex(0.5)),
-                                           (3, "f" * 64)):
-            mutation = copy.deepcopy(records)
-            mutation[index]["witness"][witness_index] = replacement
+        zero_signed = {"kind": "signed_dyadic_v1", "sign": 0,
+                       "numerator_hex": "0", "denominator_power": 1074}
+        maximum = {"kind": "absolute_dyadic_v1",
+                   "numerator_hex": format(1 << 1072, "x"),
+                   "denominator_power": 1074}
+        exact_value = {
+            "kind": "exact_coefficient_l1_v1", "source_ids": [0],
+            "observed": [zero_signed], "expected": [zero_signed],
+            "absolute_errors": [{"kind": "absolute_dyadic_v1",
+                                 "numerator_hex": "0",
+                                 "denominator_power": 1074}],
+            "l1": maximum,
+        }
+        target = MODULE.absolute_rational_target("400000")
+        record = [key, "PASS", exact_value, target, None]
+        witness = {"cell_key": key, "result_record": record,
+                   "leaf_index": 0, "merkle_siblings": [],
+                   "maximum_exact": maximum,
+                   "maximum_binary64_bits":
+                       MODULE.binary64_bits_hex(0.25)}
+        MODULE.validate_contract_result_record(
+            "anchor_sensitivity_exact_coeff", record)
+        MODULE.validate_contract_value("maximum_witness", witness)
+        mutations = []
+        missing = copy.deepcopy(witness)
+        del missing["maximum_exact"]
+        mutations.append(missing)
+        extra = copy.deepcopy(witness)
+        extra["invented"] = 1
+        mutations.append(extra)
+        wrong_exact = copy.deepcopy(witness)
+        wrong_exact["maximum_exact"] = "0.25"
+        mutations.append(wrong_exact)
+        wrong_record = copy.deepcopy(witness)
+        wrong_record["result_record"].append(None)
+        mutations.append(wrong_record)
+        for mutation in mutations:
             with self.assertRaises(MODULE.QualificationError):
-                MODULE.validate_criteria(mutation)
+                MODULE.validate_contract_value("maximum_witness", mutation)
 
     def test_component_maximum_witness_reconstructs_canonical_key(self):
         case = {"content_identity_key": "content",

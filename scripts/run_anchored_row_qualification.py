@@ -31,6 +31,11 @@ from fractions import Fraction
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 SCHEMA_PATH = ROOT / "scripts/anchored_row_qualification_report_v1.schema.json"
+RESULT_CONTRACT_PATH = ROOT / "scripts/anchored_row_result_contract.py"
+RESULT_CONTRACT_SPEC = importlib.util.spec_from_file_location(
+    "anchored_row_result_contract", RESULT_CONTRACT_PATH)
+RESULT_CONTRACT = importlib.util.module_from_spec(RESULT_CONTRACT_SPEC)
+RESULT_CONTRACT_SPEC.loader.exec_module(RESULT_CONTRACT)
 RESULT_EVIDENCE_AMENDMENT_PATH = (
     ROOT / "docs/anchored_row_qualification_result_ledger_amendment.md")
 B2A_PATH = ROOT / "scripts/run_invariant_row_representation_preflight.py"
@@ -48,31 +53,7 @@ RESULT_EVIDENCE_PATH_ANCHOR_SHA256 = (
     "0e82d15b0244aaa779a1ca600fdc8b43ac501ab91aa615e8adb8dcd8682ecf66")
 RESULT_EVIDENCE_MUTATION_MANIFEST_ID = (
     "anchored-row-result-evidence-mutations-v1")
-RESULT_EVIDENCE_MUTATION_OPERATORS = (
-    "M01 delete-required-object-member",
-    "M02 add-unknown-object-member",
-    "M03 replace-required-type",
-    "M04 insert-array-item",
-    "M05 delete-array-item",
-    "M06 duplicate-array-item",
-    "M07 swap-adjacent-array-items",
-    "M08 criterion-id-position-count",
-    "M09 criterion-authority",
-    "M10 ledger-slot",
-    "M11 result-sidecar",
-    "M12 result-record",
-    "M13 maximum-witness",
-    "M14 merkle-proof",
-    "M15 first-failure",
-    "M16 authority-value",
-    "M17 oracle-partition",
-    "M18 basis-aggregation",
-    "M19 raw-D9a",
-    "M20 D12-envelope",
-    "M21 causality-verdict",
-    "M22 serial-only",
-    "M23 canonical-encoding",
-)
+RESULT_EVIDENCE_MUTATION_OPERATORS = RESULT_CONTRACT.MUTATION_OPERATORS
 RESULT_LEDGER_DIRECTORY = "anchored-row-result-ledgers-v1"
 RAW_D9A_FROZEN_FAILING_CASE_COUNT = 124
 RAW_D9A_FROZEN_MAXIMUM_BITS = "3db6653ab1800000"
@@ -84,6 +65,7 @@ RAW_D9A_FROZEN_MAXIMUM_NUMERATOR_HEX = (
 ZERO_SHA256 = "0" * 64
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 GIT_RE = re.compile(r"^[0-9a-f]{40}$")
+_SCHEMA_CACHE = None
 ROW_ORDER = ("position", "du", "dv", "duu", "duv", "dvv")
 ANCHORS = ("v0", "v1", "v2")
 RELABELS = ("identity", "rank_reverse", "rank_rotate_1")
@@ -368,6 +350,282 @@ def canonical_result_record(key, outcome, exact_value, target, reason):
     return record, jcs_bytes(record)
 
 
+def _contract_kind(value):
+    return value.get("kind") if isinstance(value, dict) else None
+
+
+def _row_target_denominator(criterion_id, key):
+    require(isinstance(key, list) and len(key) >= 7,
+            "scientific target key shape")
+    row_kind = key[6]
+    require(row_kind in ROW_ORDER, "scientific target row kind")
+    if criterion_id in {"regular_analytic_exact_rows",
+                         "regular_analytic_emitted_geometry",
+                         "regular_analytic_area_integrand",
+                         "regular_analytic_legacy_volume_integrand"}:
+        return "200000"
+    derivative_class = ("position" if row_kind == "position" else
+                        "first" if row_kind in ("du", "dv") else "second")
+    if criterion_id in {"exact_effective_d10_coeff",
+                         "exact_effective_d10_geometry",
+                         "emitted_direct_geometry_d10"}:
+        return {"position": "200000", "first": "40000",
+                "second": "8000"}[derivative_class]
+    return {"position": "2000000", "first": "400000",
+            "second": "80000"}[derivative_class]
+
+
+def absolute_rational_target(denominator):
+    require(str(denominator) in {"200000", "2000000", "400000", "80000",
+                                 "40000", "8000"},
+            "absolute rational target denominator")
+    return {"kind": "absolute_rational_target_v1", "numerator": "1",
+            "denominator": str(denominator)}
+
+
+def report_criterion_target(criterion_id, unexpected_paths=None):
+    """Return the single frozen aggregate target descriptor for one slot."""
+    if criterion_id == "complete_artifact_inventory":
+        require(isinstance(unexpected_paths, dict),
+                "inventory aggregate target unavailable")
+        return copy.deepcopy(unexpected_paths)
+    if criterion_id in {"regular_analytic_exact_rows",
+                         "regular_analytic_emitted_geometry",
+                         "regular_analytic_area_integrand",
+                         "regular_analytic_legacy_volume_integrand"}:
+        return absolute_rational_target("200000")
+    if criterion_id == "relabel_exact_effective_coefficients":
+        return {"kind": "exact_zero_l1_target_v1", "numerator": "0",
+                "denominator": "1"}
+    if criterion_id in {"exact_effective_d10_coeff",
+                         "exact_effective_d10_geometry",
+                         "emitted_direct_geometry_d10"}:
+        return {"position": absolute_rational_target("200000"),
+                "first_derivative": absolute_rational_target("40000"),
+                "second_derivative": absolute_rational_target("8000")}
+    if criterion_id in set(CRITERION_IDS[14:26]) - {
+            "cache_mode_bit_identity"}:
+        return {"position": absolute_rational_target("2000000"),
+                "first_derivative": absolute_rational_target("400000"),
+                "second_derivative": absolute_rational_target("80000")}
+    if criterion_id == "d12_preparation_cost":
+        return {"kind": "d12_duration_target_v1", "median_ns": 1000000000,
+                "single_ns": 10000000000}
+    if criterion_id == "d12_retained_payload":
+        return {"kind": "d12_payload_target_v1", "maximum_bytes": 131072}
+    if criterion_id == "d12_peak_rss":
+        return {"kind": "d12_rss_target_v1",
+                "maximum_delta_bytes": 67108864}
+    return None
+
+
+def unavailable_unexpected_paths_target():
+    return {"kind": "unexpected_paths_target_v1", "required_record_count": 0,
+            "sidecar": {"availability": availability(
+                "UNAVAILABLE", reason_code="EXECUTION_UNAVAILABLE"),
+                "relative_path": None, "byte_length": None,
+                "record_count": None, "sha256": None}}
+
+
+def validate_contract_value(kind, value):
+    """Validate one closed exact/result object plus cross-member invariants."""
+    require(kind in RESULT_CONTRACT.OBJECT_SCHEMAS,
+            "unknown result-contract kind")
+    schema = cached_schema()
+    validate_schema_instance(value, schema["$defs"][kind], schema,
+                             "$contract.{}".format(kind))
+    if kind == "signed_dyadic_v1":
+        numerator = int(value["numerator_hex"], 16)
+        require((value["sign"] == 0) == (numerator == 0) and
+                (value["sign"] != 0) == (numerator > 0),
+                "signed dyadic sign/numerator mismatch")
+    if kind in {"rational_v1", "absolute_rational_v1"}:
+        numerator = int(value["numerator"])
+        denominator = int(value["denominator"])
+        require(denominator > 0 and
+                math.gcd(abs(numerator), denominator) == 1,
+                "rational is not positive-denominator reduced form")
+    if kind == "rational_over_sqrt_v1":
+        absolute_numerator = int(value["absolute_numerator"])
+        absolute_denominator = int(value["absolute_denominator"])
+        scale_numerator = int(value["scale_squared_numerator"])
+        scale_denominator = int(value["scale_squared_denominator"])
+        require(absolute_denominator > 0 and scale_numerator > 0 and
+                scale_denominator > 0 and
+                math.gcd(absolute_numerator, absolute_denominator) == 1 and
+                math.gcd(scale_numerator, scale_denominator) == 1,
+                "rational-over-sqrt canonical form")
+    if kind == "interval_rational_v1":
+        lower = Fraction(int(value["lower"]["numerator"]),
+                         int(value["lower"]["denominator"]))
+        upper = Fraction(int(value["upper"]["numerator"]),
+                         int(value["upper"]["denominator"]))
+        require(lower <= upper, "rational interval is reversed")
+    vector_fields = {
+        "coefficient_vector_comparison_v1":
+            ("source_ids", "observed", "expected", "absolute_errors"),
+        "exact_coefficient_l1_v1":
+            ("source_ids", "observed", "expected", "absolute_errors"),
+        "oracle_coefficient_l1_v1":
+            ("source_ids", "observed", "oracle_intervals",
+             "absolute_error_uppers"),
+        "coefficient_interval_vector_v1":
+            ("source_union_ids", "observed", "analytic_intervals",
+             "absolute_error_uppers"),
+        "candidate_dyadic_vector_observation_v1":
+            ("source_ids", "values"),
+        "candidate_interval_vector_observation_v1":
+            ("source_ids", "observed_intervals"),
+        "candidate_structure_observation_v1":
+            ("canonical_source_ids", "provider_coefficient_bits",
+             "effective_coefficients"),
+    }
+    if kind in vector_fields:
+        arrays = [value[field] for field in vector_fields[kind]]
+        require(len({len(item) for item in arrays}) == 1 and
+                arrays[0] == sorted(set(arrays[0])),
+                "contract vector length/source order")
+    if kind in {"coefficient_vector_comparison_v1",
+                "exact_coefficient_l1_v1"}:
+        dyadics = (value["observed"] + value["expected"] +
+                   value["absolute_errors"] + [value["l1"]])
+        require(all(item["denominator_power"] == 1074
+                    for item in dyadics),
+                "exact coefficient descriptor denominator drift")
+    if kind == "basis_value_v1":
+        require(all(value[field]["denominator_power"] == 1074
+                    for field in ("exact_effective", "source_error",
+                                  "group_l1")),
+                "basis descriptor denominator drift")
+    if kind == "raw_d9a_value_v1":
+        require(value["maximum_row_sum_residual"][
+                    "denominator_power"] == 1074,
+                "raw D9a denominator drift")
+    if kind in {"structure_present_v1", "structure_missing_anchor_v1"}:
+        ids = value["canonical_source_ids"]
+        require(ids == sorted(set(ids)) and
+                value["source_count"] == len(ids) ==
+                    len(value["provider_coefficient_bits"]),
+                "structure source cardinality/order")
+        if kind == "structure_present_v1":
+            require(len(value["effective_coefficients"]) == len(ids) and
+                    all(item["denominator_power"] == 1074
+                        for item in value["effective_coefficients"] +
+                        [value["observed_sum"], value["expected_sum"]]),
+                    "structure effective-vector cardinality")
+        else:
+            require(value["missing_anchor_source_id"] not in ids and
+                    value["expected_sum"]["denominator_power"] == 1074,
+                    "missing-anchor identity/denominator contract")
+    if kind == "geometry_axis_v1":
+        observed_kind = _contract_kind(value["observed"])
+        require((value["view"] == "emitted_binary64" and
+                 observed_kind == "binary64_scalar_v1") or
+                (value["view"] == "exact_effective" and
+                 observed_kind in {"signed_dyadic_v1", "rational_v1"}),
+                "geometry view/observed alternative mismatch")
+    if kind == "oracle_covered_value_v1":
+        source_count = len(value["source_ids"])
+        d0 = value["first_regular_support_depth"]
+        require(value["source_ids"] == sorted(set(value["source_ids"])) and
+                len(value["primary_depth_intervals"]) == source_count and
+                len(value["uniform_depth_intervals"]) == source_count and
+                len(value["intersected_primary_intervals"]) == source_count and
+                value["evaluated_depths"] == list(range(d0, d0 + 5)) and
+                d0 + 4 <= 30 and len(value["child_branches"]) == d0,
+                "oracle coverage cardinality/depth contract")
+    if kind == "d12_sidecar_descriptor":
+        _validate_d12_sidecar_descriptor(value)
+    if kind == "unexpected_paths_target_v1":
+        sidecar = value["sidecar"]
+        _validate_d12_sidecar_descriptor(sidecar)
+        if sidecar["availability"]["state"] == "PRESENT":
+            require(sidecar["relative_path"] ==
+                    "anchored-row-result-ledgers-v1/"
+                    "unexpected-artifact-paths.json" and
+                    sidecar["record_count"] == 0 and
+                    sidecar["byte_length"] == 2 and
+                    sidecar["sha256"] == sha256_bytes(b"[]"),
+                    "unexpected-path target must bind canonical empty array")
+    for member, item in value.items():
+        if ((member.endswith("sidecar") or member.endswith("_sidecar") or
+             member.endswith("_reference")) and isinstance(item, dict) and
+                set(item) == {"availability", "relative_path", "byte_length",
+                              "record_count", "sha256"}):
+            _validate_d12_sidecar_descriptor(item)
+    return True
+
+
+def _validate_d12_sidecar_descriptor(sidecar):
+    state = sidecar["availability"]["state"]
+    if state == "PRESENT":
+        require(isinstance(sidecar["relative_path"], str) and
+                bool(sidecar["relative_path"]) and
+                type(sidecar["byte_length"]) is int and
+                sidecar["byte_length"] >= 0 and
+                type(sidecar["record_count"]) is int and
+                sidecar["record_count"] >= 0 and
+                SHA256_RE.fullmatch(sidecar["sha256"] or "") is not None and
+                sidecar["sha256"] == sidecar["availability"]["sha256"],
+                "present D12 sidecar binding")
+    else:
+        require(sidecar["relative_path"] is None and
+                sidecar["byte_length"] is None and
+                sidecar["record_count"] is None and
+                sidecar["sha256"] is None,
+                "non-present D12 sidecar binding")
+
+
+def validate_contract_result_record(criterion_id, record):
+    """Enforce the frozen per-criterion value/target/outcome/reason row."""
+    require(criterion_id in RESULT_CONTRACT.CRITERION_BY_ID and
+            isinstance(record, list) and len(record) == 5,
+            "result-contract record/criterion")
+    contract = RESULT_CONTRACT.CRITERION_BY_ID[criterion_id]
+    key, outcome, exact_value, target, reason = record
+    require(outcome in contract["complete_statuses"],
+            "criterion result outcome ownership")
+    if outcome == "PASS":
+        require(reason is None, "passing criterion result reason")
+    else:
+        require(reason in contract["reasons"],
+                "criterion result reason ownership")
+    if criterion_id == "oracle_coverage_and_crosscheck":
+        if outcome == "PASS":
+            require(_contract_kind(exact_value) == "oracle_covered_value_v1",
+                    "covered oracle result exact-value form")
+        elif outcome == "UNCOVERED":
+            require(exact_value is None and reason in
+                    RESULT_CONTRACT.D10_ORACLE_REASONS,
+                    "uncovered oracle result form")
+        else:
+            raise QualificationError(
+                "incomplete oracle infrastructure cannot publish result records")
+    else:
+        require(_contract_kind(exact_value) in
+                set(contract["exact_value_kinds"]),
+                "criterion exact-value form")
+    if exact_value is not None:
+        validate_contract_value(_contract_kind(exact_value), exact_value)
+    target_kind = _contract_kind(target)
+    if contract["target_kinds"] == (None,):
+        require(target is None, "categorical criterion target must be null")
+    else:
+        require(target_kind in set(contract["target_kinds"]),
+                "criterion target form")
+        validate_contract_value(target_kind, target)
+        if target_kind == "absolute_rational_target_v1":
+            require(target["denominator"] ==
+                    _row_target_denominator(criterion_id, key),
+                    "criterion row target denominator drift")
+    if criterion_id == "representation_structure":
+        require((outcome == "FAIL" and reason == "ANCHOR_SOURCE_MISSING") ==
+                (_contract_kind(exact_value) ==
+                 "structure_missing_anchor_v1"),
+                "structure missing-anchor outcome coupling")
+    return True
+
+
 def result_leaf_sha256(index, record_bytes):
     require(isinstance(record_bytes, bytes), "result record bytes")
     return hashlib.sha256(
@@ -451,13 +709,15 @@ def validate_result_merkle_witness(record_bytes, leaf_index, siblings,
     return True
 
 
-def canonical_result_ledger(records, witness_index=None):
+def canonical_result_ledger(records, witness_index=None, criterion_id=None):
     """Build complete canonical result bytes and independent commitments."""
     require(isinstance(records, list), "result ledger records")
     encoded_records = []
     encoded_keys = []
     previous_key = None
     for record in records:
+        if criterion_id is not None:
+            validate_contract_result_record(criterion_id, record)
         require(isinstance(record, list) and len(record) == 5,
                 "result record shape")
         canonical, encoded = canonical_result_record(*record)
@@ -493,7 +753,8 @@ def result_ledger_relative_path(criterion_id):
 def write_result_ledger_artifact(output_root, criterion_id, records,
                                  witness_index=None):
     """Persist one canonical result sidecar without a trailing newline."""
-    commitment = canonical_result_ledger(records, witness_index=witness_index)
+    commitment = canonical_result_ledger(
+        records, witness_index=witness_index, criterion_id=criterion_id)
     relative_path = result_ledger_relative_path(criterion_id)
     destination = pathlib.Path(output_root) / relative_path
     destination.parent.mkdir(parents=True, exist_ok=True)
@@ -531,6 +792,7 @@ class StreamingResultLedgerArtifact:
         require(not self.closed, "closed result sidecar writer")
         require(isinstance(record, list) and len(record) == 5,
                 "result record shape")
+        validate_contract_result_record(self.criterion_id, record)
         canonical, encoded_record = canonical_result_record(*record)
         require(canonical == record, "result record canonical value")
         encoded_key = jcs_bytes(record[0])
@@ -646,9 +908,63 @@ def documentation_owned_mutation_operators():
 
 
 def load_schema():
+    global _SCHEMA_CACHE
+    if _SCHEMA_CACHE is not None:
+        return copy.deepcopy(_SCHEMA_CACHE)
     schema = strict_json_bytes(SCHEMA_PATH.read_bytes())
     require(schema.get("$id", "").endswith(SCHEMA_ID), "report schema ID drift")
-    return schema
+    for name, definition in RESULT_CONTRACT.OBJECT_SCHEMAS.items():
+        existing = schema["$defs"].get(name)
+        require(existing is not None,
+                "checked schema lacks result-contract definition: {}".format(
+                    name))
+        if name == "availability":
+            require(set(existing.get("required", [])) ==
+                    set(definition["required"]) and
+                    existing.get("additionalProperties") is False,
+                    "availability contract drift")
+        else:
+            require(_strip_contract_annotations(existing) == definition,
+                    "result-contract definition drift: {}".format(name))
+    try:
+        executable_paths = RESULT_CONTRACT.derive_schema_path_anchor(schema)
+    except (KeyError, TypeError, ValueError) as error:
+        raise QualificationError(
+            "executable schema-path derivation failed: {}".format(error))
+    require(executable_paths == documentation_owned_schema_path_anchor(),
+            "executable schema paths differ from approved Markdown anchor")
+    validate_schema_instance(frozen_authority_record(),
+                             schema["$defs"]["authority"], schema,
+                             "$frozen_authority")
+    external_authority = schema.get("x-contract-external-authority", {})
+    require(external_authority.get("authority.dependencies.gmp", {}).get(
+                "const") == "6.3.0" and
+            external_authority.get("authority.dependencies.mpfr", {}).get(
+                "const") == "4.2.2" and
+            external_authority.get(
+                "authority.dependencies.opensubdiv", {}).get(
+                    "const") == "3.7.0",
+            "dependency authority drift")
+    _SCHEMA_CACHE = schema
+    return copy.deepcopy(schema)
+
+
+def cached_schema():
+    """Return the validated immutable-in-practice schema for hot record paths."""
+    if _SCHEMA_CACHE is None:
+        load_schema()
+    return _SCHEMA_CACHE
+
+
+def _strip_contract_annotations(value):
+    """Remove non-validation annotations before checking generated defs."""
+    if isinstance(value, dict):
+        return dict((key, _strip_contract_annotations(item))
+                    for key, item in value.items()
+                    if not key.startswith("x-contract-"))
+    if isinstance(value, list):
+        return [_strip_contract_annotations(item) for item in value]
+    return value
 
 
 def _matches_type(value, expected):
@@ -674,6 +990,25 @@ def validate_schema_instance(value, schema=None, root=None, path="$" ):
         prefix = "#/$defs/"
         require(schema["$ref"].startswith(prefix), "external schema reference forbidden")
         return validate_schema_instance(value, root["$defs"][schema["$ref"][len(prefix):]], root, path)
+    if "oneOf" in schema:
+        matches = 0
+        for alternative in schema["oneOf"]:
+            try:
+                validate_schema_instance(value, alternative, root, path)
+            except QualificationError:
+                continue
+            matches += 1
+        require(matches == 1, "{} violates oneOf".format(path))
+    if "anyOf" in schema:
+        matched = False
+        for alternative in schema["anyOf"]:
+            try:
+                validate_schema_instance(value, alternative, root, path)
+            except QualificationError:
+                continue
+            matched = True
+            break
+        require(matched, "{} violates anyOf".format(path))
     if "not" in schema:
         try:
             validate_schema_instance(value, schema["not"], root, path)
@@ -714,6 +1049,10 @@ def validate_schema_instance(value, schema=None, root=None, path="$" ):
         require(len(value) >= schema.get("minItems", 0), "{} has too few items".format(path))
         if "maxItems" in schema:
             require(len(value) <= schema["maxItems"], "{} has too many items".format(path))
+        if schema.get("uniqueItems") is True:
+            encoded = [jcs_bytes(item) for item in value]
+            require(len(encoded) == len(set(encoded)),
+                    "{} contains duplicate items".format(path))
         prefix_items = schema.get("prefixItems", [])
         for index, item_schema in enumerate(prefix_items):
             if index < len(value):
@@ -3109,6 +3448,13 @@ def criterion_record(criterion_id, status, blocker=None, expectation=None,
                 "omitted criterion semantics")
     else:
         require(blocker is None, "executed criterion has blocker")
+    contract = RESULT_CONTRACT.CRITERION_BY_ID[criterion_id]
+    if expectation is None:
+        expectation = contract["expectation"]
+    if target is None:
+        target = (unavailable_unexpected_paths_target()
+                  if criterion_id == "complete_artifact_inventory" else
+                  report_criterion_target(criterion_id))
     if result_artifact is None:
         result_artifact = {
             "availability": availability(
@@ -3141,6 +3487,18 @@ def validate_criteria(criteria):
         criterion_id = item["criterion_id"]
         status = item["status"]
         index = CRITERION_IDS.index(criterion_id)
+        contract = RESULT_CONTRACT.CRITERION_BY_ID[criterion_id]
+        require(item["expectation"] == contract["expectation"],
+                "criterion expectation drift")
+        if criterion_id == "complete_artifact_inventory":
+            require(_contract_kind(item["target"]) ==
+                    "unexpected_paths_target_v1",
+                    "inventory aggregate target form")
+            validate_contract_value("unexpected_paths_target_v1",
+                                    item["target"])
+        else:
+            require(item["target"] == report_criterion_target(criterion_id),
+                    "criterion aggregate target drift")
         require(status in STATUSES, "criterion status")
         if criterion_id in INFRASTRUCTURE_CRITERIA:
             require(status in {"PASS", "INCOMPLETE"},
@@ -3260,16 +3618,26 @@ def validate_criteria(criteria):
         elif (criterion_id in CANDIDATE_SCIENTIFIC_CRITERIA and
               status in {"PASS", "FAIL"}):
             witness = item["witness"]
-            require(type(item["maximum"]) in (int, float) and
-                    math.isfinite(item["maximum"]) and
-                    item["maximum"] >= 0 and
-                    isinstance(witness, list) and len(witness) == 4 and
-                    isinstance(witness[0], list) and
-                    isinstance(witness[1], dict) and
-                    binary64_from_bits_hex(witness[2]) == item["maximum"] and
-                    witness[3] == item["result_ledger_sha256"],
-                    "numeric criterion lacks reconstructible maximum witness")
-            validate_scientific_cell_key(witness[0], criterion_id)
+            maximum_kind = _contract_kind(item["maximum"])
+            require(maximum_kind in {"absolute_dyadic_v1",
+                                     "absolute_rational_v1"} and
+                    isinstance(witness, dict) and set(witness) == {
+                        "cell_key", "result_record", "leaf_index",
+                        "merkle_siblings", "maximum_exact",
+                        "maximum_binary64_bits"} and
+                    witness["maximum_exact"] == item["maximum"] and
+                    witness["result_record"][0] == witness["cell_key"],
+                    "numeric criterion lacks closed maximum witness")
+            validate_contract_value(maximum_kind, item["maximum"])
+            validate_contract_value("maximum_witness", witness)
+            validate_contract_result_record(
+                criterion_id, witness["result_record"])
+            validate_scientific_cell_key(witness["cell_key"], criterion_id)
+            validate_result_merkle_witness(
+                jcs_bytes(witness["result_record"]), witness["leaf_index"],
+                witness["merkle_siblings"],
+                item["result_merkle_root_sha256"],
+                observed_count=item["observed_cell_count"])
         if criterion_id in ORACLE_CRITERIA and status == "UNCOVERED":
             require(item["maximum"] is None and item["witness"] is None,
                     "oracle uncovered carries numeric witness")
@@ -3512,7 +3880,8 @@ def validate_result_sidecar_bundle(report, bundle_root):
                 len(records) == descriptor["record_count"] ==
                     criterion["observed_cell_count"],
                 "result sidecar record-count mismatch")
-        commitment = canonical_result_ledger(records)
+        commitment = canonical_result_ledger(
+            records, criterion_id=criterion["criterion_id"])
         require(commitment["bytes"] == raw and
                 commitment["key_ledger_sha256"] ==
                     criterion["key_ledger_sha256"] and
@@ -3572,7 +3941,8 @@ def validate_result_sidecar_bundle(report, bundle_root):
     require(jcs_bytes(unexpected_records) == unexpected_raw and
             len(unexpected_raw) == descriptor["byte_length"] and
             sha256_bytes(unexpected_raw) ==
-                descriptor["availability"]["sha256"] and
+                descriptor["availability"]["sha256"] ==
+                descriptor["sha256"] and
             isinstance(unexpected_records, list) and
             len(unexpected_records) == descriptor["record_count"] ==
                 unexpected["required_record_count"],
@@ -3675,6 +4045,29 @@ def canonical_sample_order(manifest):
                 result.append(sample["id"])
     require(len(result) == 34, "canonical sample order must contain 34 unique samples")
     return result
+
+
+def frozen_authority_record():
+    """Construct the single runner/schema authority value from frozen inputs."""
+    manifest = B2.load_manifest()
+    expected_fixtures, actual_fixtures = fixture_hash_bindings()
+    fingerprint_hash = sha256_bytes(jcs_bytes(B2.EXPECTED_PLATFORM_FINGERPRINT))
+    return {
+        "manifest_file_sha256": B2.MANIFEST_FILE_SHA256,
+        "manifest_contract_sha256": B2.MANIFEST_CONTRACT_SHA256,
+        "rows": list(ROW_ORDER), "row_invariant_tolerance": 1.0e-12,
+        "d10": copy.deepcopy(D10),
+        "component_targets": copy.deepcopy(COMPONENT_TARGETS),
+        "inner_radius_rule": "r < 2^-8 excluded",
+        "anchor_order": list(ANCHORS), "relabels": list(RELABELS),
+        "canonical_sample_order": canonical_sample_order(manifest),
+        "radius_exponents": list(range(1, 9)), "ray_sequence": [0, 1, 2],
+        "source_order": ["strictly_increasing_signed_source_id"],
+        "expected_fixture_files": expected_fixtures,
+        "actual_fixture_files": actual_fixtures,
+        "d12_contract": copy.deepcopy(D12_CONTRACT),
+        "physical_fingerprint": {"sha256": fingerprint_hash},
+    }
 
 
 def validate_derived_cardinalities(manifest, checkpoint):
@@ -3799,7 +4192,8 @@ def _unexpected_artifact_target(artifact_root, checkpoint, output_root):
     destination.write_bytes(raw)
     descriptor = {"availability": availability("PRESENT", sha256_bytes(raw)),
                   "relative_path": relative_path,
-                  "byte_length": len(raw), "record_count": len(records)}
+                  "byte_length": len(raw), "record_count": len(records),
+                  "sha256": sha256_bytes(raw)}
     return {"kind": "unexpected_paths_target_v1", "sidecar": descriptor,
             "required_record_count": 0}, records
 
@@ -4000,35 +4394,34 @@ def make_criteria(worktree, all_required_bindings_present, ledgers,
         if ledger["partition"] in ("all", "oracle_request"):
             ledger_by_criterion[ledger["criterion_id"]] = ledger
     records = []
-    infrastructure_expectations = {
-        "bindings_and_independence":
-            "exact-head provenance and oracle independence",
-        "complete_artifact_inventory":
-            "exact schema-2 artifact inventory with no unexpected paths",
-        "raw_bfr_d9a_reproduction":
-            "exact B2 raw D9a reproduction of all 196 Bfr cases",
-    }
+    expectations = dict((item["criterion_id"], item["expectation"])
+                        for item in RESULT_CONTRACT.CRITERION_CONTRACTS)
     for criterion_id in CRITERION_IDS[:3]:
         key_ledger = ledger_by_criterion[criterion_id]["key_ledger_sha256"]
         evidence = infrastructure.get(criterion_id)
         if evidence is None:
+            aggregate_target = (unavailable_unexpected_paths_target()
+                                if criterion_id ==
+                                "complete_artifact_inventory" else
+                                report_criterion_target(criterion_id))
             records.append(criterion_record(
                 criterion_id, "INCOMPLETE",
-                expectation=infrastructure_expectations[criterion_id],
+                expectation=expectations[criterion_id],
                 expected=EXPECTED_CELL_COUNTS[criterion_id], observed=0,
-                ledger=key_ledger))
+                ledger=key_ledger, target=aggregate_target))
             continue
         commitment = evidence["commitment"]
         records.append(criterion_record(
             criterion_id, evidence["status"],
-            expectation=infrastructure_expectations[criterion_id],
+            expectation=expectations[criterion_id],
             expected=EXPECTED_CELL_COUNTS[criterion_id],
             observed=evidence["observed_count"],
             ledger=commitment["key_ledger_sha256"],
             result_ledger=commitment["result_ledger_sha256"],
             result_merkle_root=commitment["result_merkle_root_sha256"],
             result_artifact=evidence["artifact"],
-            target=evidence.get("target"),
+            target=evidence.get("target", report_criterion_target(
+                criterion_id)),
             maximum=evidence["maximum"], witness=evidence["witness"],
             first_failure=evidence["first_failing_key"]))
     binding_status = records[0]["status"]
@@ -4070,7 +4463,7 @@ def make_criteria(worktree, all_required_bindings_present, ledgers,
                 expected=EXPECTED_CELL_COUNTS[criterion_id],
                 observed=item["observed_count"], ledger=key_digest,
                 result_ledger=result_digest,
-                target=item.get("target", 0.0),
+                target=report_criterion_target(criterion_id),
                 maximum=maximum, witness=witness,
                 first_failure=item["first_failing_key"]))
             continue
@@ -4078,23 +4471,27 @@ def make_criteria(worktree, all_required_bindings_present, ledgers,
             key_digest = ledger_by_criterion[criterion_id]["key_ledger_sha256"]
             records.append(criterion_record(
                 criterion_id, "INCOMPLETE",
-                expectation="independent primary oracle execution unavailable",
+                expectation=expectations[criterion_id],
                 expected=EXPECTED_CELL_COUNTS[criterion_id],
-                observed=0, ledger=key_digest))
+                observed=0, ledger=key_digest,
+                target=report_criterion_target(criterion_id)))
             blocker = criterion_id
             continue
         if criterion_id in D12_CRITERIA:
             records.append(criterion_record(
-                criterion_id, "INCOMPLETE", expectation=d12_expectation,
+                criterion_id, "INCOMPLETE",
+                expectation=expectations[criterion_id],
                 expected=EXPECTED_CELL_COUNTS[criterion_id], observed=0,
-                ledger=ledger_by_criterion[criterion_id]["key_ledger_sha256"]))
+                ledger=ledger_by_criterion[criterion_id]["key_ledger_sha256"],
+                target=report_criterion_target(criterion_id)))
             continue
         records.append(criterion_record(
             criterion_id, "OMITTED_AFTER_INFRASTRUCTURE_FAILURE",
             blocker=blocker,
-            expectation="requires complete frozen proof infrastructure",
+            expectation=expectations[criterion_id],
             expected=EXPECTED_CELL_COUNTS[criterion_id], observed=0,
-            ledger=ledger_by_criterion[criterion_id]["key_ledger_sha256"]))
+            ledger=ledger_by_criterion[criterion_id]["key_ledger_sha256"],
+            target=report_criterion_target(criterion_id)))
     require(len(records) == 32, "criterion record count")
     return records
 
@@ -4167,7 +4564,7 @@ def execute(args):
             "raw Bfr reproduction drift")
     manifest = B2.load_manifest()
     validate_derived_cardinalities(manifest, checkpoint)
-    expected_fixtures, actual_fixtures = fixture_hash_bindings()
+    authority_record = frozen_authority_record()
     scientific_ledgers = make_scientific_pre_result_ledgers(
         checkpoint, pathlib.Path(args.artifact_dir).resolve(), manifest)
     # The merged amendment forbids candidate-owned outcomes, aggregates,
@@ -4224,7 +4621,6 @@ def execute(args):
         worktree_end, False, ledgers, executed,
         infrastructure=infrastructure,
         d12_expectation=d12_expectation)
-    fingerprint_hash = sha256_bytes(jcs_bytes(B2.EXPECTED_PLATFORM_FINGERPRINT))
     report = {
         "identity": {"schema_id": SCHEMA_ID, "candidate": CANDIDATE,
                      "implementation_state":
@@ -4239,20 +4635,7 @@ def execute(args):
                      "validator": availability(
                          "PRESENT", sha256_file(pathlib.Path(__file__).resolve()))},
         "binaries": binaries,
-        "authority": {"manifest_file_sha256": B2.MANIFEST_FILE_SHA256,
-                      "manifest_contract_sha256": B2.MANIFEST_CONTRACT_SHA256,
-                      "rows": list(ROW_ORDER), "row_invariant_tolerance": 1.0e-12,
-                      "d10": D10, "component_targets": COMPONENT_TARGETS,
-                      "inner_radius_rule": "r < 2^-8 excluded",
-                      "anchor_order": list(ANCHORS), "relabels": list(RELABELS),
-                      "canonical_sample_order": canonical_sample_order(manifest),
-                      "radius_exponents": list(range(1, 9)),
-                      "ray_sequence": [0, 1, 2],
-                      "source_order": "strictly_increasing_signed_source_id",
-                      "expected_fixture_files": expected_fixtures,
-                      "actual_fixture_files": actual_fixtures,
-                      "d12_contract": D12_CONTRACT,
-                      "physical_fingerprint": {"sha256": fingerprint_hash}},
+        "authority": authority_record,
         "checkpoint": {"availability": availability("PRESENT", sha256_file(checkpoint_path)),
                        "git_head": checkpoint["binding"]["git_head"],
                        "row_provider_binary_sha256": checkpoint["binding"]["candidate_binary_sha256"],
@@ -4286,6 +4669,16 @@ def self_test_report():
     mutation_operators = documentation_owned_mutation_operators()
     require(len(schema_paths) == 740 and len(mutation_operators) == 23,
             "result-evidence amendment anchor cardinality")
+    executable_paths = RESULT_CONTRACT.derive_schema_path_anchor(schema)
+    documentation_manifest = RESULT_CONTRACT.expand_mutation_manifest(
+        schema_paths)
+    executable_manifest = RESULT_CONTRACT.expand_mutation_manifest(
+        executable_paths)
+    require(executable_manifest == documentation_manifest and
+            all(item.split("|", 1)[0] in {
+                "M{:02d}".format(index) for index in range(1, 24)}
+                for item in executable_manifest),
+            "expanded mutation manifest differs from approved operands")
     require(schema["additionalProperties"] is False, "top-level schema not closed")
     require(len(CRITERION_IDS) == 32 and len(set(CRITERION_IDS)) == 32,
             "criterion set cardinality")
