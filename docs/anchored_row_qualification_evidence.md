@@ -26,7 +26,7 @@ rename that primitive test or the new exact-dyadic boundary as a scientific
 oracle. Its capability result is explicitly:
 
 ```json
-{"coverage":"UNCOVERED","implementation_state":"INCOMPLETE","kind":"independent_primary_capability","missing_algorithms":["stock_mask_interval_matrix_construction","interval_eigenpair_krawczyk_certification","repeated_eigenspace_spectral_projector_certification","quartic_box_spline_interval_evaluation","certified_parametric_branch_mapping","independent_uniform_five_depth_intersection"],"reason_code":"EIGENBASIS_CERTIFICATION_FAILED","status":"honest_incomplete","uniform_success_substituted_for_primary":false}
+{"coverage":"UNAVAILABLE","implementation_state":"INCOMPLETE","kind":"independent_primary_capability","missing_algorithms":["stock_mask_interval_matrix_construction","interval_eigenpair_krawczyk_certification","repeated_eigenspace_spectral_projector_certification","quartic_box_spline_interval_evaluation","certified_parametric_branch_mapping","independent_uniform_five_depth_intersection"],"reason_code":"ORACLE_EXECUTION_UNAVAILABLE","status":"not_implemented","uniform_success_substituted_for_primary":false}
 ```
 
 The checked-in runner therefore self-identifies as
@@ -141,9 +141,11 @@ after the frozen GMP 6.3.0, MPFR 4.2.2, and OpenSubdiv 3.7.0 inputs are
 provisioned. It then revalidates the complete B2 checkpoint and all 294
 artifacts, reproduces the raw D9a observation, writes canonical B2c evidence,
 and asserts that the only permitted current disposition is implementation
-`INCOMPLETE`. The complete 1,188,000-cell oracle request is now partitioned as
-an empty present `COVERED` ledger and a full present `UNCOVERED` ledger, with
-every result bound to exact reason `EIGENBASIS_CERTIFICATION_FAILED`.
+`INCOMPLETE`. The complete 1,188,000-cell oracle request key ledger remains
+materialized, but the absent primary oracle creates no covered or uncovered
+result records. Both result partitions are unavailable, criterion 10 is
+infrastructure `INCOMPLETE/ORACLE_EXECUTION_UNAVAILABLE`, and its result
+sidecar and commitments are null.
 
 Hosted macOS D12 evidence remains `UNQUALIFIED_PLATFORM`; it cannot pass or
 fail the frozen physical-host numeric budgets. The runner strictly parses the

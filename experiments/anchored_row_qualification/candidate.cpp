@@ -541,6 +541,128 @@ BigSigned exact_binary64_big(std::uint64_t bits) {
     return BigSigned::from_parts((bits >> 63U) != 0, std::move(value));
 }
 
+std::string canonical_binary64_label(std::uint64_t bits) {
+    std::ostringstream output;
+    output << std::hex << std::nouppercase << std::setfill('0')
+           << std::setw(16) << bits;
+    return output.str();
+}
+
+std::string signed_dyadic_json(BigSigned const &value,
+                               unsigned denominator_power = 1074U) {
+    if (denominator_power != 1074U && denominator_power != 2148U) {
+        throw std::runtime_error("signed dyadic denominator power");
+    }
+    int const sign = value.magnitude.is_zero() ? 0 : (value.negative ? -1 : 1);
+    std::ostringstream output;
+    // RFC 8785 member order is unsigned UTF-8 lexical order.
+    output << "{\"denominator_power\":" << denominator_power
+           << ",\"kind\":\"signed_dyadic_v1\""
+           << ",\"numerator_hex\":\"" << value.magnitude.to_hex() << "\""
+           << ",\"sign\":" << sign << '}';
+    return output.str();
+}
+
+std::string integer_array_json(std::vector<int> const &values) {
+    std::ostringstream output;
+    output << '[';
+    for (std::size_t index = 0; index < values.size(); ++index) {
+        if (index != 0) output << ',';
+        output << values[index];
+    }
+    output << ']';
+    return output.str();
+}
+
+std::string string_array_json(std::vector<std::string> const &values) {
+    std::ostringstream output;
+    output << '[';
+    for (std::size_t index = 0; index < values.size(); ++index) {
+        if (index != 0) output << ',';
+        output << '\"' << values[index] << '\"';
+    }
+    output << ']';
+    return output.str();
+}
+
+std::string dyadic_array_json(std::vector<BigSigned> const &values) {
+    std::ostringstream output;
+    output << '[';
+    for (std::size_t index = 0; index < values.size(); ++index) {
+        if (index != 0) output << ',';
+        output << signed_dyadic_json(values[index]);
+    }
+    output << ']';
+    return output.str();
+}
+
+constexpr char kCandidateValuesMagic[] =
+    "anchored-row-candidate-values-v1";
+constexpr std::uint64_t kCandidatePayloadMaximum = UINT64_C(1) << 20U;
+constexpr std::uint64_t kCandidateRecordMaximum =
+    (UINT64_C(1) << 63U) - UINT64_C(1);
+
+void write_uint64_be(std::ostream &output, std::uint64_t value) {
+    std::array<char, 8> bytes{};
+    for (std::size_t index = 0; index < bytes.size(); ++index) {
+        bytes[7U - index] = static_cast<char>(
+            (value >> (index * 8U)) & UINT64_C(0xff));
+    }
+    output.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+}
+
+std::uint64_t read_uint64_be_for_self_test(std::string const &bytes,
+                                           std::size_t &offset) {
+    if (offset > bytes.size() || bytes.size() - offset < 8U) {
+        throw std::runtime_error("candidate observation truncated frame self-test");
+    }
+    std::uint64_t value = 0;
+    for (std::size_t index = 0; index < 8U; ++index) {
+        value = (value << 8U) |
+            static_cast<unsigned char>(bytes[offset + index]);
+    }
+    offset += 8U;
+    return value;
+}
+
+class CandidateValueStream {
+public:
+    explicit CandidateValueStream(std::ostream &output) : output_(output) {
+        // sizeof includes exactly the protocol's required terminating NUL.
+        output_.write(kCandidateValuesMagic,
+                      static_cast<std::streamsize>(sizeof(kCandidateValuesMagic)));
+        require_output();
+    }
+
+    void add(std::uint64_t expected_key_ordinal,
+             std::string const &canonical_payload) {
+        if (canonical_payload.empty() ||
+            canonical_payload.size() > kCandidatePayloadMaximum) {
+            throw std::runtime_error("candidate observation payload length");
+        }
+        if (record_count_ == kCandidateRecordMaximum) {
+            throw std::runtime_error("candidate observation record count");
+        }
+        write_uint64_be(output_, expected_key_ordinal);
+        write_uint64_be(output_,
+                        static_cast<std::uint64_t>(canonical_payload.size()));
+        output_.write(canonical_payload.data(),
+                      static_cast<std::streamsize>(canonical_payload.size()));
+        ++record_count_;
+        require_output();
+    }
+
+    std::uint64_t record_count() const { return record_count_; }
+
+private:
+    void require_output() const {
+        if (!output_) throw std::runtime_error("candidate observation output failure");
+    }
+
+    std::ostream &output_;
+    std::uint64_t record_count_ = 0;
+};
+
 double from_bits(std::string const &text) {
     if (text.size() != 16) throw std::runtime_error("binary64 label length");
     std::uint64_t bits = 0;
@@ -891,6 +1013,222 @@ int audit_stream() {
               << ",\"structure_failure_count\":" << structure_failures
               << ",\"structure_result_stream_sha256\":\""
               << structure_outcomes.finish_hex() << "\"}\n";
+    return 0;
+}
+
+std::string candidate_structure_payload(
+    std::vector<int> const &source_ids,
+    std::vector<std::string> const &provider_coefficient_bits,
+    std::vector<BigSigned> const &effective_coefficients) {
+    if (source_ids.empty() ||
+        source_ids.size() != provider_coefficient_bits.size() ||
+        source_ids.size() != effective_coefficients.size()) {
+        throw std::runtime_error("candidate structure observation cardinality");
+    }
+    // Closed candidate_structure_observation_v1 in RFC 8785 member order.
+    return std::string("{\"canonical_source_ids\":") +
+        integer_array_json(source_ids) +
+        ",\"effective_coefficients\":" +
+        dyadic_array_json(effective_coefficients) +
+        ",\"kind\":\"candidate_structure_observation_v1\"" +
+        ",\"provider_coefficient_bits\":" +
+        string_array_json(provider_coefficient_bits) + "}";
+}
+
+std::string candidate_binary64_payload(std::uint64_t observed_bits) {
+    // Closed candidate_binary64_observation_v1 in RFC 8785 member order.
+    return std::string("{\"kind\":\"candidate_binary64_observation_v1\"") +
+        ",\"observed_bits\":\"" + canonical_binary64_label(observed_bits) +
+        "\"}";
+}
+
+std::string candidate_dyadic_vector_payload(
+    std::vector<int> const &source_ids,
+    std::vector<BigSigned> const &values) {
+    if (source_ids.empty() || source_ids.size() != values.size()) {
+        throw std::runtime_error("candidate dyadic observation cardinality");
+    }
+    // Closed candidate_dyadic_vector_observation_v1 in RFC 8785 member order.
+    return std::string("{\"kind\":\"candidate_dyadic_vector_observation_v1\"") +
+        ",\"source_ids\":" + integer_array_json(source_ids) +
+        ",\"values\":" + dyadic_array_json(values) + "}";
+}
+
+enum class PreoracleObservationSelection {
+    Structure,
+    ConstantField,
+    RelabelExact,
+};
+
+int preoracle_observation_stream(std::istream &input, std::ostream &output,
+                                 PreoracleObservationSelection selection) {
+    if (std::fesetround(FE_TONEAREST) != 0 ||
+        std::fegetround() != FE_TONEAREST) {
+        throw std::runtime_error("FE_TONEAREST unavailable");
+    }
+    // Challenge traversal follows unsigned lexical JCS key order.  This is
+    // deliberately independent of the display order in the authority list.
+    static std::array<std::string, 5> const challenge_labels = {{
+        "c130000000000000", "bff0000000000000", "4130000000000000",
+        "3ff0000000000000", "0000000000000000",
+    }};
+    std::array<double, 5> challenges{};
+    for (std::size_t index = 0; index < challenges.size(); ++index) {
+        challenges[index] = from_bits(challenge_labels[index]);
+    }
+
+    CandidateValueStream observations(output);
+    std::uint64_t observation_ordinal = 0;
+    std::string line;
+    while (std::getline(input, line)) {
+        if (line.empty()) throw std::runtime_error("empty observation request");
+        std::vector<std::string> const fields = split(line, ' ');
+        if (fields.size() != 5) {
+            throw std::runtime_error("observation request field count");
+        }
+        bool const position = is_position(fields[0]);
+        std::size_t const vertex_count =
+            parse_size(fields[1], "vertex count syntax");
+        std::vector<int> const anchors = parse_ids(fields[2]);
+        std::vector<int> const source_ids = parse_ids(fields[3]);
+        std::vector<std::string> const input_coefficient_labels =
+            split(fields[4], ',');
+        if (vertex_count == 0 || anchors.size() != 3 || source_ids.empty() ||
+            source_ids.size() != input_coefficient_labels.size() ||
+            !std::is_sorted(source_ids.begin(), source_ids.end()) ||
+            std::adjacent_find(source_ids.begin(), source_ids.end()) !=
+                source_ids.end() ||
+            source_ids.back() >= static_cast<int>(vertex_count)) {
+            throw std::runtime_error(
+                "observation row cardinality or source order");
+        }
+
+        std::vector<double> coefficients;
+        std::vector<BigSigned> exact_coefficients;
+        std::vector<std::string> coefficient_labels;
+        coefficients.reserve(input_coefficient_labels.size());
+        exact_coefficients.reserve(input_coefficient_labels.size());
+        coefficient_labels.reserve(input_coefficient_labels.size());
+        for (std::string const &label : input_coefficient_labels) {
+            std::uint64_t const bits = bits_from_label(label);
+            coefficients.push_back(from_bits(label));
+            exact_coefficients.push_back(exact_binary64_big(bits));
+            coefficient_labels.push_back(canonical_binary64_label(bits));
+        }
+        BigSigned exact_sum;
+        for (BigSigned const &value : exact_coefficients) exact_sum += value;
+        BigSigned const target = position
+            ? BigSigned::from_parts(false, BigUnsigned::power_of_two(1074U))
+            : BigSigned();
+
+        for (int anchor_index = 0; anchor_index < 3; ++anchor_index) {
+            int const anchor_source =
+                anchors[static_cast<std::size_t>(anchor_index)];
+            std::vector<int>::const_iterator const anchor_iterator =
+                std::lower_bound(source_ids.begin(), source_ids.end(),
+                                 anchor_source);
+            if (anchor_iterator == source_ids.end() ||
+                *anchor_iterator != anchor_source) {
+                // The validated runner owns missing-anchor result semantics;
+                // a candidate cannot manufacture a result or reason for it.
+                throw std::runtime_error("observation anchor absent");
+            }
+            std::size_t const original_anchor = static_cast<std::size_t>(
+                anchor_iterator - source_ids.begin());
+            std::vector<BigSigned> effective = exact_coefficients;
+            effective[original_anchor] += target - exact_sum;
+            if (selection == PreoracleObservationSelection::Structure) {
+                observations.add(
+                    observation_ordinal++,
+                    candidate_structure_payload(source_ids, coefficient_labels,
+                                                effective));
+                continue;
+            }
+
+            for (int relabel = 0; relabel < 3; ++relabel) {
+                std::vector<std::pair<int, std::size_t> > permutation;
+                permutation.reserve(source_ids.size());
+                for (std::size_t index = 0; index < source_ids.size(); ++index) {
+                    int mapped = source_ids[index];
+                    if (relabel == 1) {
+                        mapped = static_cast<int>(vertex_count) - 1 - mapped;
+                    }
+                    if (relabel == 2) {
+                        mapped = (mapped + 1) % static_cast<int>(vertex_count);
+                    }
+                    permutation.push_back(std::make_pair(mapped, index));
+                }
+                std::sort(permutation.begin(), permutation.end());
+                std::vector<int> mapped_ids;
+                std::vector<double> mapped_coefficients;
+                std::vector<BigSigned> mapped_exact;
+                for (std::pair<int, std::size_t> const &entry : permutation) {
+                    mapped_ids.push_back(entry.first);
+                    mapped_coefficients.push_back(coefficients[entry.second]);
+                    mapped_exact.push_back(exact_coefficients[entry.second]);
+                }
+                int mapped_anchor = anchor_source;
+                if (relabel == 1) {
+                    mapped_anchor = static_cast<int>(vertex_count) - 1 -
+                        mapped_anchor;
+                }
+                if (relabel == 2) {
+                    mapped_anchor = (mapped_anchor + 1) %
+                        static_cast<int>(vertex_count);
+                }
+                std::vector<int>::const_iterator const mapped_anchor_iterator =
+                    std::lower_bound(mapped_ids.begin(), mapped_ids.end(),
+                                     mapped_anchor);
+                if (mapped_anchor_iterator == mapped_ids.end() ||
+                    *mapped_anchor_iterator != mapped_anchor) {
+                    throw std::runtime_error("observation mapped anchor absent");
+                }
+                std::size_t const mapped_anchor_index =
+                    static_cast<std::size_t>(mapped_anchor_iterator -
+                                             mapped_ids.begin());
+
+                if (selection == PreoracleObservationSelection::ConstantField) {
+                    for (std::size_t challenge = 0;
+                         challenge < challenges.size(); ++challenge) {
+                        std::vector<double> sources(
+                            mapped_ids.size(), challenges[challenge]);
+                        double const observed = evaluate(
+                            position, mapped_anchor_index, mapped_coefficients,
+                            sources);
+                        observations.add(
+                            observation_ordinal++,
+                            candidate_binary64_payload(
+                                bits_from_label(to_bits(observed))));
+                    }
+                }
+
+                if (selection == PreoracleObservationSelection::RelabelExact &&
+                    relabel != 0) {
+                    BigSigned mapped_sum;
+                    for (BigSigned const &value : mapped_exact) {
+                        mapped_sum += value;
+                    }
+                    mapped_exact[mapped_anchor_index] += target - mapped_sum;
+                    std::vector<BigSigned> inverse_canonical(source_ids.size());
+                    for (std::size_t mapped_index = 0;
+                         mapped_index < permutation.size(); ++mapped_index) {
+                        inverse_canonical[permutation[mapped_index].second] =
+                            mapped_exact[mapped_index];
+                    }
+                    observations.add(
+                        observation_ordinal++,
+                        candidate_dyadic_vector_payload(source_ids,
+                                                        inverse_canonical));
+                }
+            }
+        }
+    }
+    if (std::fegetround() != FE_TONEAREST) {
+        throw std::runtime_error("rounding mode after observation stream");
+    }
+    if (observations.record_count() != observation_ordinal) {
+        throw std::runtime_error("candidate observation stream incomplete");
+    }
     return 0;
 }
 
@@ -1789,6 +2127,102 @@ int self_test() {
                 BigUnsigned::power_of_two(64U)) != 0) {
         throw std::runtime_error("exact component integer self-test");
     }
+    if (signed_dyadic_json(BigSigned()) !=
+        "{\"denominator_power\":1074,\"kind\":\"signed_dyadic_v1\","
+        "\"numerator_hex\":\"0\",\"sign\":0}") {
+        throw std::runtime_error("canonical signed dyadic self-test");
+    }
+    static std::array<char const *, 7> const forbidden_members = {{
+        "\"aggregate\"", "\"digest\"", "\"error\"", "\"outcome\"",
+        "\"reason\"", "\"reference\"", "\"target\"",
+    }};
+    static std::array<PreoracleObservationSelection, 3> const selections = {{
+        PreoracleObservationSelection::Structure,
+        PreoracleObservationSelection::ConstantField,
+        PreoracleObservationSelection::RelabelExact,
+    }};
+    static std::array<char const *, 3> const observation_kinds = {{
+        "candidate_structure_observation_v1",
+        "candidate_binary64_observation_v1",
+        "candidate_dyadic_vector_observation_v1",
+    }};
+    static std::array<std::uint64_t, 3> const expected_counts = {{3U, 45U, 6U}};
+    for (std::size_t selection_index = 0;
+         selection_index < selections.size(); ++selection_index) {
+        std::istringstream observation_input(
+            "position 3 0,1,2 0,1,2 "
+            "3fd0000000000000,3fe0000000000000,3fd0000000000000\n");
+        std::ostringstream observation_output(std::ios::out | std::ios::binary);
+        if (preoracle_observation_stream(
+                observation_input, observation_output,
+                selections[selection_index]) != 0) {
+            throw std::runtime_error("candidate observation execution self-test");
+        }
+        std::string const framed = observation_output.str();
+        if (framed.size() < sizeof(kCandidateValuesMagic) ||
+            framed.compare(0, sizeof(kCandidateValuesMagic) - 1U,
+                           kCandidateValuesMagic) != 0 ||
+            framed[sizeof(kCandidateValuesMagic) - 1U] != '\0') {
+            throw std::runtime_error("candidate observation magic self-test");
+        }
+        std::size_t offset = sizeof(kCandidateValuesMagic);
+        std::uint64_t seen = 0;
+        while (offset < framed.size()) {
+            std::uint64_t const ordinal =
+                read_uint64_be_for_self_test(framed, offset);
+            std::uint64_t const payload_length =
+                read_uint64_be_for_self_test(framed, offset);
+            if (ordinal != seen++ || payload_length == 0 ||
+                payload_length > kCandidatePayloadMaximum ||
+                payload_length > framed.size() - offset) {
+                throw std::runtime_error(
+                    "candidate observation frame self-test");
+            }
+            std::string const payload = framed.substr(
+                offset, static_cast<std::size_t>(payload_length));
+            offset += static_cast<std::size_t>(payload_length);
+            if (payload.front() != '{' || payload.back() != '}' ||
+                payload.find('\n') != std::string::npos ||
+                payload.find(' ') != std::string::npos ||
+                payload.find(std::string("\"kind\":\"") +
+                             observation_kinds[selection_index] + "\"") ==
+                    std::string::npos) {
+                throw std::runtime_error(
+                    "candidate observation canonical self-test");
+            }
+            for (char const *member : forbidden_members) {
+                if (payload.find(member) != std::string::npos) {
+                    throw std::runtime_error(
+                        "candidate observation authority leak self-test");
+                }
+            }
+            if (selection_index == 0U &&
+                (payload.find("{\"canonical_source_ids\":[0,1,2],"
+                              "\"effective_coefficients\":[") != 0 ||
+                 payload.find(",\"provider_coefficient_bits\":["
+                              "\"3fd0000000000000\",\"3fe0000000000000\","
+                              "\"3fd0000000000000\"]}") ==
+                     std::string::npos)) {
+                throw std::runtime_error(
+                    "candidate structure observation self-test");
+            }
+            if (selection_index == 1U && seen == 1U && payload !=
+                "{\"kind\":\"candidate_binary64_observation_v1\","
+                "\"observed_bits\":\"c130000000000000\"}") {
+                throw std::runtime_error(
+                    "candidate binary64 observation payload self-test");
+            }
+            if (selection_index == 2U &&
+                payload.find(",\"source_ids\":[0,1,2],\"values\":[") ==
+                    std::string::npos) {
+                throw std::runtime_error(
+                    "candidate dyadic observation self-test");
+            }
+        }
+        if (offset != framed.size() || seen != expected_counts[selection_index]) {
+            throw std::runtime_error("candidate observation coverage self-test");
+        }
+    }
     std::cout << "{\"candidate\":\"anchored_difference_rows_v1\","
                  "\"compiler_round_points\":\"volatile_binary64\","
                  "\"fma_contraction_permitted\":false,\"finite\":true,"
@@ -1821,10 +2255,37 @@ int main(int argc, char **argv) {
         if (argc == 2 && std::string(argv[1]) == "--component-audit-stream") {
             return component_audit_stream();
         }
+        if (argc == 3 &&
+            std::string(argv[1]) == "--preoracle-observation-stream") {
+            std::string const criterion = argv[2];
+            if (criterion == "representation_structure") {
+                return preoracle_observation_stream(
+                    std::cin, std::cout,
+                    PreoracleObservationSelection::Structure);
+            }
+            if (criterion == "constant_field_bits") {
+                return preoracle_observation_stream(
+                    std::cin, std::cout,
+                    PreoracleObservationSelection::ConstantField);
+            }
+            if (criterion == "relabel_exact_effective_coefficients") {
+                return preoracle_observation_stream(
+                    std::cin, std::cout,
+                    PreoracleObservationSelection::RelabelExact);
+            }
+            throw std::runtime_error(
+                "unknown preoracle observation criterion");
+        }
         if (argc == 2 && std::string(argv[1]) == "--audit-stream") {
+            // Compatibility only.  Its candidate-owned decisions, aggregates,
+            // maxima, and digests are explicitly non-authoritative after the
+            // result-ledger amendment.  New evidence must consume the raw
+            // observation stream above and derive every result in the runner.
+            std::cerr << "warning: --audit-stream is legacy non-authoritative "
+                         "compatibility output\n";
             return audit_stream();
         }
-        std::cerr << "usage: anchored_row_candidate --self-test | --evaluate-line REQUEST | --stream | --integrand-stream | --fidelity-stream | --component-audit-stream | --audit-stream\n";
+        std::cerr << "usage: anchored_row_candidate --self-test | --evaluate-line REQUEST | --stream | --integrand-stream | --fidelity-stream | --component-audit-stream | --preoracle-observation-stream CRITERION | --audit-stream (legacy non-authoritative)\n";
         return 2;
     } catch (std::exception const &error) {
         std::cerr << error.what() << '\n';

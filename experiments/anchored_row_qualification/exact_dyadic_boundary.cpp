@@ -431,7 +431,7 @@ int self_test() {
 }
 
 int capability() {
-    std::cout << "{\"coverage\":\"UNCOVERED\","
+    std::cout << "{\"coverage\":\"UNAVAILABLE\","
                  "\"implementation_state\":\"INCOMPLETE\","
                  "\"kind\":\"independent_primary_capability\","
                  "\"missing_algorithms\":["
@@ -441,8 +441,8 @@ int capability() {
                  "\"quartic_box_spline_interval_evaluation\","
                  "\"certified_parametric_branch_mapping\","
                  "\"independent_uniform_five_depth_intersection\"],"
-                 "\"reason_code\":\"EIGENBASIS_CERTIFICATION_FAILED\","
-                 "\"status\":\"honest_incomplete\","
+                 "\"reason_code\":\"ORACLE_EXECUTION_UNAVAILABLE\","
+                 "\"status\":\"not_implemented\","
                  "\"uniform_success_substituted_for_primary\":false}\n";
     return 0;
 }

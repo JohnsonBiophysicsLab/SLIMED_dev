@@ -4,7 +4,7 @@
 The runner validates the frozen B2 corpus and the executable representation
 boundary.  The repository does not contain the independently certified primary
 eigenanalysis plus uniform-refinement oracle required by B2b.  That absence is
-reported as ``UNCOVERED`` and forces ``INCOMPLETE``; this program cannot emit a
+reported as infrastructure ``INCOMPLETE``; this program cannot emit a
 qualification PASS, reopen D9a, select Far, unblock B3, or authorize production.
 """
 
@@ -23,12 +23,16 @@ import re
 import struct
 import subprocess
 import sys
+import tempfile
+import threading
 from decimal import Decimal, localcontext
 from fractions import Fraction
 
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 SCHEMA_PATH = ROOT / "scripts/anchored_row_qualification_report_v1.schema.json"
+RESULT_EVIDENCE_AMENDMENT_PATH = (
+    ROOT / "docs/anchored_row_qualification_result_ledger_amendment.md")
 B2A_PATH = ROOT / "scripts/run_invariant_row_representation_preflight.py"
 B2A_SPEC = importlib.util.spec_from_file_location("b2a_preflight", B2A_PATH)
 B2A = importlib.util.module_from_spec(B2A_SPEC)
@@ -38,6 +42,45 @@ B2 = B2A.B2
 SCHEMA_ID = "anchored-row-qualification-report-v1"
 CANDIDATE = "anchored_difference_rows_v1"
 APPROVED_B2B_MERGE = "022df7a8e11bcc4aee4df2254cc994cf4efdeb4f"
+APPROVED_RESULT_EVIDENCE_AMENDMENT_MERGE = (
+    "029816125619f58f99464e8055170ffa12e957e3")
+RESULT_EVIDENCE_PATH_ANCHOR_SHA256 = (
+    "0e82d15b0244aaa779a1ca600fdc8b43ac501ab91aa615e8adb8dcd8682ecf66")
+RESULT_EVIDENCE_MUTATION_MANIFEST_ID = (
+    "anchored-row-result-evidence-mutations-v1")
+RESULT_EVIDENCE_MUTATION_OPERATORS = (
+    "M01 delete-required-object-member",
+    "M02 add-unknown-object-member",
+    "M03 replace-required-type",
+    "M04 insert-array-item",
+    "M05 delete-array-item",
+    "M06 duplicate-array-item",
+    "M07 swap-adjacent-array-items",
+    "M08 criterion-id-position-count",
+    "M09 criterion-authority",
+    "M10 ledger-slot",
+    "M11 result-sidecar",
+    "M12 result-record",
+    "M13 maximum-witness",
+    "M14 merkle-proof",
+    "M15 first-failure",
+    "M16 authority-value",
+    "M17 oracle-partition",
+    "M18 basis-aggregation",
+    "M19 raw-D9a",
+    "M20 D12-envelope",
+    "M21 causality-verdict",
+    "M22 serial-only",
+    "M23 canonical-encoding",
+)
+RESULT_LEDGER_DIRECTORY = "anchored-row-result-ledgers-v1"
+RAW_D9A_FROZEN_FAILING_CASE_COUNT = 124
+RAW_D9A_FROZEN_MAXIMUM_BITS = "3db6653ab1800000"
+RAW_D9A_FROZEN_MAXIMUM_NUMERATOR_HEX = (
+    "5994eac6000000000000000000000000000000000000000000000000000000000"
+    "00000000000000000000000000000000000000000000000000000000000000000"
+    "00000000000000000000000000000000000000000000000000000000000000000"
+    "00000000000000000000000000000000000000000000000000000000000000000")
 ZERO_SHA256 = "0" * 64
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 GIT_RE = re.compile(r"^[0-9a-f]{40}$")
@@ -51,6 +94,17 @@ D10 = {"position": 5.0e-6, "first_derivative": 2.5e-5,
        "second_derivative": 1.25e-4}
 COMPONENT_TARGETS = {"position": 5.0e-7, "first_derivative": 2.5e-6,
                      "second_derivative": 1.25e-5}
+D12_CONTRACT = {
+    "preparation_median_ns": 1000000000,
+    "preparation_single_ns": 10000000000,
+    "retained_payload_bytes": 131072,
+    "peak_rss_delta_bytes": 67108864,
+}
+DEPENDENCY_ARCHIVE_SHA256 = {
+    "gmp": "a3c2b80201b89e68616f4ad30bc66aee4927c3ce50e33929ca819d5c43538898",
+    "mpfr": "b67ba0383ef7e8a8563734e2e889ef5ec3c3b898a01d00fa0a6869ad81c6ce01",
+    "opensubdiv": "f843eb49daf20264007d807cbc64516a1fed9cdb1149aaf84ff47691d97491f9",
+}
 FROZEN_FIXTURE_SHA256 = {
     "data/fixtures/candidates/b2_readiness_v1/execution_manifest.json": "bdadac60281c0430789e079cefb819c0c8e127899d4ede4ba7227d233452a07b",
     "data/fixtures/candidates/b2_readiness_v1/asymmetric_344_bipyramid/candidate_metadata.json": "e92b244806eaecd9230a3f3f9977f61ddeff3875ee6550c2dfbdb211a8e05e04",
@@ -138,7 +192,7 @@ D12_CRITERIA = frozenset(CRITERION_IDS[27:])
 CANDIDATE_SCIENTIFIC_CRITERIA = frozenset(CRITERION_IDS[3:27]) - ORACLE_CRITERIA
 CATEGORICAL_CRITERIA = frozenset((
     "bindings_and_independence", "complete_artifact_inventory",
-    "raw_bfr_d9a_reproduction", "representation_structure",
+    "representation_structure",
     "constant_field_bits", "relabel_exact_effective_coefficients",
     "cache_mode_bit_identity",
 ))
@@ -295,6 +349,302 @@ def jcs_bytes(value):
     raise QualificationError("unsupported JCS type")
 
 
+def _uint64_be(value):
+    require(type(value) is int and 0 <= value <= 0xffffffffffffffff,
+            "uint64 value")
+    return struct.pack(">Q", value)
+
+
+def canonical_result_record(key, outcome, exact_value, target, reason):
+    """Return one closed canonical result record and its RFC 8785 bytes."""
+    require(outcome in ("PASS", "FAIL", "UNCOVERED", "INCOMPLETE"),
+            "result outcome")
+    if outcome == "PASS":
+        require(reason is None, "passing result reason must be null")
+    else:
+        require(isinstance(reason, str) and reason,
+                "non-passing result reason")
+    record = [key, outcome, exact_value, target, reason]
+    return record, jcs_bytes(record)
+
+
+def result_leaf_sha256(index, record_bytes):
+    require(isinstance(record_bytes, bytes), "result record bytes")
+    return hashlib.sha256(
+        b"\x00" + _uint64_be(index) + _uint64_be(len(record_bytes)) +
+        record_bytes).digest()
+
+
+def empty_result_leaf_sha256(index):
+    return hashlib.sha256(b"\x02" + _uint64_be(index)).digest()
+
+
+def result_node_sha256(left, right):
+    require(isinstance(left, bytes) and len(left) == 32 and
+            isinstance(right, bytes) and len(right) == 32,
+            "result Merkle child digest")
+    return hashlib.sha256(b"\x01" + left + right).digest()
+
+
+def result_merkle_commitment(record_bytes, witness_index=None):
+    """Construct the frozen padded result Merkle tree and one proof."""
+    require(isinstance(record_bytes, (list, tuple)),
+            "result Merkle record collection")
+    count = len(record_bytes)
+    require(count <= 0xffffffffffffffff, "result record count uint64")
+    if witness_index is not None:
+        require(type(witness_index) is int and 0 <= witness_index < count,
+                "result witness index")
+    padded = 1
+    while padded < count:
+        padded <<= 1
+    leaves = []
+    for index in range(padded):
+        if index < count:
+            leaves.append(result_leaf_sha256(index, record_bytes[index]))
+        else:
+            leaves.append(empty_result_leaf_sha256(index))
+    siblings = []
+    cursor = witness_index
+    level = leaves
+    while len(level) > 1:
+        if cursor is not None:
+            siblings.append(level[cursor ^ 1].hex())
+            cursor //= 2
+        level = [result_node_sha256(level[index], level[index + 1])
+                 for index in range(0, len(level), 2)]
+    return level[0].hex(), siblings
+
+
+def validate_result_merkle_witness(record_bytes, leaf_index, siblings,
+                                   expected_root, observed_count=None):
+    """Validate membership, direction, proof length, and committed root."""
+    require(type(leaf_index) is int and leaf_index >= 0,
+            "result witness leaf index")
+    require(isinstance(record_bytes, bytes), "result witness record bytes")
+    require(isinstance(siblings, list), "result witness siblings")
+    require(SHA256_RE.fullmatch(expected_root or "") is not None,
+            "result witness root")
+    if observed_count is not None:
+        require(type(observed_count) is int and observed_count >= 0 and
+                leaf_index < observed_count,
+                "result witness padding index")
+        padded = 1
+        while padded < observed_count:
+            padded <<= 1
+        require(len(siblings) == padded.bit_length() - 1,
+                "result witness proof depth")
+    require(leaf_index < (1 << len(siblings)),
+            "result witness padding index")
+    current = result_leaf_sha256(leaf_index, record_bytes)
+    cursor = leaf_index
+    for sibling_hex in siblings:
+        require(SHA256_RE.fullmatch(sibling_hex or "") is not None,
+                "result witness sibling")
+        sibling = bytes.fromhex(sibling_hex)
+        if cursor & 1:
+            current = result_node_sha256(sibling, current)
+        else:
+            current = result_node_sha256(current, sibling)
+        cursor //= 2
+    require(current.hex() == expected_root, "result witness root mismatch")
+    return True
+
+
+def canonical_result_ledger(records, witness_index=None):
+    """Build complete canonical result bytes and independent commitments."""
+    require(isinstance(records, list), "result ledger records")
+    encoded_records = []
+    encoded_keys = []
+    previous_key = None
+    for record in records:
+        require(isinstance(record, list) and len(record) == 5,
+                "result record shape")
+        canonical, encoded = canonical_result_record(*record)
+        require(canonical == record, "result record canonical value")
+        encoded_key = jcs_bytes(record[0])
+        require(previous_key is None or previous_key < encoded_key,
+                "result ledger duplicate or key-order drift")
+        previous_key = encoded_key
+        encoded_keys.append(encoded_key)
+        encoded_records.append(encoded)
+    ledger_bytes = b"[" + b",".join(encoded_records) + b"]"
+    key_ledger_bytes = b"[" + b",".join(encoded_keys) + b"]"
+    root, siblings = result_merkle_commitment(
+        encoded_records, witness_index=witness_index)
+    return {
+        "bytes": ledger_bytes,
+        "record_bytes": encoded_records,
+        "record_count": len(records),
+        "key_ledger_sha256": sha256_bytes(key_ledger_bytes),
+        "result_ledger_sha256": sha256_bytes(ledger_bytes),
+        "result_merkle_root_sha256": root,
+        "witness_siblings": siblings,
+    }
+
+
+def result_ledger_relative_path(criterion_id):
+    require(criterion_id in CRITERION_IDS, "result criterion ID")
+    ordinal = CRITERION_IDS.index(criterion_id)
+    return "{}/{:02d}-{}.result-ledger.json".format(
+        RESULT_LEDGER_DIRECTORY, ordinal, criterion_id)
+
+
+def write_result_ledger_artifact(output_root, criterion_id, records,
+                                 witness_index=None):
+    """Persist one canonical result sidecar without a trailing newline."""
+    commitment = canonical_result_ledger(records, witness_index=witness_index)
+    relative_path = result_ledger_relative_path(criterion_id)
+    destination = pathlib.Path(output_root) / relative_path
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_bytes(commitment["bytes"])
+    descriptor = {
+        "availability": availability(
+            "PRESENT", commitment["result_ledger_sha256"]),
+        "relative_path": relative_path,
+        "byte_length": len(commitment["bytes"]),
+        "record_count": commitment["record_count"],
+    }
+    return commitment, descriptor
+
+
+class StreamingResultLedgerArtifact:
+    """Write one canonical result sidecar with bounded resident memory."""
+
+    def __init__(self, output_root, criterion_id):
+        self.criterion_id = criterion_id
+        self.relative_path = result_ledger_relative_path(criterion_id)
+        self.destination = pathlib.Path(output_root) / self.relative_path
+        self.destination.parent.mkdir(parents=True, exist_ok=True)
+        self.stream = self.destination.open("wb")
+        self.stream.write(b"[")
+        self.result_digest = hashlib.sha256()
+        self.result_digest.update(b"[")
+        self.key_digest = hashlib.sha256()
+        self.key_digest.update(b"[")
+        self.leaves = tempfile.TemporaryFile()
+        self.count = 0
+        self.previous_key = None
+        self.closed = False
+
+    def add(self, record):
+        require(not self.closed, "closed result sidecar writer")
+        require(isinstance(record, list) and len(record) == 5,
+                "result record shape")
+        canonical, encoded_record = canonical_result_record(*record)
+        require(canonical == record, "result record canonical value")
+        encoded_key = jcs_bytes(record[0])
+        require(self.previous_key is None or self.previous_key < encoded_key,
+                "{} result ledger duplicate or key-order drift".format(
+                    self.criterion_id))
+        separator = b"," if self.count else b""
+        self.stream.write(separator)
+        self.stream.write(encoded_record)
+        self.result_digest.update(separator)
+        self.result_digest.update(encoded_record)
+        self.key_digest.update(separator)
+        self.key_digest.update(encoded_key)
+        self.leaves.write(result_leaf_sha256(self.count, encoded_record))
+        self.previous_key = encoded_key
+        self.count += 1
+
+    def _finish_merkle(self, witness_index):
+        require(witness_index is None or
+                (type(witness_index) is int and 0 <= witness_index < self.count),
+                "result sidecar witness index")
+        padded = 1
+        while padded < self.count:
+            padded <<= 1
+        for index in range(self.count, padded):
+            self.leaves.write(empty_result_leaf_sha256(index))
+        self.leaves.flush()
+        self.leaves.seek(0)
+        current = self.leaves
+        nodes = padded
+        cursor = witness_index
+        siblings = []
+        while nodes > 1:
+            parent_level = tempfile.TemporaryFile()
+            for pair_index in range(nodes // 2):
+                left = current.read(32)
+                right = current.read(32)
+                require(len(left) == 32 and len(right) == 32,
+                        "result Merkle level truncation")
+                if cursor is not None and pair_index == cursor // 2:
+                    siblings.append((right if cursor % 2 == 0 else left).hex())
+                parent_level.write(result_node_sha256(left, right))
+            current.close()
+            parent_level.flush()
+            parent_level.seek(0)
+            current = parent_level
+            nodes //= 2
+            if cursor is not None:
+                cursor //= 2
+        root = current.read(32)
+        require(len(root) == 32 and current.read(1) == b"",
+                "result Merkle root cardinality")
+        current.close()
+        return root.hex(), siblings
+
+    def finish(self, witness_index=None):
+        require(not self.closed, "result sidecar already finished")
+        self.closed = True
+        self.stream.write(b"]")
+        self.stream.close()
+        self.result_digest.update(b"]")
+        self.key_digest.update(b"]")
+        root, siblings = self._finish_merkle(witness_index)
+        result_sha256 = self.result_digest.hexdigest()
+        require(sha256_file(self.destination) == result_sha256,
+                "persisted result sidecar digest mismatch")
+        descriptor = {
+            "availability": availability("PRESENT", result_sha256),
+            "relative_path": self.relative_path,
+            "byte_length": self.destination.stat().st_size,
+            "record_count": self.count,
+        }
+        return {
+            "key_ledger_sha256": self.key_digest.hexdigest(),
+            "result_ledger_sha256": result_sha256,
+            "result_merkle_root_sha256": root,
+            "witness_siblings": siblings,
+            "record_count": self.count,
+        }, descriptor
+
+
+def documentation_owned_schema_path_anchor():
+    """Load and authenticate the approved Markdown-owned schema universe."""
+    raw = RESULT_EVIDENCE_AMENDMENT_PATH.read_bytes()
+    require(b"\r" not in raw, "result-evidence amendment must use LF")
+    begin = b"BEGIN anchored-row-result-evidence-schema-paths-v1\n"
+    end = b"END anchored-row-result-evidence-schema-paths-v1\n"
+    require(raw.count(begin) == 1 and raw.count(end) == 1,
+            "result-evidence path-anchor markers")
+    anchored = raw.split(begin, 1)[1].split(end, 1)[0]
+    require(anchored.endswith(b"\n"), "result-evidence path-anchor final LF")
+    require(sha256_bytes(anchored) == RESULT_EVIDENCE_PATH_ANCHOR_SHA256,
+            "result-evidence path-anchor SHA-256")
+    lines = anchored[:-1].decode("utf-8").split("\n")
+    require(len(lines) == 740 and lines == sorted(lines) and
+            len(lines) == len(set(lines)),
+            "result-evidence path-anchor order/count")
+    allowed = {"array", "authority", "criterion", "ledger", "object"}
+    require(all(line.split("|", 1)[0] in allowed for line in lines),
+            "result-evidence path-anchor record kind")
+    return lines
+
+
+def documentation_owned_mutation_operators():
+    """Authenticate the literal M01--M23 operator names in the amendment."""
+    text = RESULT_EVIDENCE_AMENDMENT_PATH.read_text(encoding="utf-8")
+    observed = tuple(re.findall(
+        r"^(M(?:0[1-9]|1[0-9]|2[0-3]) [^ ]+)", text,
+        flags=re.MULTILINE))
+    require(observed == RESULT_EVIDENCE_MUTATION_OPERATORS,
+            "result-evidence mutation operator drift")
+    return observed
+
+
 def load_schema():
     schema = strict_json_bytes(SCHEMA_PATH.read_bytes())
     require(schema.get("$id", "").endswith(SCHEMA_ID), "report schema ID drift")
@@ -441,6 +791,17 @@ def exact_binary64_numerator(value):
     require(exponent != 0x7ff, "nonfinite exact dyadic")
     numerator = fraction if exponent == 0 else ((1 << 52) | fraction) << (exponent - 1)
     return -numerator if bits >> 63 else numerator
+
+
+def absolute_dyadic(value, denominator_power=1074):
+    require(denominator_power in (1074, 2148),
+            "absolute dyadic denominator")
+    numerator = abs(exact_binary64_numerator(value))
+    if denominator_power == 2148:
+        numerator <<= 1074
+    return {"kind": "absolute_dyadic_v1",
+            "numerator_hex": format(numerator, "x") if numerator else "0",
+            "denominator_power": denominator_power}
 
 
 def effective_numerators(row, anchor_source_id):
@@ -2061,13 +2422,19 @@ def execute_component_criteria(candidate_binary, checkpoint, artifact_root,
 
 def make_pre_result_ledgers(checkpoint, executed=None):
     executed = executed or {}
-    inventory_keys = [[item["content_identity_key"], item["candidate"],
+    inventory_keys = [["complete_artifact_inventory",
+                       item["content_identity_key"], item["candidate"],
                        item["approximation_level"], item["applicable_mode"]]
                       for item in checkpoint["numeric_cases"]]
-    raw_case_keys = [key for key in inventory_keys if key[1] == "bfr"]
+    raw_case_keys = [["raw_bfr_d9a_reproduction",
+                      item["content_identity_key"],
+                      item["approximation_level"], item["applicable_mode"]]
+                     for item in checkpoint["numeric_cases"]
+                     if item["candidate"] == "bfr"]
     present_ledgers = {
         "bindings_and_independence": generic_key_ledger_sha256(
-            [[CANDIDATE, checkpoint["binding"]["git_head"]]]),
+            [["bindings_and_independence",
+              "exact_head_and_provenance"]]),
         "complete_artifact_inventory": generic_key_ledger_sha256(inventory_keys),
         "raw_bfr_d9a_reproduction": generic_key_ledger_sha256(raw_case_keys),
     }
@@ -2107,20 +2474,8 @@ def make_pre_result_ledgers(checkpoint, executed=None):
             "omission_blocker": "bindings_and_independence",
         })
         if criterion_id == "oracle_coverage_and_crosscheck":
-            for partition in ("covered", "uncovered"):
-                uncovered = partition == "uncovered"
-                digest = (present_ledgers.get(criterion_id) or
-                          generic_key_ledger_sha256([[criterion_id, "synthetic"]]))
-                partition_digest = digest if uncovered else sha256_bytes(b"[]")
-                records.append({
-                    "criterion_id": criterion_id, "partition": partition,
-                    "expected_count": None,
-                    "observed_count": (EXPECTED_CELL_COUNTS[criterion_id]
-                                       if uncovered else 0),
-                    "key_ledger_sha256": partition_digest,
-                    "availability": availability("PRESENT", partition_digest),
-                    "omission_blocker": None,
-                })
+            records.extend(oracle_unavailable_partition_ledgers(
+                "oracle_coverage_and_crosscheck"))
     require(len(records) == 34, "pre-result ledger partition count")
     return records
 
@@ -2214,8 +2569,6 @@ def make_scientific_pre_result_ledgers(checkpoint, artifact_root, manifest):
     criterion_ids = CRITERION_IDS[6:26]
     ledgers = {criterion_id: StreamingScientificLedger(criterion_id)
                for criterion_id in criterion_ids}
-    oracle_uncovered_results = StreamingResultLedger(
-        "oracle_coverage_and_crosscheck:uncovered")
     suffixes = _frozen_scientific_suffixes()
     regular_faces, regular_samples = _regular_coverage(manifest)
     integrands = {
@@ -2235,9 +2588,6 @@ def make_scientific_pre_result_ledgers(checkpoint, artifact_root, manifest):
             for suffix in oracle_suffixes:
                 encoded_key = prefix + suffix
                 ledgers[oracle_id].add_encoded(encoded_key)
-                oracle_uncovered_results.add_encoded(
-                    encoded_key, "UNCOVERED", reason=
-                    "EIGENBASIS_CERTIFICATION_FAILED")
             for criterion_id in (
                     "exact_effective_d10_coeff",
                     "exact_effective_d10_geometry",
@@ -2294,11 +2644,6 @@ def make_scientific_pre_result_ledgers(checkpoint, artifact_root, manifest):
         require(ledger.count == EXPECTED_CELL_COUNTS[criterion_id],
                 "{} pre-result cardinality drift".format(criterion_id))
         result[criterion_id] = {"digest": digest, "count": ledger.count}
-    oracle = result["oracle_coverage_and_crosscheck"]
-    require(oracle_uncovered_results.count == oracle["count"],
-            "oracle uncovered/result cardinality drift")
-    oracle["uncovered_result_digest"] = oracle_uncovered_results.finish()
-    oracle["covered_result_digest"] = sha256_bytes(b"[]")
     return result
 
 
@@ -2429,13 +2774,15 @@ def make_complete_pre_result_ledgers(checkpoint, artifact_root, manifest,
     generated.update(d12)
     present = {
         "bindings_and_independence": generic_key_ledger_sha256(
-            [[CANDIDATE, checkpoint["binding"]["git_head"]]]),
+            [["bindings_and_independence",
+              "exact_head_and_provenance"]]),
         "complete_artifact_inventory": generic_key_ledger_sha256([
-            [item["content_identity_key"], item["candidate"],
+            ["complete_artifact_inventory", item["content_identity_key"],
+             item["candidate"],
              item["approximation_level"], item["applicable_mode"]]
             for item in checkpoint["numeric_cases"]]),
         "raw_bfr_d9a_reproduction": generic_key_ledger_sha256([
-            [item["content_identity_key"], item["candidate"],
+            ["raw_bfr_d9a_reproduction", item["content_identity_key"],
              item["approximation_level"], item["applicable_mode"]]
             for item in checkpoint["numeric_cases"]
             if item["candidate"] == "bfr"]),
@@ -2460,30 +2807,29 @@ def make_complete_pre_result_ledgers(checkpoint, artifact_root, manifest,
             "availability": availability("PRESENT", digest),
             "omission_blocker": None})
         if criterion_id == "oracle_coverage_and_crosscheck":
-            records.extend(oracle_absent_partition_ledgers(digest, count))
+            records.extend(oracle_unavailable_partition_ledgers(
+                "oracle_coverage_and_crosscheck"))
     require(len(records) == 34, "complete pre-result ledger partition count")
     return records
 
 
-def oracle_absent_partition_ledgers(request_digest, request_count):
-    """Return the exact empty-covered/full-uncovered absent-oracle split."""
-    require(SHA256_RE.fullmatch(request_digest or "") is not None and
-            request_count == EXPECTED_CELL_COUNTS[
-                "oracle_coverage_and_crosscheck"],
-            "oracle request partition input")
-    empty = sha256_bytes(b"[]")
+def oracle_unavailable_partition_ledgers(blocker):
+    """Represent absent oracle execution without inventing cell outcomes."""
+    require(isinstance(blocker, str) and blocker,
+            "oracle unavailable partition blocker")
     return [
         {"criterion_id": "oracle_coverage_and_crosscheck",
          "partition": "covered", "expected_count": None,
-         "observed_count": 0, "key_ledger_sha256": empty,
-         "availability": availability("PRESENT", empty),
-         "omission_blocker": None},
+         "observed_count": 0, "key_ledger_sha256": None,
+         "availability": availability(
+             "UNAVAILABLE", reason_code="EXECUTION_UNAVAILABLE"),
+         "omission_blocker": blocker},
         {"criterion_id": "oracle_coverage_and_crosscheck",
          "partition": "uncovered", "expected_count": None,
-         "observed_count": request_count,
-         "key_ledger_sha256": request_digest,
-         "availability": availability("PRESENT", request_digest),
-         "omission_blocker": None},
+         "observed_count": 0, "key_ledger_sha256": None,
+         "availability": availability(
+             "UNAVAILABLE", reason_code="EXECUTION_UNAVAILABLE"),
+         "omission_blocker": blocker},
     ]
 
 
@@ -2497,6 +2843,160 @@ def run_json(binary, argument, expected_kind):
     value = strict_json_bytes(completed.stdout.encode("utf-8"))
     require(value.get("kind") == expected_kind, "binary self-test kind mismatch")
     return value
+
+
+CANDIDATE_VALUES_MAGIC = b"anchored-row-candidate-values-v1\x00"
+
+
+def _read_exact(stream, length):
+    require(type(length) is int and length >= 0, "binary frame length")
+    blocks = []
+    remaining = length
+    while remaining:
+        block = stream.read(remaining)
+        require(block not in (b"", None), "candidate observation truncated")
+        blocks.append(block)
+        remaining -= len(block)
+    return b"".join(blocks)
+
+
+def _validate_signed_dyadic(value):
+    require(isinstance(value, dict) and
+            set(value) == {"kind", "sign", "numerator_hex",
+                           "denominator_power"} and
+            value["kind"] == "signed_dyadic_v1" and
+            value["sign"] in (-1, 0, 1) and
+            value["denominator_power"] in (1074, 2148) and
+            isinstance(value["numerator_hex"], str) and
+            re.fullmatch(r"0|[1-9a-f][0-9a-f]*",
+                         value["numerator_hex"]) is not None and
+            ((value["sign"] == 0) == (value["numerator_hex"] == "0")),
+            "candidate signed dyadic observation")
+    return True
+
+
+def validate_candidate_observation(criterion_id, payload):
+    """Validate one closed observation without accepting result authority."""
+    require(isinstance(payload, bytes) and 0 < len(payload) <= (1 << 20),
+            "candidate observation payload length")
+    value = strict_json_bytes(payload)
+    require(jcs_bytes(value) == payload, "candidate observation is not JCS")
+    if criterion_id == "representation_structure":
+        require(isinstance(value, dict) and set(value) == {
+            "kind", "canonical_source_ids", "provider_coefficient_bits",
+            "effective_coefficients"} and
+            value["kind"] == "candidate_structure_observation_v1",
+            "candidate structure observation shape")
+        source_ids = value["canonical_source_ids"]
+        coefficients = value["provider_coefficient_bits"]
+        effective = value["effective_coefficients"]
+        require(isinstance(source_ids, list) and source_ids and
+                all(type(item) is int for item in source_ids) and
+                source_ids == sorted(set(source_ids)) and
+                isinstance(coefficients, list) and
+                len(coefficients) == len(source_ids) and
+                all(isinstance(item, str) and
+                    re.fullmatch(r"[0-9a-f]{16}", item)
+                    for item in coefficients) and
+                isinstance(effective, list) and
+                len(effective) == len(source_ids),
+                "candidate structure observation contents")
+        for item in effective:
+            _validate_signed_dyadic(item)
+    elif criterion_id == "constant_field_bits":
+        require(isinstance(value, dict) and set(value) == {
+            "kind", "observed_bits"} and
+            value["kind"] == "candidate_binary64_observation_v1" and
+            isinstance(value["observed_bits"], str) and
+            re.fullmatch(r"[0-9a-f]{16}", value["observed_bits"]),
+            "candidate binary64 observation shape")
+        binary64_from_bits_hex(value["observed_bits"])
+    elif criterion_id == "relabel_exact_effective_coefficients":
+        require(isinstance(value, dict) and set(value) == {
+            "kind", "source_ids", "values"} and
+            value["kind"] == "candidate_dyadic_vector_observation_v1",
+            "candidate dyadic-vector observation shape")
+        source_ids = value["source_ids"]
+        values = value["values"]
+        require(isinstance(source_ids, list) and source_ids and
+                all(type(item) is int for item in source_ids) and
+                source_ids == sorted(set(source_ids)) and
+                isinstance(values, list) and len(values) == len(source_ids),
+                "candidate dyadic-vector observation contents")
+        for item in values:
+            _validate_signed_dyadic(item)
+    else:
+        raise QualificationError("unsupported candidate observation criterion")
+    return value
+
+
+def iter_candidate_observations(binary, criterion_id, request_lines,
+                                expected_count):
+    """Yield one strict ordinal-ordered observation stream from the candidate."""
+    require(criterion_id in {
+        "representation_structure", "constant_field_bits",
+        "relabel_exact_effective_coefficients"},
+        "candidate observation criterion")
+    require(type(expected_count) is int and 0 <= expected_count < (1 << 63),
+            "candidate observation expected count")
+    process = subprocess.Popen(
+        [str(pathlib.Path(binary).resolve()),
+         "--preoracle-observation-stream", criterion_id],
+        stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    require(process.stdin is not None and process.stdout is not None and
+            process.stderr is not None, "candidate observation pipes")
+    feeder_errors = []
+
+    def feed():
+        try:
+            for line in request_lines:
+                encoded = line.encode("ascii") if isinstance(line, str) else line
+                require(isinstance(encoded, bytes) and encoded.endswith(b"\n"),
+                        "candidate observation request line")
+                process.stdin.write(encoded)
+            process.stdin.close()
+        except BaseException as error:  # propagate into the validation thread
+            feeder_errors.append(error)
+            try:
+                process.stdin.close()
+            except OSError:
+                pass
+
+    feeder = threading.Thread(target=feed, name="candidate-observation-input")
+    feeder.start()
+    try:
+        require(_read_exact(process.stdout, len(CANDIDATE_VALUES_MAGIC)) ==
+                CANDIDATE_VALUES_MAGIC,
+                "candidate observation stream magic")
+        for expected_ordinal in range(expected_count):
+            ordinal = struct.unpack(">Q", _read_exact(process.stdout, 8))[0]
+            payload_length = struct.unpack(">Q", _read_exact(
+                process.stdout, 8))[0]
+            require(ordinal == expected_ordinal,
+                    "candidate observation ordinal drift")
+            require(0 < payload_length <= (1 << 20),
+                    "candidate observation framed length")
+            payload = _read_exact(process.stdout, payload_length)
+            yield validate_candidate_observation(criterion_id, payload)
+        require(process.stdout.read(1) == b"",
+                "candidate observation trailing record")
+        feeder.join()
+        stderr = process.stderr.read().decode("utf-8", errors="strict")
+        returncode = process.wait(timeout=900)
+        require(not feeder_errors, "candidate observation input failure")
+        require(returncode == 0, "candidate observation process failed: {}".format(
+            stderr.strip()))
+    finally:
+        if feeder.is_alive() or process.poll() is None:
+            process.kill()
+        if process.stdin is not None and not process.stdin.closed:
+            process.stdin.close()
+        feeder.join()
+        process.wait()
+        if process.stdout is not None:
+            process.stdout.close()
+        if process.stderr is not None:
+            process.stderr.close()
 
 
 def git_observations():
@@ -2539,9 +3039,14 @@ def file_availability(path_text):
     return availability("PRESENT", sha256_file(path))
 
 
-def dependency_record(version, archive, build, install, link_map, dynamic):
+def dependency_record(name, version, archive, build, install, link_map,
+                      dynamic):
+    source_archive = file_availability(archive)
+    require(source_archive["state"] == "PRESENT" and
+            source_archive["sha256"] == DEPENDENCY_ARCHIVE_SHA256[name],
+            "{} source archive identity mismatch".format(name))
     return {"version": version,
-            "source_archive": file_availability(archive),
+            "source_archive": source_archive,
             "build_provenance": file_availability(build),
             "install_provenance": file_availability(install),
             "link_map": file_availability(link_map),
@@ -2550,17 +3055,18 @@ def dependency_record(version, archive, build, install, link_map, dynamic):
 
 def dependency_records(args):
     return {
-        "gmp": dependency_record("6.3.0", args.gmp_archive,
+        "gmp": dependency_record("gmp", "6.3.0", args.gmp_archive,
                                  args.gmp_build_provenance,
                                  args.gmp_install_provenance,
                                  args.gmp_link_provenance,
                                  args.gmp_dynamic_dependency),
-        "mpfr": dependency_record("4.2.2", args.mpfr_archive,
+        "mpfr": dependency_record("mpfr", "4.2.2", args.mpfr_archive,
                                   args.mpfr_build_provenance,
                                   args.mpfr_install_provenance,
                                   args.mpfr_link_provenance,
                                   args.mpfr_dynamic_dependency),
-        "opensubdiv": dependency_record("3.7.0", args.opensubdiv_archive,
+        "opensubdiv": dependency_record("opensubdiv", "3.7.0",
+                                        args.opensubdiv_archive,
                                         args.opensubdiv_build_provenance,
                                         args.opensubdiv_install_provenance,
                                         args.opensubdiv_link_provenance,
@@ -2594,7 +3100,8 @@ def binary_record(path, source_paths, capability, dependencies,
 
 def criterion_record(criterion_id, status, blocker=None, expectation=None,
                      expected=0, observed=0, ledger=None, target=None,
-                     result_ledger=None, maximum=None, witness=None,
+                     result_ledger=None, result_merkle_root=None,
+                     result_artifact=None, maximum=None, witness=None,
                      first_failure=None):
     require(criterion_id in CRITERION_IDS and status in STATUSES, "criterion record enum")
     if status.startswith("OMITTED_"):
@@ -2602,11 +3109,19 @@ def criterion_record(criterion_id, status, blocker=None, expectation=None,
                 "omitted criterion semantics")
     else:
         require(blocker is None, "executed criterion has blocker")
+    if result_artifact is None:
+        result_artifact = {
+            "availability": availability(
+                "UNAVAILABLE", reason_code="EXECUTION_UNAVAILABLE"),
+            "relative_path": None, "byte_length": None,
+            "record_count": None}
     return {"criterion_id": criterion_id, "target": target,
             "expectation": expectation, "applicability": "frozen_B2b",
             "expected_cell_count": expected, "observed_cell_count": observed,
             "key_ledger_sha256": ledger,
-            "result_ledger_sha256": result_ledger, "status": status,
+            "result_ledger_sha256": result_ledger,
+            "result_merkle_root_sha256": result_merkle_root,
+            "result_ledger_artifact": result_artifact, "status": status,
             "maximum": maximum, "witness": witness,
             "first_failing_key": first_failure, "omission_blocker": blocker}
 
@@ -2618,6 +3133,8 @@ def validate_criteria(criteria):
         require(set(item) == {"criterion_id", "target", "expectation", "applicability",
                               "expected_cell_count", "observed_cell_count",
                               "key_ledger_sha256", "result_ledger_sha256",
+                              "result_merkle_root_sha256",
+                              "result_ledger_artifact",
                               "status", "maximum", "witness",
                               "first_failing_key", "omission_blocker"},
                 "criterion object is not closed")
@@ -2643,12 +3160,37 @@ def validate_criteria(criteria):
         require(item["expected_cell_count"] ==
                 EXPECTED_CELL_COUNTS[criterion_id],
                 "criterion expected-count drift")
+        artifact = item["result_ledger_artifact"]
+        require(set(artifact) == {"availability", "relative_path",
+                                  "byte_length", "record_count"},
+                "result sidecar descriptor shape")
+        present_result = artifact["availability"]["state"] == "PRESENT"
+        if present_result:
+            require(SHA256_RE.fullmatch(item["result_ledger_sha256"] or "") and
+                    SHA256_RE.fullmatch(
+                        item["result_merkle_root_sha256"] or "") and
+                    artifact["availability"]["sha256"] ==
+                    item["result_ledger_sha256"] and
+                    artifact["relative_path"] ==
+                    result_ledger_relative_path(criterion_id) and
+                    artifact["record_count"] == item["observed_cell_count"] and
+                    type(artifact["byte_length"]) is int and
+                    artifact["byte_length"] >= 2,
+                    "present result sidecar binding")
+        else:
+            require(item["result_ledger_sha256"] is None and
+                    item["result_merkle_root_sha256"] is None and
+                    artifact["relative_path"] is None and
+                    artifact["byte_length"] is None and
+                    artifact["record_count"] is None,
+                    "non-present result sidecar binding")
         if status.startswith("OMITTED_"):
             blocker = item["omission_blocker"]
             require(blocker in CRITERION_IDS and
                     CRITERION_IDS.index(blocker) < index and
                     item["observed_cell_count"] == 0 and
                     item["result_ledger_sha256"] is None and
+                    item["result_merkle_root_sha256"] is None and
                     item["maximum"] is None and item["witness"] is None and
                     item["first_failing_key"] is None,
                     "invalid omitted criterion")
@@ -2666,7 +3208,7 @@ def validate_criteria(criteria):
         if status in {"PASS", "FAIL", "UNCOVERED"}:
             require(item["observed_cell_count"] == item["expected_cell_count"] and
                     SHA256_RE.fullmatch(item["key_ledger_sha256"] or "") is not None and
-                    SHA256_RE.fullmatch(item["result_ledger_sha256"] or "") is not None,
+                    present_result,
                     "executed criterion lacks complete key/result binding")
         if status == "FAIL":
             require(item["first_failing_key"] is not None,
@@ -2683,6 +3225,38 @@ def validate_criteria(criteria):
         if criterion_id in CATEGORICAL_CRITERIA:
             require(item["maximum"] is None and item["witness"] is None,
                     "categorical criterion carries numeric witness")
+        elif (criterion_id == "raw_bfr_d9a_reproduction" and
+              status == "PASS"):
+            witness = item["witness"]
+            require(item["maximum"] == {
+                        "kind": "absolute_dyadic_v1",
+                        "numerator_hex":
+                            RAW_D9A_FROZEN_MAXIMUM_NUMERATOR_HEX,
+                        "denominator_power": 1074} and
+                    isinstance(witness, dict) and set(witness) == {
+                        "cell_key", "result_record", "leaf_index",
+                        "merkle_siblings", "maximum_exact",
+                        "maximum_binary64_bits"} and
+                    isinstance(witness["cell_key"], list) and
+                    len(witness["cell_key"]) == 4 and
+                    isinstance(witness["result_record"], list) and
+                    len(witness["result_record"]) == 5 and
+                    isinstance(witness["result_record"][2], dict) and
+                    "maximum_row_sum_residual" in
+                        witness["result_record"][2] and
+                    witness["maximum_exact"] == item["maximum"] and
+                    witness["maximum_binary64_bits"] ==
+                        RAW_D9A_FROZEN_MAXIMUM_BITS and
+                    witness["result_record"][0] == witness["cell_key"] and
+                    witness["result_record"][2][
+                        "maximum_row_sum_residual"] == item["maximum"] and
+                    witness["cell_key"][0] == criterion_id,
+                    "raw D9a maximum witness shape")
+            validate_result_merkle_witness(
+                jcs_bytes(witness["result_record"]), witness["leaf_index"],
+                witness["merkle_siblings"],
+                item["result_merkle_root_sha256"],
+                observed_count=item["observed_cell_count"])
         elif (criterion_id in CANDIDATE_SCIENTIFIC_CRITERIA and
               status in {"PASS", "FAIL"}):
             witness = item["witness"]
@@ -2697,16 +3271,12 @@ def validate_criteria(criteria):
                     "numeric criterion lacks reconstructible maximum witness")
             validate_scientific_cell_key(witness[0], criterion_id)
         if criterion_id in ORACLE_CRITERIA and status == "UNCOVERED":
-            require(item["maximum"] is None and
-                    item["witness"] == [
-                        "EIGENBASIS_CERTIFICATION_FAILED",
-                        EXPECTED_CELL_COUNTS[criterion_id],
-                        item["result_ledger_sha256"]],
-                    "oracle uncovered reason/result binding")
-        if status == "INCOMPLETE":
+            require(item["maximum"] is None and item["witness"] is None,
+                    "oracle uncovered carries numeric witness")
+        if status == "INCOMPLETE" and not present_result:
             require(item["maximum"] is None and item["witness"] is None and
                     item["first_failing_key"] is None,
-                    "incomplete criterion carries invented result")
+                    "incomplete criterion carries uncommitted result")
     return True
 
 
@@ -2841,23 +3411,35 @@ def validate_report(report):
                 require(item["observed_count"] == item["expected_count"],
                         "present pre-result ledger count mismatch")
         else:
+            expected_blocker = (
+                "oracle_coverage_and_crosscheck"
+                if item["partition"] in ("covered", "uncovered") else
+                "bindings_and_independence")
             require(item["key_ledger_sha256"] is None and
                     item["observed_count"] == 0 and
-                    item["omission_blocker"] == "bindings_and_independence",
+                    item["omission_blocker"] == expected_blocker,
                     "unavailable ledger lacks exact causal omission")
     oracle_request = by_key[("oracle_coverage_and_crosscheck",
                              "oracle_request")]
     oracle_covered = by_key[("oracle_coverage_and_crosscheck", "covered")]
     oracle_uncovered = by_key[("oracle_coverage_and_crosscheck", "uncovered")]
-    require(oracle_covered["availability"]["state"] == "PRESENT" and
-            oracle_covered["observed_count"] == 0 and
-            oracle_covered["key_ledger_sha256"] == sha256_bytes(b"[]") and
-            oracle_uncovered["availability"]["state"] == "PRESENT" and
-            oracle_uncovered["observed_count"] ==
-                EXPECTED_CELL_COUNTS["oracle_coverage_and_crosscheck"] and
-            oracle_uncovered["key_ledger_sha256"] ==
-                oracle_request["key_ledger_sha256"],
-            "oracle covered/uncovered partition is not empty/request")
+    if oracle_covered["availability"]["state"] == "PRESENT":
+        require(oracle_covered["observed_count"] == 0 and
+                oracle_covered["key_ledger_sha256"] == sha256_bytes(b"[]") and
+                oracle_uncovered["availability"]["state"] == "PRESENT" and
+                oracle_uncovered["observed_count"] ==
+                    EXPECTED_CELL_COUNTS["oracle_coverage_and_crosscheck"] and
+                oracle_uncovered["key_ledger_sha256"] ==
+                    oracle_request["key_ledger_sha256"],
+                "executed oracle partition is not empty/request")
+    else:
+        require(all(partition["availability"]["state"] == "UNAVAILABLE" and
+                    partition["observed_count"] == 0 and
+                    partition["key_ledger_sha256"] is None and
+                    partition["omission_blocker"] ==
+                        "oracle_coverage_and_crosscheck"
+                    for partition in (oracle_covered, oracle_uncovered)),
+                "absent oracle fabricated a coverage partition")
     primary_ledgers = {criterion: by_key[(criterion,
                                          "oracle_request" if criterion ==
                                          "oracle_coverage_and_crosscheck" else "all")]
@@ -2874,17 +3456,20 @@ def validate_report(report):
                     if item["criterion_id"] in D12_CRITERIA}
     if d12["execution_state"] == "UNQUALIFIED_PLATFORM":
         require(d12["availability"]["state"] == "PRESENT" and
+                d12["representation_work"] == "NOT_INCLUDED" and
                 d12["exact_head"] == report["identity"]["git_end"]["git_commit"] and
                 SHA256_RE.fullmatch(d12["physical_fingerprint_sha256"] or "") and
                 d12_statuses == {"INCOMPLETE"},
                 "hosted D12 state/result mismatch")
     elif d12["execution_state"] == "QUALIFIED_PLATFORM":
         require(d12["availability"]["state"] == "PRESENT" and
+                d12["representation_work"] == "INCLUDED" and
                 d12["exact_head"] == report["identity"]["git_end"]["git_commit"] and
                 d12_statuses.issubset({"PASS", "FAIL"}),
                 "qualified D12 state/result mismatch")
     else:
         require(d12["availability"]["state"] != "PRESENT" and
+                d12["representation_work"] == "UNAVAILABLE" and
                 d12_statuses == {"INCOMPLETE"},
                 "non-present D12 state/result mismatch")
     expected = calculate_verdict(report["criteria"])
@@ -2898,6 +3483,100 @@ def validate_report(report):
             sha256_bytes(jcs_bytes(digest_copy)), "report content digest mismatch")
     require(report["verdict"]["status"] != "PASS",
             "this package lacks the frozen primary oracle and cannot PASS")
+    return True
+
+
+def validate_result_sidecar_bundle(report, bundle_root):
+    """Rescan every persisted result byte and recompute its commitments."""
+    validate_report(report)
+    bundle_root = pathlib.Path(bundle_root).resolve()
+    for criterion in report["criteria"]:
+        descriptor = criterion["result_ledger_artifact"]
+        if descriptor["availability"]["state"] != "PRESENT":
+            continue
+        relative_path = descriptor["relative_path"]
+        require(relative_path == result_ledger_relative_path(
+                    criterion["criterion_id"]),
+                "result sidecar path drift")
+        path = (bundle_root / relative_path).resolve()
+        require(path.parent.parent ==
+                (bundle_root / RESULT_LEDGER_DIRECTORY).resolve().parent and
+                path.is_file(), "result sidecar missing from bundle")
+        raw = path.read_bytes()
+        require(len(raw) == descriptor["byte_length"] and
+                sha256_bytes(raw) == descriptor["availability"]["sha256"] ==
+                    criterion["result_ledger_sha256"],
+                "result sidecar byte binding mismatch")
+        records = strict_json_bytes(raw)
+        require(isinstance(records, list) and
+                len(records) == descriptor["record_count"] ==
+                    criterion["observed_cell_count"],
+                "result sidecar record-count mismatch")
+        commitment = canonical_result_ledger(records)
+        require(commitment["bytes"] == raw and
+                commitment["key_ledger_sha256"] ==
+                    criterion["key_ledger_sha256"] and
+                commitment["result_ledger_sha256"] ==
+                    criterion["result_ledger_sha256"] and
+                commitment["result_merkle_root_sha256"] ==
+                    criterion["result_merkle_root_sha256"],
+                "result sidecar commitment mismatch")
+        outcomes = [record[1] for record in records]
+        status = criterion["status"]
+        if status == "PASS":
+            require(outcomes and set(outcomes) == {"PASS"},
+                    "passing criterion contains non-PASS result")
+        elif status == "FAIL":
+            require("FAIL" in outcomes and set(outcomes) <= {"PASS", "FAIL"},
+                    "failed criterion result ownership")
+            first = next(record[0] for record in records
+                         if record[1] == "FAIL")
+            require(criterion["first_failing_key"] == first,
+                    "criterion first failure is not canonical first")
+        elif status == "UNCOVERED":
+            require(outcomes and set(outcomes) == {"UNCOVERED"},
+                    "oracle uncovered result ownership")
+        elif status == "INCOMPLETE":
+            require(outcomes and set(outcomes) == {"INCOMPLETE"},
+                    "complete infrastructure ledger outcome ownership")
+
+        if criterion["criterion_id"] == "raw_bfr_d9a_reproduction":
+            fail_states = sum(record[2]["raw_invariant_state"] == "FAIL"
+                              for record in records)
+            require(fail_states == RAW_D9A_FROZEN_FAILING_CASE_COUNT,
+                    "raw D9a persisted failing-case count")
+            maximum_index = max(
+                range(len(records)),
+                key=lambda index: (int(records[index][2][
+                    "maximum_row_sum_residual"]["numerator_hex"], 16),
+                                   -index))
+            witness = criterion["witness"]
+            require(witness["leaf_index"] == maximum_index and
+                    witness["result_record"] == records[maximum_index] and
+                    witness["maximum_exact"] == criterion["maximum"],
+                    "raw D9a maximum is not first canonical maximum")
+
+    unexpected = report["matrix"]["unexpected_paths"]
+    inventory_criterion = report["criteria"][
+        CRITERION_IDS.index("complete_artifact_inventory")]
+    require(inventory_criterion["target"] == unexpected,
+            "inventory criterion does not bind unexpected-path sidecar")
+    descriptor = unexpected["sidecar"]
+    require(descriptor["relative_path"] ==
+            RESULT_LEDGER_DIRECTORY + "/unexpected-artifact-paths.json",
+            "unexpected-path sidecar path")
+    unexpected_path = (bundle_root / descriptor["relative_path"]).resolve()
+    require(unexpected_path.is_file(), "unexpected-path sidecar missing")
+    unexpected_raw = unexpected_path.read_bytes()
+    unexpected_records = strict_json_bytes(unexpected_raw)
+    require(jcs_bytes(unexpected_records) == unexpected_raw and
+            len(unexpected_raw) == descriptor["byte_length"] and
+            sha256_bytes(unexpected_raw) ==
+                descriptor["availability"]["sha256"] and
+            isinstance(unexpected_records, list) and
+            len(unexpected_records) == descriptor["record_count"] ==
+                unexpected["required_record_count"],
+            "unexpected-path sidecar binding mismatch")
     return True
 
 
@@ -2926,6 +3605,7 @@ def inspect_d12_evidence(path_text, expected_head):
                     "UNAVAILABLE", reason_code="PLATFORM_UNAVAILABLE"),
                  "execution_state": "OMITTED_AFTER_INFRASTRUCTURE_FAILURE",
                  "exact_head": None, "physical_fingerprint_sha256": None,
+                 "representation_work": "UNAVAILABLE",
                  "omission_blocker": "bindings_and_independence"},
                 "D12 evidence unavailable")
     path = pathlib.Path(path_text).resolve()
@@ -2934,6 +3614,7 @@ def inspect_d12_evidence(path_text, expected_head):
                     "MISSING", reason_code="EXPECTED_PATH_MISSING"),
                  "execution_state": "OMITTED_AFTER_INFRASTRUCTURE_FAILURE",
                  "exact_head": None, "physical_fingerprint_sha256": None,
+                 "representation_work": "UNAVAILABLE",
                  "omission_blocker": "bindings_and_independence"},
                 "D12 evidence path missing")
     try:
@@ -2956,36 +3637,32 @@ def inspect_d12_evidence(path_text, expected_head):
         observed_fingerprint_sha256 = sha256_bytes(
             jcs_bytes(probe["fingerprint"]))
         hosted = platform.get("status") == "UNQUALIFIED_PLATFORM"
-        qualified = platform.get("status") == "QUALIFIED"
-        require(hosted or qualified, "D12 platform state")
+        require(hosted or platform.get("status") == "QUALIFIED",
+                "D12 platform state")
         # The inherited B2 artifact is valuable hosted raw evidence, but it
         # does not claim that anchored-row construction/evaluation work was
         # included.  It can therefore authenticate an UNQUALIFIED_PLATFORM
         # observation only; it can never qualify or fail a B2c D12 gate.
-        b2c = value.get("anchored_row_representation_d12")
-        representation_included = (
-            isinstance(b2c, dict) and
-            b2c.get("candidate") == CANDIDATE and
-            b2c.get("construction_and_evaluation_work_included") is True)
-        require(hosted or representation_included,
-                "qualified D12 artifact omits anchored representation work")
+        # This reader authenticates the inherited B2 artifact only.  The
+        # amendment explicitly forbids upgrading it with a boolean; a future
+        # B2c reader must validate the complete closed representation envelope.
+        require(hosted, "qualified inherited D12 artifact is not B2c evidence")
         expectation = ("hosted D12 evidence is unqualified and anchored "
-                       "representation work is not included"
-                       if not representation_included else
-                       "hosted D12 evidence is unqualified")
+                       "representation work is not included")
         return ({"availability": availability(
                     "PRESENT", sha256_bytes(raw)),
-                 "execution_state": ("UNQUALIFIED_PLATFORM" if hosted else
-                                     "QUALIFIED_PLATFORM"),
+                 "execution_state": "UNQUALIFIED_PLATFORM",
                  "exact_head": checkpoint_head,
                  "physical_fingerprint_sha256":
                      observed_fingerprint_sha256,
+                 "representation_work": "NOT_INCLUDED",
                  "omission_blocker": None}, expectation)
     except Exception:
         return ({"availability": availability(
                     "INVALID", reason_code="PROVENANCE_INVALID"),
                  "execution_state": "OMITTED_AFTER_INFRASTRUCTURE_FAILURE",
                  "exact_head": None, "physical_fingerprint_sha256": None,
+                 "representation_work": "UNAVAILABLE",
                  "omission_blocker": "bindings_and_independence"},
                 "D12 artifact malformed, cross-head, dirty, or invalid provenance")
 
@@ -3048,6 +3725,241 @@ def make_artifacts(checkpoint):
     return result
 
 
+def _availability_state_and_sha(record):
+    availability_record = record["availability"]
+    return availability_record["state"], availability_record["sha256"]
+
+
+def _raw_d9a_value(case, artifact_root):
+    report = _artifact_report(artifact_root, case)
+    maximum = 0.0
+    failing = 0
+    for row in report["rows"]:
+        target = 1.0 if row["row_kind"] == "position" else 0.0
+        residual = abs(B2.ordered_binary64_sum(row["coefficients"]) - target)
+        require(math.isfinite(residual), "raw D9a residual nonfinite")
+        if residual > maximum:
+            maximum = residual
+        if residual > 1.0e-12:
+            failing += 1
+    require(binary64_bits_hex(maximum) ==
+            binary64_bits_hex(case["max_row_sum_error"]),
+            "raw D9a per-case maximum checkpoint mismatch")
+    state = "PASS" if failing == 0 else "FAIL"
+    require(state == case["status"], "raw D9a per-case state mismatch")
+    return {"kind": "raw_d9a_value_v1",
+            "case_identity": [case["content_identity_key"],
+                              case["approximation_level"],
+                              case["applicable_mode"]],
+            "raw_invariant_state": state,
+            "maximum_row_sum_residual": absolute_dyadic(maximum),
+            "failing_row_count": failing,
+            "canonical_raw_rows_sha256": case["canonical_rows_sha256"]}
+
+
+def validate_raw_d9a_frozen_global(records, maximum_exact,
+                                   maximum_binary64_bits):
+    """Bind the 196 reproduced cases to the amendment's exact D9a literals."""
+    require(isinstance(records, list) and len(records) == 196,
+            "raw D9a frozen case cardinality")
+    require(sum(record[2]["raw_invariant_state"] == "FAIL"
+                for record in records) == RAW_D9A_FROZEN_FAILING_CASE_COUNT,
+            "raw D9a frozen failing-case count")
+    require(RAW_D9A_FROZEN_MAXIMUM_NUMERATOR_HEX ==
+            format(0x5994eac6 << 1008, "x"),
+            "raw D9a frozen exact-numerator literal")
+    decoded = binary64_from_bits_hex(RAW_D9A_FROZEN_MAXIMUM_BITS)
+    require(exact_binary64_numerator(decoded) ==
+            int(RAW_D9A_FROZEN_MAXIMUM_NUMERATOR_HEX, 16),
+            "raw D9a binary64/exact literal disagreement")
+    require(maximum_exact == {
+                "kind": "absolute_dyadic_v1",
+                "numerator_hex": RAW_D9A_FROZEN_MAXIMUM_NUMERATOR_HEX,
+                "denominator_power": 1074} and
+            maximum_binary64_bits == RAW_D9A_FROZEN_MAXIMUM_BITS,
+            "raw D9a reproduced global maximum drift")
+    return True
+
+
+def _unexpected_artifact_target(artifact_root, checkpoint, output_root):
+    expected = {item["complete_json_artifact"]
+                for item in checkpoint["numeric_cases"]}
+    artifact_root = pathlib.Path(artifact_root)
+    actual = {path.relative_to(artifact_root).as_posix(): path
+              for path in artifact_root.rglob("*") if path.is_file()}
+    records = []
+    for name in sorted(set(actual) - expected,
+                       key=lambda value: jcs_bytes(value)):
+        path = actual[name]
+        records.append([name, "PRESENT", sha256_file(path)])
+    relative_path = RESULT_LEDGER_DIRECTORY + "/unexpected-artifact-paths.json"
+    destination = pathlib.Path(output_root) / relative_path
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    raw = jcs_bytes(records)
+    destination.write_bytes(raw)
+    descriptor = {"availability": availability("PRESENT", sha256_bytes(raw)),
+                  "relative_path": relative_path,
+                  "byte_length": len(raw), "record_count": len(records)}
+    return {"kind": "unexpected_paths_target_v1", "sidecar": descriptor,
+            "required_record_count": 0}, records
+
+
+def write_infrastructure_result_evidence(
+        output_root, checkpoint, artifact_root, binaries, git_start, git_end,
+        worktree_start, worktree_end):
+    """Write real criterion 00--02 result records and commitments."""
+    output_root = pathlib.Path(output_root)
+    validator_sha256 = sha256_file(pathlib.Path(__file__).resolve())
+    provider_state, provider_sha = _availability_state_and_sha(
+        binaries["row_provider"])
+    representation_state, representation_sha = _availability_state_and_sha(
+        binaries["representation_candidate"])
+    boundary_state, boundary_sha = _availability_state_and_sha(
+        binaries["exact_dyadic_boundary"])
+    oracle_state, oracle_sha = _availability_state_and_sha(
+        binaries["independent_oracle"])
+    binding_value = {
+        "kind": "binding_value_v1",
+        "git_start": git_start["git_commit"],
+        "git_end": git_end["git_commit"],
+        "worktree_start_clean": worktree_start.get("clean") is True,
+        "worktree_end_clean": worktree_end.get("clean") is True,
+        "validator_sha256": validator_sha256,
+        "row_provider_availability": provider_state,
+        "row_provider_sha256": provider_sha,
+        "representation_availability": representation_state,
+        "representation_sha256": representation_sha,
+        "exact_boundary_availability": boundary_state,
+        "exact_boundary_sha256": boundary_sha,
+        "independent_oracle_availability": oracle_state,
+        "independent_oracle_sha256": oracle_sha,
+        "oracle_independence_audit": binaries["oracle_independence_audit"],
+        "manifest_file_sha256": B2.MANIFEST_FILE_SHA256,
+        "manifest_contract_sha256": B2.MANIFEST_CONTRACT_SHA256,
+        "gmp_identity": "gmp-6.3.0",
+        "mpfr_identity": "mpfr-4.2.2",
+        "opensubdiv_identity": "opensubdiv-3.7.0",
+        "provenance_complete": False,
+    }
+    binding_key = ["bindings_and_independence",
+                   "exact_head_and_provenance"]
+    binding_reason = ("WORKTREE_DIRTY" if
+                      not binding_value["worktree_start_clean"] or
+                      not binding_value["worktree_end_clean"] else
+                      "BINDING_UNAVAILABLE" if oracle_state != "PRESENT" else
+                      "INDEPENDENCE_AUDIT_INCOMPLETE")
+    binding_record = [binding_key, "INCOMPLETE", binding_value, None,
+                      binding_reason]
+    binding_writer = StreamingResultLedgerArtifact(
+        output_root, "bindings_and_independence")
+    binding_writer.add(binding_record)
+    binding_commitment, binding_artifact = binding_writer.finish()
+
+    inventory_records = []
+    for ordinal, case in enumerate(checkpoint["numeric_cases"]):
+        artifact_path = pathlib.Path(artifact_root) / case[
+            "complete_json_artifact"]
+        require(artifact_path.is_file(), "inventory artifact disappeared")
+        compressed = artifact_path.read_bytes()
+        try:
+            decompressed = gzip.decompress(compressed)
+        except (OSError, EOFError) as error:
+            raise QualificationError(
+                "inventory artifact gzip validation failed") from error
+        compressed_sha = sha256_bytes(compressed)
+        decompressed_sha = sha256_bytes(decompressed)
+        require(compressed_sha == case["complete_json_artifact_sha256"] and
+                decompressed_sha == case["complete_json_sha256"],
+                "inventory artifact byte binding changed after validation")
+        key = ["complete_artifact_inventory",
+               case["content_identity_key"], case["candidate"],
+               case["approximation_level"], case["applicable_mode"]]
+        value = {"kind": "artifact_value_v1",
+                 "expected_slot_ordinal": ordinal,
+                 "relative_path": case["complete_json_artifact"],
+                 "availability": availability(
+                     "PRESENT", compressed_sha),
+                 "compressed_sha256": compressed_sha,
+                 "decompressed_json_sha256": decompressed_sha,
+                 "canonical_b2rowv1_sha256": case["canonical_rows_sha256"],
+                 "expected_identity_matches": True}
+        target = {"kind": "artifact_slot_target_v1",
+                  "expected_slot_ordinal": ordinal,
+                  "content_id": case["content_identity_key"],
+                  "candidate": case["candidate"],
+                  "level": case["approximation_level"],
+                  "cache_mode": case["applicable_mode"],
+                  "compressed_sha256": case["complete_json_artifact_sha256"],
+                  "decompressed_json_sha256": case["complete_json_sha256"],
+                  "canonical_b2rowv1_sha256": case["canonical_rows_sha256"]}
+        inventory_records.append([key, "PASS", value, target, None])
+    inventory_records.sort(key=lambda record: jcs_bytes(record[0]))
+    inventory_writer = StreamingResultLedgerArtifact(
+        output_root, "complete_artifact_inventory")
+    for record in inventory_records:
+        inventory_writer.add(record)
+    inventory_commitment, inventory_artifact = inventory_writer.finish()
+    unexpected_target, unexpected_records = _unexpected_artifact_target(
+        artifact_root, checkpoint, output_root)
+    require(not unexpected_records, "unexpected artifact path")
+
+    raw_records = []
+    for case in ordered_bfr_cases(checkpoint):
+        key = ["raw_bfr_d9a_reproduction", case["content_identity_key"],
+               case["approximation_level"], case["applicable_mode"]]
+        observed = _raw_d9a_value(case, artifact_root)
+        raw_records.append([key, "PASS", observed,
+                            copy.deepcopy(observed), None])
+    raw_records.sort(key=lambda record: jcs_bytes(record[0]))
+    maximum_index = max(
+        range(len(raw_records)),
+        key=lambda index: (int(raw_records[index][2][
+            "maximum_row_sum_residual"]["numerator_hex"], 16), -index))
+    raw_writer = StreamingResultLedgerArtifact(
+        output_root, "raw_bfr_d9a_reproduction")
+    for record in raw_records:
+        raw_writer.add(record)
+    raw_commitment, raw_artifact = raw_writer.finish(
+        witness_index=maximum_index)
+    maximum_record = raw_records[maximum_index]
+    maximum_exact = maximum_record[2]["maximum_row_sum_residual"]
+    maximum_value = float(Fraction(
+        int(maximum_exact["numerator_hex"], 16), 1 << 1074))
+    maximum_bits = binary64_bits_hex(maximum_value)
+    validate_raw_d9a_frozen_global(raw_records, maximum_exact, maximum_bits)
+    raw_witness = {"cell_key": maximum_record[0],
+                   "result_record": maximum_record,
+                   "leaf_index": maximum_index,
+                   "merkle_siblings": raw_commitment["witness_siblings"],
+                   "maximum_exact": maximum_exact,
+                   "maximum_binary64_bits": maximum_bits}
+    validate_result_merkle_witness(
+        jcs_bytes(maximum_record), maximum_index,
+        raw_commitment["witness_siblings"],
+        raw_commitment["result_merkle_root_sha256"],
+        observed_count=len(raw_records))
+
+    return {
+        "bindings_and_independence": {
+            "status": "INCOMPLETE", "observed_count": 1,
+            "commitment": binding_commitment,
+            "artifact": binding_artifact, "maximum": None,
+            "witness": None, "first_failing_key": None},
+        "complete_artifact_inventory": {
+            "status": "PASS", "observed_count": len(inventory_records),
+            "commitment": inventory_commitment,
+            "artifact": inventory_artifact, "maximum": None,
+            "witness": None, "first_failing_key": None,
+            "target": unexpected_target,
+            "unexpected_paths": unexpected_target},
+        "raw_bfr_d9a_reproduction": {
+            "status": "PASS", "observed_count": len(raw_records),
+            "commitment": raw_commitment,
+            "artifact": raw_artifact, "maximum": maximum_exact,
+            "witness": raw_witness, "first_failing_key": None},
+    }
+
+
 def result_commitment(key_ledger_sha256, observed_count, status, details):
     """Bind an execution-owned result stream or closed coverage disposition."""
     require(SHA256_RE.fullmatch(key_ledger_sha256 or "") is not None,
@@ -3073,7 +3985,7 @@ def canonical_result_commitment(key_ledger_sha256, observed_count, status,
 
 
 def make_criteria(worktree, all_required_bindings_present, ledgers,
-                  executed=None, oracle_result_digest=None,
+                  executed=None, infrastructure=None,
                   d12_expectation="qualified physical B2c D12 evidence unavailable"):
     # This implementation deliberately self-identifies as incomplete until it
     # can construct every pre-result ledger and execute all pre-oracle cells.
@@ -3082,39 +3994,51 @@ def make_criteria(worktree, all_required_bindings_present, ledgers,
     binding_status = ("PASS" if worktree["state"] == "PRESENT" and
                       all_required_bindings_present else "INCOMPLETE")
     executed = executed or {}
+    infrastructure = infrastructure or {}
     ledger_by_criterion = {}
     for ledger in ledgers:
         if ledger["partition"] in ("all", "oracle_request"):
             ledger_by_criterion[ledger["criterion_id"]] = ledger
     records = []
-    binding_ledger = ledger_by_criterion[
-        "bindings_and_independence"]["key_ledger_sha256"]
-    records.append(criterion_record(
-        "bindings_and_independence", binding_status,
-        expectation="all bindings present and independent",
-        expected=1, observed=1, ledger=binding_ledger,
-        result_ledger=result_commitment(
-            binding_ledger, 1, binding_status, "validated_binding_record")))
-    inventory_ledger = ledger_by_criterion[
-        "complete_artifact_inventory"]["key_ledger_sha256"]
-    records.append(criterion_record("complete_artifact_inventory", "PASS",
-                                    expectation="exact 294 slots", expected=294, observed=294,
-                                    ledger=inventory_ledger,
-                                    result_ledger=result_commitment(
-                                        inventory_ledger, 294, "PASS",
-                                        "validated_artifact_inventory")))
-    raw_ledger = ledger_by_criterion[
-        "raw_bfr_d9a_reproduction"]["key_ledger_sha256"]
-    records.append(criterion_record("raw_bfr_d9a_reproduction", "PASS",
-                                    expectation="124 failing Bfr cases and frozen maximum",
-                                    expected=196, observed=196,
-                                    ledger=raw_ledger,
-                                    result_ledger=result_commitment(
-                                        raw_ledger, 196, "PASS",
-                                        "validated_raw_d9a_reproduction")))
-    blocker = "bindings_and_independence"
+    infrastructure_expectations = {
+        "bindings_and_independence":
+            "exact-head provenance and oracle independence",
+        "complete_artifact_inventory":
+            "exact schema-2 artifact inventory with no unexpected paths",
+        "raw_bfr_d9a_reproduction":
+            "exact B2 raw D9a reproduction of all 196 Bfr cases",
+    }
+    for criterion_id in CRITERION_IDS[:3]:
+        key_ledger = ledger_by_criterion[criterion_id]["key_ledger_sha256"]
+        evidence = infrastructure.get(criterion_id)
+        if evidence is None:
+            records.append(criterion_record(
+                criterion_id, "INCOMPLETE",
+                expectation=infrastructure_expectations[criterion_id],
+                expected=EXPECTED_CELL_COUNTS[criterion_id], observed=0,
+                ledger=key_ledger))
+            continue
+        commitment = evidence["commitment"]
+        records.append(criterion_record(
+            criterion_id, evidence["status"],
+            expectation=infrastructure_expectations[criterion_id],
+            expected=EXPECTED_CELL_COUNTS[criterion_id],
+            observed=evidence["observed_count"],
+            ledger=commitment["key_ledger_sha256"],
+            result_ledger=commitment["result_ledger_sha256"],
+            result_merkle_root=commitment["result_merkle_root_sha256"],
+            result_artifact=evidence["artifact"],
+            target=evidence.get("target"),
+            maximum=evidence["maximum"], witness=evidence["witness"],
+            first_failure=evidence["first_failing_key"]))
+    binding_status = records[0]["status"]
+    blocker = next((item["criterion_id"] for item in records
+                    if item["status"] == "INCOMPLETE"),
+                   "bindings_and_independence")
     for criterion_id in CRITERION_IDS[3:]:
-        if criterion_id in executed:
+        criterion_ordinal = CRITERION_IDS.index(criterion_id)
+        if (criterion_id in executed and binding_status == "PASS" and
+                criterion_ordinal < 10):
             item = executed[criterion_id]
             default_expectations = {
                 "representation_structure":
@@ -3152,25 +4076,12 @@ def make_criteria(worktree, all_required_bindings_present, ledgers,
             continue
         if criterion_id == "oracle_coverage_and_crosscheck":
             key_digest = ledger_by_criterion[criterion_id]["key_ledger_sha256"]
-            if key_digest is None:
-                key_digest = next(
-                    item["key_ledger_sha256"] for item in ledgers
-                    if item["criterion_id"] == criterion_id and
-                    item["partition"] == "uncovered")
-            result_digest = (canonical_result_commitment(
-                key_digest, EXPECTED_CELL_COUNTS[criterion_id], "UNCOVERED",
-                oracle_result_digest) if oracle_result_digest else
-                result_commitment(
-                    key_digest, EXPECTED_CELL_COUNTS[criterion_id],
-                    "UNCOVERED", "EIGENBASIS_CERTIFICATION_FAILED"))
             records.append(criterion_record(
-                criterion_id, "UNCOVERED",
-                expectation="EIGENBASIS_CERTIFICATION_FAILED",
+                criterion_id, "INCOMPLETE",
+                expectation="independent primary oracle execution unavailable",
                 expected=EXPECTED_CELL_COUNTS[criterion_id],
-                observed=EXPECTED_CELL_COUNTS[criterion_id],
-                ledger=key_digest, result_ledger=result_digest,
-                witness=["EIGENBASIS_CERTIFICATION_FAILED",
-                         EXPECTED_CELL_COUNTS[criterion_id], result_digest]))
+                observed=0, ledger=key_digest))
+            blocker = criterion_id
             continue
         if criterion_id in D12_CRITERIA:
             records.append(criterion_record(
@@ -3178,15 +4089,12 @@ def make_criteria(worktree, all_required_bindings_present, ledgers,
                 expected=EXPECTED_CELL_COUNTS[criterion_id], observed=0,
                 ledger=ledger_by_criterion[criterion_id]["key_ledger_sha256"]))
             continue
-        records.append(criterion_record(criterion_id,
-                                        "OMITTED_AFTER_INFRASTRUCTURE_FAILURE",
-                                        blocker=blocker,
-                                        expectation=
-                                            "requires complete frozen proof infrastructure",
-                                        expected=EXPECTED_CELL_COUNTS[criterion_id],
-                                        observed=0,
-                                        ledger=ledger_by_criterion[
-                                            criterion_id]["key_ledger_sha256"]))
+        records.append(criterion_record(
+            criterion_id, "OMITTED_AFTER_INFRASTRUCTURE_FAILURE",
+            blocker=blocker,
+            expectation="requires complete frozen proof infrastructure",
+            expected=EXPECTED_CELL_COUNTS[criterion_id], observed=0,
+            ledger=ledger_by_criterion[criterion_id]["key_ledger_sha256"]))
     require(len(records) == 32, "criterion record count")
     return records
 
@@ -3232,7 +4140,7 @@ def execute(args):
             "exact dyadic boundary self-test incomplete")
     capability = run_json(args.exact_dyadic_boundary_binary, "--capability",
                           "independent_primary_capability")
-    require(capability == {"coverage": "UNCOVERED",
+    require(capability == {"coverage": "UNAVAILABLE",
                            "implementation_state": "INCOMPLETE",
                            "kind": "independent_primary_capability",
                            "missing_algorithms": [
@@ -3243,10 +4151,10 @@ def execute(args):
                                "certified_parametric_branch_mapping",
                                "independent_uniform_five_depth_intersection",
                            ],
-                           "reason_code": "EIGENBASIS_CERTIFICATION_FAILED",
-                           "status": "honest_incomplete",
+                           "reason_code": "ORACLE_EXECUTION_UNAVAILABLE",
+                           "status": "not_implemented",
                            "uniform_success_substituted_for_primary": False},
-            "oracle capability must be the frozen honest uncovered state")
+            "oracle capability must be honest execution-unavailable state")
 
     preflight = B2A.analyze(args.checkpoint, args.artifact_dir,
                             args.provider_binary, expected_head)
@@ -3262,19 +4170,14 @@ def execute(args):
     expected_fixtures, actual_fixtures = fixture_hash_bindings()
     scientific_ledgers = make_scientific_pre_result_ledgers(
         checkpoint, pathlib.Path(args.artifact_dir).resolve(), manifest)
-    executed = execute_four_preoracle_criteria(
-        args.candidate_binary, checkpoint, pathlib.Path(args.artifact_dir).resolve(),
-        manifest)
-    executed.update(execute_regular_row_criteria(
-        args.candidate_binary, checkpoint,
-        pathlib.Path(args.artifact_dir).resolve(), manifest))
-    executed.update(execute_regular_integrand_criteria(
-        args.candidate_binary, args.exact_dyadic_boundary_binary, checkpoint,
-        pathlib.Path(args.artifact_dir).resolve(), manifest))
-    executed.update(execute_component_criteria(
-        args.candidate_binary, checkpoint,
-        pathlib.Path(args.artifact_dir).resolve(), manifest,
-        scientific_ledgers))
+    # The merged amendment forbids candidate-owned outcomes, aggregates,
+    # maxima, witnesses, and result digests.  The old audit modes remain only
+    # as development diagnostics and are never consumed here.  Until every
+    # criterion has been migrated to the observation-only boundary and the
+    # runner-owned persistent result sidecars, no candidate criterion executes
+    # authoritatively; criterion 00 records the missing oracle/independence
+    # binding and the causal omission rules remain explicit.
+    executed = {}
     git_end, worktree_end = git_observations()
     require_git_binding(git_start, git_end, worktree_start, worktree_end,
                         expected_head, checkpoint["binding"]["git_head"])
@@ -3310,12 +4213,16 @@ def execute(args):
     ledgers = make_complete_pre_result_ledgers(
         checkpoint, pathlib.Path(args.artifact_dir).resolve(), manifest,
         executed, scientific_ledgers)
+    evidence_root = pathlib.Path(args.output).resolve().parent
+    infrastructure = write_infrastructure_result_evidence(
+        evidence_root, checkpoint,
+        pathlib.Path(args.artifact_dir).resolve(), binaries,
+        git_start, git_end, worktree_start, worktree_end)
     d12_record, d12_expectation = inspect_d12_evidence(
         args.d12_evidence, expected_head)
     criteria = make_criteria(
-        worktree_end, oracle_present, ledgers, executed,
-        oracle_result_digest=scientific_ledgers[
-            "oracle_coverage_and_crosscheck"]["uncovered_result_digest"],
+        worktree_end, False, ledgers, executed,
+        infrastructure=infrastructure,
         d12_expectation=d12_expectation)
     fingerprint_hash = sha256_bytes(jcs_bytes(B2.EXPECTED_PLATFORM_FINGERPRINT))
     report = {
@@ -3326,7 +4233,8 @@ def execute(args):
                      "worktree_start": worktree_start,
                      "worktree_end": worktree_end,
                      "base_merge_git_commit": APPROVED_B2B_MERGE,
-                     "approved_b2b_merge_git_commit": APPROVED_B2B_MERGE,
+                     "approved_b2b_merge_git_commit":
+                         APPROVED_RESULT_EVIDENCE_AMENDMENT_MERGE,
                      "start_utc": started, "end_utc": iso_utc_now(),
                      "validator": availability(
                          "PRESENT", sha256_file(pathlib.Path(__file__).resolve()))},
@@ -3343,7 +4251,7 @@ def execute(args):
                       "source_order": "strictly_increasing_signed_source_id",
                       "expected_fixture_files": expected_fixtures,
                       "actual_fixture_files": actual_fixtures,
-                      "d12_contract": B2.D12,
+                      "d12_contract": D12_CONTRACT,
                       "physical_fingerprint": {"sha256": fingerprint_hash}},
         "checkpoint": {"availability": availability("PRESENT", sha256_file(checkpoint_path)),
                        "git_head": checkpoint["binding"]["git_head"],
@@ -3358,7 +4266,9 @@ def execute(args):
                    "expected_anchor_rows": 4158000, "observed_anchor_rows": observations["bfr_six_rows_examined"] * 3,
                    "expected_provider_terms": 12549936, "observed_provider_terms": observations["bfr_coefficient_terms_examined"],
                    "expected_anchor_terms": 37649808, "observed_anchor_terms": observations["bfr_coefficient_terms_examined"] * 3,
-                   "ledgers": ledgers, "unexpected_paths": []},
+                   "ledgers": ledgers,
+                   "unexpected_paths": infrastructure[
+                       "complete_artifact_inventory"]["unexpected_paths"]},
         "criteria": criteria,
         "d12_artifact": d12_record,
         "verdict": calculate_verdict(criteria),
@@ -3372,6 +4282,10 @@ def execute(args):
 
 def self_test_report():
     schema = load_schema()
+    schema_paths = documentation_owned_schema_path_anchor()
+    mutation_operators = documentation_owned_mutation_operators()
+    require(len(schema_paths) == 740 and len(mutation_operators) == 23,
+            "result-evidence amendment anchor cardinality")
     require(schema["additionalProperties"] is False, "top-level schema not closed")
     require(len(CRITERION_IDS) == 32 and len(set(CRITERION_IDS)) == 32,
             "criterion set cardinality")
@@ -3412,6 +4326,7 @@ def self_test_report():
 def parse_args(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--self-test", action="store_true")
+    parser.add_argument("--validate-report")
     parser.add_argument("--json", action="store_true")
     parser.add_argument("--checkpoint")
     parser.add_argument("--artifact-dir")
@@ -3459,10 +4374,25 @@ def main(argv=None):
             require(not any(supplied), "self-test accepts no evidence inputs")
             value = self_test_report()
             encoded = jcs_bytes(value) + b"\n"
+        elif args.validate_report:
+            supplied = [value for key, value in vars(args).items()
+                        if key not in ("validate_report", "json")]
+            require(not any(supplied),
+                    "report validation accepts only its report path")
+            report_path = pathlib.Path(args.validate_report).resolve()
+            raw = report_path.read_bytes()
+            value = strict_json_bytes(raw)
+            require(jcs_bytes(value) == raw,
+                    "qualification report bytes are not canonical JCS")
+            validate_result_sidecar_bundle(value, report_path.parent)
+            encoded = jcs_bytes({
+                "kind": "anchored_row_qualification_bundle_validation",
+                "report_sha256": sha256_bytes(raw), "status": "ok"}) + b"\n"
         else:
             require(args.checkpoint and args.artifact_dir and args.provider_binary and
-                    args.candidate_binary and args.exact_dyadic_boundary_binary,
-                    "execution requires checkpoint, artifacts, provider, candidate, and exact boundary")
+                    args.candidate_binary and args.exact_dyadic_boundary_binary and
+                    args.output,
+                    "execution requires checkpoint, artifacts, provider, candidate, exact boundary, and output")
             provenance_arguments = [
                 args.compiler_version_file, args.provider_command_file,
                 args.provider_link_map, args.provider_dynamic_dependencies,

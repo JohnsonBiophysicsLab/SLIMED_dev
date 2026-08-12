@@ -1,4 +1,5 @@
 import copy
+import gzip
 import importlib.util
 import json
 import math
@@ -19,23 +20,46 @@ SPEC.loader.exec_module(MODULE)
 
 
 class AnchoredRowQualificationTests(unittest.TestCase):
+    def present_result_artifact(self, criterion_id, digest, count):
+        ordinal = MODULE.CRITERION_IDS.index(criterion_id)
+        return {"availability": MODULE.availability("PRESENT", digest),
+                "relative_path":
+                    "anchored-row-result-ledgers-v1/{:02d}-{}."
+                    "result-ledger.json".format(ordinal, criterion_id),
+                "byte_length": 2, "record_count": count}
+
     def make_incomplete_criteria_fixture(self):
         digest = "a" * 64
         records = []
         for criterion_id in MODULE.CRITERION_IDS:
             expected = MODULE.EXPECTED_CELL_COUNTS[criterion_id]
             if criterion_id in MODULE.INFRASTRUCTURE_CRITERIA:
+                target = None
+                if criterion_id == "complete_artifact_inventory":
+                    target = {
+                        "kind": "unexpected_paths_target_v1",
+                        "required_record_count": 0,
+                        "sidecar": {
+                            "availability": MODULE.availability(
+                                "PRESENT", MODULE.sha256_bytes(b"[]")),
+                            "relative_path":
+                                "anchored-row-result-ledgers-v1/"
+                                "unexpected-artifact-paths.json",
+                            "byte_length": 2, "record_count": 0}}
                 records.append(MODULE.criterion_record(
-                    criterion_id, "INCOMPLETE", expected=expected))
+                    criterion_id, "INCOMPLETE", expected=expected,
+                    target=target))
             elif criterion_id in MODULE.ORACLE_CRITERIA:
                 result_digest = "b" * 64
                 records.append(MODULE.criterion_record(
                     criterion_id, "UNCOVERED", expected=expected,
                     observed=expected, ledger=digest,
                     result_ledger=result_digest,
+                    result_merkle_root="c" * 64,
+                    result_artifact=self.present_result_artifact(
+                        criterion_id, result_digest, expected),
                     expectation="EIGENBASIS_CERTIFICATION_FAILED",
-                    witness=["EIGENBASIS_CERTIFICATION_FAILED", expected,
-                             result_digest]))
+                    witness=None))
             elif criterion_id in MODULE.D12_CRITERIA:
                 records.append(MODULE.criterion_record(
                     criterion_id, "INCOMPLETE", expected=expected,
@@ -57,6 +81,26 @@ class AnchoredRowQualificationTests(unittest.TestCase):
         self.assertEqual(value["criterion_count"], 32)
         self.assertFalse(value["independent_primary_oracle_available"])
         self.assertFalse(value["qualification_pass_permitted_without_oracle"])
+
+    def test_documentation_owned_schema_path_anchor_is_immutable(self):
+        lines = MODULE.documentation_owned_schema_path_anchor()
+        self.assertEqual(len(lines), 740)
+        self.assertEqual(len(lines), len(set(lines)))
+        self.assertEqual(lines, sorted(lines))
+        counts = {}
+        for line in lines:
+            kind = line.split("|", 1)[0]
+            counts[kind] = counts.get(kind, 0) + 1
+        self.assertEqual(counts, {
+            "array": 71,
+            "authority": 26,
+            "criterion": 32,
+            "ledger": 34,
+            "object": 577,
+        })
+        self.assertEqual(
+            MODULE.APPROVED_RESULT_EVIDENCE_AMENDMENT_MERGE,
+            "029816125619f58f99464e8055170ffa12e957e3")
 
     def test_exact_binary64_common_denominator_covers_extremes(self):
         self.assertEqual(MODULE.exact_binary64_numerator(0.0), 0)
@@ -257,7 +301,9 @@ class AnchoredRowQualificationTests(unittest.TestCase):
         self.assertEqual(criteria[0]["status"], "INCOMPLETE")
         self.assertEqual(criteria[3]["status"],
                          "OMITTED_AFTER_INFRASTRUCTURE_FAILURE")
-        self.assertEqual(criteria[10]["status"], "UNCOVERED")
+        self.assertEqual(criteria[10]["status"], "INCOMPLETE")
+        self.assertEqual(criteria[10]["observed_cell_count"], 0)
+        self.assertIsNone(criteria[10]["result_ledger_sha256"])
         self.assertTrue(all(criteria[index]["status"] == "INCOMPLETE"
                             for index in range(27, 32)))
 
@@ -275,10 +321,9 @@ class AnchoredRowQualificationTests(unittest.TestCase):
         } for criterion_id in MODULE.CRITERION_IDS]
         criteria = MODULE.make_criteria(
             MODULE.worktree_observation(True), False, ledgers)
-        self.assertEqual(criteria[10]["status"], "UNCOVERED")
-        self.assertEqual(criteria[10]["observed_cell_count"],
-                         MODULE.EXPECTED_CELL_COUNTS[
-                             "oracle_coverage_and_crosscheck"])
+        self.assertEqual(criteria[10]["status"], "INCOMPLETE")
+        self.assertEqual(criteria[10]["observed_cell_count"], 0)
+        self.assertIsNone(criteria[10]["result_ledger_sha256"])
         self.assertEqual(criteria[10]["key_ledger_sha256"], digest)
 
     def test_verdict_precedence_never_turns_uncovered_into_pass(self):
@@ -402,20 +447,254 @@ class AnchoredRowQualificationTests(unittest.TestCase):
         with self.assertRaises(MODULE.QualificationError):
             duplicate.add_encoded(encoded, "PASS")
 
-    def test_oracle_absence_is_empty_covered_full_uncovered(self):
-        request_digest = "c" * 64
-        count = MODULE.EXPECTED_CELL_COUNTS[
-            "oracle_coverage_and_crosscheck"]
-        partitions = MODULE.oracle_absent_partition_ledgers(
-            request_digest, count)
+    def test_persistent_result_ledger_and_merkle_witness_are_exact(self):
+        records = [
+            [["criterion", 0], "PASS",
+             {"kind": "binary64_scalar_v1", "bits": "0000000000000000"},
+             None, None],
+            [["criterion", 1], "FAIL",
+             {"kind": "binary64_scalar_v1", "bits": "3ff0000000000000"},
+             None, "CONSTANT_FIELD_BITS_MISMATCH"],
+            [["criterion", 2], "PASS",
+             {"kind": "binary64_scalar_v1", "bits": "4000000000000000"},
+             None, None],
+        ]
+        commitment = MODULE.canonical_result_ledger(records, witness_index=1)
+        self.assertEqual(commitment["record_count"], 3)
+        self.assertEqual(len(commitment["witness_siblings"]), 2)
+        self.assertFalse(commitment["bytes"].endswith(b"\n"))
+        MODULE.validate_result_merkle_witness(
+            commitment["record_bytes"][1], 1,
+            commitment["witness_siblings"],
+            commitment["result_merkle_root_sha256"], observed_count=3)
+
+        bad_siblings = list(commitment["witness_siblings"])
+        bad_siblings[0] = "0" * 64
+        with self.assertRaises(MODULE.QualificationError):
+            MODULE.validate_result_merkle_witness(
+                commitment["record_bytes"][1], 1, bad_siblings,
+                commitment["result_merkle_root_sha256"], observed_count=3)
+        with self.assertRaises(MODULE.QualificationError):
+            MODULE.validate_result_merkle_witness(
+                commitment["record_bytes"][1], 3,
+                commitment["witness_siblings"],
+                commitment["result_merkle_root_sha256"], observed_count=3)
+
+        with tempfile.TemporaryDirectory() as temporary:
+            persisted, descriptor = MODULE.write_result_ledger_artifact(
+                temporary, "constant_field_bits", records, witness_index=1)
+            expected_path = (
+                "anchored-row-result-ledgers-v1/04-constant_field_bits."
+                "result-ledger.json")
+            self.assertEqual(descriptor["relative_path"], expected_path)
+            artifact = pathlib.Path(temporary) / expected_path
+            self.assertEqual(artifact.read_bytes(), persisted["bytes"])
+            self.assertEqual(descriptor["byte_length"], artifact.stat().st_size)
+            self.assertEqual(descriptor["record_count"], 3)
+
+        with tempfile.TemporaryDirectory() as temporary:
+            writer = MODULE.StreamingResultLedgerArtifact(
+                temporary, "constant_field_bits")
+            for record in records:
+                writer.add(record)
+            streamed, descriptor = writer.finish(witness_index=1)
+            self.assertEqual(streamed["key_ledger_sha256"],
+                             commitment["key_ledger_sha256"])
+            self.assertEqual(streamed["result_ledger_sha256"],
+                             commitment["result_ledger_sha256"])
+            self.assertEqual(streamed["result_merkle_root_sha256"],
+                             commitment["result_merkle_root_sha256"])
+            self.assertEqual(streamed["witness_siblings"],
+                             commitment["witness_siblings"])
+            self.assertEqual(descriptor["record_count"], 3)
+
+    def test_raw_d9a_global_literals_are_exact_and_mutation_binding(self):
+        records = []
+        for index in range(196):
+            records.append([["raw", index], "PASS", {
+                "raw_invariant_state": "FAIL" if index < 124 else "PASS"},
+                None, None])
+        maximum = {
+            "kind": "absolute_dyadic_v1",
+            "numerator_hex": MODULE.RAW_D9A_FROZEN_MAXIMUM_NUMERATOR_HEX,
+            "denominator_power": 1074,
+        }
+        self.assertTrue(MODULE.validate_raw_d9a_frozen_global(
+            records, maximum, MODULE.RAW_D9A_FROZEN_MAXIMUM_BITS))
+        original_bits = MODULE.RAW_D9A_FROZEN_MAXIMUM_BITS
+        original_numerator = MODULE.RAW_D9A_FROZEN_MAXIMUM_NUMERATOR_HEX
+        try:
+            MODULE.RAW_D9A_FROZEN_MAXIMUM_BITS = "3db6653ab1800001"
+            with self.assertRaises(MODULE.QualificationError):
+                MODULE.validate_raw_d9a_frozen_global(
+                    records, maximum, original_bits)
+            MODULE.RAW_D9A_FROZEN_MAXIMUM_BITS = original_bits
+            MODULE.RAW_D9A_FROZEN_MAXIMUM_NUMERATOR_HEX = (
+                original_numerator[:-1])
+            with self.assertRaises(MODULE.QualificationError):
+                MODULE.validate_raw_d9a_frozen_global(
+                    records, maximum, original_bits)
+        finally:
+            MODULE.RAW_D9A_FROZEN_MAXIMUM_BITS = original_bits
+            MODULE.RAW_D9A_FROZEN_MAXIMUM_NUMERATOR_HEX = original_numerator
+
+    def test_infrastructure_sidecars_bind_real_keys_and_raw_maximum(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary)
+            artifacts = root / "artifacts"
+            output = root / "evidence"
+            artifacts.mkdir()
+            artifact_json = b"{}"
+            artifact_bytes = gzip.compress(artifact_json, mtime=0)
+            artifact_sha = MODULE.sha256_bytes(artifact_bytes)
+            artifact_json_sha = MODULE.sha256_bytes(artifact_json)
+            cases = []
+            for index in range(294):
+                candidate = "bfr" if index < 196 else "far"
+                name = "case-{:03d}.json.gz".format(index)
+                (artifacts / name).write_bytes(artifact_bytes)
+                cases.append({
+                    "content_identity_key": "content-{:03d}".format(index),
+                    "candidate": candidate,
+                    "approximation_level": 2,
+                    "applicable_mode": ("cache_disabled" if candidate == "bfr"
+                                        else "not_applicable_uncached"),
+                    "complete_json_artifact": name,
+                    "complete_json_artifact_sha256": artifact_sha,
+                    "complete_json_sha256": artifact_json_sha,
+                    "canonical_rows_sha256": "2" * 64,
+                })
+            checkpoint = {"numeric_cases": cases}
+            present = MODULE.availability("PRESENT", "3" * 64)
+            unavailable = MODULE.availability(
+                "UNAVAILABLE", reason_code="EXECUTION_UNAVAILABLE")
+            binaries = {
+                "row_provider": {"availability": present},
+                "representation_candidate": {"availability": present},
+                "exact_dyadic_boundary": {"availability": present},
+                "independent_oracle": {"availability": unavailable},
+                "oracle_independence_audit": "INCOMPLETE",
+            }
+            maximum_value = MODULE.binary64_from_bits_hex(
+                MODULE.RAW_D9A_FROZEN_MAXIMUM_BITS)
+
+            def raw_value(case, _artifact_root):
+                index = int(case["content_identity_key"].split("-")[1])
+                return {
+                    "kind": "raw_d9a_value_v1",
+                    "case_identity": [case["content_identity_key"], 2,
+                                      "cache_disabled"],
+                    "raw_invariant_state": "FAIL" if index < 124 else "PASS",
+                    "maximum_row_sum_residual": MODULE.absolute_dyadic(
+                        maximum_value if index == 0 else 0.0),
+                    "failing_row_count": 1 if index < 124 else 0,
+                    "canonical_raw_rows_sha256": "2" * 64,
+                }
+
+            git = {"git_commit": "4" * 40}
+            worktree = {"clean": True}
+            with mock.patch.object(MODULE, "_raw_d9a_value",
+                                   side_effect=raw_value):
+                evidence = MODULE.write_infrastructure_result_evidence(
+                    output, checkpoint, artifacts, binaries,
+                    git, git, worktree, worktree)
+            for criterion_id in MODULE.CRITERION_IDS[:3]:
+                item = evidence[criterion_id]
+                self.assertEqual(
+                    item["commitment"]["key_ledger_sha256"],
+                    MODULE.generic_key_ledger_sha256([
+                        record[0] for record in json.loads(
+                            (output / item["artifact"]["relative_path"])
+                            .read_text(encoding="utf-8"))]))
+            raw = evidence["raw_bfr_d9a_reproduction"]
+            self.assertEqual(raw["maximum"]["numerator_hex"],
+                             MODULE.RAW_D9A_FROZEN_MAXIMUM_NUMERATOR_HEX)
+            self.assertEqual(raw["witness"]["maximum_binary64_bits"],
+                             MODULE.RAW_D9A_FROZEN_MAXIMUM_BITS)
+            MODULE.validate_result_merkle_witness(
+                MODULE.jcs_bytes(raw["witness"]["result_record"]),
+                raw["witness"]["leaf_index"],
+                raw["witness"]["merkle_siblings"],
+                raw["commitment"]["result_merkle_root_sha256"],
+                observed_count=196)
+            unexpected = output / (
+                "anchored-row-result-ledgers-v1/"
+                "unexpected-artifact-paths.json")
+            self.assertEqual(unexpected.read_bytes(), b"[]")
+            criteria = []
+            for criterion_id in MODULE.CRITERION_IDS:
+                if criterion_id in evidence:
+                    item = evidence[criterion_id]
+                    criteria.append({
+                        "criterion_id": criterion_id,
+                        "result_ledger_artifact": item["artifact"],
+                        "observed_cell_count": item["observed_count"],
+                        "key_ledger_sha256": item["commitment"][
+                            "key_ledger_sha256"],
+                        "result_ledger_sha256": item["commitment"][
+                            "result_ledger_sha256"],
+                        "result_merkle_root_sha256": item["commitment"][
+                            "result_merkle_root_sha256"],
+                        "status": item["status"],
+                        "target": item.get("target"),
+                        "maximum": item["maximum"],
+                        "witness": item["witness"],
+                        "first_failing_key": item["first_failing_key"],
+                    })
+                else:
+                    criteria.append({
+                        "criterion_id": criterion_id,
+                        "result_ledger_artifact": {
+                            "availability": unavailable,
+                            "relative_path": None, "byte_length": None,
+                            "record_count": None},
+                        "observed_cell_count": 0,
+                        "key_ledger_sha256": None,
+                        "result_ledger_sha256": None,
+                        "result_merkle_root_sha256": None,
+                        "status": "INCOMPLETE", "maximum": None,
+                        "target": None,
+                        "witness": None, "first_failing_key": None,
+                    })
+            report = {
+                "criteria": criteria,
+                "matrix": {"unexpected_paths": evidence[
+                    "complete_artifact_inventory"]["unexpected_paths"]},
+            }
+            with mock.patch.object(MODULE, "validate_report",
+                                   return_value=True):
+                self.assertTrue(MODULE.validate_result_sidecar_bundle(
+                    report, output))
+                raw_path = output / raw["artifact"]["relative_path"]
+                canonical_raw = raw_path.read_bytes()
+                raw_path.write_bytes(canonical_raw + b"\n")
+                with self.assertRaises(MODULE.QualificationError):
+                    MODULE.validate_result_sidecar_bundle(report, output)
+                raw_path.write_bytes(canonical_raw)
+
+    def test_result_ledger_rejects_reorder_duplicate_and_reason_drift(self):
+        passing = [["criterion", 0], "PASS", None, None, None]
+        failing = [["criterion", 1], "FAIL", None, None, "BROKEN"]
+        with self.assertRaises(MODULE.QualificationError):
+            MODULE.canonical_result_ledger([failing, passing])
+        with self.assertRaises(MODULE.QualificationError):
+            MODULE.canonical_result_ledger([passing, passing])
+        with self.assertRaises(MODULE.QualificationError):
+            MODULE.canonical_result_ledger(
+                [[passing[0], "PASS", None, None, "INVENTED_REASON"]])
+
+    def test_oracle_absence_is_incomplete_without_fabricated_partitions(self):
+        partitions = MODULE.oracle_unavailable_partition_ledgers(
+            "oracle_coverage_and_crosscheck")
         self.assertEqual([item["partition"] for item in partitions],
                          ["covered", "uncovered"])
-        self.assertEqual(partitions[0]["observed_count"], 0)
-        self.assertEqual(partitions[0]["key_ledger_sha256"],
-                         MODULE.sha256_bytes(b"[]"))
-        self.assertEqual(partitions[1]["observed_count"], count)
-        self.assertEqual(partitions[1]["key_ledger_sha256"], request_digest)
-        self.assertTrue(all(item["availability"]["state"] == "PRESENT"
+        self.assertTrue(all(item["observed_count"] == 0 for item in partitions))
+        self.assertTrue(all(item["key_ledger_sha256"] is None
+                            for item in partitions))
+        self.assertTrue(all(item["availability"]["state"] == "UNAVAILABLE"
+                            for item in partitions))
+        self.assertTrue(all(item["omission_blocker"] ==
+                            "oracle_coverage_and_crosscheck"
                             for item in partitions))
 
     def test_numeric_maximum_witness_mutations_fail_closed(self):
@@ -433,7 +712,13 @@ class AnchoredRowQualificationTests(unittest.TestCase):
                 "anchor_sensitivity_exact_coeff"],
             observed=MODULE.EXPECTED_CELL_COUNTS[
                 "anchor_sensitivity_exact_coeff"],
-            ledger="e" * 64, result_ledger=digest, maximum=maximum,
+            ledger="e" * 64, result_ledger=digest,
+            result_merkle_root="f" * 64,
+            result_artifact=self.present_result_artifact(
+                "anchor_sensitivity_exact_coeff", digest,
+                MODULE.EXPECTED_CELL_COUNTS[
+                    "anchor_sensitivity_exact_coeff"]),
+            maximum=maximum,
             witness=[key, {"numerator": 1, "denominator": 4},
                      MODULE.binary64_bits_hex(maximum), digest])
         MODULE.validate_criteria(records)
@@ -730,6 +1015,22 @@ class AnchoredRowQualificationTests(unittest.TestCase):
             self.assertEqual(value["structure_failure_count"], 0)
             self.assertEqual(value["constant_failure_count"], 0)
             self.assertEqual(value["relabel_exact_failure_count"], 0)
+            one_row = audit_input.splitlines()[0] + "\n"
+            for criterion_id, expected_count, expected_kind in (
+                    ("representation_structure", 3,
+                     "candidate_structure_observation_v1"),
+                    ("constant_field_bits", 45,
+                     "candidate_binary64_observation_v1"),
+                    ("relabel_exact_effective_coefficients", 6,
+                     "candidate_dyadic_vector_observation_v1")):
+                observations = list(MODULE.iter_candidate_observations(
+                    binary, criterion_id, [one_row], expected_count))
+                self.assertEqual(len(observations), expected_count)
+                self.assertTrue(all(item["kind"] == expected_kind
+                                    for item in observations))
+                self.assertTrue(all(not ({"outcome", "target", "reason",
+                                         "maximum", "digest"} & set(item))
+                                    for item in observations))
             mutation = subprocess.run(
                 [str(binary), "--audit-stream"],
                 input="du 3 0,1,2 0,0,2 "
@@ -786,11 +1087,11 @@ class AnchoredRowQualificationTests(unittest.TestCase):
             self.assertIsNotNone(bad_value["criteria"][
                 "anchor_sensitivity_exact_coeff"]["first_failure"])
 
-    def test_boundary_source_freezes_mpfr_directions_and_uncovers_primary(self):
+    def test_boundary_source_freezes_mpfr_and_reports_oracle_unavailable(self):
         source = (ROOT / "experiments/anchored_row_qualification/"
                  "exact_dyadic_boundary.cpp").read_text(encoding="utf-8")
         for anchor in ("MPFR_RNDD", "MPFR_RNDU", "mpfr_set_z_2exp",
-                       "kPrecision = 544", "EIGENBASIS_CERTIFICATION_FAILED",
+                       "kPrecision = 544", "ORACLE_EXECUTION_UNAVAILABLE",
                        "uniform_success_substituted_for_primary\\\":false",
                        "regular_integrand_stream", "interval_square_root"):
             self.assertIn(anchor, source)

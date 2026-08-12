@@ -308,7 +308,10 @@ jobs:
             --d12-evidence "$RUNNER_TEMP/bfr-qualification-evidence.json" \
             --expected-binding-head "$QUALIFICATION_HEAD" \
             --output "$RUNNER_TEMP/anchored-row-qualification-report.json"
-          python3 -c 'import json, os; value=json.load(open(os.environ["RUNNER_TEMP"] + "/anchored-row-qualification-report.json")); assert value["identity"]["implementation_state"] == "INCOMPLETE_MISSING_ORACLE_DEPENDENT_CELL_EXECUTION_D12_EXECUTION_AND_PRIMARY_STAM_UNIFORM_ORACLES"; assert value["verdict"]["status"] == "INCOMPLETE"; assert value["criteria"][10]["expectation"].startswith("EIGENBASIS_CERTIFICATION_FAILED")'
+          python3 scripts/run_anchored_row_qualification.py \
+            --validate-report "$RUNNER_TEMP/anchored-row-qualification-report.json" \
+            --json
+          python3 -c 'import json, os; value=json.load(open(os.environ["RUNNER_TEMP"] + "/anchored-row-qualification-report.json")); assert value["identity"]["implementation_state"] == "INCOMPLETE_MISSING_ORACLE_DEPENDENT_CELL_EXECUTION_D12_EXECUTION_AND_PRIMARY_STAM_UNIFORM_ORACLES"; assert value["verdict"]["status"] == "INCOMPLETE"; assert value["criteria"][10]["status"] == "INCOMPLETE"; assert value["criteria"][10]["result_ledger_sha256"] is None; assert value["criteria"][10]["observed_cell_count"] == 0'
 
       - name: Publish hosted correctness and reproduction evidence
         if: always()
@@ -320,6 +323,7 @@ jobs:
             ${{ runner.temp }}/bfr-release-checkpoint.json
             ${{ runner.temp }}/invariant-row-representation-preflight.json
             ${{ runner.temp }}/anchored-row-qualification-report.json
+            ${{ runner.temp }}/anchored-row-result-ledgers-v1
             ${{ runner.temp }}/anchored-row-qualification
             ${{ runner.temp }}/bfr-case-json
             ${{ runner.temp }}/bfr-proof-artifacts
