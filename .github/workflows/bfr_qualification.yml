@@ -313,6 +313,34 @@ jobs:
             --validate-report "$RUNNER_TEMP/anchored-row-qualification-report.json" \
             --checkpoint "$RUNNER_TEMP/bfr-release-checkpoint.json" \
             --artifact-dir "$RUNNER_TEMP/bfr-case-json" \
+            --provider-binary "$RUNNER_TEMP/bfr-proof-artifacts/bfr_candidate" \
+            --candidate-binary "$QUALIFICATION_ROOT/anchored_row_candidate" \
+            --exact-dyadic-boundary-binary "$QUALIFICATION_ROOT/exact_dyadic_boundary" \
+            --compiler-version-file "$QUALIFICATION_ROOT/compiler.version" \
+            --provider-command-file "$QUALIFICATION_ROOT/provider.command" \
+            --provider-link-map "$RUNNER_TEMP/bfr-proof-artifacts/candidate.map" \
+            --provider-dynamic-dependencies "$QUALIFICATION_ROOT/provider.otool-L" \
+            --candidate-command-file "$QUALIFICATION_ROOT/candidate.command" \
+            --candidate-link-map "$QUALIFICATION_ROOT/candidate.map" \
+            --candidate-dynamic-dependencies "$QUALIFICATION_ROOT/candidate.otool-L" \
+            --boundary-command-file "$QUALIFICATION_ROOT/exact_boundary.command" \
+            --boundary-link-map "$QUALIFICATION_ROOT/exact_boundary.map" \
+            --boundary-dynamic-dependencies "$QUALIFICATION_ROOT/exact_boundary.otool-L" \
+            --gmp-archive "$RUNNER_TEMP/b2-downloads/gmp.tar.xz" \
+            --gmp-build-provenance "$GMP_BUILD_ROOT/build.log" \
+            --gmp-install-provenance "$GMP_BUILD_ROOT/install.log" \
+            --gmp-link-provenance "$QUALIFICATION_ROOT/gmp.link-map" \
+            --gmp-dynamic-dependency "$QUALIFICATION_ROOT/gmp.otool-L" \
+            --mpfr-archive "$RUNNER_TEMP/b2-downloads/mpfr.tar.xz" \
+            --mpfr-build-provenance "$MPFR_BUILD_ROOT/build.log" \
+            --mpfr-install-provenance "$MPFR_BUILD_ROOT/install.log" \
+            --mpfr-link-provenance "$QUALIFICATION_ROOT/mpfr.link-map" \
+            --mpfr-dynamic-dependency "$QUALIFICATION_ROOT/mpfr.otool-L" \
+            --opensubdiv-archive "$RUNNER_TEMP/b2-downloads/opensubdiv.tar.gz" \
+            --opensubdiv-build-provenance "$OPENSUBDIV_RELEASE_BUILD_ROOT/build.log" \
+            --opensubdiv-install-provenance "$OPENSUBDIV_RELEASE_BUILD_ROOT/install.log" \
+            --opensubdiv-link-provenance "$OPENSUBDIV_RELEASE_BUILD_ROOT/opensubdiv/CMakeFiles/osd_static_cpu.dir/link.txt" \
+            --opensubdiv-dynamic-dependency "$OPENSUBDIV_ROOT/lib/libosdCPU.a" \
             --json
           python3 -c 'import json, os; value=json.load(open(os.environ["RUNNER_TEMP"] + "/anchored-row-qualification-report.json")); assert value["identity"]["implementation_state"] == "INCOMPLETE_MISSING_ORACLE_DEPENDENT_CELL_EXECUTION_D12_EXECUTION_AND_PRIMARY_STAM_UNIFORM_ORACLES"; assert value["verdict"]["status"] == "INCOMPLETE"; assert value["criteria"][10]["status"] == "INCOMPLETE"; assert value["criteria"][10]["result_ledger_sha256"] is None; assert value["criteria"][10]["observed_cell_count"] == 0'
 

@@ -1193,8 +1193,19 @@ class AnchoredRowQualificationTests(unittest.TestCase):
                 "availability": MODULE.availability(
                     "PRESENT", MODULE.sha256_file(checkpoint_path)),
                 "git_head": "a" * 40}}
-            verifier = MODULE.ProviderRowVerifier(
-                checkpoint_path, artifacts, report)
+            provider_binary = root / "provider"
+            provider_binary.write_bytes(b"provider")
+            checkpoint["binding"]["candidate_binary_sha256"] = \
+                MODULE.sha256_file(provider_binary)
+            checkpoint_path.write_bytes(MODULE.jcs_bytes(checkpoint))
+            report["checkpoint"]["availability"] = MODULE.availability(
+                "PRESENT", MODULE.sha256_file(checkpoint_path))
+            with mock.patch.object(
+                    MODULE.B2A, "validate_checkpoint_and_artifacts",
+                    return_value=(None, checkpoint, None,
+                                  MODULE.sha256_file(checkpoint_path))):
+                verifier = MODULE.ProviderRowVerifier(
+                    checkpoint_path, artifacts, provider_binary, report)
             key = ["content-000", "cache_disabled", 2, 0, None,
                    "sample", "position", "structural", "v0", "identity",
                    None, None, None, None, None]
@@ -1370,15 +1381,31 @@ class AnchoredRowQualificationTests(unittest.TestCase):
             key = ["content", 2, "release", "cache_disabled", None,
                    None, None, "measured", 0, None, None, None, None,
                    "preparation_duration_ns"]
-            encoded_record = MODULE.jcs_bytes([key, {"token": "1"}, {}])
+            payload = {"kind": "d12_duration_raw_v1",
+                       "state": "VALID_UINT64_NS", "token": "1"}
+            provenance = {
+                "kind": "d12_process_provenance_v1",
+                "process_tuple_sha256": MODULE.sha256_bytes(
+                    MODULE.jcs_bytes(key[:5])),
+                "executable_sha256": "a" * 64,
+                "argv_sha256": "b" * 64,
+                "environment_sha256": "c" * 64,
+                "pid": 1, "start_utc": "2026-08-12T00:00:00Z",
+                "end_utc": "2026-08-12T00:00:01Z",
+                "exit_kind": "EXITED", "exit_code": 0, "signal": None,
+                "stderr_sha256": "d" * 64}
+            encoded_record = MODULE.jcs_bytes([key, payload, provenance])
             process_raw = b"[" + encoded_record + b"]"
-            process_path = root / "process.json"
+            process_relative = (
+                MODULE.D12EvidenceVerifier.PROCESS_OBSERVATION_PATH)
+            process_path = root / process_relative
+            process_path.parent.mkdir(parents=True)
             process_path.write_bytes(process_raw)
             process_digest = MODULE.sha256_bytes(process_raw)
             process_descriptor = {
                 "availability": MODULE.availability(
                     "PRESENT", process_digest),
-                "relative_path": "process.json",
+                "relative_path": process_relative,
                 "byte_length": len(process_raw), "record_count": 1,
                 "sha256": process_digest}
             verifier = MODULE.D12EvidenceVerifier(root)
@@ -1386,26 +1413,35 @@ class AnchoredRowQualificationTests(unittest.TestCase):
             binding = {
                 "availability": MODULE.availability(
                     "PRESENT", MODULE.sha256_bytes(encoded_record)),
-                "relative_path": "process.json", "byte_offset": 1,
+                "relative_path": process_relative, "byte_offset": 1,
                 "byte_length": len(encoded_record),
                 "sha256": MODULE.sha256_bytes(encoded_record)}
-            self.assertTrue(verifier.raw_observation(key, binding))
+            self.assertEqual(verifier.raw_observation(key, binding), payload)
+            mismatched_value = {
+                "kind": "d12_duration_valid_v1",
+                "quantity": "preparation_duration_ns", "duration_ns": 2,
+                "platform_state": "QUALIFIED_PLATFORM",
+                "raw_observation": copy.deepcopy(binding)}
+            with self.assertRaises(MODULE.QualificationError):
+                verifier.result_record(key, mismatched_value)
             changed = copy.deepcopy(binding)
             changed["byte_offset"] = 0
             with self.assertRaises(MODULE.QualificationError):
                 verifier.raw_observation(key, changed)
 
-            row = (b"B2ROWV1" + struct.pack("<i", 0) +
-                   struct.pack("<I", 6) + b"sample" +
-                   struct.pack("<I", 0) + struct.pack("<I", 1) +
-                   struct.pack("<i", 0) + struct.pack("<d", 1.0))
+            row = b"".join(
+                b"B2ROWV1" + struct.pack("<i", 0) +
+                struct.pack("<I", 6) + b"sample" +
+                struct.pack("<I", ordinal) + struct.pack("<I", 1) +
+                struct.pack("<i", 0) + struct.pack("<d", 1.0)
+                for ordinal in range(6))
             row_path = root / "provider.b2rowv1"
             row_path.write_bytes(row)
             row_digest = MODULE.sha256_bytes(row)
             self.assertTrue(verifier.sidecar({
                 "availability": MODULE.availability("PRESENT", row_digest),
                 "relative_path": "provider.b2rowv1",
-                "byte_length": len(row), "record_count": 1,
+                "byte_length": len(row), "record_count": 6,
                 "sha256": row_digest}))
 
     def test_d12_cross_record_statistics_are_recomputed(self):
@@ -1432,6 +1468,32 @@ class AnchoredRowQualificationTests(unittest.TestCase):
                                     "observed_rss_bytes": 10,
                                     "rss_delta_bytes": 0}, None, None])
         self.assertTrue(validator.finish())
+
+        null_validator = MODULE.D12CrossRecordValidator()
+        row_key = ["content", 2, "tsan", "threaded_cache", 1, 0, 0,
+                   None, None, None, None, None, "thread_result",
+                   "row_digest"]
+        null_validator.add("d12_instrumented_tsan", [
+            row_key, "FAIL", None, None, "THREADED_CACHE_RACE"])
+        with self.assertRaises(MODULE.QualificationError):
+            null_validator.finish()
+        summary_key = copy.deepcopy(row_key)
+        summary_key[5] = None
+        summary_key[6] = None
+        summary_key[12] = "sanitizer_summary"
+        summary_key[13] = "tsan_finding_count"
+        null_validator.add("d12_instrumented_tsan", [
+            summary_key, "FAIL",
+            {"sanitizer_abort": True,
+             "sanitizer_report_sha256": "a" * 64}, None,
+            "THREADED_CACHE_RACE"])
+        self.assertTrue(null_validator.finish())
+
+        serial_context = MODULE.D12SerialContextVerifier().finish()
+        self.assertEqual(serial_context["tuple_count"], 588)
+        self.assertEqual(
+            serial_context["all_tuple_keys_sha256"],
+            "0f978320bc6e1e9e6c8f016040098dc5946e1101a863e6431eb6d4dc8c8ac1de")
         changed = MODULE.D12CrossRecordValidator()
         for repeat in range(15):
             key = ["content", 2, "release", "cache_disabled", None,
