@@ -1484,9 +1484,22 @@ class AnchoredRowQualificationTests(unittest.TestCase):
 
     def test_d12_frozen_build_and_boundary_authority_rejects_drift(self):
         envelope = MODULE._d12_envelope_contract_fixture()
+        first_observation = envelope["platform"][
+            "power_thermal_observations"][0]
+        first_boundary = MODULE.strict_json_bytes(
+            first_observation["boundary"].encode("utf-8"))
+        self.assertEqual(len(first_boundary), 5)
+        self.assertEqual(set(first_observation["probe"]), {
+            "schema_version", "kind", "status", "finite",
+            "fingerprint_queries_ok", "fingerprint", "power", "thermal",
+            "process_returncode"})
         for mutate in (
                 lambda value: value["build_profiles"]["release"].update(
                     {"flags": ["WRONG"]}),
+                lambda value: value["build_profiles"]["release"][
+                    "compile_commands"][0].append("-ffast-math"),
+                lambda value: value["build_profiles"]["tsan"][
+                    "link_commands"][0].append("-fno-sanitize=thread"),
                 lambda value: value["platform"][
                     "power_thermal_observations"][0].update(
                         {"boundary": "invented"}),
@@ -1500,6 +1513,108 @@ class AnchoredRowQualificationTests(unittest.TestCase):
                 MODULE.jcs_bytes(candidate))
             with self.assertRaises(MODULE.QualificationError):
                 MODULE.validate_d12_envelope_contract(candidate, "a" * 40)
+
+    def test_d12_command_profile_binds_distinct_compile_and_link_argv(self):
+        profile = {
+            "compile_commands": [["clang++", "-O3", "-c", "source.cpp"]],
+            "link_commands": [["clang++", "source.o", "-o", "proof"]]}
+        with tempfile.TemporaryDirectory() as temporary:
+            path = pathlib.Path(temporary) / "commands.json"
+            path.write_bytes(MODULE.jcs_bytes(profile))
+            self.assertEqual(MODULE._read_command_profile(path), profile)
+            path.write_bytes(MODULE.jcs_bytes(profile) + b"\n")
+            with self.assertRaises(MODULE.QualificationError):
+                MODULE._read_command_profile(path)
+
+    def test_d12_qualified_full_probe_fields_are_consequential(self):
+        envelope = MODULE._d12_envelope_contract_fixture()
+        platform = envelope["platform"]
+        fingerprint = copy.deepcopy(platform["expected_fingerprint"])
+        platform.update({
+            "platform_state": "QUALIFIED_PLATFORM",
+            "observed_fingerprint": copy.deepcopy(fingerprint),
+            "field_mismatches": [], "github_hosted": False,
+            "virtualization_observation": {
+                "kern_hv_vmm_present": 0,
+                "shared_host_evidence": False}})
+        qualified_probe = {
+            "schema_version": 1, "kind": "bfr_platform_probe",
+            "status": "ok", "finite": True,
+            "fingerprint_queries_ok": True,
+            "fingerprint": copy.deepcopy(fingerprint),
+            "power": {"api": MODULE.B2.EXPECTED_POWER_API,
+                      "query_ok": True, "raw": "AC Power",
+                      "value": MODULE.B2.EXPECTED_POWER_VALUE},
+            "thermal": {"api": MODULE.B2.EXPECTED_THERMAL_API,
+                        "query_ok": True, "raw": 0,
+                        "value": MODULE.B2.EXPECTED_THERMAL_VALUE},
+            "process_returncode": 0}
+        platform["power_thermal_observations"] = [
+            MODULE._d12_observation_record(identity, boundary,
+                                           qualified_probe)
+            for identity, boundary in
+            MODULE._expected_d12_boundary_identities()]
+        for criterion in envelope["criteria"]:
+            criterion["status"] = "PASS"
+        envelope["content_sha256"] = MODULE.ZERO_SHA256
+        envelope["content_sha256"] = MODULE.sha256_bytes(
+            MODULE.jcs_bytes(envelope))
+        MODULE.validate_d12_envelope_contract(envelope, "a" * 40)
+        for field_mutation in ("fingerprint", "process_returncode"):
+            candidate = copy.deepcopy(envelope)
+            probe = candidate["platform"][
+                "power_thermal_observations"][0]["probe"]
+            if field_mutation == "fingerprint":
+                probe["fingerprint"]["chip"] = "Invented"
+            else:
+                probe["process_returncode"] = 1
+            candidate["content_sha256"] = MODULE.ZERO_SHA256
+            candidate["content_sha256"] = MODULE.sha256_bytes(
+                MODULE.jcs_bytes(candidate))
+            with self.assertRaises(MODULE.QualificationError):
+                MODULE.validate_d12_envelope_contract(candidate, "a" * 40)
+
+    def test_runtime_source_sets_include_local_transitive_headers(self):
+        self.assertEqual(MODULE.RUNTIME_SOURCE_PATHS["row_provider"], (
+            "experiments/bfr_qualification/candidate.cpp",
+            "experiments/bfr_qualification/fixture_mesh.hpp"))
+        self.assertEqual(MODULE.RUNTIME_SOURCE_PATHS["independent_oracle"], (
+            "experiments/bfr_qualification/stam_oracle.cpp",
+            "experiments/bfr_qualification/mpfr_interval.hpp"))
+        for name, entrypoints in MODULE.RUNTIME_SOURCE_ENTRYPOINTS.items():
+            self.assertEqual(MODULE.RUNTIME_SOURCE_PATHS[name],
+                             MODULE._repository_source_closure(entrypoints))
+
+    def test_d12_provider_reference_preserves_frozen_row_order(self):
+        rows = []
+        for row_kind in MODULE.ROW_ORDER:
+            rows.append({"face_row": 0, "local_corner_or_none": -1,
+                         "sample_id": "sample", "row_kind": row_kind,
+                         "source_ids": [0, 1, 2],
+                         "coefficients": ([1.0, 0.0, 0.0]
+                                          if row_kind == "position" else
+                                          [0.0, 0.0, 0.0])})
+        provider = b"".join(
+            MODULE.D12WorkerInventoryVerifier._provider_record_bytes(row)
+            for row in rows)
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary)
+            raw = MODULE.jcs_bytes({
+                "rows": rows,
+                "row_kind_counts": {kind: 1 for kind in MODULE.ROW_ORDER}})
+            artifact = root / "case.json.gz"
+            artifact.write_bytes(gzip.compress(raw, mtime=0))
+            case = {"content_identity_key": "content",
+                    "approximation_level": 2,
+                    "complete_json_artifact": artifact.name,
+                    "complete_json_sha256": MODULE.sha256_bytes(raw),
+                    "canonical_rows_sha256": MODULE.sha256_bytes(provider)}
+            result = MODULE.D12WorkerInventoryVerifier._case_contract(
+                case, root, {"vertices": [(0.0, 0.0, 0.0),
+                                           (1.0, 0.0, 0.0),
+                                           (0.0, 1.0, 0.0)],
+                             "faces": [[0, 1, 2]]})
+            self.assertEqual(result[1], MODULE.sha256_bytes(provider))
 
     def test_standalone_validation_binds_actual_git_head_and_cleanliness(self):
         head = "a" * 40
@@ -1553,6 +1668,19 @@ class AnchoredRowQualificationTests(unittest.TestCase):
                 criterion_id, record,
                 defer_basis_group=(criterion_id ==
                                    "binary64_basis_probe_diagnostic"))
+            secondary_criterion = (
+                "constant_field_bits" if criterion_id ==
+                "bindings_and_independence" else criterion_id)
+            secondary = MODULE._valid_result_record_for_mutation(
+                secondary_criterion,
+                variant=(0 if criterion_id ==
+                         "bindings_and_independence" else 1))
+            MODULE.validate_contract_result_record(
+                secondary_criterion, secondary,
+                defer_basis_group=(secondary_criterion ==
+                                   "binary64_basis_probe_diagnostic"))
+            MODULE.canonical_result_ledger(sorted(
+                [record, secondary], key=lambda item: MODULE.jcs_bytes(item[0])))
 
     def test_d12_evidence_rescans_enclosing_json_and_b2row_bytes(self):
         with tempfile.TemporaryDirectory() as temporary:

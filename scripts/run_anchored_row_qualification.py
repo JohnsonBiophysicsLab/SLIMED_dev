@@ -71,6 +71,7 @@ SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 GIT_RE = re.compile(r"^[0-9a-f]{40}$")
 _SCHEMA_CACHE = None
 _FACE_ANCHOR_CACHE = None
+_D12_FIXTURE_CACHE = None
 ROW_ORDER = ("position", "du", "dv", "duu", "duv", "dvv")
 ANCHORS = ("v0", "v1", "v2")
 RELABELS = ("identity", "rank_reverse", "rank_rotate_1")
@@ -88,12 +89,25 @@ D12_CONTRACT = {
     "peak_rss_delta_bytes": 67108864,
 }
 RUNTIME_SOURCE_PATHS = {
+    "row_provider": (
+        "experiments/bfr_qualification/candidate.cpp",
+        "experiments/bfr_qualification/fixture_mesh.hpp"),
+    "representation_candidate": (
+        "experiments/anchored_row_qualification/candidate.cpp",),
+    "exact_dyadic_boundary": (
+        "experiments/anchored_row_qualification/exact_dyadic_boundary.cpp",),
+    "independent_oracle": (
+        "experiments/bfr_qualification/stam_oracle.cpp",
+        "experiments/bfr_qualification/mpfr_interval.hpp"),
+}
+RUNTIME_SOURCE_ENTRYPOINTS = {
     "row_provider": ("experiments/bfr_qualification/candidate.cpp",),
     "representation_candidate": (
         "experiments/anchored_row_qualification/candidate.cpp",),
     "exact_dyadic_boundary": (
         "experiments/anchored_row_qualification/exact_dyadic_boundary.cpp",),
-    "independent_oracle": (),
+    "independent_oracle": (
+        "experiments/bfr_qualification/stam_oracle.cpp",),
 }
 MAX_RESULT_RECORD_BYTES = 16 * 1024 * 1024
 MAX_RESULT_RECORD_NESTING = 64
@@ -590,8 +604,10 @@ def validate_contract_value(kind, value):
     def validate_nested(item):
         if isinstance(item, dict):
             nested_kind = _contract_kind(item)
-            if nested_kind is not None:
+            if nested_kind in RESULT_CONTRACT.OBJECT_SCHEMAS:
                 validate_contract_value(nested_kind, item)
+                return
+            if nested_kind == "bfr_platform_probe":
                 return
             for nested in item.values():
                 validate_nested(nested)
@@ -1193,15 +1209,20 @@ def _validate_runtime_bindings(report, runtime_binaries,
             sha256_file(pathlib.Path(__file__).resolve()),
             "report validator digest does not match executing validator")
     for binary_name, path_text in runtime_binaries.items():
-        expected_sources = [{
+        binding = report["binaries"][binary_name]["availability"]
+        require(RUNTIME_SOURCE_PATHS[binary_name] ==
+                _repository_source_closure(
+                    RUNTIME_SOURCE_ENTRYPOINTS[binary_name]),
+                "frozen runtime source set omits a local include: " +
+                binary_name)
+        expected_sources = ([] if binding["state"] != "PRESENT" else [{
             "path": relative_path,
             "sha256": sha256_file(ROOT / relative_path)}
-            for relative_path in RUNTIME_SOURCE_PATHS[binary_name]]
+            for relative_path in RUNTIME_SOURCE_PATHS[binary_name]])
         require(report["binaries"][binary_name]["sources"] ==
                 expected_sources,
                 "runtime binary source inventory is not the frozen complete set: " +
                 binary_name)
-        binding = report["binaries"][binary_name]["availability"]
         if binding["state"] == "PRESENT":
             require(path_text is not None and
                     pathlib.Path(path_text).resolve().is_file() and
@@ -1248,6 +1269,30 @@ def _validate_runtime_bindings(report, runtime_binaries,
                             "runtime dependency provenance differs from "
                             "report: " + dependency_name + "." + field)
     return True
+
+
+def _repository_source_closure(entrypoints):
+    """Derive the ordered repository-local quoted-include closure."""
+    result = []
+
+    def visit(relative_path):
+        require(relative_path not in result,
+                "runtime source include cycle/duplicate: " + relative_path)
+        result.append(relative_path)
+        path = (ROOT / relative_path).resolve()
+        require(path.is_relative_to(ROOT) and path.is_file(),
+                "runtime source entry missing: " + relative_path)
+        for line in path.read_text(encoding="utf-8").splitlines():
+            match = re.match(r'^\s*#\s*include\s+"([^"]+)"\s*$', line)
+            if match is None:
+                continue
+            included = (path.parent / match.group(1)).resolve()
+            if included.is_relative_to(ROOT) and included.is_file():
+                visit(str(included.relative_to(ROOT)))
+
+    for entrypoint in entrypoints:
+        visit(entrypoint)
+    return tuple(result)
 
 
 def _validate_structure_derivation(key, value):
@@ -2043,9 +2088,19 @@ def _wrong_schema_type(value):
                 if type(candidate) is not type(value))
 
 
-def _valid_result_record_for_mutation(criterion_id):
+def _valid_result_record_for_mutation(criterion_id, variant=0):
     """Build one semantically valid complete record before mutating M12."""
+    require(variant in {0, 1}, "M12 baseline variant")
     key = _criterion_mutation_key(criterion_id)
+    if variant:
+        if criterion_id == "complete_artifact_inventory":
+            pass  # target-owned content identity is changed below
+        elif criterion_id == "raw_bfr_d9a_reproduction":
+            key[1] = "content-z"
+        elif criterion_id in D12_CRITERIA:
+            key[0] = "content-z"
+        elif criterion_id != "bindings_and_independence":
+            key[5] = "sample-z"
     contract = RESULT_CONTRACT.CRITERION_BY_ID[criterion_id]
     if criterion_id == "oracle_coverage_and_crosscheck":
         record = [key, "UNCOVERED", None, None,
@@ -2073,6 +2128,8 @@ def _valid_result_record_for_mutation(criterion_id):
         value["manifest_file_sha256"] = B2.MANIFEST_FILE_SHA256
         value["manifest_contract_sha256"] = B2.MANIFEST_CONTRACT_SHA256
     elif criterion_id == "complete_artifact_inventory":
+        if variant:
+            target["content_id"] = "content-z"
         key[1:] = [target["content_id"], target["candidate"],
                    target["level"], target["cache_mode"]]
         value.update({
@@ -2375,6 +2432,9 @@ def _criterion_mutation_key(criterion_id):
 
 
 def _d12_envelope_contract_fixture():
+    global _D12_FIXTURE_CACHE
+    if _D12_FIXTURE_CACHE is not None:
+        return copy.deepcopy(_D12_FIXTURE_CACHE)
     schema = cached_schema()
     value = _schema_exemplar(
         schema["$defs"]["anchored_row_representation_d12"], schema,
@@ -2403,8 +2463,7 @@ def _d12_envelope_contract_fixture():
                                  copy.deepcopy(flags) + ["source.cpp"]],
             "link_commands": [[build["compiler_path"]] +
                               copy.deepcopy(flags) +
-                              (["-fsanitize=thread"] if name == "tsan"
-                               else []) + ["source.o", "-o", "proof"]],
+                              ["source.o", "-o", "proof"]],
         })
     for name, dependency in value["dependencies"].items():
         dependency["source_identity"] = {
@@ -2423,11 +2482,9 @@ def _d12_envelope_contract_fixture():
         "virtualization_observation": {
             "kern_hv_vmm_present": 1, "shared_host_evidence": True},
         "power_thermal_observations": [
-            {"boundary": boundary, "power_api": B2.EXPECTED_POWER_API,
-             "power_query_ok": False, "power_value": "UNKNOWN",
-             "thermal_api": B2.EXPECTED_THERMAL_API,
-             "thermal_query_ok": False, "thermal_value": "UNKNOWN"}
-            for boundary in _expected_d12_boundary_labels()]}
+            _d12_observation_record(identity, boundary,
+                                    _d12_unavailable_probe())
+            for identity, boundary in _expected_d12_boundary_identities()]}
     value["authority"] = frozen_authority_record()
 
     def sidecar(path, count, digest):
@@ -2467,24 +2524,139 @@ def _d12_envelope_contract_fixture():
     value["content_sha256"] = ZERO_SHA256
     value["content_sha256"] = sha256_bytes(jcs_bytes(value))
     validate_d12_envelope_contract(value, "a" * 40)
-    return value
+    _D12_FIXTURE_CACHE = copy.deepcopy(value)
+    return copy.deepcopy(value)
 
 
-def _expected_d12_boundary_labels():
+def _expected_d12_boundary_identities():
     boundaries = ("primary_before", "primary_after",
                   "determinism_before", "determinism_after")
-    return [jcs_bytes(list(identity) + [boundary]).decode("utf-8")
+    return [(identity, boundary)
             for identity in B2.expected_numeric_case_identities(
                 B2.load_manifest())
             for boundary in boundaries]
 
 
-def _command_contains_ordered_tokens(command, required):
-    cursor = 0
-    for token in command:
-        if cursor < len(required) and token == required[cursor]:
-            cursor += 1
-    return cursor == len(required)
+def _d12_unavailable_probe():
+    return {
+        "schema_version": 1, "kind": "bfr_platform_probe",
+        "status": "query_failed", "finite": True,
+        "fingerprint_queries_ok": False, "fingerprint": {},
+        "power": {"api": B2.EXPECTED_POWER_API, "query_ok": False,
+                  "raw": "", "value": ""},
+        "thermal": {"api": B2.EXPECTED_THERMAL_API, "query_ok": False,
+                    "raw": -1, "value": ""},
+        "process_returncode": None}
+
+
+def _validate_d12_full_probe(probe):
+    expected_keys = {
+        "schema_version", "kind", "status", "finite",
+        "fingerprint_queries_ok", "fingerprint", "power", "thermal",
+        "process_returncode"}
+    expected_fingerprint = B2.load_manifest()["qualification_platform"][
+        "fingerprint"]
+    fingerprint = probe.get("fingerprint") if isinstance(probe, dict) else None
+    require(isinstance(probe, dict) and set(probe) == expected_keys and
+            probe["schema_version"] == 1 and
+            probe["kind"] == "bfr_platform_probe" and
+            probe["status"] in {"ok", "query_failed"} and
+            probe["finite"] is True and
+            type(probe["fingerprint_queries_ok"]) is bool and
+            isinstance(fingerprint, dict) and
+            (fingerprint == {} or
+             set(fingerprint) == set(expected_fingerprint) and
+             all(type(fingerprint[key]) is type(expected_fingerprint[key])
+                 for key in expected_fingerprint)) and
+            set(probe["power"]) == {"api", "query_ok", "raw", "value"} and
+            probe["power"]["api"] == B2.EXPECTED_POWER_API and
+            type(probe["power"]["query_ok"]) is bool and
+            isinstance(probe["power"]["raw"], str) and
+            isinstance(probe["power"]["value"], str) and
+            set(probe["thermal"]) == {"api", "query_ok", "raw", "value"} and
+            probe["thermal"]["api"] == B2.EXPECTED_THERMAL_API and
+            type(probe["thermal"]["query_ok"]) is bool and
+            type(probe["thermal"]["raw"]) is int and
+            isinstance(probe["thermal"]["value"], str) and
+            (probe["process_returncode"] is None or
+             type(probe["process_returncode"]) is int) and
+            ((probe["status"] == "ok" and
+              probe["process_returncode"] == 0) or
+             (probe["status"] == "query_failed" and
+              probe["process_returncode"] != 0)) and
+            ((probe["fingerprint_queries_ok"] is True and
+              set(fingerprint) == set(expected_fingerprint)) or
+             (probe["fingerprint_queries_ok"] is False)) and
+            ((probe["power"]["query_ok"] is True and
+              probe["power"]["raw"] and
+              probe["power"]["value"] in {
+                B2.EXPECTED_POWER_VALUE, "kIOPSBatteryPowerValue",
+                "kIOPSOffLineValue", "UNKNOWN_POWER_VALUE"}) or
+             (probe["power"]["query_ok"] is False and
+              probe["power"]["raw"] == "" and
+              probe["power"]["value"] == "")) and
+            ((probe["thermal"]["query_ok"] is True and
+              probe["thermal"]["raw"] in {0, 1, 2, 3} and
+              probe["thermal"]["value"] == (
+                "NSProcessInfoThermalStateNominal",
+                "NSProcessInfoThermalStateFair",
+                "NSProcessInfoThermalStateSerious",
+                "NSProcessInfoThermalStateCritical")[
+                    probe["thermal"]["raw"]]) or
+             (probe["thermal"]["query_ok"] is False and
+              probe["thermal"]["raw"] == -1 and
+              probe["thermal"]["value"] == "")),
+            "D12 full process-boundary probe is malformed or lossy")
+    return probe
+
+
+def _d12_observation_record(identity, boundary, probe):
+    probe = copy.deepcopy(_validate_d12_full_probe(probe))
+    return {
+        "boundary": jcs_bytes(list(identity) + [boundary]).decode("utf-8"),
+        "power_api": probe["power"]["api"],
+        "power_query_ok": probe["power"]["query_ok"],
+        "power_value": probe["power"]["value"] or "UNKNOWN",
+        "thermal_api": probe["thermal"]["api"],
+        "thermal_query_ok": probe["thermal"]["query_ok"],
+        "thermal_value": probe["thermal"]["value"] or "UNKNOWN",
+        "probe": probe}
+
+
+def _decode_d12_observation(item, expected_identity, expected_boundary):
+    raw = item["boundary"].encode("utf-8")
+    try:
+        value = strict_json_bytes(raw)
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise QualificationError(
+            "D12 process-boundary probe is not canonical JSON") from error
+    require(jcs_bytes(value) == raw and
+            value == list(expected_identity) + [expected_boundary],
+            "D12 process-boundary identity/probe encoding drift")
+    probe = _validate_d12_full_probe(item["probe"])
+    require(item == _d12_observation_record(
+                expected_identity, expected_boundary, probe),
+            "D12 flattened boundary observation differs from full probe")
+    return probe
+
+
+def _command_policy_tokens(command):
+    prefixes = ("-std=", "-O", "-D", "-f", "-g", "-isysroot",
+                "-mmacosx-version-min=", "-Wall", "-Wextra",
+                "-Wpedantic", "-Werror")
+    result = []
+    index = 0
+    while index < len(command):
+        token = command[index]
+        if token == "-isysroot":
+            require(index + 1 < len(command), "D12 command isysroot value")
+            result.extend((token, command[index + 1]))
+            index += 2
+            continue
+        if token != "-framework" and token.startswith(prefixes):
+            result.append(token)
+        index += 1
+    return result
 
 
 def validate_d12_envelope_contract(value, expected_head):
@@ -2526,7 +2698,7 @@ def validate_d12_envelope_contract(value, expected_head):
                     build["opensubdiv"]["build_tool"]["version"] and
                 profile["compile_commands"] and profile["link_commands"] and
                 all(command[0] == build["compiler_path"] and
-                    _command_contains_ordered_tokens(command, expected_flags)
+                    _command_policy_tokens(command) == expected_flags
                     for command in profile["compile_commands"] +
                     profile["link_commands"]) and
                 (profile_name != "tsan" or
@@ -2552,23 +2724,15 @@ def validate_d12_envelope_contract(value, expected_head):
     require(platform["field_mismatches"] == exact_mismatches,
             "D12 fingerprint mismatch ledger is inconsistent")
     observations = platform["power_thermal_observations"]
-    require([item["boundary"] for item in observations] ==
-                _expected_d12_boundary_labels() and
-            all(item["power_api"] == B2.EXPECTED_POWER_API and
-                item["thermal_api"] == B2.EXPECTED_THERMAL_API and
-                ((item["power_query_ok"] is True and
-                  item["power_value"] == B2.EXPECTED_POWER_VALUE) or
-                 (item["power_query_ok"] is False and
-                  item["power_value"] == "UNKNOWN")) and
-                ((item["thermal_query_ok"] is True and
-                  item["thermal_value"] == B2.EXPECTED_THERMAL_VALUE) or
-                 (item["thermal_query_ok"] is False and
-                  item["thermal_value"] == "UNKNOWN"))
-                for item in observations) and
+    expected_boundaries = _expected_d12_boundary_identities()
+    require(len(observations) == len(expected_boundaries) and
             platform["virtualization_observation"][
                 "kern_hv_vmm_present"] ==
                 platform["observed_fingerprint"]["kern_hv_vmm_present"],
             "D12 process-boundary platform observations are not frozen")
+    probes = [_decode_d12_observation(item, identity, boundary)
+              for item, (identity, boundary) in
+              zip(observations, expected_boundaries)]
     qualified = (platform["github_hosted"] is False and
                  platform["expected_fingerprint"] ==
                     platform["observed_fingerprint"] and
@@ -2576,9 +2740,18 @@ def validate_d12_envelope_contract(value, expected_head):
                  platform["virtualization_observation"] == {
                     "kern_hv_vmm_present": 0,
                     "shared_host_evidence": False} and
-                 all(item["power_query_ok"] is True and
-                     item["thermal_query_ok"] is True
-                     for item in observations))
+                 all(probe["status"] == "ok" and
+                     probe["finite"] is True and
+                     probe["fingerprint_queries_ok"] is True and
+                     probe["fingerprint"] ==
+                        platform["expected_fingerprint"] and
+                     probe["power"]["query_ok"] is True and
+                     probe["power"]["value"] == B2.EXPECTED_POWER_VALUE and
+                     probe["thermal"]["query_ok"] is True and
+                     probe["thermal"]["value"] ==
+                        B2.EXPECTED_THERMAL_VALUE and
+                     probe["process_returncode"] == 0
+                     for probe in probes))
     require((platform["platform_state"] == "QUALIFIED_PLATFORM") == qualified,
             "D12 platform state contradicts frozen observations")
     require(value["authority"] == frozen_authority_record(),
@@ -2846,8 +3019,13 @@ def execute_literal_mutation_suite():
         elif operator == "M12":
             _, criterion_id, _ = operand.split(":", 2)
             first = _valid_result_record_for_mutation(criterion_id)
-            second = [["mutation-carrier", criterion_id], "PASS",
-                      None, None, None]
+            secondary_criterion = (
+                "constant_field_bits" if criterion_id ==
+                "bindings_and_independence" else criterion_id)
+            second = _valid_result_record_for_mutation(
+                secondary_criterion,
+                variant=(0 if criterion_id ==
+                         "bindings_and_independence" else 1))
             baseline_records = sorted([first, second],
                                       key=lambda item: jcs_bytes(item[0]))
             candidate_records = copy.deepcopy(baseline_records)
@@ -6735,7 +6913,10 @@ class D12WorkerInventoryVerifier:
             ("negative_one", -1.0), ("positive_2p20", 2.0 ** 20),
             ("negative_2p20", -(2.0 ** 20)))
         inputs = sorted(inputs, key=lambda item: jcs_bytes(item[0]))
-        for row in ordered_case_rows(report):
+        # B2 authenticates this artifact in emitted sample-major order, with
+        # ROW_ORDER inside every sample.  JCS-sorting row_kind changes the
+        # frozen B2ROWV1 stream and is only appropriate for result-ledger keys.
+        for row in report["rows"]:
             provider_bytes = cls._provider_record_bytes(row)
             provider_digest.update(provider_bytes)
             if global_provider_digest is not None:
@@ -7518,16 +7699,17 @@ class ProviderRowVerifier:
         return True
 
 
-def _read_command_tokens(path_text):
+def _read_command_profile(path_text):
     raw = pathlib.Path(path_text).resolve().read_bytes()
-    try:
-        value = strict_json_bytes(raw)
-    except (QualificationError, UnicodeDecodeError,
-            json.JSONDecodeError):
-        value = raw.decode("utf-8").splitlines()
-    require(isinstance(value, list) and value and
-            all(isinstance(item, str) and item for item in value),
-            "D12 compiler-command artifact is not an exact argv array")
+    value = strict_json_bytes(raw)
+    require(jcs_bytes(value) == raw and isinstance(value, dict) and
+            set(value) == {"compile_commands", "link_commands"} and
+            all(isinstance(commands, list) and commands and
+                all(isinstance(command, list) and command and
+                    all(isinstance(token, str) and token for token in command)
+                    for command in commands)
+                for commands in value.values()),
+            "D12 command profile is not canonical compile/link argv evidence")
     return value
 
 
@@ -7565,11 +7747,12 @@ def _validate_d12_runtime_provenance(envelope, report, provenance):
                     binary[digest_field],
                     "D12 binary provenance bytes differ: " + name + "." +
                     field)
-        command = _read_command_tokens(files["compiler_command"])
+        command_profile = _read_command_profile(files["compiler_command"])
         profile = envelope["build_profiles"][profile_for_binary[name]]
-        require(command in profile["compile_commands"] and
-                command in profile["link_commands"],
-                "D12 compiler-command bytes differ from exact build profile")
+        require(command_profile == {
+                    "compile_commands": profile["compile_commands"],
+                    "link_commands": profile["link_commands"]},
+                "D12 compile/link command bytes differ from exact build profile")
     dependency_fields = {
         "archive": "archive_sha256",
         "build_root_provenance": "build_root_provenance_sha256",
@@ -8453,18 +8636,20 @@ def execute(args):
 
     candidate_source = ROOT / "experiments/anchored_row_qualification/candidate.cpp"
     boundary_source = ROOT / "experiments/anchored_row_qualification/exact_dyadic_boundary.cpp"
-    provider_source = ROOT / "experiments/bfr_qualification/candidate.cpp"
     oracle_present = bool(args.independent_oracle_binary)
     dependencies = dependency_records(args)
     independent_record = binary_record(
-        args.independent_oracle_binary, [], "primary_stam_plus_uniform_crosscheck",
-        dependencies,
+        args.independent_oracle_binary,
+        [ROOT / path for path in RUNTIME_SOURCE_PATHS["independent_oracle"]],
+        "primary_stam_plus_uniform_crosscheck", dependencies,
         present=oracle_present) if oracle_present else binary_record(
             "", [], "primary_stam_plus_uniform_crosscheck_absent", dependencies,
             present=False)
     binaries = {
         "row_provider": binary_record(
-            args.provider_binary, [provider_source], "frozen_B2ROWV1_provider",
+            args.provider_binary,
+            [ROOT / path for path in RUNTIME_SOURCE_PATHS["row_provider"]],
+            "frozen_B2ROWV1_provider",
             dependencies, args.provider_command_file, args.compiler_version_file,
             args.provider_link_map, args.provider_dynamic_dependencies),
         "representation_candidate": binary_record(

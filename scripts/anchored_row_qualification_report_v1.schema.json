@@ -6179,6 +6179,191 @@
                 "minLength": 1,
                 "type": "string"
               },
+              "probe": {
+                "additionalProperties": false,
+                "properties": {
+                  "fingerprint": {
+                    "oneOf": [
+                      {
+                        "const": {}
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "architecture": {
+                            "minLength": 1,
+                            "type": "string"
+                          },
+                          "chip": {
+                            "minLength": 1,
+                            "type": "string"
+                          },
+                          "hw_logicalcpu": {
+                            "maximum": 18446744073709551615,
+                            "minimum": 0,
+                            "type": "integer"
+                          },
+                          "hw_memsize_bytes": {
+                            "maximum": 18446744073709551615,
+                            "minimum": 0,
+                            "type": "integer"
+                          },
+                          "hw_model": {
+                            "minLength": 1,
+                            "type": "string"
+                          },
+                          "hw_ncpu": {
+                            "maximum": 18446744073709551615,
+                            "minimum": 0,
+                            "type": "integer"
+                          },
+                          "hw_perflevel0_logicalcpu": {
+                            "maximum": 18446744073709551615,
+                            "minimum": 0,
+                            "type": "integer"
+                          },
+                          "hw_perflevel0_physicalcpu": {
+                            "maximum": 18446744073709551615,
+                            "minimum": 0,
+                            "type": "integer"
+                          },
+                          "hw_perflevel1_logicalcpu": {
+                            "maximum": 18446744073709551615,
+                            "minimum": 0,
+                            "type": "integer"
+                          },
+                          "hw_perflevel1_physicalcpu": {
+                            "maximum": 18446744073709551615,
+                            "minimum": 0,
+                            "type": "integer"
+                          },
+                          "hw_physicalcpu": {
+                            "maximum": 18446744073709551615,
+                            "minimum": 0,
+                            "type": "integer"
+                          },
+                          "kern_hv_vmm_present": {
+                            "maximum": 18446744073709551615,
+                            "minimum": 0,
+                            "type": "integer"
+                          },
+                          "macos_build": {
+                            "minLength": 1,
+                            "type": "string"
+                          },
+                          "macos_version": {
+                            "minLength": 1,
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "architecture",
+                          "chip",
+                          "hw_logicalcpu",
+                          "hw_memsize_bytes",
+                          "hw_model",
+                          "hw_ncpu",
+                          "hw_perflevel0_logicalcpu",
+                          "hw_perflevel0_physicalcpu",
+                          "hw_perflevel1_logicalcpu",
+                          "hw_perflevel1_physicalcpu",
+                          "hw_physicalcpu",
+                          "kern_hv_vmm_present",
+                          "macos_build",
+                          "macos_version"
+                        ],
+                        "type": "object"
+                      }
+                    ]
+                  },
+                  "fingerprint_queries_ok": {
+                    "type": "boolean"
+                  },
+                  "finite": {
+                    "const": true
+                  },
+                  "kind": {
+                    "const": "bfr_platform_probe"
+                  },
+                  "power": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "api": {
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "query_ok": {
+                        "type": "boolean"
+                      },
+                      "raw": {
+                        "type": "string"
+                      },
+                      "value": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "api",
+                      "query_ok",
+                      "raw",
+                      "value"
+                    ],
+                    "type": "object"
+                  },
+                  "process_returncode": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  },
+                  "schema_version": {
+                    "const": 1
+                  },
+                  "status": {
+                    "enum": [
+                      "ok",
+                      "query_failed"
+                    ]
+                  },
+                  "thermal": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "api": {
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "query_ok": {
+                        "type": "boolean"
+                      },
+                      "raw": {
+                        "type": "integer"
+                      },
+                      "value": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "api",
+                      "query_ok",
+                      "raw",
+                      "value"
+                    ],
+                    "type": "object"
+                  }
+                },
+                "required": [
+                  "schema_version",
+                  "kind",
+                  "status",
+                  "finite",
+                  "fingerprint_queries_ok",
+                  "fingerprint",
+                  "power",
+                  "thermal",
+                  "process_returncode"
+                ],
+                "type": "object"
+              },
               "thermal_api": {
                 "minLength": 1,
                 "type": "string"
@@ -6198,7 +6383,8 @@
               "power_value",
               "thermal_api",
               "thermal_query_ok",
-              "thermal_value"
+              "thermal_value",
+              "probe"
             ],
             "type": "object"
           },
