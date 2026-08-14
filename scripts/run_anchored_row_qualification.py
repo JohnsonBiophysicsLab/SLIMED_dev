@@ -2602,6 +2602,55 @@ def _d12_rebuild_environment():
     return copy.deepcopy(expected)
 
 
+def _run_d12_closed_git(arguments, working_directory, text=True):
+    directory = pathlib.Path(working_directory).resolve()
+    require(directory.is_dir(), "D12 Git working directory is unavailable")
+    return subprocess.run(
+        ["/usr/bin/git"] + list(arguments), check=False, cwd=str(directory),
+        env=_d12_rebuild_environment(), stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE, text=text)
+
+
+def _audit_d12_source_checkout(source_root, manifest):
+    """Authenticate the pinned checkout with no ambient Git authority."""
+    root = pathlib.Path(source_root).resolve()
+    git_metadata = root / ".git"
+    require(root == source_root and git_metadata.is_dir() and
+            git_metadata.resolve() == git_metadata,
+            "OpenSubdiv source must be a canonical standalone Git checkout")
+    head = _run_d12_closed_git(["rev-parse", "HEAD"], root)
+    tree = _run_d12_closed_git(["rev-parse", "HEAD^{tree}"], root)
+    status = _run_d12_closed_git(
+        ["status", "--porcelain=v1", "--untracked-files=all"], root)
+    toplevel = _run_d12_closed_git(["rev-parse", "--show-toplevel"], root)
+    git_dir = _run_d12_closed_git(
+        ["rev-parse", "--absolute-git-dir"], root)
+    require(head.returncode == 0 and
+            head.stdout.strip() == B2.OPENSUBDIV_COMMIT and
+            tree.returncode == 0 and
+            re.fullmatch(r"[0-9a-f]{40}", tree.stdout.strip()) is not None and
+            status.returncode == 0 and not status.stdout.strip() and
+            toplevel.returncode == 0 and
+            pathlib.Path(toplevel.stdout.strip()).resolve() == root and
+            git_dir.returncode == 0 and
+            pathlib.Path(git_dir.stdout.strip()).resolve() == git_metadata,
+            "OpenSubdiv Git head/tree/root/cleanliness drift")
+    ledger = []
+    for relative in manifest["qualification_platform"]["build"][
+            "opensubdiv"]["translation_units_in_target_order"]:
+        path = root / relative
+        blob = _run_d12_closed_git(
+            ["cat-file", "blob", B2.OPENSUBDIV_COMMIT + ":" + relative],
+            root, text=False)
+        require(path.is_file() and blob.returncode == 0 and
+                path.read_bytes() == blob.stdout,
+                "OpenSubdiv worktree translation unit differs from Git blob: " +
+                relative)
+        ledger.append({"path": relative, "sha256": sha256_file(path)})
+    return {"head": head.stdout.strip(), "tree": tree.stdout.strip(),
+            "translation_units": ledger}
+
+
 def _validate_d12_full_probe(probe):
     expected_keys = {
         "schema_version", "kind", "status", "finite",
@@ -6144,14 +6193,22 @@ def iter_candidate_observations(binary, criterion_id, request_lines,
 
 
 def git_observations():
-    head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=str(ROOT),
-                          stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-    status = subprocess.run(["git", "status", "--porcelain=v1"], cwd=str(ROOT),
-                            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    head = _run_d12_closed_git(["rev-parse", "HEAD"], ROOT)
+    status = _run_d12_closed_git(
+        ["status", "--porcelain=v1", "--untracked-files=all"], ROOT)
+    toplevel = _run_d12_closed_git(["rev-parse", "--show-toplevel"], ROOT)
+    git_dir = _run_d12_closed_git(
+        ["rev-parse", "--absolute-git-dir"], ROOT)
+    root_ok = (toplevel.returncode == 0 and git_dir.returncode == 0 and
+               pathlib.Path(toplevel.stdout.strip()).resolve() == ROOT and
+               pathlib.Path(git_dir.stdout.strip()).resolve() ==
+                   (ROOT / ".git").resolve() and
+               (ROOT / ".git").is_dir())
     identity = (git_identity("PRESENT", head.stdout.strip())
-                if head.returncode == 0 and GIT_RE.fullmatch(head.stdout.strip())
+                if root_ok and head.returncode == 0 and
+                GIT_RE.fullmatch(head.stdout.strip())
                 else git_identity("UNAVAILABLE", reason_code="GIT_IDENTITY_UNAVAILABLE"))
-    clean = status.returncode == 0 and not status.stdout.strip()
+    clean = root_ok and status.returncode == 0 and not status.stdout.strip()
     return identity, worktree_observation(clean)
 
 
@@ -8080,9 +8137,8 @@ def _validate_d12_opensubdiv_object_chain(
     """Bind exact TU argv to object bytes and exact archive member bytes."""
     compile_path = build_root / "compile_commands.json"
     try:
-        compile_entries = json.loads(compile_path.read_text(
-            encoding="utf-8", errors="strict"))
-    except (UnicodeError, json.JSONDecodeError) as error:
+        compile_entries = strict_json_bytes(compile_path.read_bytes())
+    except (QualificationError, json.JSONDecodeError) as error:
         raise QualificationError(
             "D12 OpenSubdiv compile database is malformed") from error
     expected_sources = contract["translation_units_in_target_order"]
@@ -8276,7 +8332,8 @@ def _validate_d12_opensubdiv_profile_audits(envelope, profiles):
         source_root = pathlib.Path(source_root_text)
         require(source_root.is_dir(),
                 "D12 OpenSubdiv source root is unavailable")
-        independent_source = B2.audit_source_checkout(source_root, manifest)
+        independent_source = _audit_d12_source_checkout(
+            source_root, manifest)
         independent_audit = B2.audit_opensubdiv(
             install_root, build_root, source_root, contract, b2_profile_name)
         object_ledger = _validate_d12_opensubdiv_object_chain(
@@ -8391,9 +8448,13 @@ def _rebuild_d12_proof_binary(
 
         link_replay = list(link_command)
         original_object = _command_output(compile_command)
-        require(link_replay.count(original_object) == 1,
-                "D12 link command does not own compiled object")
-        link_replay[link_replay.index(original_object)] = str(rebuilt_object)
+        original_object_path = pathlib.Path(original_object).resolve()
+        require(original_object == str(original_object_path) and
+                original_object_path.is_file() and
+                link_replay.count(original_object) == 1 and
+                sha256_file(rebuilt_object) ==
+                    sha256_file(original_object_path),
+                "D12 link object is not the independently rebuilt object")
         map_indexes = [index for index, token in enumerate(link_replay)
                        if token.startswith("-Wl,-map,")]
         require(len(map_indexes) == 1,
@@ -8412,16 +8473,12 @@ def _rebuild_d12_proof_binary(
             raise QualificationError(
                 "D12 proof rebuild map is not strict UTF-8: " + name
             ) from error
-        object_placeholder = "${D12_REBUILT_OBJECT}"
         binary_placeholder = "${D12_REBUILT_BINARY}"
-        require(object_placeholder not in rebuilt_map_text and
-                binary_placeholder not in rebuilt_map_text,
+        require(binary_placeholder not in rebuilt_map_text,
                 "D12 rebuilt map contains reserved normalization token")
         canonical_rebuilt_map = rebuilt_map_text.replace(
-            str(rebuilt_object), object_placeholder).replace(
-                str(rebuilt_binary), binary_placeholder).replace(
-                    object_placeholder, original_object).replace(
-                        binary_placeholder, str(runtime_path))
+            str(rebuilt_binary), binary_placeholder).replace(
+                binary_placeholder, str(runtime_path))
         require(rebuilt_object.is_file() and rebuilt_dependency.is_file() and
                 rebuilt_map.is_file() and rebuilt_binary.is_file() and
                 sha256_file(rebuilt_binary) == sha256_file(

@@ -3,6 +3,7 @@ import gzip
 import importlib.util
 import json
 import math
+import os
 import pathlib
 import struct
 import subprocess
@@ -1802,7 +1803,7 @@ class AnchoredRowQualificationTests(unittest.TestCase):
                 return copy.deepcopy(independent_object_ledgers[profile])
 
             with mock.patch.object(
-                    MODULE.B2, "audit_source_checkout",
+                    MODULE, "_audit_d12_source_checkout",
                     return_value=copy.deepcopy(source_audit)), \
                     mock.patch.object(
                         MODULE.B2, "audit_opensubdiv",
@@ -1838,28 +1839,50 @@ class AnchoredRowQualificationTests(unittest.TestCase):
                 pathlib.Path(build["macos_sdk_path"]).is_dir():
             self.skipTest("pinned macOS proof compiler/SDK unavailable")
         envelope = MODULE._d12_envelope_contract_fixture()
-        compile_command = copy.deepcopy(envelope["build_profiles"][
-            "release"]["compile_commands"][1])
-        link_command = copy.deepcopy(envelope["build_profiles"][
-            "release"]["link_commands"][1])
         environment = MODULE._d12_rebuild_environment()
         with tempfile.TemporaryDirectory() as temporary:
             root = pathlib.Path(temporary).resolve()
-            runtime_object = root / "runtime.o"
-            runtime_dependency = root / "runtime.d"
-            runtime_map = root / "runtime.map"
-            runtime_binary = root / "representation"
-            compile_runtime = list(compile_command)
-            compile_runtime[compile_runtime.index("-MF") + 1] = str(
-                runtime_dependency)
-            compile_runtime[compile_runtime.index("-o") + 1] = str(
-                runtime_object)
-            subprocess.run(
-                compile_runtime, check=True, capture_output=True,
-                cwd=str(MODULE.ROOT), env=environment)
+            built = {}
+            for profile_name in ("release", "tsan"):
+                profile_root = root / profile_name
+                profile_root.mkdir()
+                compile_command = copy.deepcopy(envelope["build_profiles"][
+                    profile_name]["compile_commands"][1])
+                link_command = copy.deepcopy(envelope["build_profiles"][
+                    profile_name]["link_commands"][1])
+                old_object = MODULE._command_output(compile_command)
+                compile_command[compile_command.index("-MF") + 1] = str(
+                    profile_root / "representation.d")
+                compile_command[compile_command.index("-o") + 1] = str(
+                    profile_root / "representation.o")
+                link_command[link_command.index(old_object)] = \
+                    MODULE._command_output(compile_command)
+                map_index = next(
+                    index for index, token in enumerate(link_command)
+                    if token.startswith("-Wl,-map,"))
+                runtime_map = profile_root / "representation.map"
+                runtime_binary = profile_root / "representation"
+                link_command[map_index] = "-Wl,-map," + str(runtime_map)
+                link_command[link_command.index("-o") + 1] = str(
+                    runtime_binary)
+                subprocess.run(
+                    compile_command, check=True, capture_output=True,
+                    cwd=str(MODULE.ROOT), env=environment)
+                subprocess.run(
+                    link_command, check=True, capture_output=True,
+                    cwd=str(MODULE.ROOT), env=environment)
+                MODULE._rebuild_d12_proof_binary(
+                    "representation_" + profile_name,
+                    compile_command, link_command, runtime_binary, runtime_map,
+                    MODULE.ROOT, environment)
+                built[profile_name] = (
+                    compile_command, link_command, runtime_binary, runtime_map)
+
+            compile_command, link_command, runtime_binary, runtime_map = \
+                built["release"]
             MODULE._require_reproducible_object(
-                compile_command, runtime_object, MODULE.ROOT, environment,
-                "representation_release")
+                compile_command, MODULE._command_output(compile_command),
+                MODULE.ROOT, environment, "representation_release")
             with self.assertRaises(MODULE.QualificationError):
                 MODULE._require_reproducible_object(
                     compile_command, "/usr/bin/true", MODULE.ROOT, environment,
@@ -1880,24 +1903,6 @@ class AnchoredRowQualificationTests(unittest.TestCase):
                 MODULE._require_reproducible_object(
                     compile_command, contaminated_object, MODULE.ROOT,
                     environment, "representation_release")
-            link_runtime = list(link_command)
-            link_runtime[link_runtime.index(
-                MODULE._command_output(compile_command))] = str(runtime_object)
-            map_index = next(index for index, token in enumerate(link_runtime)
-                             if token.startswith("-Wl,-map,"))
-            link_runtime[map_index] = "-Wl,-map," + str(runtime_map)
-            link_runtime[link_runtime.index("-o") + 1] = str(runtime_binary)
-            subprocess.run(
-                link_runtime, check=True, capture_output=True,
-                cwd=str(MODULE.ROOT), env=environment)
-            runtime_map.write_text(
-                runtime_map.read_text(encoding="utf-8").replace(
-                    str(runtime_object),
-                    MODULE._command_output(compile_command)),
-                encoding="utf-8")
-            MODULE._rebuild_d12_proof_binary(
-                "representation_release", compile_command, link_command,
-                runtime_binary, runtime_map, MODULE.ROOT, environment)
             forged_map = root / "forged.map"
             forged_map.write_text("invented map\n", encoding="utf-8")
             with self.assertRaises(MODULE.QualificationError):
@@ -2074,6 +2079,45 @@ class AnchoredRowQualificationTests(unittest.TestCase):
                                    return_value=dirty):
                 with self.assertRaises(MODULE.QualificationError):
                     MODULE._validate_runtime_bindings(report, {})
+
+    def test_git_probes_ignore_ambient_repository_redirects(self):
+        expected = MODULE.git_observations()
+        with mock.patch.dict(os.environ, {
+                "GIT_DIR": "/nonexistent/redirected.git",
+                "GIT_WORK_TREE": "/nonexistent/redirected-worktree",
+                "PATH": "/nonexistent/bin"}, clear=False):
+            self.assertEqual(MODULE.git_observations(), expected)
+
+        environment = MODULE._d12_rebuild_environment()
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary).resolve()
+            source = root / "opensubdiv/version.cpp"
+            source.parent.mkdir(parents=True)
+            source.write_text("int pinned_source = 1;\n", encoding="utf-8")
+            for command in (
+                    ["/usr/bin/git", "init", "-q", str(root)],
+                    ["/usr/bin/git", "add", "opensubdiv/version.cpp"],
+                    ["/usr/bin/git", "-c", "user.name=D12",
+                     "-c", "user.email=d12@example.invalid", "commit", "-qm",
+                     "pinned source"]):
+                subprocess.run(
+                    command, check=True, capture_output=True, cwd=str(root),
+                    env=environment)
+            head = MODULE._run_d12_closed_git(
+                ["rev-parse", "HEAD"], root).stdout.strip()
+            manifest = {"qualification_platform": {"build": {
+                "opensubdiv": {"translation_units_in_target_order": [
+                    "opensubdiv/version.cpp"]}}}}
+            with mock.patch.object(MODULE.B2, "OPENSUBDIV_COMMIT", head), \
+                    mock.patch.dict(os.environ, {
+                        "GIT_DIR": str(MODULE.ROOT / ".git"),
+                        "GIT_WORK_TREE": str(MODULE.ROOT)}, clear=False):
+                audit = MODULE._audit_d12_source_checkout(root, manifest)
+                self.assertEqual(audit["head"], head)
+                source.write_text(
+                    "int pinned_source = 2;\n", encoding="utf-8")
+                with self.assertRaises(MODULE.QualificationError):
+                    MODULE._audit_d12_source_checkout(root, manifest)
 
     def test_streamed_result_record_has_hard_byte_and_nesting_caps(self):
         record = MODULE.jcs_bytes([["cell"], "PASS", None, None, None])
