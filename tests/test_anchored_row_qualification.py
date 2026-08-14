@@ -1802,9 +1802,19 @@ class AnchoredRowQualificationTests(unittest.TestCase):
             def audit_objects(_source, _build, _install, _contract, profile):
                 return copy.deepcopy(independent_object_ledgers[profile])
 
+            def installed_headers(_source, install):
+                header = pathlib.Path(
+                    install) / "include/opensubdiv/version.h"
+                return {str(header.resolve()): {
+                    "source_relative_path": "opensubdiv/version.h",
+                    "sha256": MODULE.sha256_file(header)}}
+
             with mock.patch.object(
                     MODULE, "_audit_d12_source_checkout",
                     return_value=copy.deepcopy(source_audit)), \
+                    mock.patch.object(
+                        MODULE, "_d12_installed_header_bindings",
+                        side_effect=installed_headers), \
                     mock.patch.object(
                         MODULE.B2, "audit_opensubdiv",
                         side_effect=audit_profile), \
@@ -1874,7 +1884,7 @@ class AnchoredRowQualificationTests(unittest.TestCase):
                 MODULE._rebuild_d12_proof_binary(
                     "representation_" + profile_name,
                     compile_command, link_command, runtime_binary, runtime_map,
-                    MODULE.ROOT, environment)
+                    MODULE.ROOT, environment, {})
                 built[profile_name] = (
                     compile_command, link_command, runtime_binary, runtime_map)
 
@@ -1925,12 +1935,106 @@ class AnchoredRowQualificationTests(unittest.TestCase):
             with self.assertRaises(MODULE.QualificationError):
                 MODULE._rebuild_d12_proof_binary(
                     "representation_release", compile_command, link_command,
-                    runtime_binary, forged_map, MODULE.ROOT, environment)
+                    runtime_binary, forged_map, MODULE.ROOT, environment, {})
             with self.assertRaises(MODULE.QualificationError):
                 MODULE._rebuild_d12_proof_binary(
                     "representation_release", compile_command, link_command,
                     "/usr/bin/true", runtime_map,
-                    MODULE.ROOT, environment)
+                    MODULE.ROOT, environment, {})
+
+    def test_d12_dependency_aliases_bind_to_authenticated_headers(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            working = pathlib.Path(temporary).resolve()
+            (working / "src").mkdir()
+            (working / "include/sub").mkdir(parents=True)
+            source = working / "src/main.cpp"
+            header = working / "include/header.hpp"
+            spaced = working / "include/space header.hpp"
+            for path, value in ((source, "source"), (header, "header"),
+                                (spaced, "spaced")):
+                path.write_text(value, encoding="utf-8")
+            target = working / "proof.o"
+            dependency = working / "proof.d"
+            dependency.write_text(
+                "{}: src/../src/./main.cpp \\\n"
+                " include/./header.hpp include/sub/../header.hpp "
+                "include/space\\ header.hpp\n".format(target),
+                encoding="utf-8")
+            observed = MODULE._d12_dependency_inputs(
+                dependency, target, working)
+            self.assertEqual(
+                [item["path"] for item in observed],
+                [str(source.resolve()), str(header.resolve()),
+                 str(spaced.resolve())])
+
+            provider_root_inputs = [{
+                "path": str((MODULE.ROOT / relative).resolve()),
+                "sha256": MODULE.sha256_file(MODULE.ROOT / relative)}
+                for relative in
+                MODULE.RUNTIME_SOURCE_PATHS["row_provider"]]
+            installed = {
+                str(header.resolve()): {
+                    "source_relative_path": "opensubdiv/header.hpp",
+                    "sha256": MODULE.sha256_file(header)},
+                str(spaced.resolve()): {
+                    "source_relative_path": "opensubdiv/space header.hpp",
+                    "sha256": MODULE.sha256_file(spaced)}}
+            provider_inputs = provider_root_inputs + [
+                {"path": path, "sha256": value["sha256"]}
+                for path, value in installed.items()]
+            for name in ("provider_release", "provider_tsan"):
+                self.assertTrue(
+                    MODULE._validate_d12_proof_dependency_closure(
+                        name, provider_inputs, installed))
+            forged = copy.deepcopy(provider_inputs)
+            forged[-1]["sha256"] = "f" * 64
+            with self.assertRaises(MODULE.QualificationError):
+                MODULE._validate_d12_proof_dependency_closure(
+                    "provider_release", forged, installed)
+            with self.assertRaises(MODULE.QualificationError):
+                MODULE._validate_d12_proof_dependency_closure(
+                    "provider_tsan", provider_root_inputs, installed)
+
+            representation_inputs = [{
+                "path": str((MODULE.ROOT / relative).resolve()),
+                "sha256": MODULE.sha256_file(MODULE.ROOT / relative)}
+                for relative in MODULE.RUNTIME_SOURCE_PATHS[
+                    "representation_candidate"]]
+            self.assertTrue(
+                MODULE._validate_d12_proof_dependency_closure(
+                    "representation_release", representation_inputs, {}))
+            with self.assertRaises(MODULE.QualificationError):
+                MODULE._validate_d12_proof_dependency_closure(
+                    "representation_tsan", representation_inputs + [{
+                        "path": str(header.resolve()),
+                        "sha256": MODULE.sha256_file(header)}], {})
+
+    def test_d12_installed_headers_bind_to_tracked_source_bytes(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary).resolve()
+            source = root / "source"
+            installed = root / "install/include/opensubdiv"
+            source_header = source / "opensubdiv/version.h"
+            installed_header = installed / "version.h"
+            source_header.parent.mkdir(parents=True)
+            installed.mkdir(parents=True)
+            source_header.write_text("pinned header\n", encoding="utf-8")
+            installed_header.write_bytes(source_header.read_bytes())
+            subprocess.run(
+                ["/usr/bin/git", "init", "-q"], cwd=str(source),
+                check=True, capture_output=True)
+            subprocess.run(
+                ["/usr/bin/git", "add", "opensubdiv/version.h"],
+                cwd=str(source), check=True, capture_output=True)
+            bindings = MODULE._d12_installed_header_bindings(
+                source, root / "install")
+            self.assertEqual(bindings, {str(installed_header.resolve()): {
+                "source_relative_path": "opensubdiv/version.h",
+                "sha256": MODULE.sha256_file(installed_header)}})
+            installed_header.write_text("mutated header\n", encoding="utf-8")
+            with self.assertRaises(MODULE.QualificationError):
+                MODULE._d12_installed_header_bindings(
+                    source, root / "install")
 
     def test_d12_archive_is_independently_rebuilt_byte_exact(self):
         build = MODULE.B2.load_manifest()["qualification_platform"]["build"]

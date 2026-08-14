@@ -2737,6 +2737,42 @@ def _audit_d12_source_checkout(source_root, manifest):
             "translation_units": ledger}
 
 
+def _d12_installed_header_bindings(source_root, install_root):
+    """Bind every installed OpenSubdiv header to its pinned source blob."""
+    source = pathlib.Path(source_root).resolve()
+    include = (pathlib.Path(install_root).resolve() / "include").resolve()
+    require(include.is_dir() and include.is_relative_to(
+                pathlib.Path(install_root).resolve()),
+            "D12 OpenSubdiv installed include root unavailable")
+    tracked_query = _run_d12_closed_git(
+        ["ls-files", "-z"], source, text=False)
+    require(tracked_query.returncode == 0,
+            "D12 OpenSubdiv tracked header enumeration failed")
+    tracked = {
+        _d12_git_path(record, "D12 OpenSubdiv tracked header")
+        for record in _d12_z_records(
+            tracked_query.stdout, "D12 OpenSubdiv tracked header list")}
+    bindings = {}
+    for installed in sorted(include.rglob("*")):
+        if installed.is_dir():
+            continue
+        require(installed.is_file() and not installed.is_symlink() and
+                installed.resolve().is_relative_to(include),
+                "D12 OpenSubdiv installed header is unavailable/aliased")
+        relative = installed.relative_to(include).as_posix()
+        source_header = source / relative
+        require(relative in tracked and source_header.is_file() and
+                not source_header.is_symlink() and
+                installed.read_bytes() == source_header.read_bytes(),
+                "D12 OpenSubdiv installed header differs from pinned source: " +
+                relative)
+        bindings[str(installed.resolve())] = {
+            "source_relative_path": relative,
+            "sha256": sha256_file(installed)}
+    require(bindings, "D12 OpenSubdiv installed header set is empty")
+    return bindings
+
+
 def _validate_d12_full_probe(probe):
     expected_keys = {
         "schema_version", "kind", "status", "finite",
@@ -8156,7 +8192,7 @@ def _command_output(command):
     return command[command.index("-o") + 1]
 
 
-def _d12_dependency_inputs(path, expected_target):
+def _d12_dependency_inputs(path, expected_target, working_directory):
     try:
         raw = pathlib.Path(path).read_bytes()
         text = raw.decode("utf-8", errors="strict")
@@ -8166,21 +8202,114 @@ def _d12_dependency_inputs(path, expected_target):
     require(raw.endswith(b"\n") and b"\r" not in raw,
             "D12 compiler dependency output framing drift")
     flattened = text.replace("\\\n", " ").strip()
-    require("\\" not in flattened and ": " in flattened,
-            "D12 compiler dependency output escaping/shape drift")
-    target, dependency_text = flattened.split(": ", 1)
-    dependencies = dependency_text.split()
-    require(target == str(pathlib.Path(expected_target).resolve()) and
-            dependencies and len(dependencies) == len(set(dependencies)),
-            "D12 compiler dependency target/set drift")
+    target = str(pathlib.Path(expected_target).resolve())
+    prefix = target + ":"
+    require(flattened.startswith(prefix) and
+            (len(flattened) == len(prefix) or
+             flattened[len(prefix)].isspace()),
+            "D12 compiler dependency target/shape drift")
+    dependency_text = flattened[len(prefix):]
+    dependencies = []
+    token = []
+    index = 0
+    while index < len(dependency_text):
+        character = dependency_text[index]
+        if character == "\\":
+            index += 1
+            require(index < len(dependency_text) and
+                    dependency_text[index] in
+                    {" ", "\t", "#", ":", "$", "\\"},
+                    "D12 compiler dependency escaping drift")
+            token.append(dependency_text[index])
+        elif character.isspace():
+            if token:
+                dependencies.append("".join(token))
+                token = []
+        else:
+            token.append(character)
+        index += 1
+    if token:
+        dependencies.append("".join(token))
+    require(dependencies, "D12 compiler dependency set is empty")
+    directory = pathlib.Path(working_directory).resolve()
+    require(directory.is_dir(),
+            "D12 compiler dependency working directory unavailable")
     result = []
+    resolved_paths = set()
     for token in dependencies:
-        dependency = pathlib.Path(token).resolve()
-        require(token == str(dependency) and dependency.is_file(),
-                "D12 compiler dependency path is not canonical/available")
+        path_token = pathlib.Path(token)
+        dependency = ((directory / path_token).resolve()
+                      if not path_token.is_absolute() else path_token.resolve())
+        require(dependency.is_file(),
+                "D12 compiler dependency path is unavailable")
+        if str(dependency) in resolved_paths:
+            continue
+        resolved_paths.add(str(dependency))
         result.append({"path": str(dependency),
                        "sha256": sha256_file(dependency)})
     return result
+
+
+def _validate_d12_proof_dependency_closure(
+        name, dependency_inputs, installed_header_bindings):
+    """Bind proof MMD inputs to reviewed ROOT and pinned installed headers."""
+    provider_role = name.startswith("provider_")
+    role = "row_provider" if provider_role else "representation_candidate"
+    expected_root = {
+        str((ROOT / relative).resolve())
+        for relative in RUNTIME_SOURCE_PATHS[role]}
+    require(isinstance(dependency_inputs, list) and
+            all(isinstance(item, dict) and
+                set(item) == {"path", "sha256"} and
+                isinstance(item["path"], str) and
+                isinstance(item["sha256"], str) and
+                item["path"] == str(pathlib.Path(item["path"]).resolve()) and
+                pathlib.Path(item["path"]).is_file() and
+                item["sha256"] == sha256_file(item["path"]) and
+                re.fullmatch(r"[0-9a-f]{64}", item["sha256"] or "")
+                for item in dependency_inputs),
+            "D12 proof dependency ledger shape drift: " + name)
+    observed = {item["path"]: item["sha256"] for item in dependency_inputs}
+    require(len(observed) == len(dependency_inputs) and
+            expected_root.issubset(observed),
+            "D12 proof ROOT dependency closure drift: " + name)
+    if not provider_role:
+        require(set(observed) == expected_root and
+                installed_header_bindings == {},
+                "D12 representation dependency closure drift: " + name)
+        return True
+
+    require(isinstance(installed_header_bindings, dict) and
+            installed_header_bindings,
+            "D12 provider installed-header authority is absent: " + name)
+    for path, binding in installed_header_bindings.items():
+        relative = pathlib.PurePosixPath(
+            binding.get("source_relative_path", "")
+            if isinstance(binding, dict) else "")
+        require(isinstance(path, str) and
+                path == str(pathlib.Path(path).resolve()) and
+                pathlib.Path(path).is_file() and
+                isinstance(binding, dict) and
+                set(binding) == {"source_relative_path", "sha256"} and
+                isinstance(binding["source_relative_path"], str) and
+                isinstance(binding["sha256"], str) and
+                not relative.is_absolute() and
+                relative.as_posix() == binding["source_relative_path"] and
+                all(part not in {"", ".", ".."} for part in relative.parts) and
+                binding["sha256"] == sha256_file(path) and
+                re.fullmatch(r"[0-9a-f]{64}", binding["sha256"] or ""),
+                "D12 provider installed-header binding shape drift: " + name)
+    require(len({item["source_relative_path"] for item in
+                 installed_header_bindings.values()}) ==
+            len(installed_header_bindings),
+            "D12 provider installed-header source mapping is not unique: " +
+            name)
+    external = set(observed) - expected_root
+    require(external and external.issubset(installed_header_bindings) and
+            all(observed[path] == installed_header_bindings[path]["sha256"]
+                for path in external),
+            "D12 provider installed-header dependency closure drift: " + name)
+    return True
 
 
 def _require_reproducible_object(
@@ -8208,7 +8337,8 @@ def _require_reproducible_object(
                 "-MMD", "-MF", str(dependency)]
         _run_d12_rebuild_command(
             replay, label + ".object", working_directory, environment)
-        dependency_inputs = _d12_dependency_inputs(dependency, rebuilt)
+        dependency_inputs = _d12_dependency_inputs(
+            dependency, rebuilt, working_directory)
         dependency_paths = [item["path"] for item in dependency_inputs]
         if dependency_root is not None:
             root = pathlib.Path(dependency_root).resolve()
@@ -8445,6 +8575,7 @@ def _validate_d12_opensubdiv_profile_audits(envelope, profiles):
     contract = manifest["qualification_platform"]["build"]["opensubdiv"]
     audited = {}
     object_ledgers = {}
+    installed_header_bindings = {}
     source_roots = []
     for profile_name, b2_profile_name in (
             ("release", "release"), ("tsan", "thread_sanitizer")):
@@ -8471,6 +8602,8 @@ def _validate_d12_opensubdiv_profile_audits(envelope, profiles):
                 "D12 OpenSubdiv source root is unavailable")
         independent_source = _audit_d12_source_checkout(
             source_root, manifest)
+        header_bindings = _d12_installed_header_bindings(
+            source_root, install_root)
         independent_audit = B2.audit_opensubdiv(
             install_root, build_root, source_root, contract, b2_profile_name)
         object_ledger = _validate_d12_opensubdiv_object_chain(
@@ -8519,10 +8652,17 @@ def _validate_d12_opensubdiv_profile_audits(envelope, profiles):
                 "D12 OpenSubdiv installed archive differs from actual audit")
         audited[profile_name] = independent_audit
         object_ledgers[profile_name] = object_ledger
+        installed_header_bindings[profile_name] = header_bindings
     require(len(set(source_roots)) == 1 and
             audited["release"]["archive_sha256"] !=
                 audited["tsan"]["archive_sha256"],
             "D12 OpenSubdiv profiles do not share one source/distinct archives")
+    header_projections = [{
+        (item["source_relative_path"], item["sha256"])
+        for item in installed_header_bindings[profile_name].values()}
+        for profile_name in ("release", "tsan")]
+    require(header_projections[0] == header_projections[1],
+            "D12 OpenSubdiv Release/TSan installed header sets differ")
 
     proof_units = []
     tsan_profile = envelope["build_profiles"]["tsan"]
@@ -8538,10 +8678,13 @@ def _validate_d12_opensubdiv_profile_audits(envelope, profiles):
         "schema_id": "d12-instrumented-translation-unit-ledger-v1",
         "proof_translation_units": proof_units,
         "opensubdiv_translation_units": object_ledgers["tsan"],
+        "opensubdiv_installed_headers":
+            installed_header_bindings["tsan"],
     }
     return {
         "profiles": audited,
         "object_archive_ledgers": object_ledgers,
+        "installed_header_bindings": installed_header_bindings,
         "instrumented_translation_units_sha256": sha256_bytes(
             jcs_bytes(instrumentation_ledger))}
 
@@ -8562,7 +8705,8 @@ def _run_d12_rebuild_command(
 
 def _rebuild_d12_proof_binary(
         name, compile_command, link_command, runtime_binary,
-        runtime_link_map, working_directory, environment):
+        runtime_link_map, working_directory, environment,
+        installed_header_bindings):
     with tempfile.TemporaryDirectory(prefix="d12-proof-rebuild-") as temporary:
         root = pathlib.Path(temporary).resolve()
         runtime_path = pathlib.Path(runtime_binary).resolve()
@@ -8582,16 +8726,10 @@ def _rebuild_d12_proof_binary(
         _run_d12_rebuild_command(
             compile_replay, name + ".compile",
             working_directory, environment)
-        role = ("row_provider" if name.startswith("provider_") else
-                "representation_candidate")
-        expected_dependencies = {
-            str((ROOT / relative).resolve())
-            for relative in RUNTIME_SOURCE_PATHS[role]}
-        observed_dependencies = {
-            item["path"] for item in _d12_dependency_inputs(
-                rebuilt_dependency, rebuilt_object)}
-        require(observed_dependencies == expected_dependencies,
-                "D12 proof compiler dependency closure drift: " + name)
+        dependency_inputs = _d12_dependency_inputs(
+            rebuilt_dependency, rebuilt_object, working_directory)
+        _validate_d12_proof_dependency_closure(
+            name, dependency_inputs, installed_header_bindings)
 
         link_replay = list(link_command)
         original_object = _command_output(compile_command)
@@ -8670,7 +8808,9 @@ def _validate_d12_runtime_binary_audit(
                 name)
     return _rebuild_d12_proof_binary(
         name, compile_command, link_command, runtime_binary, link_map_path,
-        working_directory, environment)
+        working_directory, environment,
+        (opensubdiv_audit["installed_header_bindings"][profile_name]
+         if provider_role else {}))
 
 
 def _validate_d12_runtime_provenance(envelope, report, provenance,
