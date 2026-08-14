@@ -1526,8 +1526,10 @@ class AnchoredRowQualificationTests(unittest.TestCase):
             with self.assertRaises(MODULE.QualificationError):
                 MODULE.validate_d12_envelope_contract(candidate, "a" * 40)
 
-        for coordinated_mutation in ("same_phase", "compile_source",
-                                     "link_object", "shared_profile_roots"):
+        for coordinated_mutation in (
+                "same_phase", "compile_source", "link_object",
+                "shared_profile_roots", "traversal_profile_roots",
+                "double_slash_roots", "linker_multiplex"):
             candidate = copy.deepcopy(envelope)
             profile = candidate["build_profiles"]["release"]
             if coordinated_mutation == "same_phase":
@@ -1539,14 +1541,35 @@ class AnchoredRowQualificationTests(unittest.TestCase):
             elif coordinated_mutation == "link_object":
                 prefix_length = 1 + len(profile["flags"])
                 profile["link_commands"][0][prefix_length] = "/tmp/invented.o"
-            else:
+            elif coordinated_mutation in {
+                    "shared_profile_roots", "traversal_profile_roots",
+                    "double_slash_roots"}:
                 tsan = candidate["build_profiles"]["tsan"]
                 for field in ("compile_commands", "link_commands"):
                     for command_index, command in enumerate(tsan[field]):
-                        tsan[field][command_index] = [
-                            token.replace("/tsan-build/", "/release-build/")
-                                 .replace("/tsan-install/", "/release-install/")
-                            for token in command]
+                        if coordinated_mutation == "shared_profile_roots":
+                            replacements = (
+                                ("/tsan-build/", "/release-build/"),
+                                ("/tsan-install/", "/release-install/"))
+                        elif coordinated_mutation == "traversal_profile_roots":
+                            replacements = (
+                                ("/tsan-build/",
+                                 "/shadow/../release-build/"),
+                                ("/tsan-install/",
+                                 "/shadow/../release-install/"))
+                        else:
+                            replacements = (("/d12-proof/", "//d12-proof/"),)
+                        rewritten = []
+                        for token in command:
+                            for old, new in replacements:
+                                token = token.replace(old, new)
+                            rewritten.append(token)
+                        tsan[field][command_index] = rewritten
+            else:
+                command = profile["link_commands"][0]
+                map_index = next(index for index, token in enumerate(command)
+                                 if token.startswith("-Wl,-map,"))
+                command[map_index] += ",-dead_strip,-order_file,order.map"
             candidate["content_sha256"] = MODULE.ZERO_SHA256
             candidate["content_sha256"] = MODULE.sha256_bytes(
                 MODULE.jcs_bytes(candidate))
@@ -1585,6 +1608,39 @@ class AnchoredRowQualificationTests(unittest.TestCase):
             path.write_bytes(MODULE.jcs_bytes(manifest))
             with self.assertRaises(MODULE.QualificationError):
                 MODULE._read_command_profile(path)
+
+    def test_d12_opensubdiv_profile_manifest_binds_distinct_libraries(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary).resolve()
+            descriptors = {}
+            for profile_name, payload in (
+                    ("release", b"release library"),
+                    ("tsan", b"tsan library")):
+                install_root = root / (profile_name + "-install")
+                library = install_root / "lib/libosdCPU.a"
+                library.parent.mkdir(parents=True)
+                library.write_bytes(payload)
+                descriptors[profile_name] = {
+                    "root": str(install_root),
+                    "artifact_path": str(library),
+                    "sha256": MODULE.sha256_file(library)}
+            manifest = {
+                "schema_id": "d12-opensubdiv-profile-artifacts-v1",
+                "field": "installed_library",
+                "release": descriptors["release"],
+                "tsan": descriptors["tsan"]}
+            path = root / "installed-libraries.manifest.json"
+            path.write_bytes(MODULE.jcs_bytes(manifest))
+            self.assertEqual(
+                MODULE._read_d12_opensubdiv_profile_manifest(
+                    path, "installed_library"), descriptors)
+            manifest["tsan"]["artifact_path"] = \
+                manifest["release"]["artifact_path"]
+            manifest["tsan"]["sha256"] = manifest["release"]["sha256"]
+            path.write_bytes(MODULE.jcs_bytes(manifest))
+            with self.assertRaises(MODULE.QualificationError):
+                MODULE._read_d12_opensubdiv_profile_manifest(
+                    path, "installed_library")
 
     def test_d12_qualified_full_probe_fields_are_consequential(self):
         envelope = MODULE._d12_envelope_contract_fixture()

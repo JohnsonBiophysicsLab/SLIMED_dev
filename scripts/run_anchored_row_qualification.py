@@ -2681,8 +2681,11 @@ def _decode_d12_observation(item, expected_identity, expected_boundary):
 
 
 def _absolute_command_path(token, suffix, message):
-    path = pathlib.PurePosixPath(token)
-    require(path.is_absolute() and token.endswith(suffix), message)
+    path = pathlib.Path(token)
+    resolved = path.resolve()
+    require(path.is_absolute() and token == str(resolved) and
+            resolved.name and "," not in token and token.endswith(suffix),
+            message)
     return token
 
 
@@ -2768,6 +2771,7 @@ def _validate_d12_build_profile_commands(value):
     build = B2.load_manifest()["qualification_platform"]["build"]
     all_paths = []
     profile_roots = []
+    roots_by_profile = {}
     for profile_name, expected_flags in (
             ("release", build["common_release_compile_flags"]),
             ("tsan", build["thread_sanitizer_compile_flags"])):
@@ -2799,8 +2803,11 @@ def _validate_d12_build_profile_commands(value):
         require(len(profile_artifact_roots) == 1 and
                 provider_install_root is not None,
                 "D12 profile build/proof artifact root drift")
-        profile_roots.extend((next(iter(profile_artifact_roots)),
-                              provider_install_root))
+        build_root = next(iter(profile_artifact_roots))
+        roots_by_profile[profile_name] = {
+            "build_root": build_root,
+            "install_root": provider_install_root}
+        profile_roots.extend((build_root, provider_install_root))
     require(len(all_paths) == len(set(all_paths)),
             "D12 Release/TSan build/output roots are not disjoint")
     require(all(not pathlib.PurePosixPath(left).is_relative_to(
@@ -2810,7 +2817,7 @@ def _validate_d12_build_profile_commands(value):
                 for index, left in enumerate(profile_roots)
                 for right in profile_roots[index + 1:]),
             "D12 Release/TSan build/install roots are not pairwise disjoint")
-    return True
+    return roots_by_profile
 
 
 def validate_d12_envelope_contract(value, expected_head):
@@ -7894,6 +7901,57 @@ def _read_command_profile(path_text):
     return result
 
 
+def _read_d12_opensubdiv_profile_manifest(path_text, field):
+    manifest_path = pathlib.Path(path_text).resolve()
+    raw = manifest_path.read_bytes()
+    manifest = strict_json_bytes(raw)
+    require(jcs_bytes(manifest) == raw and isinstance(manifest, dict) and
+            set(manifest) == {"schema_id", "field", "release", "tsan"} and
+            manifest["schema_id"] ==
+                "d12-opensubdiv-profile-artifacts-v1" and
+            manifest["field"] == field,
+            "D12 OpenSubdiv profile manifest is not canonical/closed: " +
+            field)
+    result = {}
+    for profile_name in ("release", "tsan"):
+        descriptor = manifest[profile_name]
+        require(isinstance(descriptor, dict) and
+                set(descriptor) == {"root", "artifact_path", "sha256"} and
+                isinstance(descriptor.get("root"), str) and
+                descriptor["root"] and
+                isinstance(descriptor.get("artifact_path"), str) and
+                descriptor["artifact_path"] and
+                SHA256_RE.fullmatch(descriptor.get("sha256", "")) is not None,
+                "D12 OpenSubdiv profile descriptor is malformed: " + field)
+        root_text = _absolute_command_path(
+            descriptor.get("root"), "",
+            "D12 OpenSubdiv profile root is not canonical: " + field)
+        artifact_text = _absolute_command_path(
+            descriptor.get("artifact_path"),
+            "/lib/libosdCPU.a" if field == "installed_library" else "",
+            "D12 OpenSubdiv artifact path is not canonical: " + field)
+        root = pathlib.Path(root_text)
+        artifact = pathlib.Path(artifact_text)
+        require(root.is_dir() and artifact.is_file() and
+                artifact.is_relative_to(root) and
+                sha256_file(artifact) == descriptor["sha256"] and
+                (field != "installed_library" or
+                 artifact == root / "lib/libosdCPU.a"),
+                "D12 OpenSubdiv profile artifact bytes/root differ: " + field)
+        result[profile_name] = {
+            "root": str(root), "artifact_path": str(artifact),
+            "sha256": descriptor["sha256"]}
+    release_root = pathlib.Path(result["release"]["root"])
+    tsan_root = pathlib.Path(result["tsan"]["root"])
+    require(not release_root.is_relative_to(tsan_root) and
+            not tsan_root.is_relative_to(release_root) and
+            (field != "installed_library" or
+             result["release"]["sha256"] != result["tsan"]["sha256"]),
+            "D12 OpenSubdiv Release/TSan profile artifacts are not distinct: " +
+            field)
+    return result
+
+
 def _validate_d12_runtime_provenance(envelope, report, provenance,
                                      runtime_binaries):
     """Hash every nested D12 claim against caller-supplied artifact bytes."""
@@ -7916,9 +7974,32 @@ def _validate_d12_runtime_provenance(envelope, report, provenance,
     command_index_for_binary = {
         "provider_release": 0, "provider_tsan": 0,
         "representation_release": 1, "representation_tsan": 1}
-    opensubdiv_library = pathlib.Path(
-        provenance["dependencies"]["opensubdiv"][
-            "installed_library"]).resolve()
+    opensubdiv = envelope["dependencies"]["opensubdiv"]
+    opensubdiv_files = provenance["dependencies"]["opensubdiv"]
+    opensubdiv_profiles = {}
+    for field, digest_field in (
+            ("build_root_provenance", "build_root_provenance_sha256"),
+            ("install_provenance", "install_provenance_sha256"),
+            ("link_provenance", "link_provenance_sha256"),
+            ("installed_library", "installed_library_sha256")):
+        manifest_path = pathlib.Path(opensubdiv_files[field]).resolve()
+        require(manifest_path.is_file() and
+                sha256_file(manifest_path) == opensubdiv[digest_field],
+                "D12 OpenSubdiv profile manifest bytes differ: " + field)
+        opensubdiv_profiles[field] = \
+            _read_d12_opensubdiv_profile_manifest(manifest_path, field)
+    command_roots = _validate_d12_build_profile_commands(envelope)
+    for profile_name in ("release", "tsan"):
+        require(opensubdiv_profiles["build_root_provenance"][profile_name][
+                    "root"] == command_roots[profile_name]["build_root"] and
+                opensubdiv_profiles["link_provenance"][profile_name][
+                    "root"] == command_roots[profile_name]["build_root"] and
+                opensubdiv_profiles["install_provenance"][profile_name][
+                    "root"] == command_roots[profile_name]["install_root"] and
+                opensubdiv_profiles["installed_library"][profile_name][
+                    "root"] == command_roots[profile_name]["install_root"],
+                "D12 OpenSubdiv profile provenance root differs from commands: " +
+                profile_name)
     binary_fields = {
         "compiler_command": "compiler_command_sha256",
         "link_map": "link_map_sha256",
@@ -7958,7 +8039,9 @@ def _validate_d12_runtime_provenance(envelope, report, provenance,
                     pathlib.Path(files["link_map"]).resolve() and
                 (not provider_role or
                  pathlib.Path(link_record["library"]).resolve() ==
-                    opensubdiv_library),
+                    pathlib.Path(opensubdiv_profiles[
+                        "installed_library"][profile_for_binary[name]][
+                            "artifact_path"])),
                 "D12 command output/link-map/library differs from supplied artifacts: " +
                 name)
     dependency_fields = {
