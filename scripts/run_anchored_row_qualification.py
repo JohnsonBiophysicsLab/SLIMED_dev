@@ -2441,14 +2441,22 @@ def _d12_envelope_contract_fixture():
         "$mutation.d12")
     value["git"] = {"head": "a" * 40, "head_query_ok": True,
                     "worktree_clean": True}
-    for binary in value["binaries"].values():
-        binary["source_inventory"] = [
-            {"path": "source.cpp", "sha256": "a" * 64}]
+    source_role = {
+        "provider_release": "row_provider",
+        "provider_tsan": "row_provider",
+        "representation_release": "representation_candidate",
+        "representation_tsan": "representation_candidate",
+    }
+    for binary_name, binary in value["binaries"].items():
+        binary["source_inventory"] = [{
+            "path": path, "sha256": sha256_file(ROOT / path)}
+            for path in RUNTIME_SOURCE_PATHS[source_role[binary_name]]]
     build = B2.load_manifest()["qualification_platform"]["build"]
     for name, flags in (
             ("release", build["common_release_compile_flags"]),
             ("tsan", build["thread_sanitizer_compile_flags"])):
         profile = value["build_profiles"][name]
+        commands = _d12_build_command_fixture(name, flags)
         profile.update({
             "compiler_path": build["compiler_path"],
             "compiler_version": build["compiler_version"],
@@ -2459,11 +2467,8 @@ def _d12_envelope_contract_fixture():
             "cmake_version": build["opensubdiv"]["cmake"]["version"],
             "make_path": build["opensubdiv"]["build_tool"]["path"],
             "make_version": build["opensubdiv"]["build_tool"]["version"],
-            "compile_commands": [[build["compiler_path"]] +
-                                 copy.deepcopy(flags) + ["source.cpp"]],
-            "link_commands": [[build["compiler_path"]] +
-                              copy.deepcopy(flags) +
-                              ["source.o", "-o", "proof"]],
+            "compile_commands": commands["compile_commands"],
+            "link_commands": commands["link_commands"],
         })
     for name, dependency in value["dependencies"].items():
         dependency["source_identity"] = {
@@ -2549,6 +2554,39 @@ def _d12_unavailable_probe():
         "process_returncode": None}
 
 
+def _d12_build_command_fixture(profile_name, flags):
+    build = B2.load_manifest()["qualification_platform"]["build"]
+    root = "/d12-proof/" + profile_name + "-build"
+    install_root = "/d12-proof/" + profile_name + "-install"
+    provider_source = str((ROOT / RUNTIME_SOURCE_ENTRYPOINTS[
+        "row_provider"][0]).resolve())
+    representation_source = str((ROOT / RUNTIME_SOURCE_ENTRYPOINTS[
+        "representation_candidate"][0]).resolve())
+    provider_object = root + "/provider.o"
+    representation_object = root + "/representation.o"
+    prefix = [build["compiler_path"]] + copy.deepcopy(flags)
+    return {
+        "compile_commands": [
+            prefix + ["-MMD", "-MF", root + "/provider.d",
+                      "-I" + install_root + "/include",
+                      provider_source, "-c", "-o", provider_object],
+            prefix + ["-MMD", "-MF", root + "/representation.d",
+                      representation_source, "-c", "-o",
+                      representation_object],
+        ],
+        "link_commands": [
+            prefix + [provider_object,
+                      install_root + "/lib/libosdCPU.a",
+                      "-framework", "IOKit", "-framework", "Foundation",
+                      "-Wl,-map," + root + "/provider.map",
+                      "-o", root + "/provider"],
+            prefix + [representation_object,
+                      "-Wl,-map," + root + "/representation.map",
+                      "-o", root + "/representation"],
+        ],
+    }
+
+
 def _validate_d12_full_probe(probe):
     expected_keys = {
         "schema_version", "kind", "status", "finite",
@@ -2589,9 +2627,11 @@ def _validate_d12_full_probe(probe):
              (probe["fingerprint_queries_ok"] is False)) and
             ((probe["power"]["query_ok"] is True and
               probe["power"]["raw"] and
-              probe["power"]["value"] in {
-                B2.EXPECTED_POWER_VALUE, "kIOPSBatteryPowerValue",
-                "kIOPSOffLineValue", "UNKNOWN_POWER_VALUE"}) or
+              probe["power"]["value"] == {
+                  "AC Power": B2.EXPECTED_POWER_VALUE,
+                  "Battery Power": "kIOPSBatteryPowerValue",
+                  "Off Line": "kIOPSOffLineValue",
+              }.get(probe["power"]["raw"], "UNKNOWN_POWER_VALUE")) or
              (probe["power"]["query_ok"] is False and
               probe["power"]["raw"] == "" and
               probe["power"]["value"] == "")) and
@@ -2640,23 +2680,137 @@ def _decode_d12_observation(item, expected_identity, expected_boundary):
     return probe
 
 
-def _command_policy_tokens(command):
-    prefixes = ("-std=", "-O", "-D", "-f", "-g", "-isysroot",
-                "-mmacosx-version-min=", "-Wall", "-Wextra",
-                "-Wpedantic", "-Werror")
-    result = []
-    index = 0
-    while index < len(command):
-        token = command[index]
-        if token == "-isysroot":
-            require(index + 1 < len(command), "D12 command isysroot value")
-            result.extend((token, command[index + 1]))
-            index += 2
-            continue
-        if token != "-framework" and token.startswith(prefixes):
-            result.append(token)
-        index += 1
-    return result
+def _absolute_command_path(token, suffix, message):
+    path = pathlib.PurePosixPath(token)
+    require(path.is_absolute() and token.endswith(suffix), message)
+    return token
+
+
+def _validate_d12_compile_command(command, expected_flags, source_path,
+                                  provider_role):
+    build = B2.load_manifest()["qualification_platform"]["build"]
+    prefix = [build["compiler_path"]] + expected_flags
+    require(command[:len(prefix)] == prefix,
+            "D12 compile command profile flags/order drift")
+    suffix = command[len(prefix):]
+    expected_source = str((ROOT / source_path).resolve())
+    expected_length = 8 if provider_role else 7
+    require(len(suffix) == expected_length and
+            suffix[:2] == ["-MMD", "-MF"] and
+            suffix[-4:] == [expected_source, "-c", "-o", suffix[-1]],
+            "D12 compile command is not the exact frozen role grammar")
+    dependency_path = _absolute_command_path(
+        suffix[2], ".d", "D12 compile dependency path drift")
+    if provider_role:
+        require(suffix[3].startswith("-I") and len(suffix[3]) > 2,
+                "D12 provider include root drift")
+        include_root = _absolute_command_path(
+            suffix[3][2:], "/include", "D12 provider include root drift")
+        source_index = 4
+    else:
+        include_root = None
+        source_index = 3
+    require(suffix[source_index] == expected_source and
+            suffix[source_index + 1:source_index + 3] == ["-c", "-o"] and
+            source_index + 3 == len(suffix) - 1,
+            "D12 compile source/output role drift")
+    object_path = _absolute_command_path(
+        suffix[-1], ".o", "D12 compile object path drift")
+    return {"dependency": dependency_path, "include": include_root,
+            "object": object_path}
+
+
+def _validate_d12_link_command(command, expected_flags, compile_record,
+                               provider_role):
+    build = B2.load_manifest()["qualification_platform"]["build"]
+    prefix = [build["compiler_path"]] + expected_flags
+    require(command[:len(prefix)] == prefix,
+            "D12 link command profile flags/order drift")
+    suffix = command[len(prefix):]
+    if provider_role:
+        require(len(suffix) == 9 and
+                suffix[0] == compile_record["object"] and
+                suffix[1].endswith("/lib/libosdCPU.a") and
+                suffix[2:6] == ["-framework", "IOKit",
+                                "-framework", "Foundation"] and
+                suffix[6].startswith("-Wl,-map,") and
+                suffix[7:9] == ["-o", suffix[8]],
+                "D12 provider link command is not the exact frozen grammar")
+        library = _absolute_command_path(
+            suffix[1], "/lib/libosdCPU.a",
+            "D12 provider library input drift")
+        require(compile_record["include"][:-len("/include")] ==
+                library[:-len("/lib/libosdCPU.a")],
+                "D12 provider include/library roots differ")
+        map_token = suffix[6]
+        output_token = suffix[8]
+    else:
+        require(len(suffix) == 4 and
+                suffix[0] == compile_record["object"] and
+                suffix[1].startswith("-Wl,-map,") and
+                suffix[2] == "-o",
+                "D12 representation link command is not the exact frozen grammar")
+        library = None
+        map_token = suffix[1]
+        output_token = suffix[3]
+    map_path = _absolute_command_path(
+        map_token[len("-Wl,-map,"):], ".map", "D12 link-map path drift")
+    output_path = _absolute_command_path(
+        output_token, "", "D12 binary output path drift")
+    return {"library": library, "map": map_path, "output": output_path}
+
+
+def _validate_d12_build_profile_commands(value):
+    role_sources = (
+        ("row_provider", True),
+        ("representation_candidate", False),
+    )
+    build = B2.load_manifest()["qualification_platform"]["build"]
+    all_paths = []
+    profile_roots = []
+    for profile_name, expected_flags in (
+            ("release", build["common_release_compile_flags"]),
+            ("tsan", build["thread_sanitizer_compile_flags"])):
+        profile = value["build_profiles"][profile_name]
+        require(len(profile["compile_commands"]) == len(role_sources) and
+                len(profile["link_commands"]) == len(role_sources),
+                "D12 profile must contain exact provider/representation commands")
+        profile_artifact_roots = set()
+        provider_install_root = None
+        for index, (role, provider_role) in enumerate(role_sources):
+            compile_record = _validate_d12_compile_command(
+                profile["compile_commands"][index], expected_flags,
+                RUNTIME_SOURCE_ENTRYPOINTS[role][0], provider_role)
+            link_record = _validate_d12_link_command(
+                profile["link_commands"][index], expected_flags,
+                compile_record, provider_role)
+            all_paths.extend(value for value in (
+                compile_record["dependency"], compile_record["object"],
+                compile_record["include"], link_record["library"],
+                link_record["map"], link_record["output"])
+                if value is not None)
+            profile_artifact_roots.update(
+                str(pathlib.PurePosixPath(path).parent) for path in (
+                    compile_record["dependency"], compile_record["object"],
+                    link_record["map"], link_record["output"]))
+            if provider_role:
+                provider_install_root = str(pathlib.PurePosixPath(
+                    compile_record["include"]).parent)
+        require(len(profile_artifact_roots) == 1 and
+                provider_install_root is not None,
+                "D12 profile build/proof artifact root drift")
+        profile_roots.extend((next(iter(profile_artifact_roots)),
+                              provider_install_root))
+    require(len(all_paths) == len(set(all_paths)),
+            "D12 Release/TSan build/output roots are not disjoint")
+    require(all(not pathlib.PurePosixPath(left).is_relative_to(
+                        pathlib.PurePosixPath(right)) and
+                not pathlib.PurePosixPath(right).is_relative_to(
+                        pathlib.PurePosixPath(left))
+                for index, left in enumerate(profile_roots)
+                for right in profile_roots[index + 1:]),
+            "D12 Release/TSan build/install roots are not pairwise disjoint")
+    return True
 
 
 def validate_d12_envelope_contract(value, expected_head):
@@ -2678,6 +2832,17 @@ def validate_d12_envelope_contract(value, expected_head):
                                   "dynamic_dependency_sha256")) and
                 binary["source_inventory"],
                 "D12 binary provenance incomplete")
+    binary_sources = {
+        "provider_release": "row_provider",
+        "provider_tsan": "row_provider",
+        "representation_release": "representation_candidate",
+        "representation_tsan": "representation_candidate",
+    }
+    for binary_name, role in binary_sources.items():
+        require(value["binaries"][binary_name]["source_inventory"] == [{
+                    "path": path, "sha256": sha256_file(ROOT / path)}
+                    for path in RUNTIME_SOURCE_PATHS[role]],
+                "D12 binary source inventory is not the exact repository closure")
     build = B2.load_manifest()["qualification_platform"]["build"]
     for profile_name, expected_flags in (
             ("release", build["common_release_compile_flags"]),
@@ -2696,16 +2861,9 @@ def validate_d12_envelope_contract(value, expected_head):
                     build["opensubdiv"]["build_tool"]["path"] and
                 profile["make_version"] ==
                     build["opensubdiv"]["build_tool"]["version"] and
-                profile["compile_commands"] and profile["link_commands"] and
-                all(command[0] == build["compiler_path"] and
-                    _command_policy_tokens(command) == expected_flags
-                    for command in profile["compile_commands"] +
-                    profile["link_commands"]) and
-                (profile_name != "tsan" or
-                 all("-fsanitize=thread" in command
-                     for command in profile["compile_commands"] +
-                     profile["link_commands"])),
+                profile["compile_commands"] and profile["link_commands"],
                 "D12 build profile differs from frozen exact authority")
+    _validate_d12_build_profile_commands(value)
     for name, dependency in value["dependencies"].items():
         require(dependency["source_identity"] == {
                     "gmp": "6.3.0", "mpfr": "4.2.2",
@@ -7700,20 +7858,44 @@ class ProviderRowVerifier:
 
 
 def _read_command_profile(path_text):
-    raw = pathlib.Path(path_text).resolve().read_bytes()
-    value = strict_json_bytes(raw)
-    require(jcs_bytes(value) == raw and isinstance(value, dict) and
-            set(value) == {"compile_commands", "link_commands"} and
-            all(isinstance(commands, list) and commands and
+    manifest_path = pathlib.Path(path_text).resolve()
+    raw = manifest_path.read_bytes()
+    manifest = strict_json_bytes(raw)
+    require(jcs_bytes(manifest) == raw and isinstance(manifest, dict) and
+            set(manifest) == {
+                "schema_id", "compile_commands", "link_commands"} and
+            manifest["schema_id"] == "d12-command-profile-manifest-v1",
+            "D12 command profile manifest is not canonical/closed")
+    result = {}
+    for field in ("compile_commands", "link_commands"):
+        descriptor = manifest[field]
+        require(isinstance(descriptor, dict) and
+                set(descriptor) == {"relative_path", "sha256"} and
+                isinstance(descriptor["relative_path"], str) and
+                descriptor["relative_path"] and
+                SHA256_RE.fullmatch(descriptor["sha256"] or "") is not None,
+                "D12 command sidecar descriptor is malformed: " + field)
+        path = (manifest_path.parent / descriptor["relative_path"]).resolve()
+        require(path.is_relative_to(manifest_path.parent) and path.is_file() and
+                sha256_file(path) == descriptor["sha256"],
+                "D12 command sidecar bytes/path differ: " + field)
+        sidecar_raw = path.read_bytes()
+        commands = strict_json_bytes(sidecar_raw)
+        require(jcs_bytes(commands) == sidecar_raw and
+                isinstance(commands, list) and commands and
                 all(isinstance(command, list) and command and
                     all(isinstance(token, str) and token for token in command)
-                    for command in commands)
-                for commands in value.values()),
-            "D12 command profile is not canonical compile/link argv evidence")
-    return value
+                    for command in commands),
+                "D12 command sidecar is not canonical argv evidence: " + field)
+        result[field] = commands
+    require(manifest["compile_commands"]["relative_path"] !=
+            manifest["link_commands"]["relative_path"],
+            "D12 compile/link command sidecars are not distinct")
+    return result
 
 
-def _validate_d12_runtime_provenance(envelope, report, provenance):
+def _validate_d12_runtime_provenance(envelope, report, provenance,
+                                     runtime_binaries):
     """Hash every nested D12 claim against caller-supplied artifact bytes."""
     require(isinstance(provenance, dict) and
             set(provenance.get("binaries", {})) == set(envelope["binaries"]) and
@@ -7731,6 +7913,12 @@ def _validate_d12_runtime_provenance(envelope, report, provenance):
     profile_for_binary = {
         "provider_release": "release", "representation_release": "release",
         "provider_tsan": "tsan", "representation_tsan": "tsan"}
+    command_index_for_binary = {
+        "provider_release": 0, "provider_tsan": 0,
+        "representation_release": 1, "representation_tsan": 1}
+    opensubdiv_library = pathlib.Path(
+        provenance["dependencies"]["opensubdiv"][
+            "installed_library"]).resolve()
     binary_fields = {
         "compiler_command": "compiler_command_sha256",
         "link_map": "link_map_sha256",
@@ -7753,6 +7941,26 @@ def _validate_d12_runtime_provenance(envelope, report, provenance):
                     "compile_commands": profile["compile_commands"],
                     "link_commands": profile["link_commands"]},
                 "D12 compile/link command bytes differ from exact build profile")
+        command_index = command_index_for_binary[name]
+        provider_role = command_index == 0
+        role = ("row_provider" if provider_role else
+                "representation_candidate")
+        compile_record = _validate_d12_compile_command(
+            command_profile["compile_commands"][command_index],
+            profile["flags"], RUNTIME_SOURCE_ENTRYPOINTS[role][0],
+            provider_role)
+        link_record = _validate_d12_link_command(
+            command_profile["link_commands"][command_index],
+            profile["flags"], compile_record, provider_role)
+        require(pathlib.Path(link_record["output"]).resolve() ==
+                    pathlib.Path(runtime_binaries[name]).resolve() and
+                pathlib.Path(link_record["map"]).resolve() ==
+                    pathlib.Path(files["link_map"]).resolve() and
+                (not provider_role or
+                 pathlib.Path(link_record["library"]).resolve() ==
+                    opensubdiv_library),
+                "D12 command output/link-map/library differs from supplied artifacts: " +
+                name)
     dependency_fields = {
         "archive": "archive_sha256",
         "build_root_provenance": "build_root_provenance_sha256",
@@ -7807,7 +8015,8 @@ def validate_result_sidecar_bundle(report, bundle_root, checkpoint_path=None,
             require(path.is_file() and sha256_file(path) == binary["sha256"],
                     "D12 runtime binary differs from envelope: " + name)
         _validate_d12_runtime_provenance(
-            d12_envelope, report, d12_runtime_provenance)
+            d12_envelope, report, d12_runtime_provenance,
+            d12_runtime_binaries)
         provider_rows = ProviderRowVerifier(
             checkpoint_path, artifact_root,
             runtime_binaries.get("row_provider"), report)

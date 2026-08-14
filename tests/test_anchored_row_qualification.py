@@ -1500,6 +1500,18 @@ class AnchoredRowQualificationTests(unittest.TestCase):
                     "compile_commands"][0].append("-ffast-math"),
                 lambda value: value["build_profiles"]["tsan"][
                     "link_commands"][0].append("-fno-sanitize=thread"),
+                lambda value: value["build_profiles"]["release"][
+                    "compile_commands"][0].append("-mcpu=apple-m1"),
+                lambda value: value["build_profiles"]["release"][
+                    "compile_commands"][0].append("-Wno-error"),
+                lambda value: value["build_profiles"]["release"][
+                    "compile_commands"][0].extend(
+                        ["-include", "unbound.hpp"]),
+                lambda value: value["build_profiles"]["release"][
+                    "compile_commands"][0].append("@unbound-flags.rsp"),
+                lambda value: value["build_profiles"]["release"][
+                    "compile_commands"][0].extend(
+                        ["-mllvm", "-enable-unsafe-fp-math"]),
                 lambda value: value["platform"][
                     "power_thermal_observations"][0].update(
                         {"boundary": "invented"}),
@@ -1514,15 +1526,63 @@ class AnchoredRowQualificationTests(unittest.TestCase):
             with self.assertRaises(MODULE.QualificationError):
                 MODULE.validate_d12_envelope_contract(candidate, "a" * 40)
 
+        for coordinated_mutation in ("same_phase", "compile_source",
+                                     "link_object", "shared_profile_roots"):
+            candidate = copy.deepcopy(envelope)
+            profile = candidate["build_profiles"]["release"]
+            if coordinated_mutation == "same_phase":
+                profile["link_commands"] = copy.deepcopy(
+                    profile["compile_commands"])
+            elif coordinated_mutation == "compile_source":
+                profile["compile_commands"][0][-4] = str(
+                    (MODULE.ROOT / "invented.cpp").resolve())
+            elif coordinated_mutation == "link_object":
+                prefix_length = 1 + len(profile["flags"])
+                profile["link_commands"][0][prefix_length] = "/tmp/invented.o"
+            else:
+                tsan = candidate["build_profiles"]["tsan"]
+                for field in ("compile_commands", "link_commands"):
+                    for command_index, command in enumerate(tsan[field]):
+                        tsan[field][command_index] = [
+                            token.replace("/tsan-build/", "/release-build/")
+                                 .replace("/tsan-install/", "/release-install/")
+                            for token in command]
+            candidate["content_sha256"] = MODULE.ZERO_SHA256
+            candidate["content_sha256"] = MODULE.sha256_bytes(
+                MODULE.jcs_bytes(candidate))
+            with self.assertRaises(MODULE.QualificationError):
+                MODULE.validate_d12_envelope_contract(candidate, "a" * 40)
+
     def test_d12_command_profile_binds_distinct_compile_and_link_argv(self):
         profile = {
             "compile_commands": [["clang++", "-O3", "-c", "source.cpp"]],
             "link_commands": [["clang++", "source.o", "-o", "proof"]]}
         with tempfile.TemporaryDirectory() as temporary:
-            path = pathlib.Path(temporary) / "commands.json"
-            path.write_bytes(MODULE.jcs_bytes(profile))
+            root = pathlib.Path(temporary)
+            compile_path = root / "compile-commands.json"
+            link_path = root / "link-commands.json"
+            compile_path.write_bytes(MODULE.jcs_bytes(
+                profile["compile_commands"]))
+            link_path.write_bytes(MODULE.jcs_bytes(profile["link_commands"]))
+            manifest = {
+                "schema_id": "d12-command-profile-manifest-v1",
+                "compile_commands": {
+                    "relative_path": compile_path.name,
+                    "sha256": MODULE.sha256_file(compile_path)},
+                "link_commands": {
+                    "relative_path": link_path.name,
+                    "sha256": MODULE.sha256_file(link_path)}}
+            path = root / "commands.manifest.json"
+            path.write_bytes(MODULE.jcs_bytes(manifest))
             self.assertEqual(MODULE._read_command_profile(path), profile)
-            path.write_bytes(MODULE.jcs_bytes(profile) + b"\n")
+            link_path.write_bytes(MODULE.jcs_bytes(
+                profile["compile_commands"]))
+            with self.assertRaises(MODULE.QualificationError):
+                MODULE._read_command_profile(path)
+            link_path.write_bytes(MODULE.jcs_bytes(profile["link_commands"]))
+            manifest["link_commands"] = copy.deepcopy(
+                manifest["compile_commands"])
+            path.write_bytes(MODULE.jcs_bytes(manifest))
             with self.assertRaises(MODULE.QualificationError):
                 MODULE._read_command_profile(path)
 
@@ -1560,12 +1620,15 @@ class AnchoredRowQualificationTests(unittest.TestCase):
         envelope["content_sha256"] = MODULE.sha256_bytes(
             MODULE.jcs_bytes(envelope))
         MODULE.validate_d12_envelope_contract(envelope, "a" * 40)
-        for field_mutation in ("fingerprint", "process_returncode"):
+        for field_mutation in ("fingerprint", "process_returncode",
+                               "power_raw"):
             candidate = copy.deepcopy(envelope)
             probe = candidate["platform"][
                 "power_thermal_observations"][0]["probe"]
             if field_mutation == "fingerprint":
                 probe["fingerprint"]["chip"] = "Invented"
+            elif field_mutation == "power_raw":
+                probe["power"]["raw"] = "INVENTED_RAW_POWER"
             else:
                 probe["process_returncode"] = 1
             candidate["content_sha256"] = MODULE.ZERO_SHA256
