@@ -18,8 +18,10 @@ import hashlib
 import importlib.util
 import json
 import math
+import os
 import pathlib
 import re
+import shlex
 import struct
 import subprocess
 import sys
@@ -2578,9 +2580,11 @@ def _d12_build_command_fixture(profile_name, flags):
             prefix + [provider_object,
                       install_root + "/lib/libosdCPU.a",
                       "-framework", "IOKit", "-framework", "Foundation",
+                      "-Wl,-no_uuid",
                       "-Wl,-map," + root + "/provider.map",
                       "-o", root + "/provider"],
             prefix + [representation_object,
+                      "-Wl,-no_uuid",
                       "-Wl,-map," + root + "/representation.map",
                       "-o", root + "/representation"],
         ],
@@ -2731,13 +2735,14 @@ def _validate_d12_link_command(command, expected_flags, compile_record,
             "D12 link command profile flags/order drift")
     suffix = command[len(prefix):]
     if provider_role:
-        require(len(suffix) == 9 and
+        require(len(suffix) == 10 and
                 suffix[0] == compile_record["object"] and
                 suffix[1].endswith("/lib/libosdCPU.a") and
                 suffix[2:6] == ["-framework", "IOKit",
                                 "-framework", "Foundation"] and
-                suffix[6].startswith("-Wl,-map,") and
-                suffix[7:9] == ["-o", suffix[8]],
+                suffix[6] == "-Wl,-no_uuid" and
+                suffix[7].startswith("-Wl,-map,") and
+                suffix[8:10] == ["-o", suffix[9]],
                 "D12 provider link command is not the exact frozen grammar")
         library = _absolute_command_path(
             suffix[1], "/lib/libosdCPU.a",
@@ -2745,17 +2750,18 @@ def _validate_d12_link_command(command, expected_flags, compile_record,
         require(compile_record["include"][:-len("/include")] ==
                 library[:-len("/lib/libosdCPU.a")],
                 "D12 provider include/library roots differ")
-        map_token = suffix[6]
-        output_token = suffix[8]
+        map_token = suffix[7]
+        output_token = suffix[9]
     else:
-        require(len(suffix) == 4 and
+        require(len(suffix) == 5 and
                 suffix[0] == compile_record["object"] and
-                suffix[1].startswith("-Wl,-map,") and
-                suffix[2] == "-o",
+                suffix[1] == "-Wl,-no_uuid" and
+                suffix[2].startswith("-Wl,-map,") and
+                suffix[3] == "-o",
                 "D12 representation link command is not the exact frozen grammar")
         library = None
-        map_token = suffix[1]
-        output_token = suffix[3]
+        map_token = suffix[2]
+        output_token = suffix[4]
     map_path = _absolute_command_path(
         map_token[len("-Wl,-map,"):], ".map", "D12 link-map path drift")
     output_path = _absolute_command_path(
@@ -7993,11 +7999,183 @@ def _read_canonical_json_object(path, label):
     return value
 
 
+def _command_output(command):
+    require(command.count("-o") == 1 and
+            command.index("-o") + 1 < len(command),
+            "compile/link command output grammar drift")
+    return command[command.index("-o") + 1]
+
+
+def _require_reproducible_object(command, observed_object, label):
+    """Re-run one exact compile argv and require identical object bytes."""
+    observed = pathlib.Path(observed_object).resolve()
+    with tempfile.TemporaryDirectory(
+            prefix="d12-object-rebuild-") as temporary:
+        rebuilt = pathlib.Path(temporary).resolve() / observed.name
+        replay = list(command)
+        output = _command_output(replay)
+        require(replay.count(output) == 1,
+                "D12 object compile output ownership drift: " + label)
+        replay[replay.index(output)] = str(rebuilt)
+        if "-MF" in replay:
+            require(replay.count("-MF") == 1 and
+                    replay.index("-MF") + 1 < len(replay),
+                    "D12 object dependency-output grammar drift: " + label)
+            replay[replay.index("-MF") + 1] = str(
+                rebuilt.with_suffix(".d"))
+        _run_d12_rebuild_command(replay, label + ".object")
+        require(rebuilt.is_file() and
+                sha256_file(rebuilt) == sha256_file(observed),
+                "D12 object differs from independent exact-command rebuild: " +
+                label)
+    return True
+
+
+def _validate_d12_opensubdiv_object_chain(
+        source_root, build_root, install_root, contract, profile_name):
+    """Bind exact TU argv to object bytes and exact archive member bytes."""
+    compile_path = build_root / "compile_commands.json"
+    try:
+        compile_entries = json.loads(compile_path.read_text(
+            encoding="utf-8", errors="strict"))
+    except (UnicodeError, json.JSONDecodeError) as error:
+        raise QualificationError(
+            "D12 OpenSubdiv compile database is malformed") from error
+    expected_sources = contract["translation_units_in_target_order"]
+    expected_non_target = (
+        "regression/common/arg_utils.cpp",
+        "regression/common/shape_utils.cpp",
+        "regression/common/far_utils.cpp",
+    )
+    require(isinstance(compile_entries, list),
+            "D12 OpenSubdiv compile database shape drift")
+    entries = {}
+    non_target = []
+    for entry in compile_entries:
+        require(isinstance(entry, dict) and
+                isinstance(entry.get("file"), str) and
+                isinstance(entry.get("directory"), str) and
+                (isinstance(entry.get("command"), str) or
+                 isinstance(entry.get("arguments"), list)),
+                "D12 OpenSubdiv compile entry shape drift")
+        source = pathlib.Path(entry["file"]).resolve()
+        require(source.is_relative_to(source_root),
+                "D12 OpenSubdiv compile source escaped checkout")
+        relative = str(source.relative_to(source_root))
+        require(relative not in entries,
+                "D12 OpenSubdiv compile source duplicated")
+        if relative in expected_sources:
+            entries[relative] = entry
+        else:
+            non_target.append(relative)
+    require(tuple(non_target) == expected_non_target and
+            tuple(entries) == tuple(expected_sources),
+            "D12 OpenSubdiv compile database target/non-target set drift")
+
+    profile = contract["profiles"][profile_name]
+    compiler = B2.EXPECTED_COMPILER_PATH
+    sdk = B2.load_manifest()["qualification_platform"]["build"][
+        "macos_sdk_path"]
+    ledger = []
+    for relative, expected_member in zip(
+            expected_sources,
+            contract["expected_archive_member_basenames_in_target_order"]):
+        entry = entries[relative]
+        source = (source_root / relative).resolve()
+        directory = pathlib.Path(entry["directory"]).resolve()
+        require(entry["file"] == str(source) and
+                entry["directory"] == str(directory) and
+                directory.is_relative_to(build_root) and directory.is_dir(),
+                "D12 OpenSubdiv compile entry path is not canonical")
+        tokens = (shlex.split(entry["command"])
+                  if isinstance(entry.get("command"), str)
+                  else entry["arguments"])
+        generated_include = []
+        component = relative.split("/")[1]
+        if component in {"sdc", "vtr", "bfr", "osd"}:
+            generated_include = ["-I" + str(
+                build_root / "opensubdiv" / component)]
+        object_token = _command_output(tokens)
+        expected_tokens = [
+            compiler, '-DOPENSUBDIV_VERSION_STRING="3.7.0"',
+            "-I" + str(source_root / "opensubdiv")
+        ] + generated_include + profile["compile_flags"] + [
+            "-std=c++17", "-arch", "arm64", "-isysroot", sdk,
+            "-mmacosx-version-min=26.0", "-Wall", "-Wextra",
+            "-Wno-invalid-offsetof", "-Wno-strict-aliasing",
+            "-Wno-overloaded-virtual", "-fPIC", "-o", object_token,
+            "-c", str(source)]
+        require(tokens == expected_tokens,
+                "D12 OpenSubdiv TU compiler argv is not exact")
+        object_path = (directory / object_token).resolve()
+        output_path = (build_root / entry.get("output", "")).resolve()
+        require(object_path == output_path and
+                object_path.is_relative_to(build_root) and
+                object_path.is_file() and object_path.name == expected_member,
+                "D12 OpenSubdiv compile output object path drift")
+        _require_reproducible_object(tokens, object_path, relative)
+        nm = subprocess.run(
+            ["/usr/bin/nm", "-u", str(object_path)], check=False,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        require(nm.returncode == 0,
+                "D12 OpenSubdiv object is not an auditable Mach-O object")
+        undefined = nm.stdout.decode("utf-8", errors="strict")
+        has_tsan = "tsan" in undefined
+        require(has_tsan == (profile_name == "thread_sanitizer"),
+                "D12 OpenSubdiv object instrumentation differs from profile")
+        ledger.append({
+            "source_relative_path": relative,
+            "source_sha256": sha256_file(source),
+            "compile_command": tokens,
+            "object_path": str(object_path),
+            "object_member_basename": expected_member,
+            "object_sha256": sha256_file(object_path),
+            "undefined_symbols_sha256": sha256_bytes(nm.stdout),
+            "tsan_instrumented": has_tsan,
+        })
+
+    link_path = build_root / \
+        "opensubdiv/CMakeFiles/osd_static_cpu.dir/link.txt"
+    link_lines = link_path.read_text(
+        encoding="utf-8", errors="strict").splitlines()
+    require(len(link_lines) == 2,
+            "D12 OpenSubdiv archive link script line count drift")
+    link_directory = build_root / "opensubdiv"
+    build_archive = build_root / "lib/libosdCPU.a"
+    archive_relative = os.path.relpath(build_archive, link_directory)
+    expected_objects = [os.path.relpath(
+        item["object_path"], link_directory) for item in ledger]
+    require(shlex.split(link_lines[0]) == [
+                "/Library/Developer/CommandLineTools/usr/bin/ar", "qc",
+                archive_relative] + expected_objects and
+            shlex.split(link_lines[1]) == [
+                "/Library/Developer/CommandLineTools/usr/bin/ranlib",
+                archive_relative] and
+            build_archive.is_file() and
+            sha256_file(build_archive) == sha256_file(
+                install_root / "lib/libosdCPU.a"),
+            "D12 OpenSubdiv exact ar/ranlib/archive-output chain drift")
+
+    installed_archive = install_root / "lib/libosdCPU.a"
+    for item in ledger:
+        extracted = subprocess.run(
+            ["/usr/bin/ar", "-p", str(installed_archive),
+             item["object_member_basename"]], check=False,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        require(extracted.returncode == 0 and
+                sha256_bytes(extracted.stdout) == item["object_sha256"],
+                "D12 OpenSubdiv archive member bytes differ from object: " +
+                item["object_member_basename"])
+        item["archive_member_sha256"] = sha256_bytes(extracted.stdout)
+    return ledger
+
+
 def _validate_d12_opensubdiv_profile_audits(envelope, profiles):
     """Re-run the frozen B2 OpenSubdiv audit and derive TSan TU truth."""
     manifest = B2.load_manifest()
     contract = manifest["qualification_platform"]["build"]["opensubdiv"]
     audited = {}
+    object_ledgers = {}
     source_roots = []
     for profile_name, b2_profile_name in (
             ("release", "release"), ("tsan", "thread_sanitizer")):
@@ -8010,7 +8188,8 @@ def _validate_d12_opensubdiv_profile_audits(envelope, profiles):
         build_packet = _read_canonical_json_object(
             build_packet_path, "D12 OpenSubdiv build audit")
         require(set(build_packet) == {
-                    "schema_id", "profile", "source_root", "source", "audit"} and
+                    "schema_id", "profile", "source_root", "source", "audit",
+                    "object_archive_ledger"} and
                 build_packet["schema_id"] ==
                     "d12-opensubdiv-build-audit-v1" and
                 build_packet["profile"] == profile_name,
@@ -8024,8 +8203,11 @@ def _validate_d12_opensubdiv_profile_audits(envelope, profiles):
         independent_source = B2.audit_source_checkout(source_root, manifest)
         independent_audit = B2.audit_opensubdiv(
             install_root, build_root, source_root, contract, b2_profile_name)
+        object_ledger = _validate_d12_opensubdiv_object_chain(
+            source_root, build_root, install_root, contract, b2_profile_name)
         require(build_packet["source"] == independent_source and
-                build_packet["audit"] == independent_audit,
+                build_packet["audit"] == independent_audit and
+                build_packet["object_archive_ledger"] == object_ledger,
                 "D12 OpenSubdiv build audit differs from actual frozen audit")
         source_roots.append(str(source_root))
 
@@ -8066,6 +8248,7 @@ def _validate_d12_opensubdiv_profile_audits(envelope, profiles):
                     "installed_library"][profile_name]["sha256"],
                 "D12 OpenSubdiv installed archive differs from actual audit")
         audited[profile_name] = independent_audit
+        object_ledgers[profile_name] = object_ledger
     require(len(set(source_roots)) == 1 and
             audited["release"]["archive_sha256"] !=
                 audited["tsan"]["archive_sha256"],
@@ -8079,22 +8262,73 @@ def _validate_d12_opensubdiv_profile_audits(envelope, profiles):
             "source_inventory"] if item["path"].endswith(".cpp"))
         proof_units.append({
             "binary": binary_name, "source": source,
+            "binary_sha256": envelope["binaries"][binary_name]["sha256"],
             "compile_command": tsan_profile["compile_commands"][index]})
     instrumentation_ledger = {
         "schema_id": "d12-instrumented-translation-unit-ledger-v1",
         "proof_translation_units": proof_units,
-        "opensubdiv_translation_units": audited["tsan"][
-            "translation_unit_ledger"],
+        "opensubdiv_translation_units": object_ledgers["tsan"],
     }
     return {
         "profiles": audited,
+        "object_archive_ledgers": object_ledgers,
         "instrumented_translation_units_sha256": sha256_bytes(
             jcs_bytes(instrumentation_ledger))}
 
 
+def _run_d12_rebuild_command(command, label):
+    completed = subprocess.run(
+        command, check=False, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    require(completed.returncode == 0,
+            "D12 independent proof rebuild failed: " + label + "\n" +
+            completed.stderr.decode("utf-8", errors="replace"))
+
+
+def _rebuild_d12_proof_binary(
+        name, compile_command, link_command, runtime_binary):
+    with tempfile.TemporaryDirectory(prefix="d12-proof-rebuild-") as temporary:
+        root = pathlib.Path(temporary).resolve()
+        runtime_path = pathlib.Path(runtime_binary).resolve()
+        rebuilt_object = root / (name + ".o")
+        rebuilt_dependency = root / (name + ".d")
+        rebuilt_map = root / (name + ".map")
+        # ld's ad-hoc arm64 code signature derives its identifier from the
+        # output basename. Preserve that basename so exact-command replay is
+        # byte-reproducible while all outputs remain isolated.
+        rebuilt_binary = root / runtime_path.name
+        compile_replay = list(compile_command)
+        require(compile_replay.count("-MF") == 1,
+                "D12 compile dependency-output grammar drift")
+        compile_replay[compile_replay.index("-MF") + 1] = str(
+            rebuilt_dependency)
+        compile_replay[compile_replay.index("-o") + 1] = str(rebuilt_object)
+        _run_d12_rebuild_command(compile_replay, name + ".compile")
+
+        link_replay = list(link_command)
+        original_object = _command_output(compile_command)
+        require(link_replay.count(original_object) == 1,
+                "D12 link command does not own compiled object")
+        link_replay[link_replay.index(original_object)] = str(rebuilt_object)
+        map_indexes = [index for index, token in enumerate(link_replay)
+                       if token.startswith("-Wl,-map,")]
+        require(len(map_indexes) == 1,
+                "D12 link-map output grammar drift")
+        link_replay[map_indexes[0]] = "-Wl,-map," + str(rebuilt_map)
+        link_replay[link_replay.index("-o") + 1] = str(rebuilt_binary)
+        _run_d12_rebuild_command(link_replay, name + ".link")
+        require(rebuilt_object.is_file() and rebuilt_dependency.is_file() and
+                rebuilt_map.is_file() and rebuilt_binary.is_file() and
+                sha256_file(rebuilt_binary) == sha256_file(
+                    runtime_path),
+                "D12 proof binary differs from independent exact-command rebuild: " +
+                name)
+    return True
+
+
 def _validate_d12_runtime_binary_audit(
         name, runtime_binary, link_map_path, dynamic_path, provider_role,
-        profile_name, opensubdiv_audit):
+        profile_name, opensubdiv_audit, compile_command, link_command,
+        audited_library):
     try:
         observed_dynamic = pathlib.Path(dynamic_path).read_text(
             encoding="utf-8", errors="strict")
@@ -8114,8 +8348,8 @@ def _validate_d12_runtime_binary_audit(
     if provider_role:
         expected_members = {
             item["object_member_basename"] for item in
-            opensubdiv_audit[profile_name]["translation_unit_ledger"]}
-        require("libosdCPU.a" in observed_map and
+            opensubdiv_audit["object_archive_ledgers"][profile_name]}
+        require(str(pathlib.Path(audited_library).resolve()) in observed_map and
                 any(member in observed_map for member in expected_members),
                 "D12 provider link map does not use audited OpenSubdiv archive: " +
                 name)
@@ -8123,7 +8357,8 @@ def _validate_d12_runtime_binary_audit(
         require("libosdCPU.a" not in observed_map,
                 "D12 representation binary unexpectedly links OpenSubdiv: " +
                 name)
-    return True
+    return _rebuild_d12_proof_binary(
+        name, compile_command, link_command, runtime_binary)
 
 
 def _validate_d12_runtime_provenance(envelope, report, provenance,
@@ -8236,7 +8471,12 @@ def _validate_d12_runtime_provenance(envelope, report, provenance,
         _validate_d12_runtime_binary_audit(
             name, runtime_binaries[name], files["link_map"],
             files["dynamic_dependencies"], provider_role,
-            profile_for_binary[name], opensubdiv_audit["profiles"])
+            profile_for_binary[name], opensubdiv_audit,
+            command_profile["compile_commands"][command_index],
+            command_profile["link_commands"][command_index],
+            None if not provider_role else opensubdiv_profiles[
+                "installed_library"][profile_for_binary[name]][
+                    "artifact_path"])
     dependency_fields = {
         "archive": "archive_sha256",
         "build_root_provenance": "build_root_provenance_sha256",

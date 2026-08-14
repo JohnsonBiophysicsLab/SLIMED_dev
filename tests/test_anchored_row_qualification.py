@@ -1688,6 +1688,7 @@ class AnchoredRowQualificationTests(unittest.TestCase):
                 "build_root_provenance", "install_provenance",
                 "link_provenance", "installed_library")}
             independent_audits = {}
+            independent_object_ledgers = {}
             for profile_name, b2_name in (
                     ("release", "release"),
                     ("tsan", "thread_sanitizer")):
@@ -1723,12 +1724,29 @@ class AnchoredRowQualificationTests(unittest.TestCase):
                         "link_command": {
                             "sha256": MODULE.sha256_file(link_command)}}}
                 independent_audits[b2_name] = audit
+                object_ledger = [{
+                    "source_relative_path": "opensubdiv/version.cpp",
+                    "source_sha256": ("a" if profile_name == "release"
+                                      else "b") * 64,
+                    "compile_command": ["clang++"] +
+                        (["-fsanitize=thread"]
+                         if profile_name == "tsan" else []),
+                    "object_path": str(build_root / "version.cpp.o"),
+                    "object_member_basename": "version.cpp.o",
+                    "object_sha256": ("c" if profile_name == "release"
+                                      else "d") * 64,
+                    "undefined_symbols_sha256": "e" * 64,
+                    "tsan_instrumented": profile_name == "tsan",
+                    "archive_member_sha256":
+                        ("c" if profile_name == "release" else "d") * 64}]
+                independent_object_ledgers[b2_name] = object_ledger
 
                 build_packet = {
                     "schema_id": "d12-opensubdiv-build-audit-v1",
                     "profile": profile_name,
                     "source_root": str(source_root),
-                    "source": source_audit, "audit": audit}
+                    "source": source_audit, "audit": audit,
+                    "object_archive_ledger": object_ledger}
                 build_path = build_root / \
                     "d12-opensubdiv-build-audit.json"
                 build_path.write_bytes(MODULE.jcs_bytes(build_packet))
@@ -1765,17 +1783,31 @@ class AnchoredRowQualificationTests(unittest.TestCase):
             def audit_profile(_install, _build, _source, _contract, profile):
                 return copy.deepcopy(independent_audits[profile])
 
+            def audit_objects(_source, _build, _install, _contract, profile):
+                return copy.deepcopy(independent_object_ledgers[profile])
+
             with mock.patch.object(
                     MODULE.B2, "audit_source_checkout",
                     return_value=copy.deepcopy(source_audit)), \
                     mock.patch.object(
                         MODULE.B2, "audit_opensubdiv",
-                        side_effect=audit_profile):
+                        side_effect=audit_profile), \
+                    mock.patch.object(
+                        MODULE, "_validate_d12_opensubdiv_object_chain",
+                        side_effect=audit_objects):
                 result = MODULE._validate_d12_opensubdiv_profile_audits(
                     envelope, profiles)
                 self.assertRegex(
                     result["instrumented_translation_units_sha256"],
                     r"^[0-9a-f]{64}$")
+                mutated_envelope = copy.deepcopy(envelope)
+                mutated_envelope["binaries"]["provider_tsan"][
+                    "sha256"] = "f" * 64
+                mutated = MODULE._validate_d12_opensubdiv_profile_audits(
+                    mutated_envelope, profiles)
+                self.assertNotEqual(
+                    result["instrumented_translation_units_sha256"],
+                    mutated["instrumented_translation_units_sha256"])
                 build_path = pathlib.Path(profiles[
                     "build_root_provenance"]["tsan"]["artifact_path"])
                 packet = MODULE.strict_json_bytes(build_path.read_bytes())
@@ -1784,6 +1816,51 @@ class AnchoredRowQualificationTests(unittest.TestCase):
                 with self.assertRaises(MODULE.QualificationError):
                     MODULE._validate_d12_opensubdiv_profile_audits(
                         envelope, profiles)
+
+    def test_d12_proof_binary_is_independently_rebuilt(self):
+        build = MODULE.B2.load_manifest()["qualification_platform"]["build"]
+        if not pathlib.Path(build["compiler_path"]).is_file() or not \
+                pathlib.Path(build["macos_sdk_path"]).is_dir():
+            self.skipTest("pinned macOS proof compiler/SDK unavailable")
+        envelope = MODULE._d12_envelope_contract_fixture()
+        compile_command = copy.deepcopy(envelope["build_profiles"][
+            "release"]["compile_commands"][1])
+        link_command = copy.deepcopy(envelope["build_profiles"][
+            "release"]["link_commands"][1])
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary).resolve()
+            runtime_object = root / "runtime.o"
+            runtime_dependency = root / "runtime.d"
+            runtime_map = root / "runtime.map"
+            runtime_binary = root / "runtime"
+            compile_runtime = list(compile_command)
+            compile_runtime[compile_runtime.index("-MF") + 1] = str(
+                runtime_dependency)
+            compile_runtime[compile_runtime.index("-o") + 1] = str(
+                runtime_object)
+            subprocess.run(compile_runtime, check=True, capture_output=True)
+            MODULE._require_reproducible_object(
+                compile_command, runtime_object,
+                "representation_release")
+            with self.assertRaises(MODULE.QualificationError):
+                MODULE._require_reproducible_object(
+                    compile_command, "/usr/bin/true",
+                    "representation_release")
+            link_runtime = list(link_command)
+            link_runtime[link_runtime.index(
+                MODULE._command_output(compile_command))] = str(runtime_object)
+            map_index = next(index for index, token in enumerate(link_runtime)
+                             if token.startswith("-Wl,-map,"))
+            link_runtime[map_index] = "-Wl,-map," + str(runtime_map)
+            link_runtime[link_runtime.index("-o") + 1] = str(runtime_binary)
+            subprocess.run(link_runtime, check=True, capture_output=True)
+            MODULE._rebuild_d12_proof_binary(
+                "representation_release", compile_command, link_command,
+                runtime_binary)
+            with self.assertRaises(MODULE.QualificationError):
+                MODULE._rebuild_d12_proof_binary(
+                    "representation_release", compile_command, link_command,
+                    "/usr/bin/true")
 
     def test_d12_qualified_full_probe_fields_are_consequential(self):
         envelope = MODULE._d12_envelope_contract_fixture()
