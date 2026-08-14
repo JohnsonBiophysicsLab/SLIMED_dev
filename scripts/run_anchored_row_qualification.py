@@ -5962,6 +5962,72 @@ def make_scientific_pre_result_ledgers(checkpoint, artifact_root, manifest):
     return result
 
 
+def make_candidate_pre_result_ledgers(checkpoint, artifact_root):
+    """Materialize the four candidate applicability sets without outcomes."""
+    suffixes = _validate_suffix_definitions()
+    criterion_ids = (
+        "representation_structure", "constant_field_bits",
+        "relabel_exact_effective_coefficients", "cache_mode_bit_identity")
+    ledgers = {criterion_id: StreamingScientificLedger(criterion_id)
+               for criterion_id in criterion_ids}
+    ledger_suffixes = {
+        criterion_id: [item[0] for item in suffixes[criterion_id]]
+        for criterion_id in criterion_ids}
+    cases = ordered_bfr_cases(checkpoint)
+    by_identity = {
+        (case["content_identity_key"], case["approximation_level"],
+         case["applicable_mode"]): case for case in cases}
+
+    for case in cases:
+        report = _artifact_report(artifact_root, case)
+        for row in ordered_case_rows(report):
+            prefix = scientific_base_prefix(case, row)
+            for criterion_id in criterion_ids[:3]:
+                _add_sorted_suffixes(
+                    ledgers[criterion_id], prefix,
+                    ledger_suffixes[criterion_id])
+
+    pair_identities = sorted({
+        (case["content_identity_key"], case["approximation_level"])
+        for case in cases}, key=lambda item: jcs_bytes(list(item)))
+    require(len(pair_identities) == 98,
+            "cache-pair applicability inventory drift")
+
+    def row_identity(row):
+        return (row["face_row"], row["local_corner_or_none"],
+                row["sample_id"], row["row_kind"])
+
+    for content_id, level in pair_identities:
+        disabled_case = by_identity.get(
+            (content_id, level, "cache_disabled"))
+        serial_case = by_identity.get(
+            (content_id, level, "SurfaceFactoryCache_serial"))
+        require(disabled_case is not None and serial_case is not None,
+                "cache-pair applicability case missing")
+        disabled_rows = ordered_case_rows(
+            _artifact_report(artifact_root, disabled_case))
+        serial_rows = ordered_case_rows(
+            _artifact_report(artifact_root, serial_case))
+        require(len(disabled_rows) == len(serial_rows),
+                "cache-pair applicability row count drift")
+        for disabled_row, serial_row in zip(disabled_rows, serial_rows):
+            require(row_identity(disabled_row) == row_identity(serial_row),
+                    "cache-pair applicability row identity drift")
+            prefix = scientific_base_prefix(
+                disabled_case, disabled_row, cache_mode="cache_pair")
+            _add_sorted_suffixes(
+                ledgers["cache_mode_bit_identity"], prefix,
+                ledger_suffixes["cache_mode_bit_identity"])
+
+    result = {}
+    for criterion_id, ledger in ledgers.items():
+        digest = ledger.finish()
+        require(ledger.count == EXPECTED_CELL_COUNTS[criterion_id],
+                "{} pre-result cardinality drift".format(criterion_id))
+        result[criterion_id] = {"digest": digest, "count": ledger.count}
+    return result
+
+
 def _ordered_d12_cases(checkpoint):
     cases = [case for case in checkpoint["numeric_cases"]
              if case["candidate"] == "bfr"]
@@ -6080,12 +6146,15 @@ def make_d12_pre_result_ledgers(checkpoint, artifact_root, manifest):
 def make_complete_pre_result_ledgers(checkpoint, artifact_root, manifest,
                                      executed, scientific=None):
     """Bind every frozen key set without inventing post-oracle partitions."""
+    candidate = make_candidate_pre_result_ledgers(
+        checkpoint, artifact_root)
     if scientific is None:
         scientific = make_scientific_pre_result_ledgers(
             checkpoint, artifact_root, manifest)
     d12 = make_d12_pre_result_ledgers(
         checkpoint, artifact_root, manifest)
-    generated = dict(scientific)
+    generated = dict(candidate)
+    generated.update(scientific)
     generated.update(d12)
     present = {
         "bindings_and_independence": generic_key_ledger_sha256(

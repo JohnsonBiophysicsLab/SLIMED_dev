@@ -999,6 +999,79 @@ class AnchoredRowQualificationTests(unittest.TestCase):
         MODULE.validate_scientific_cell_key(
             basis_key, "binary64_basis_probe_diagnostic")
 
+    def test_candidate_pre_result_ledgers_require_no_candidate_outcomes(self):
+        row = {"face_row": 0, "local_corner_or_none": -1,
+               "sample_id": "sample", "row_kind": "position"}
+        cases = []
+        for index in range(98):
+            for mode in ("cache_disabled", "SurfaceFactoryCache_serial"):
+                cases.append({
+                    "content_identity_key": "content-{:03d}".format(index),
+                    "approximation_level": 7,
+                    "applicable_mode": mode})
+        expected = copy.deepcopy(MODULE.EXPECTED_CELL_COUNTS)
+        expected.update({
+            "representation_structure": 196 * 3,
+            "constant_field_bits": 196 * 45,
+            "relabel_exact_effective_coefficients": 196 * 6,
+            "cache_mode_bit_identity": 98 * 3})
+        with mock.patch.object(
+                MODULE, "ordered_bfr_cases", return_value=cases), \
+                mock.patch.object(
+                    MODULE, "_artifact_report",
+                    return_value={"rows": [row]}), \
+                mock.patch.object(MODULE, "EXPECTED_CELL_COUNTS", expected):
+            result = MODULE.make_candidate_pre_result_ledgers(
+                {"numeric_cases": cases}, pathlib.Path("/unused"))
+        self.assertEqual(set(result), {
+            "representation_structure", "constant_field_bits",
+            "relabel_exact_effective_coefficients",
+            "cache_mode_bit_identity"})
+        self.assertEqual(
+            {criterion_id: item["count"]
+             for criterion_id, item in result.items()},
+            {criterion_id: expected[criterion_id]
+             for criterion_id in result})
+        self.assertTrue(all(
+            MODULE.SHA256_RE.fullmatch(item["digest"])
+            for item in result.values()))
+
+    def test_complete_pre_result_ledgers_cover_empty_execution(self):
+        candidate = {criterion_id: {
+            "digest": "a" * 64,
+            "count": MODULE.EXPECTED_CELL_COUNTS[criterion_id]}
+            for criterion_id in (
+                "representation_structure", "constant_field_bits",
+                "relabel_exact_effective_coefficients",
+                "cache_mode_bit_identity")}
+        scientific = {criterion_id: {
+            "digest": "b" * 64,
+            "count": MODULE.EXPECTED_CELL_COUNTS[criterion_id]}
+            for criterion_id in MODULE.CRITERION_IDS[6:26]}
+        d12 = {criterion_id: {
+            "digest": "c" * 64,
+            "count": MODULE.EXPECTED_CELL_COUNTS[criterion_id]}
+            for criterion_id in MODULE.CRITERION_IDS[27:]}
+        with mock.patch.object(
+                MODULE, "make_candidate_pre_result_ledgers",
+                return_value=candidate), \
+                mock.patch.object(
+                    MODULE, "make_d12_pre_result_ledgers",
+                    return_value=d12):
+            records = MODULE.make_complete_pre_result_ledgers(
+                {"numeric_cases": []}, pathlib.Path("/unused"), {}, {},
+                scientific=scientific)
+        primary_partitions = {record["criterion_id"]: record
+                              for record in records
+                              if record["partition"] in (
+                                  "all", "oracle_request")}
+        self.assertEqual(set(primary_partitions), set(MODULE.CRITERION_IDS))
+        self.assertEqual(len(records), 34)
+        for criterion_id in candidate:
+            self.assertEqual(
+                primary_partitions[criterion_id]["key_ledger_sha256"],
+                candidate[criterion_id]["digest"])
+
     def test_exact_regular_box_spline_rows_and_patch_inventory(self):
         rows = MODULE.regular_box_spline_rows(
             MODULE.Fraction(1, 6), MODULE.Fraction(1, 6))
