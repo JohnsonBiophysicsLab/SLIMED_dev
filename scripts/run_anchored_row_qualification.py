@@ -87,6 +87,16 @@ D12_CONTRACT = {
     "retained_payload_bytes": 131072,
     "peak_rss_delta_bytes": 67108864,
 }
+RUNTIME_SOURCE_PATHS = {
+    "row_provider": ("experiments/bfr_qualification/candidate.cpp",),
+    "representation_candidate": (
+        "experiments/anchored_row_qualification/candidate.cpp",),
+    "exact_dyadic_boundary": (
+        "experiments/anchored_row_qualification/exact_dyadic_boundary.cpp",),
+    "independent_oracle": (),
+}
+MAX_RESULT_RECORD_BYTES = 16 * 1024 * 1024
+MAX_RESULT_RECORD_NESTING = 64
 DEPENDENCY_ARCHIVE_SHA256 = {
     "gmp": "a3c2b80201b89e68616f4ad30bc66aee4927c3ce50e33929ca819d5c43538898",
     "mpfr": "b67ba0383ef7e8a8563734e2e889ef5ec3c3b898a01d00fa0a6869ad81c6ce01",
@@ -402,6 +412,16 @@ def _absolute_dyadic_descriptor(numerator, denominator_power=1074):
             "absolute dyadic numerator")
     return {"kind": "absolute_dyadic_v1",
             "numerator_hex": format(numerator, "x") if numerator else "0",
+            "denominator_power": denominator_power}
+
+
+def _signed_dyadic_descriptor(numerator, denominator_power=1074):
+    require(type(numerator) is int,
+            "signed dyadic numerator")
+    return {"kind": "signed_dyadic_v1",
+            "sign": 0 if numerator == 0 else (1 if numerator > 0 else -1),
+            "numerator_hex": (format(abs(numerator), "x")
+                              if numerator else "0"),
             "denominator_power": denominator_power}
 
 
@@ -837,6 +857,11 @@ def _validate_d12_result_coupling(
             return "INCOMPLETE", "D12_PLATFORM_UNQUALIFIED"
         return (("PASS", None) if passing else ("FAIL", failure_reason))
 
+    def incomplete_result():
+        if platform_state == "UNQUALIFIED_PLATFORM":
+            return "INCOMPLETE", "D12_PLATFORM_UNQUALIFIED"
+        return "INCOMPLETE", "D12_OPERATIONAL_LEDGER_INCOMPLETE"
+
     def complete_sidecar(sidecar, observed_digest):
         return (sidecar["availability"]["state"] == "PRESENT" and
                 SHA256_RE.fullmatch(observed_digest or "") is not None and
@@ -983,12 +1008,24 @@ def _validate_d12_result_coupling(
                             "expected_translation_units_sha256"] ==
                         target["expected_translation_units_sha256"],
                         "D12 instrumentation target digest mismatch")
-                passing = (exact_value["instrumentation_complete"] is True and
-                           exact_value[
-                            "instrumented_translation_units_sha256"] ==
-                           target["expected_translation_units_sha256"])
+                if exact_value["instrumentation_complete"] is not True:
+                    require(exact_value[
+                                "instrumented_translation_units_sha256"]
+                            is None and
+                            (outcome, reason) == incomplete_result(),
+                            "missing D12 instrumentation is incomplete evidence")
+                    return
+                passing = (exact_value[
+                    "instrumented_translation_units_sha256"] ==
+                    target["expected_translation_units_sha256"])
                 failure_reason = "D12_REPRESENTATION_WORKLOAD_MISMATCH"
             elif quantity == "tsan_finding_count":
+                if (exact_value["finding_count"] is None and
+                        exact_value["sanitizer_abort"] is False):
+                    require(exact_value["sanitizer_report_sha256"] is None and
+                            (outcome, reason) == incomplete_result(),
+                            "unavailable D12 TSan execution is incomplete evidence")
+                    return
                 require((exact_value["finding_count"] is not None or
                          exact_value["sanitizer_abort"]) and
                         (not exact_value["sanitizer_abort"] or
@@ -1139,10 +1176,31 @@ def _validate_binding_against_report(value, report):
 
 def _validate_runtime_bindings(report, runtime_binaries,
                                runtime_provenance=None):
+    actual_git, actual_worktree = git_observations()
+    actual_head = actual_git.get("git_commit")
+    require(actual_git == {"state": "PRESENT", "git_commit": actual_head,
+                           "reason_code": None} and
+            GIT_RE.fullmatch(actual_head or "") is not None and
+            actual_worktree == {"state": "PRESENT", "clean": True,
+                                "reason_code": None} and
+            report["identity"]["git_start"]["git_commit"] == actual_head ==
+                report["identity"]["git_end"]["git_commit"] ==
+                report["checkpoint"]["git_head"] and
+            report["identity"]["worktree_start"]["clean"] is True and
+            report["identity"]["worktree_end"]["clean"] is True,
+            "report/checkpoint identity differs from actual clean Git HEAD")
     require(report["identity"]["validator"]["sha256"] ==
             sha256_file(pathlib.Path(__file__).resolve()),
             "report validator digest does not match executing validator")
     for binary_name, path_text in runtime_binaries.items():
+        expected_sources = [{
+            "path": relative_path,
+            "sha256": sha256_file(ROOT / relative_path)}
+            for relative_path in RUNTIME_SOURCE_PATHS[binary_name]]
+        require(report["binaries"][binary_name]["sources"] ==
+                expected_sources,
+                "runtime binary source inventory is not the frozen complete set: " +
+                binary_name)
         binding = report["binaries"][binary_name]["availability"]
         if binding["state"] == "PRESENT":
             require(path_text is not None and
@@ -1899,6 +1957,28 @@ def _schema_exemplar(node, root, path="$exemplar"):
                 errors.append(str(error))
         raise QualificationError("no exemplar for {}: {}".format(
             path, "; ".join(errors)))
+    semantic_kind = node.get("properties", {}).get("kind", {}).get("const")
+    semantic_zeroes = {
+        "signed_dyadic_v1": {
+            "kind": "signed_dyadic_v1", "sign": 0,
+            "numerator_hex": "0", "denominator_power": 1074},
+        "absolute_dyadic_v1": {
+            "kind": "absolute_dyadic_v1", "numerator_hex": "0",
+            "denominator_power": 1074},
+        "rational_v1": {"kind": "rational_v1", "numerator": "0",
+                        "denominator": "1"},
+        "absolute_rational_v1": {
+            "kind": "absolute_rational_v1", "numerator": "0",
+            "denominator": "1"},
+        "rational_over_sqrt_v1": {
+            "kind": "rational_over_sqrt_v1", "absolute_numerator": "0",
+            "absolute_denominator": "1", "scale_squared_numerator": "1",
+            "scale_squared_denominator": "1"},
+    }
+    if semantic_kind in semantic_zeroes:
+        value = copy.deepcopy(semantic_zeroes[semantic_kind])
+        validate_schema_instance(value, node, root, path)
+        return value
     object_name = node.get("x-contract-object-name")
     if object_name == "availability":
         return availability("PRESENT", "a" * 64)
@@ -1926,6 +2006,10 @@ def _schema_exemplar(node, root, path="$exemplar"):
     elif "string" in types:
         candidates = ["a", "0", "1", "a" * 16, "a" * 40, "a" * 64,
                       "0000000000000000", "1970-01-01T00:00:00Z"]
+        if path.rsplit(".", 1)[-1] in {
+                "denominator", "absolute_denominator",
+                "scale_squared_numerator", "scale_squared_denominator"}:
+            candidates = ["1"] + candidates
         if "enum" in node:
             candidates = list(node["enum"])
         value = None
@@ -1957,6 +2041,147 @@ def _wrong_schema_type(value):
     candidates = [None, {}, [], "__wrong_type__", 0, True]
     return next(candidate for candidate in candidates
                 if type(candidate) is not type(value))
+
+
+def _valid_result_record_for_mutation(criterion_id):
+    """Build one semantically valid complete record before mutating M12."""
+    key = _criterion_mutation_key(criterion_id)
+    contract = RESULT_CONTRACT.CRITERION_BY_ID[criterion_id]
+    if criterion_id == "oracle_coverage_and_crosscheck":
+        record = [key, "UNCOVERED", None, None,
+                  "EIGENBASIS_CERTIFICATION_FAILED"]
+        validate_contract_result_record(criterion_id, record)
+        return record
+    schema = cached_schema()
+    exact_kind = next(kind for kind in contract["exact_value_kinds"]
+                      if kind is not None)
+    if criterion_id == "d12_instrumented_tsan":
+        exact_kind = "d12_tsan_finding_summary_v1"
+    target_kind = next((kind for kind in contract["target_kinds"]
+                        if kind is not None), None)
+    value = _schema_exemplar(schema["$defs"][exact_kind], schema,
+                             "$mutation.valid.value")
+    target = (None if target_kind is None else
+              _schema_exemplar(schema["$defs"][target_kind], schema,
+                               "$mutation.valid.target"))
+    outcome, reason = "PASS", None
+    zero_rational = {"kind": "rational_v1", "numerator": "0",
+                     "denominator": "1"}
+    zero_absolute = {"kind": "absolute_rational_v1", "numerator": "0",
+                     "denominator": "1"}
+    if criterion_id == "bindings_and_independence":
+        value["manifest_file_sha256"] = B2.MANIFEST_FILE_SHA256
+        value["manifest_contract_sha256"] = B2.MANIFEST_CONTRACT_SHA256
+    elif criterion_id == "complete_artifact_inventory":
+        key[1:] = [target["content_id"], target["candidate"],
+                   target["level"], target["cache_mode"]]
+        value.update({
+            "expected_slot_ordinal": target["expected_slot_ordinal"],
+            "compressed_sha256": target["compressed_sha256"],
+            "decompressed_json_sha256":
+                target["decompressed_json_sha256"],
+            "canonical_b2rowv1_sha256":
+                target["canonical_b2rowv1_sha256"],
+            "expected_identity_matches": True})
+    elif criterion_id == "representation_structure":
+        job = B2.valid_content_jobs(B2.load_manifest())[0]
+        _, faces, _ = B2.independent_mesh(job)
+        key[0] = job["content_identity_key"]
+        key[3] = 0
+        source_ids = sorted(set(faces[0]))
+        anchor_source = faces[0][0]
+        coefficients = [1.0 if source_id == anchor_source else 0.0
+                        for source_id in source_ids]
+        row = {"face_row": 0, "sample_id": key[5],
+               "row_kind": key[6], "source_ids": source_ids,
+               "coefficients": coefficients}
+        digest = hashlib.sha256()
+        digest.update(b"B2ROWV1")
+        digest.update(struct.pack("<i", key[3]))
+        sample_bytes = key[5].encode("utf-8")
+        digest.update(struct.pack("<I", len(sample_bytes)))
+        digest.update(sample_bytes)
+        digest.update(struct.pack("<I", ROW_ORDER.index(key[6])))
+        digest.update(struct.pack("<I", len(source_ids)))
+        for source_id, coefficient in zip(source_ids, coefficients):
+            digest.update(struct.pack("<i", source_id))
+            digest.update(struct.pack("<d", coefficient))
+        effective = effective_numerators(row, anchor_source)
+        value = {
+            "kind": "structure_present_v1", "anchor_id": "v0",
+            "anchor_present": True, "canonical_source_ids": source_ids,
+            "provider_coefficient_bits": [
+                binary64_bits_hex(item) for item in coefficients],
+            "provider_row_sha256": digest.hexdigest(),
+            "effective_coefficients": [
+                _signed_dyadic_descriptor(effective[source_id])
+                for source_id in source_ids],
+            "observed_sum": _signed_dyadic_descriptor(1 << 1074),
+            "expected_sum": _signed_dyadic_descriptor(1 << 1074),
+            "source_count": len(source_ids)}
+    elif criterion_id == "constant_field_bits":
+        bits = _expected_constant_bits(key)
+        value["observed_bits"] = bits
+        value["expected_bits"] = bits
+    elif exact_kind == "emitted_interval_scalar_v1":
+        value["observed_bits"] = "0000000000000000"
+        value["analytic_interval"] = {
+            "kind": "interval_rational_v1",
+            "lower": copy.deepcopy(zero_rational),
+            "upper": copy.deepcopy(zero_rational)}
+        value["absolute_error_upper"] = copy.deepcopy(zero_absolute)
+    elif exact_kind == "geometry_axis_v1":
+        value["axis"] = key[11]
+        value["view"] = key[7]
+        value["observed"] = (
+            {"kind": "binary64_scalar_v1",
+             "bits": "0000000000000000"}
+            if key[7] == "emitted_binary64" else
+            _signed_dyadic_descriptor(0))
+        value["reference_interval"] = {
+            "kind": "interval_rational_v1",
+            "lower": copy.deepcopy(zero_rational),
+            "upper": copy.deepcopy(zero_rational)}
+        one = {"kind": "rational_v1", "numerator": "1",
+               "denominator": "1"}
+        value["normalized_bound"] = {
+            "kind": "normalized_interval_bound_v1",
+            "difference_interval": {
+                "kind": "interval_rational_v1",
+                "lower": copy.deepcopy(zero_rational),
+                "upper": copy.deepcopy(zero_rational)},
+            "distance_upper": copy.deepcopy(zero_absolute),
+            "scale_squared_interval": {
+                "kind": "interval_rational_v1", "lower": copy.deepcopy(one),
+                "upper": copy.deepcopy(one)},
+            "scale_lower": copy.deepcopy(one),
+            "ideal_normalized": {
+                "kind": "rational_over_sqrt_v1",
+                "absolute_numerator": "0", "absolute_denominator": "1",
+                "scale_squared_numerator": "1",
+                "scale_squared_denominator": "1"},
+            "normalized_upper": copy.deepcopy(zero_absolute)}
+    elif exact_kind == "basis_value_v1":
+        value["emitted_basis_bits"] = "0000000000000000"
+        value["exact_effective"] = _signed_dyadic_descriptor(0)
+        value["source_error"] = _absolute_dyadic_descriptor(0)
+        value["group_l1"] = _absolute_dyadic_descriptor(0)
+    if target_kind == "absolute_rational_target_v1":
+        target = absolute_rational_target(
+            _row_target_denominator(criterion_id, key))
+    if criterion_id == "d12_peak_rss":
+        value["stage"] = key[12]
+    if criterion_id == "d12_instrumented_tsan":
+        value.update({"finding_count": 0, "sanitizer_abort": False,
+                      "sanitizer_report_sha256": None})
+        target = {"kind": "d12_tsan_finding_target_v1",
+                  "finding_count": 0}
+    record = [key, outcome, value, target, reason]
+    validate_contract_result_record(
+        criterion_id, record,
+        defer_basis_group=(criterion_id ==
+                           "binary64_basis_probe_diagnostic"))
+    return record
 
 
 def validate_bound_jcs_array(raw, descriptor):
@@ -2159,33 +2384,50 @@ def _d12_envelope_contract_fixture():
     for binary in value["binaries"].values():
         binary["source_inventory"] = [
             {"path": "source.cpp", "sha256": "a" * 64}]
-    value["build_profiles"]["release"]["flags"] = ["-O3"]
-    value["build_profiles"]["release"]["compile_commands"] = [
-        ["clang++", "-O3"]]
-    value["build_profiles"]["release"]["link_commands"] = [
-        ["clang++", "-O3"]]
-    value["build_profiles"]["tsan"]["flags"] = ["-fsanitize=thread"]
-    value["build_profiles"]["tsan"]["compile_commands"] = [
-        ["clang++", "-fsanitize=thread"]]
-    value["build_profiles"]["tsan"]["link_commands"] = [
-        ["clang++", "-fsanitize=thread"]]
+    build = B2.load_manifest()["qualification_platform"]["build"]
+    for name, flags in (
+            ("release", build["common_release_compile_flags"]),
+            ("tsan", build["thread_sanitizer_compile_flags"])):
+        profile = value["build_profiles"][name]
+        profile.update({
+            "compiler_path": build["compiler_path"],
+            "compiler_version": build["compiler_version"],
+            "flags": copy.deepcopy(flags),
+            "sdk_path": build["macos_sdk_path"],
+            "sdk_version": build["macos_sdk_version"],
+            "cmake_path": build["opensubdiv"]["cmake"]["path"],
+            "cmake_version": build["opensubdiv"]["cmake"]["version"],
+            "make_path": build["opensubdiv"]["build_tool"]["path"],
+            "make_version": build["opensubdiv"]["build_tool"]["version"],
+            "compile_commands": [[build["compiler_path"]] +
+                                 copy.deepcopy(flags) + ["source.cpp"]],
+            "link_commands": [[build["compiler_path"]] +
+                              copy.deepcopy(flags) +
+                              (["-fsanitize=thread"] if name == "tsan"
+                               else []) + ["source.o", "-o", "proof"]],
+        })
+    for name, dependency in value["dependencies"].items():
+        dependency["source_identity"] = {
+            "gmp": "6.3.0", "mpfr": "4.2.2",
+            "opensubdiv": "3.7.0"}[name]
     value["platform"] = {
         "platform_state": "UNQUALIFIED_PLATFORM",
         "expected_fingerprint": copy.deepcopy(
             B2.load_manifest()["qualification_platform"]["fingerprint"]),
         "observed_fingerprint": dict(
             B2.load_manifest()["qualification_platform"]["fingerprint"],
-            chip="Hosted Mac"),
-        "field_mismatches": ["chip"],
+            chip="Hosted Mac", kern_hv_vmm_present=1),
+        "field_mismatches": ["chip", "kern_hv_vmm_present"],
         "compiler_identity": B2.load_manifest()["qualification_platform"][
             "build"]["compiler_version"], "github_hosted": True,
         "virtualization_observation": {
             "kern_hv_vmm_present": 1, "shared_host_evidence": True},
-        "power_thermal_observations": [{
-            "boundary": "fixture", "power_api": B2.EXPECTED_POWER_API,
-            "power_query_ok": False, "power_value": "UNKNOWN",
-            "thermal_api": B2.EXPECTED_THERMAL_API,
-            "thermal_query_ok": False, "thermal_value": "UNKNOWN"}]}
+        "power_thermal_observations": [
+            {"boundary": boundary, "power_api": B2.EXPECTED_POWER_API,
+             "power_query_ok": False, "power_value": "UNKNOWN",
+             "thermal_api": B2.EXPECTED_THERMAL_API,
+             "thermal_query_ok": False, "thermal_value": "UNKNOWN"}
+            for boundary in _expected_d12_boundary_labels()]}
     value["authority"] = frozen_authority_record()
 
     def sidecar(path, count, digest):
@@ -2228,6 +2470,23 @@ def _d12_envelope_contract_fixture():
     return value
 
 
+def _expected_d12_boundary_labels():
+    boundaries = ("primary_before", "primary_after",
+                  "determinism_before", "determinism_after")
+    return [jcs_bytes(list(identity) + [boundary]).decode("utf-8")
+            for identity in B2.expected_numeric_case_identities(
+                B2.load_manifest())
+            for boundary in boundaries]
+
+
+def _command_contains_ordered_tokens(command, required):
+    cursor = 0
+    for token in command:
+        if cursor < len(required) and token == required[cursor]:
+            cursor += 1
+    return cursor == len(required)
+
+
 def validate_d12_envelope_contract(value, expected_head):
     validate_contract_value("anchored_row_representation_d12", value)
     digest_copy = copy.deepcopy(value)
@@ -2247,16 +2506,39 @@ def validate_d12_envelope_contract(value, expected_head):
                                   "dynamic_dependency_sha256")) and
                 binary["source_inventory"],
                 "D12 binary provenance incomplete")
-    for profile_name, profile in value["build_profiles"].items():
-        require(profile["flags"] and profile["compile_commands"] and
-                profile["link_commands"],
-                "D12 build profile lacks commands/flags")
-        if profile_name == "tsan":
-            require("-fsanitize=thread" in profile["flags"] and
-                    all("-fsanitize=thread" in command
-                        for command in profile["compile_commands"] +
-                        profile["link_commands"]),
-                    "D12 TSan profile is not instrumented")
+    build = B2.load_manifest()["qualification_platform"]["build"]
+    for profile_name, expected_flags in (
+            ("release", build["common_release_compile_flags"]),
+            ("tsan", build["thread_sanitizer_compile_flags"])):
+        profile = value["build_profiles"][profile_name]
+        require(profile["compiler_path"] == build["compiler_path"] and
+                profile["compiler_version"] == build["compiler_version"] and
+                profile["flags"] == expected_flags and
+                profile["sdk_path"] == build["macos_sdk_path"] and
+                profile["sdk_version"] == build["macos_sdk_version"] and
+                profile["cmake_path"] ==
+                    build["opensubdiv"]["cmake"]["path"] and
+                profile["cmake_version"] ==
+                    build["opensubdiv"]["cmake"]["version"] and
+                profile["make_path"] ==
+                    build["opensubdiv"]["build_tool"]["path"] and
+                profile["make_version"] ==
+                    build["opensubdiv"]["build_tool"]["version"] and
+                profile["compile_commands"] and profile["link_commands"] and
+                all(command[0] == build["compiler_path"] and
+                    _command_contains_ordered_tokens(command, expected_flags)
+                    for command in profile["compile_commands"] +
+                    profile["link_commands"]) and
+                (profile_name != "tsan" or
+                 all("-fsanitize=thread" in command
+                     for command in profile["compile_commands"] +
+                     profile["link_commands"])),
+                "D12 build profile differs from frozen exact authority")
+    for name, dependency in value["dependencies"].items():
+        require(dependency["source_identity"] == {
+                    "gmp": "6.3.0", "mpfr": "4.2.2",
+                    "opensubdiv": "3.7.0"}[name],
+                "D12 dependency source identity drift")
     platform = value["platform"]
     qualification_platform = B2.load_manifest()["qualification_platform"]
     require(platform["expected_fingerprint"] ==
@@ -2269,35 +2551,36 @@ def validate_d12_envelope_contract(value, expected_head):
         if platform["observed_fingerprint"][key] != expected)
     require(platform["field_mismatches"] == exact_mismatches,
             "D12 fingerprint mismatch ledger is inconsistent")
-    if platform["platform_state"] == "QUALIFIED_PLATFORM":
-        require(platform["github_hosted"] is False and
-                platform["expected_fingerprint"] ==
+    observations = platform["power_thermal_observations"]
+    require([item["boundary"] for item in observations] ==
+                _expected_d12_boundary_labels() and
+            all(item["power_api"] == B2.EXPECTED_POWER_API and
+                item["thermal_api"] == B2.EXPECTED_THERMAL_API and
+                ((item["power_query_ok"] is True and
+                  item["power_value"] == B2.EXPECTED_POWER_VALUE) or
+                 (item["power_query_ok"] is False and
+                  item["power_value"] == "UNKNOWN")) and
+                ((item["thermal_query_ok"] is True and
+                  item["thermal_value"] == B2.EXPECTED_THERMAL_VALUE) or
+                 (item["thermal_query_ok"] is False and
+                  item["thermal_value"] == "UNKNOWN"))
+                for item in observations) and
+            platform["virtualization_observation"][
+                "kern_hv_vmm_present"] ==
+                platform["observed_fingerprint"]["kern_hv_vmm_present"],
+            "D12 process-boundary platform observations are not frozen")
+    qualified = (platform["github_hosted"] is False and
+                 platform["expected_fingerprint"] ==
                     platform["observed_fingerprint"] and
-                platform["field_mismatches"] == [] and
-                platform["virtualization_observation"] == {
+                 platform["field_mismatches"] == [] and
+                 platform["virtualization_observation"] == {
                     "kern_hv_vmm_present": 0,
                     "shared_host_evidence": False} and
-                len(platform["power_thermal_observations"]) == 1176 and
-                all(observation["power_api"] ==
-                        B2.EXPECTED_POWER_API and
-                    observation["power_query_ok"] is True and
-                    observation["power_value"] == B2.EXPECTED_POWER_VALUE and
-                    observation["thermal_api"] ==
-                        B2.EXPECTED_THERMAL_API and
-                    observation["thermal_query_ok"] is True and
-                    observation["thermal_value"] ==
-                        B2.EXPECTED_THERMAL_VALUE
-                    for observation in
-                    platform["power_thermal_observations"]) and
-                [observation["boundary"] for observation in
-                 platform["power_thermal_observations"]] == sorted(
-                    {observation["boundary"] for observation in
-                     platform["power_thermal_observations"]}, key=jcs_bytes),
-                "hosted/mismatched platform cannot be qualified")
-    else:
-        require(platform["github_hosted"] is True or
-                platform["field_mismatches"],
-                "unqualified platform lacks observed mismatch")
+                 all(item["power_query_ok"] is True and
+                     item["thermal_query_ok"] is True
+                     for item in observations))
+    require((platform["platform_state"] == "QUALIFIED_PLATFORM") == qualified,
+            "D12 platform state contradicts frozen observations")
     require(value["authority"] == frozen_authority_record(),
             "D12 envelope authority differs from frozen authority")
     workload = value["workload"]
@@ -2562,13 +2845,7 @@ def execute_literal_mutation_suite():
                     did_reject = True
         elif operator == "M12":
             _, criterion_id, _ = operand.split(":", 2)
-            outcome = ("UNCOVERED" if criterion_id in ORACLE_CRITERIA else
-                       "PASS")
-            reason = ("ORACLE_EXECUTION_UNAVAILABLE"
-                      if outcome == "UNCOVERED" else None)
-            first = [_criterion_mutation_key(criterion_id), outcome,
-                     None, None, reason]
-            validate_result_record_envelope(criterion_id, first)
+            first = _valid_result_record_for_mutation(criterion_id)
             second = [["mutation-carrier", criterion_id], "PASS",
                       None, None, None]
             baseline_records = sorted([first, second],
@@ -2595,12 +2872,11 @@ def execute_literal_mutation_suite():
             try:
                 if mutation in {"duplicate", "reorder"}:
                     canonical_result_ledger(candidate_records)
-                elif mutation in {"exact-value", "target"}:
-                    validate_contract_result_record(
-                        criterion_id, candidate_records[record_index])
                 else:
-                    validate_result_record_envelope(
-                        criterion_id, candidate_records[record_index])
+                    validate_contract_result_record(
+                        criterion_id, candidate_records[record_index],
+                        defer_basis_group=(criterion_id ==
+                                           "binary64_basis_probe_diagnostic"))
             except QualificationError:
                 did_reject = True
         elif operator == "M13":
@@ -2913,11 +3189,23 @@ def execute_literal_mutation_suite():
                     key[6] = 0
                     key[12] = "thread_result"
                     key[13] = "row_digest"
-                    D12EvidenceVerifier(".", candidate).result_record(
-                        key, None,
-                        {"kind": "d12_output_reference_target_v1",
-                         "provider_expected_sha256": "b" * 64,
-                         "representation_expected_sha256": "c" * 64})
+                    inventory = D12WorkerInventoryVerifier.__new__(
+                        D12WorkerInventoryVerifier)
+                    inventory.case_references = {
+                        (key[0], key[1]): {
+                            "provider": "b" * 64,
+                            "representation": "c" * 64}}
+                    valid_target = {
+                        "kind": "d12_output_reference_target_v1",
+                        "provider_expected_sha256": envelope["workload"][
+                            "provider_serial_reference"]["sha256"],
+                        "representation_expected_sha256": envelope["workload"][
+                            "representation_serial_reference"]["sha256"]}
+                    inventory.require_target(key, valid_target)
+                    mutated_target = copy.deepcopy(valid_target)
+                    mutated_target["provider_expected_sha256"] = candidate[
+                        "workload"]["provider_serial_reference"]["sha256"]
+                    inventory.require_target(key, mutated_target)
             except (QualificationError, UnicodeDecodeError,
                     json.JSONDecodeError):
                 did_reject = True
@@ -6075,6 +6363,8 @@ def _iter_canonical_result_records(path, result_digest):
                     require(byte == ord("["),
                             "result sidecar record must be an array")
                     buffer.append(byte)
+                    require(len(buffer) <= MAX_RESULT_RECORD_BYTES,
+                            "result sidecar record exceeds byte limit")
                     depth = 1
                     in_string = False
                     escaped = False
@@ -6095,6 +6385,8 @@ def _iter_canonical_result_records(path, result_digest):
                         done = True
                     continue
                 buffer.append(byte)
+                require(len(buffer) <= MAX_RESULT_RECORD_BYTES,
+                        "result sidecar record exceeds byte limit")
                 if in_string:
                     if escaped:
                         escaped = False
@@ -6107,6 +6399,8 @@ def _iter_canonical_result_records(path, result_digest):
                     in_string = True
                 elif byte in (ord("["), ord("{")):
                     depth += 1
+                    require(depth <= MAX_RESULT_RECORD_NESTING,
+                            "result sidecar record exceeds nesting limit")
                 elif byte in (ord("]"), ord("}")):
                     depth -= 1
                     require(depth >= 0, "result sidecar nesting")
@@ -6325,7 +6619,15 @@ def validate_d12_raw_exact_value(payload, exact_value):
                     "D12 RSS result differs from raw tokens")
         else:
             require(kind == "d12_rss_invalid_v1" and
-                    exact_value["invalid_state"] == payload["state"],
+                    exact_value["invalid_state"] == payload["state"] and
+                    exact_value["baseline_rss_bytes"] ==
+                        (None if payload["baseline_token"] is None else
+                         _canonical_uint64_token(
+                            payload["baseline_token"])) and
+                    exact_value["observed_rss_bytes"] ==
+                        (None if payload["observed_token"] is None else
+                         _canonical_uint64_token(
+                            payload["observed_token"])),
                     "D12 RSS invalid state differs from raw payload")
     elif raw_kind == "d12_tsan_instrumentation_raw_v1":
         require(kind == "d12_tsan_instrumentation_summary_v1" and
@@ -6351,6 +6653,12 @@ def validate_d12_raw_exact_value(payload, exact_value):
                     exact_value["sanitizer_report_sha256"] ==
                         payload["sanitizer_report_sha256"],
                     "D12 finding result differs from raw abort")
+        else:
+            require(payload["state"] == "EXECUTION_UNAVAILABLE" and
+                    exact_value["finding_count"] is None and
+                    exact_value["sanitizer_abort"] is False and
+                    exact_value["sanitizer_report_sha256"] is None,
+                    "D12 unavailable finding execution must remain incomplete")
     return True
 
 
@@ -7142,6 +7450,10 @@ class ProviderRowVerifier:
                 report["checkpoint"]["availability"]["sha256"],
                 "structure checkpoint full validation digest mismatch")
         self.checkpoint = checkpoint
+        self.faces = {}
+        for job in B2.valid_content_jobs(B2.load_manifest()):
+            _, faces, _ = B2.independent_mesh(job)
+            self.faces[job["content_identity_key"]] = faces
         self.cases = {}
         for case in ordered_bfr_cases(checkpoint):
             case_key = (case["content_identity_key"],
@@ -7153,7 +7465,7 @@ class ProviderRowVerifier:
         self.loaded_case_key = None
         self.rows = None
 
-    def result_record(self, key, exact_value):
+    def _row_for_key(self, key):
         case_key = tuple(key[:3])
         case = self.cases.get(case_key)
         require(case is not None, "structure row has no checkpoint case")
@@ -7176,6 +7488,28 @@ class ProviderRowVerifier:
         row_key = (key[3], key[4], key[5], key[6])
         row = self.rows.get(row_key)
         require(row is not None, "structure provider row missing")
+        return row
+
+    def result_record(self, criterion_id, key, exact_value):
+        row = self._row_for_key(key)
+        if criterion_id == "relabel_exact_effective_coefficients":
+            anchor_source = self.faces[key[0]][key[3]][ANCHORS.index(key[8])]
+            expected = effective_numerators(row, anchor_source)
+            require(exact_value["source_ids"] == row["source_ids"] and
+                    exact_value["expected"] == [
+                        _signed_dyadic_descriptor(expected[source_id])
+                        for source_id in row["source_ids"]],
+                    "relabel result differs from provider-derived exact row")
+            return True
+        if criterion_id == "binary64_basis_probe_diagnostic":
+            anchor_source = self.faces[key[0]][key[3]][ANCHORS.index(key[8])]
+            expected = effective_numerators(row, anchor_source)
+            require(key[10] in expected and exact_value["exact_effective"] ==
+                    _signed_dyadic_descriptor(expected[key[10]]),
+                    "basis result differs from provider-derived exact row")
+            return True
+        require(criterion_id == "representation_structure",
+                "provider row verifier criterion")
         require(exact_value["canonical_source_ids"] == row["source_ids"] and
                 exact_value["provider_coefficient_bits"] == [
                     binary64_bits_hex(coefficient)
@@ -7184,11 +7518,83 @@ class ProviderRowVerifier:
         return True
 
 
+def _read_command_tokens(path_text):
+    raw = pathlib.Path(path_text).resolve().read_bytes()
+    try:
+        value = strict_json_bytes(raw)
+    except (QualificationError, UnicodeDecodeError,
+            json.JSONDecodeError):
+        value = raw.decode("utf-8").splitlines()
+    require(isinstance(value, list) and value and
+            all(isinstance(item, str) and item for item in value),
+            "D12 compiler-command artifact is not an exact argv array")
+    return value
+
+
+def _validate_d12_runtime_provenance(envelope, report, provenance):
+    """Hash every nested D12 claim against caller-supplied artifact bytes."""
+    require(isinstance(provenance, dict) and
+            set(provenance.get("binaries", {})) == set(envelope["binaries"]) and
+            set(provenance.get("dependencies", {})) ==
+                set(envelope["dependencies"]),
+            "qualified D12 validation lacks complete nested provenance")
+    expected_sources = {
+        "provider_release": report["binaries"]["row_provider"]["sources"],
+        "provider_tsan": report["binaries"]["row_provider"]["sources"],
+        "representation_release": report["binaries"][
+            "representation_candidate"]["sources"],
+        "representation_tsan": report["binaries"][
+            "representation_candidate"]["sources"],
+    }
+    profile_for_binary = {
+        "provider_release": "release", "representation_release": "release",
+        "provider_tsan": "tsan", "representation_tsan": "tsan"}
+    binary_fields = {
+        "compiler_command": "compiler_command_sha256",
+        "link_map": "link_map_sha256",
+        "dynamic_dependencies": "dynamic_dependency_sha256"}
+    for name, files in provenance["binaries"].items():
+        binary = envelope["binaries"][name]
+        require(binary["source_inventory"] == expected_sources[name] and
+                set(files) == set(binary_fields),
+                "D12 binary source/provenance inventory is not complete: " +
+                name)
+        for field, digest_field in binary_fields.items():
+            path = pathlib.Path(files[field]).resolve()
+            require(path.is_file() and sha256_file(path) ==
+                    binary[digest_field],
+                    "D12 binary provenance bytes differ: " + name + "." +
+                    field)
+        command = _read_command_tokens(files["compiler_command"])
+        profile = envelope["build_profiles"][profile_for_binary[name]]
+        require(command in profile["compile_commands"] and
+                command in profile["link_commands"],
+                "D12 compiler-command bytes differ from exact build profile")
+    dependency_fields = {
+        "archive": "archive_sha256",
+        "build_root_provenance": "build_root_provenance_sha256",
+        "install_provenance": "install_provenance_sha256",
+        "link_provenance": "link_provenance_sha256",
+        "installed_library": "installed_library_sha256"}
+    for name, files in provenance["dependencies"].items():
+        dependency = envelope["dependencies"][name]
+        require(set(files) == set(dependency_fields),
+                "D12 dependency provenance inventory is incomplete: " + name)
+        for field, digest_field in dependency_fields.items():
+            path = pathlib.Path(files[field]).resolve()
+            require(path.is_file() and sha256_file(path) ==
+                    dependency[digest_field],
+                    "D12 dependency provenance bytes differ: " + name + "." +
+                    field)
+    return True
+
+
 def validate_result_sidecar_bundle(report, bundle_root, checkpoint_path=None,
                                    artifact_root=None,
                                    runtime_binaries=None,
                                    runtime_provenance=None,
-                                   d12_runtime_binaries=None):
+                                   d12_runtime_binaries=None,
+                                   d12_runtime_provenance=None):
     """Stream-rescan all result bytes, exact outcomes, maxima, and proofs."""
     bundle_root = pathlib.Path(bundle_root).resolve()
     d12_envelope = _bound_d12_envelope(report, bundle_root)
@@ -7217,6 +7623,8 @@ def validate_result_sidecar_bundle(report, bundle_root, checkpoint_path=None,
             path = pathlib.Path(d12_runtime_binaries[name]).resolve()
             require(path.is_file() and sha256_file(path) == binary["sha256"],
                     "D12 runtime binary differs from envelope: " + name)
+        _validate_d12_runtime_provenance(
+            d12_envelope, report, d12_runtime_provenance)
         provider_rows = ProviderRowVerifier(
             checkpoint_path, artifact_root,
             runtime_binaries.get("row_provider"), report)
@@ -7282,14 +7690,18 @@ def validate_result_sidecar_bundle(report, bundle_root, checkpoint_path=None,
                     basis_groups.add(record)
                 else:
                     validate_contract_result_record(criterion_id, record)
-                if criterion_id == "bindings_and_independence":
-                    _validate_binding_against_report(record[2], report)
-                elif criterion_id == "representation_structure":
+                if criterion_id in {
+                        "representation_structure",
+                        "relabel_exact_effective_coefficients",
+                        "binary64_basis_probe_diagnostic"}:
                     if provider_rows is None:
                         provider_rows = ProviderRowVerifier(
                             checkpoint_path, artifact_root,
                             runtime_binaries.get("row_provider"), report)
-                    provider_rows.result_record(record[0], record[2])
+                    provider_rows.result_record(
+                        criterion_id, record[0], record[2])
+                if criterion_id == "bindings_and_independence":
+                    _validate_binding_against_report(record[2], report)
                 elif criterion_id in D12_CRITERIA:
                     d12_evidence.result_record(
                         record[0], record[2], record[3])
@@ -8189,6 +8601,12 @@ def parse_args(argv=None):
     parser.add_argument("--independent-oracle-binary")
     parser.add_argument("--provider-tsan-binary")
     parser.add_argument("--representation-tsan-binary")
+    parser.add_argument("--provider-tsan-command-file")
+    parser.add_argument("--provider-tsan-link-map")
+    parser.add_argument("--provider-tsan-dynamic-dependencies")
+    parser.add_argument("--representation-tsan-command-file")
+    parser.add_argument("--representation-tsan-link-map")
+    parser.add_argument("--representation-tsan-dynamic-dependencies")
     parser.add_argument("--compiler-version-file")
     parser.add_argument("--provider-command-file")
     parser.add_argument("--provider-link-map")
@@ -8207,11 +8625,13 @@ def parse_args(argv=None):
     parser.add_argument("--gmp-install-provenance")
     parser.add_argument("--gmp-link-provenance")
     parser.add_argument("--gmp-dynamic-dependency")
+    parser.add_argument("--gmp-installed-library")
     parser.add_argument("--mpfr-archive")
     parser.add_argument("--mpfr-build-provenance")
     parser.add_argument("--mpfr-install-provenance")
     parser.add_argument("--mpfr-link-provenance")
     parser.add_argument("--mpfr-dynamic-dependency")
+    parser.add_argument("--mpfr-installed-library")
     parser.add_argument("--opensubdiv-archive")
     parser.add_argument("--opensubdiv-build-provenance")
     parser.add_argument("--opensubdiv-install-provenance")
@@ -8238,6 +8658,11 @@ def main(argv=None):
                 "provider_binary", "candidate_binary",
                 "exact_dyadic_boundary_binary", "independent_oracle_binary",
                 "provider_tsan_binary", "representation_tsan_binary",
+                "provider_tsan_command_file", "provider_tsan_link_map",
+                "provider_tsan_dynamic_dependencies",
+                "representation_tsan_command_file",
+                "representation_tsan_link_map",
+                "representation_tsan_dynamic_dependencies",
                 "compiler_version_file", "provider_command_file",
                 "provider_link_map", "provider_dynamic_dependencies",
                 "candidate_command_file", "candidate_link_map",
@@ -8247,9 +8672,11 @@ def main(argv=None):
                 "oracle_dynamic_dependencies", "gmp_archive",
                 "gmp_build_provenance", "gmp_install_provenance",
                 "gmp_link_provenance", "gmp_dynamic_dependency",
+                "gmp_installed_library",
                 "mpfr_archive", "mpfr_build_provenance",
                 "mpfr_install_provenance", "mpfr_link_provenance",
-                "mpfr_dynamic_dependency", "opensubdiv_archive",
+                "mpfr_dynamic_dependency", "mpfr_installed_library",
+                "opensubdiv_archive",
                 "opensubdiv_build_provenance",
                 "opensubdiv_install_provenance",
                 "opensubdiv_link_provenance",
@@ -8357,7 +8784,59 @@ def main(argv=None):
                     "provider_tsan": args.provider_tsan_binary,
                     "representation_release": args.candidate_binary,
                     "representation_tsan":
-                        args.representation_tsan_binary})
+                        args.representation_tsan_binary}, {
+                    "binaries": {
+                        "provider_release": {
+                            "compiler_command": args.provider_command_file,
+                            "link_map": args.provider_link_map,
+                            "dynamic_dependencies":
+                                args.provider_dynamic_dependencies},
+                        "provider_tsan": {
+                            "compiler_command":
+                                args.provider_tsan_command_file,
+                            "link_map": args.provider_tsan_link_map,
+                            "dynamic_dependencies":
+                                args.provider_tsan_dynamic_dependencies},
+                        "representation_release": {
+                            "compiler_command": args.candidate_command_file,
+                            "link_map": args.candidate_link_map,
+                            "dynamic_dependencies":
+                                args.candidate_dynamic_dependencies},
+                        "representation_tsan": {
+                            "compiler_command":
+                                args.representation_tsan_command_file,
+                            "link_map": args.representation_tsan_link_map,
+                            "dynamic_dependencies":
+                                args.representation_tsan_dynamic_dependencies}},
+                    "dependencies": {
+                        "gmp": {
+                            "archive": args.gmp_archive,
+                            "build_root_provenance":
+                                args.gmp_build_provenance,
+                            "install_provenance":
+                                args.gmp_install_provenance,
+                            "link_provenance": args.gmp_link_provenance,
+                            "installed_library":
+                                args.gmp_installed_library},
+                        "mpfr": {
+                            "archive": args.mpfr_archive,
+                            "build_root_provenance":
+                                args.mpfr_build_provenance,
+                            "install_provenance":
+                                args.mpfr_install_provenance,
+                            "link_provenance": args.mpfr_link_provenance,
+                            "installed_library":
+                                args.mpfr_installed_library},
+                        "opensubdiv": {
+                            "archive": args.opensubdiv_archive,
+                            "build_root_provenance":
+                                args.opensubdiv_build_provenance,
+                            "install_provenance":
+                                args.opensubdiv_install_provenance,
+                            "link_provenance":
+                                args.opensubdiv_link_provenance,
+                            "installed_library":
+                                args.opensubdiv_dynamic_dependency}}})
             encoded = jcs_bytes({
                 "kind": "anchored_row_qualification_bundle_validation",
                 "report_sha256": sha256_bytes(raw), "status": "ok"}) + b"\n"

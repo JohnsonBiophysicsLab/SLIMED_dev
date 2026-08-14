@@ -1213,11 +1213,47 @@ class AnchoredRowQualificationTests(unittest.TestCase):
                      "provider_coefficient_bits": [
                          MODULE.binary64_bits_hex(0.25),
                          MODULE.binary64_bits_hex(0.75)]}
-            self.assertTrue(verifier.result_record(key, value))
+            self.assertTrue(verifier.result_record(
+                "representation_structure", key, value))
             value["provider_coefficient_bits"][0] = \
                 MODULE.binary64_bits_hex(0.5)
             with self.assertRaises(MODULE.QualificationError):
-                verifier.result_record(key, value)
+                verifier.result_record("representation_structure", key, value)
+
+    def test_relabel_and_basis_exact_values_are_provider_derived(self):
+        row = {"face_row": 0, "local_corner_or_none": -1,
+               "sample_id": "sample", "row_kind": "position",
+               "source_ids": [0, 1], "coefficients": [0.25, 0.75]}
+        verifier = MODULE.ProviderRowVerifier.__new__(
+            MODULE.ProviderRowVerifier)
+        verifier.faces = {"content": [[0, 1, 2]]}
+        verifier._row_for_key = lambda key: row
+
+        relabel = MODULE._valid_result_record_for_mutation(
+            "relabel_exact_effective_coefficients")
+        relabel[0][0] = "content"
+        relabel[2]["source_ids"] = [999]
+        relabel[2]["observed"] = [MODULE._signed_dyadic_descriptor(0)]
+        relabel[2]["expected"] = [MODULE._signed_dyadic_descriptor(0)]
+        relabel[2]["absolute_errors"] = [
+            MODULE._absolute_dyadic_descriptor(0)]
+        relabel[2]["l1"] = MODULE._absolute_dyadic_descriptor(0)
+        MODULE.validate_contract_result_record(
+            "relabel_exact_effective_coefficients", relabel)
+        with self.assertRaises(MODULE.QualificationError):
+            verifier.result_record(
+                "relabel_exact_effective_coefficients", relabel[0], relabel[2])
+
+        basis = MODULE._valid_result_record_for_mutation(
+            "binary64_basis_probe_diagnostic")
+        basis[0][0] = "content"
+        basis[0][10] = 999
+        MODULE.validate_contract_result_record(
+            "binary64_basis_probe_diagnostic", basis,
+            defer_basis_group=True)
+        with self.assertRaises(MODULE.QualificationError):
+            verifier.result_record(
+                "binary64_basis_probe_diagnostic", basis[0], basis[2])
 
     def test_geometry_and_d12_values_are_coupled_to_their_keys(self):
         zero = {"kind": "rational_v1", "numerator": "0",
@@ -1374,6 +1410,149 @@ class AnchoredRowQualificationTests(unittest.TestCase):
         rss[8] = 3
         with self.assertRaises(MODULE.QualificationError):
             MODULE.validate_d12_key(rss, "d12_peak_rss")
+
+    def test_d12_unavailable_and_invalid_raw_states_cannot_forge_passes(self):
+        unavailable = {
+            "kind": "d12_tsan_finding_raw_v1",
+            "state": "EXECUTION_UNAVAILABLE", "finding_count_token": None,
+            "sanitizer_report_sha256": None}
+        forged = {
+            "kind": "d12_tsan_finding_summary_v1", "finding_count": 0,
+            "sanitizer_abort": False, "sanitizer_report_sha256": None,
+            "platform_state": "QUALIFIED_PLATFORM",
+            "raw_observation": MODULE._schema_exemplar(
+                MODULE.cached_schema()["$defs"][
+                    "d12_raw_observation_binding_v1"],
+                MODULE.cached_schema())}
+        with self.assertRaises(MODULE.QualificationError):
+            MODULE.validate_d12_raw_exact_value(unavailable, forged)
+        incomplete = copy.deepcopy(forged)
+        incomplete["finding_count"] = None
+        self.assertTrue(MODULE.validate_d12_raw_exact_value(
+            unavailable, incomplete))
+        record = MODULE._valid_result_record_for_mutation(
+            "d12_instrumented_tsan")
+        record[2] = incomplete
+        record[1] = "INCOMPLETE"
+        record[4] = "D12_OPERATIONAL_LEDGER_INCOMPLETE"
+        MODULE.validate_contract_result_record(
+            "d12_instrumented_tsan", record)
+        forged_record = copy.deepcopy(record)
+        forged_record[1], forged_record[4] = "PASS", None
+        with self.assertRaises(MODULE.QualificationError):
+            MODULE.validate_contract_result_record(
+                "d12_instrumented_tsan", forged_record)
+
+        instrumentation = MODULE._schema_exemplar(
+            MODULE.cached_schema()["$defs"][
+                "d12_tsan_instrumentation_summary_v1"],
+            MODULE.cached_schema())
+        instrumentation.update({"instrumentation_complete": False,
+                                "instrumented_translation_units_sha256":
+                                    None})
+        instrumentation_key = copy.deepcopy(record[0])
+        instrumentation_key[13] = "instrumentation_coverage"
+        instrumentation_target = MODULE._schema_exemplar(
+            MODULE.cached_schema()["$defs"][
+                "d12_tsan_instrumentation_target_v1"],
+            MODULE.cached_schema())
+        bad_instrumentation = [
+            instrumentation_key, "FAIL", instrumentation,
+            instrumentation_target,
+            "D12_REPRESENTATION_WORKLOAD_MISMATCH"]
+        with self.assertRaises(MODULE.QualificationError):
+            MODULE.validate_contract_result_record(
+                "d12_instrumented_tsan", bad_instrumentation)
+        bad_instrumentation[1] = "INCOMPLETE"
+        bad_instrumentation[4] = "D12_OPERATIONAL_LEDGER_INCOMPLETE"
+        MODULE.validate_contract_result_record(
+            "d12_instrumented_tsan", bad_instrumentation)
+
+        invalid_rss = {"kind": "d12_rss_raw_v1",
+                       "state": "MISSING_OBSERVATION",
+                       "baseline_token": "123", "observed_token": None}
+        rss_value = MODULE._schema_exemplar(
+            MODULE.cached_schema()["$defs"]["d12_rss_invalid_v1"],
+            MODULE.cached_schema())
+        rss_value.update({"baseline_rss_bytes": 999,
+                          "observed_rss_bytes": None,
+                          "invalid_state": "MISSING_OBSERVATION"})
+        with self.assertRaises(MODULE.QualificationError):
+            MODULE.validate_d12_raw_exact_value(invalid_rss, rss_value)
+        rss_value["baseline_rss_bytes"] = 123
+        MODULE.validate_d12_raw_exact_value(invalid_rss, rss_value)
+
+    def test_d12_frozen_build_and_boundary_authority_rejects_drift(self):
+        envelope = MODULE._d12_envelope_contract_fixture()
+        for mutate in (
+                lambda value: value["build_profiles"]["release"].update(
+                    {"flags": ["WRONG"]}),
+                lambda value: value["platform"][
+                    "power_thermal_observations"][0].update(
+                        {"boundary": "invented"}),
+                lambda value: value["platform"][
+                    "power_thermal_observations"][0].update(
+                        {"power_api": "invented"})):
+            candidate = copy.deepcopy(envelope)
+            mutate(candidate)
+            candidate["content_sha256"] = MODULE.ZERO_SHA256
+            candidate["content_sha256"] = MODULE.sha256_bytes(
+                MODULE.jcs_bytes(candidate))
+            with self.assertRaises(MODULE.QualificationError):
+                MODULE.validate_d12_envelope_contract(candidate, "a" * 40)
+
+    def test_standalone_validation_binds_actual_git_head_and_cleanliness(self):
+        head = "a" * 40
+        report = {
+            "identity": {
+                "git_start": {"git_commit": head},
+                "git_end": {"git_commit": head},
+                "worktree_start": {"clean": True},
+                "worktree_end": {"clean": True},
+                "validator": {"sha256": MODULE.sha256_file(
+                    pathlib.Path(MODULE.__file__).resolve())}},
+            "checkpoint": {"git_head": head}, "binaries": {}}
+        actual = ({"state": "PRESENT", "git_commit": head,
+                   "reason_code": None},
+                  {"state": "PRESENT", "clean": True,
+                   "reason_code": None})
+        with mock.patch.object(MODULE, "git_observations",
+                               return_value=actual):
+            MODULE._validate_runtime_bindings(report, {})
+            forged = copy.deepcopy(report)
+            forged["identity"]["git_end"]["git_commit"] = "b" * 40
+            with self.assertRaises(MODULE.QualificationError):
+                MODULE._validate_runtime_bindings(forged, {})
+            dirty = (actual[0], {"state": "INVALID", "clean": None,
+                                 "reason_code": "WORKTREE_DIRTY"})
+            with mock.patch.object(MODULE, "git_observations",
+                                   return_value=dirty):
+                with self.assertRaises(MODULE.QualificationError):
+                    MODULE._validate_runtime_bindings(report, {})
+
+    def test_streamed_result_record_has_hard_byte_and_nesting_caps(self):
+        record = MODULE.jcs_bytes([["cell"], "PASS", None, None, None])
+        with tempfile.TemporaryDirectory() as temporary:
+            path = pathlib.Path(temporary) / "result.json"
+            path.write_bytes(b"[" + record + b"]")
+            with mock.patch.object(MODULE, "MAX_RESULT_RECORD_BYTES",
+                                   len(record) - 1):
+                with self.assertRaises(MODULE.QualificationError):
+                    list(MODULE._iter_canonical_result_records(
+                        path, MODULE.hashlib.sha256()))
+            nested = b"[" * 66 + b"0" + b"]" * 66
+            path.write_bytes(b"[" + nested + b"]")
+            with self.assertRaises(MODULE.QualificationError):
+                list(MODULE._iter_canonical_result_records(
+                    path, MODULE.hashlib.sha256()))
+
+    def test_m12_baselines_are_semantically_valid_before_mutation(self):
+        for criterion_id in MODULE.CRITERION_IDS:
+            record = MODULE._valid_result_record_for_mutation(criterion_id)
+            MODULE.validate_contract_result_record(
+                criterion_id, record,
+                defer_basis_group=(criterion_id ==
+                                   "binary64_basis_probe_diagnostic"))
 
     def test_d12_evidence_rescans_enclosing_json_and_b2row_bytes(self):
         with tempfile.TemporaryDirectory() as temporary:
