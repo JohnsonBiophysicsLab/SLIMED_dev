@@ -6544,6 +6544,10 @@ def validate_criteria(criteria):
                     "inventory aggregate target form")
             validate_contract_value("unexpected_paths_target_v1",
                                     item["target"])
+            if status == "PASS":
+                require(item["target"]["sidecar"]["availability"]["state"] ==
+                        "PRESENT",
+                        "inventory PASS lacks present aggregate target")
         else:
             require(item["target"] == report_criterion_target(criterion_id),
                     "criterion aggregate target drift")
@@ -9719,12 +9723,16 @@ def make_criteria(worktree, all_required_bindings_present, ledgers,
                 ledger=key_ledger, target=aggregate_target))
             continue
         commitment = evidence["commitment"]
-        aggregate_target = evidence.get("target")
-        if aggregate_target is None:
-            aggregate_target = (
-                unavailable_unexpected_paths_target()
-                if criterion_id == "complete_artifact_inventory" else
-                report_criterion_target(criterion_id))
+        if criterion_id == "complete_artifact_inventory":
+            aggregate_target = evidence.get("target")
+            require(aggregate_target is not None,
+                    "inventory aggregate target unavailable")
+            require(evidence.get("unexpected_paths") == aggregate_target,
+                    "inventory aggregate target/evidence drift")
+        else:
+            aggregate_target = evidence.get("target")
+            if aggregate_target is None:
+                aggregate_target = report_criterion_target(criterion_id)
         records.append(criterion_record(
             criterion_id, evidence["status"],
             expectation=expectations[criterion_id],

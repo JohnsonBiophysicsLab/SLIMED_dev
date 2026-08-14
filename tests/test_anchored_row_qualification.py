@@ -486,32 +486,77 @@ class AnchoredRowQualificationTests(unittest.TestCase):
             "availability": MODULE.availability("PRESENT", digest),
             "omission_blocker": None,
         } for criterion_id in MODULE.CRITERION_IDS]
-        target = MODULE.unavailable_unexpected_paths_target()
-        infrastructure = {
-            "complete_artifact_inventory": {
-                "status": "PASS",
-                "observed_count": 0,
-                "commitment": {
-                    "key_ledger_sha256": digest,
-                    "result_ledger_sha256": "b" * 64,
-                    "result_merkle_root_sha256": "c" * 64,
-                },
-                "artifact": {
-                    "availability": MODULE.availability("PRESENT", "d" * 64),
-                    "relative_path": "inventory-results.json",
-                    "byte_length": 2,
-                    "record_count": 0,
-                },
-                "target": target,
-                "maximum": None,
-                "witness": None,
-                "first_failing_key": None,
+        empty_digest = MODULE.sha256_bytes(b"[]")
+        target = {
+            "kind": "unexpected_paths_target_v1",
+            "required_record_count": 0,
+            "sidecar": {
+                "availability": MODULE.availability(
+                    "PRESENT", empty_digest),
+                "relative_path":
+                    "anchored-row-result-ledgers-v1/"
+                    "unexpected-artifact-paths.json",
+                "byte_length": 2,
+                "record_count": 0,
+                "sha256": empty_digest,
             },
         }
+        observed_count = MODULE.EXPECTED_CELL_COUNTS[
+            "complete_artifact_inventory"]
+        inventory = {
+            "status": "PASS",
+            "observed_count": observed_count,
+            "commitment": {
+                "key_ledger_sha256": digest,
+                "result_ledger_sha256": "b" * 64,
+                "result_merkle_root_sha256": "c" * 64,
+            },
+            "artifact": {
+                "availability": MODULE.availability("PRESENT", "b" * 64),
+                "relative_path": MODULE.result_ledger_relative_path(
+                    "complete_artifact_inventory"),
+                "byte_length": 2,
+                "record_count": observed_count,
+            },
+            "target": target,
+            "unexpected_paths": target,
+            "maximum": None,
+            "witness": None,
+            "first_failing_key": None,
+        }
+        infrastructure = {"complete_artifact_inventory": inventory}
         criteria = MODULE.make_criteria(
             MODULE.worktree_observation(True), False, ledgers,
             infrastructure=infrastructure)
         self.assertEqual(criteria[1]["target"], target)
+        MODULE.validate_criteria(criteria)
+
+        for field in ("target", "unexpected_paths"):
+            mutation = copy.deepcopy(inventory)
+            mutation.pop(field)
+            with self.subTest(missing=field):
+                with self.assertRaises(MODULE.QualificationError):
+                    MODULE.make_criteria(
+                        MODULE.worktree_observation(True), False, ledgers,
+                        infrastructure={
+                            "complete_artifact_inventory": mutation})
+            mutation = copy.deepcopy(inventory)
+            mutation[field] = None
+            with self.subTest(null=field):
+                with self.assertRaises(MODULE.QualificationError):
+                    MODULE.make_criteria(
+                        MODULE.worktree_observation(True), False, ledgers,
+                        infrastructure={
+                            "complete_artifact_inventory": mutation})
+
+        unavailable = copy.deepcopy(inventory)
+        unavailable["target"] = MODULE.unavailable_unexpected_paths_target()
+        unavailable["unexpected_paths"] = unavailable["target"]
+        criteria = MODULE.make_criteria(
+            MODULE.worktree_observation(True), False, ledgers,
+            infrastructure={"complete_artifact_inventory": unavailable})
+        with self.assertRaises(MODULE.QualificationError):
+            MODULE.validate_criteria(criteria)
 
     def test_verdict_precedence_never_turns_uncovered_into_pass(self):
         records = [MODULE.criterion_record(identifier, "PASS")
