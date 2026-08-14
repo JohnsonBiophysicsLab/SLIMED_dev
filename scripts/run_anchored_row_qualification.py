@@ -2611,13 +2611,31 @@ def _run_d12_closed_git(arguments, working_directory, text=True):
         stderr=subprocess.PIPE, text=text)
 
 
-def _audit_d12_source_checkout(source_root, manifest):
-    """Authenticate the pinned checkout with no ambient Git authority."""
-    root = pathlib.Path(source_root).resolve()
+def _d12_git_path(raw, label):
+    try:
+        value = raw.decode("utf-8", errors="strict")
+    except UnicodeError as error:
+        raise QualificationError(label + " path is not UTF-8") from error
+    path = pathlib.PurePosixPath(value)
+    require(value and not path.is_absolute() and ".." not in path.parts and
+            value == path.as_posix(), label + " path is not canonical")
+    return value
+
+
+def _d12_z_records(raw, label):
+    require(raw.endswith(b"\0"), label + " is not NUL terminated")
+    records = raw[:-1].split(b"\0")
+    require(records and all(records), label + " contains an empty record")
+    return records
+
+
+def _audit_d12_git_worktree(root_path, expected_head=None):
+    """Byte-authenticate every tracked path to a normal pinned Git index."""
+    root = pathlib.Path(root_path).resolve()
     git_metadata = root / ".git"
-    require(root == source_root and git_metadata.is_dir() and
+    require(root == root_path and git_metadata.is_dir() and
             git_metadata.resolve() == git_metadata,
-            "OpenSubdiv source must be a canonical standalone Git checkout")
+            "D12 source must be a canonical standalone Git checkout")
     head = _run_d12_closed_git(["rev-parse", "HEAD"], root)
     tree = _run_d12_closed_git(["rev-parse", "HEAD^{tree}"], root)
     status = _run_d12_closed_git(
@@ -2625,29 +2643,97 @@ def _audit_d12_source_checkout(source_root, manifest):
     toplevel = _run_d12_closed_git(["rev-parse", "--show-toplevel"], root)
     git_dir = _run_d12_closed_git(
         ["rev-parse", "--absolute-git-dir"], root)
+    object_format = _run_d12_closed_git(
+        ["rev-parse", "--show-object-format"], root)
+    observed_head = head.stdout.strip()
     require(head.returncode == 0 and
-            head.stdout.strip() == B2.OPENSUBDIV_COMMIT and
+            GIT_RE.fullmatch(observed_head) is not None and
+            (expected_head is None or observed_head == expected_head) and
             tree.returncode == 0 and
-            re.fullmatch(r"[0-9a-f]{40}", tree.stdout.strip()) is not None and
+            GIT_RE.fullmatch(tree.stdout.strip()) is not None and
             status.returncode == 0 and not status.stdout.strip() and
             toplevel.returncode == 0 and
             pathlib.Path(toplevel.stdout.strip()).resolve() == root and
             git_dir.returncode == 0 and
-            pathlib.Path(git_dir.stdout.strip()).resolve() == git_metadata,
-            "OpenSubdiv Git head/tree/root/cleanliness drift")
+            pathlib.Path(git_dir.stdout.strip()).resolve() == git_metadata and
+            object_format.returncode == 0 and
+            object_format.stdout.strip() == "sha1",
+            "D12 Git head/tree/root/cleanliness/object-format drift")
+
+    flags = _run_d12_closed_git(["ls-files", "-v", "-z"], root, text=False)
+    index = _run_d12_closed_git(
+        ["ls-files", "--stage", "-z"], root, text=False)
+    committed = _run_d12_closed_git(
+        ["ls-tree", "-r", "-z", observed_head], root, text=False)
+    require(flags.returncode == index.returncode == committed.returncode == 0,
+            "D12 Git index/tree enumeration failed")
+
+    flag_paths = []
+    for record in _d12_z_records(flags.stdout, "D12 Git index flags"):
+        require(len(record) > 2 and record[:2] == b"H ",
+                "D12 Git index contains non-normal tracked flags")
+        flag_paths.append(_d12_git_path(record[2:], "D12 Git index flag"))
+    index_entries = []
+    for record in _d12_z_records(index.stdout, "D12 Git index"):
+        require(b"\t" in record, "D12 Git index record shape drift")
+        metadata, raw_path = record.split(b"\t", 1)
+        fields = metadata.decode("ascii", errors="strict").split(" ")
+        require(len(fields) == 3 and fields[2] == "0" and
+                re.fullmatch(r"[0-9a-f]{40}", fields[1]) is not None,
+                "D12 Git index metadata drift")
+        index_entries.append((fields[0], fields[1],
+                              _d12_git_path(raw_path, "D12 Git index")))
+    tree_entries = []
+    for record in _d12_z_records(committed.stdout, "D12 Git tree"):
+        require(b"\t" in record, "D12 Git tree record shape drift")
+        metadata, raw_path = record.split(b"\t", 1)
+        fields = metadata.decode("ascii", errors="strict").split(" ")
+        require(len(fields) == 3 and fields[1] == "blob" and
+                fields[0] in {"100644", "100755"} and
+                re.fullmatch(r"[0-9a-f]{40}", fields[2]) is not None,
+                "D12 Git tree contains unsupported entry metadata")
+        tree_entries.append((fields[0], fields[2],
+                             _d12_git_path(raw_path, "D12 Git tree")))
+    require(index_entries == tree_entries and
+            flag_paths == [entry[2] for entry in tree_entries],
+            "D12 Git index differs from the committed tracked tree")
+
+    ledger = []
+    for mode, oid, relative in tree_entries:
+        path = root / relative
+        require(path.is_file() and not path.is_symlink() and
+                path.resolve().is_relative_to(root),
+                "D12 tracked worktree path is unavailable or aliased: " +
+                relative)
+        raw = path.read_bytes()
+        observed_oid = hashlib.sha1(
+            b"blob " + str(len(raw)).encode("ascii") + b"\0" + raw
+        ).hexdigest()
+        executable = bool(path.stat().st_mode & 0o111)
+        require(observed_oid == oid and
+                executable == (mode == "100755"),
+                "D12 tracked worktree bytes/mode differ from Git: " + relative)
+        ledger.append({"path": relative, "git_blob": oid,
+                       "sha256": sha256_bytes(raw), "mode": mode})
+    return {"head": observed_head, "tree": tree.stdout.strip(),
+            "tracked_files": ledger}
+
+
+def _audit_d12_source_checkout(source_root, manifest):
+    """Authenticate the pinned checkout with no ambient Git authority."""
+    root = pathlib.Path(source_root).resolve()
+    audit = _audit_d12_git_worktree(root, B2.OPENSUBDIV_COMMIT)
+    tracked = {item["path"]: item for item in audit["tracked_files"]}
     ledger = []
     for relative in manifest["qualification_platform"]["build"][
             "opensubdiv"]["translation_units_in_target_order"]:
         path = root / relative
-        blob = _run_d12_closed_git(
-            ["cat-file", "blob", B2.OPENSUBDIV_COMMIT + ":" + relative],
-            root, text=False)
-        require(path.is_file() and blob.returncode == 0 and
-                path.read_bytes() == blob.stdout,
+        require(relative in tracked and path.is_file() and
+                sha256_file(path) == tracked[relative]["sha256"],
                 "OpenSubdiv worktree translation unit differs from Git blob: " +
                 relative)
         ledger.append({"path": relative, "sha256": sha256_file(path)})
-    return {"head": head.stdout.strip(), "tree": tree.stdout.strip(),
+    return {"head": audit["head"], "tree": audit["tree"],
             "translation_units": ledger}
 
 
@@ -6193,23 +6279,14 @@ def iter_candidate_observations(binary, criterion_id, request_lines,
 
 
 def git_observations():
-    head = _run_d12_closed_git(["rev-parse", "HEAD"], ROOT)
-    status = _run_d12_closed_git(
-        ["status", "--porcelain=v1", "--untracked-files=all"], ROOT)
-    toplevel = _run_d12_closed_git(["rev-parse", "--show-toplevel"], ROOT)
-    git_dir = _run_d12_closed_git(
-        ["rev-parse", "--absolute-git-dir"], ROOT)
-    root_ok = (toplevel.returncode == 0 and git_dir.returncode == 0 and
-               pathlib.Path(toplevel.stdout.strip()).resolve() == ROOT and
-               pathlib.Path(git_dir.stdout.strip()).resolve() ==
-                   (ROOT / ".git").resolve() and
-               (ROOT / ".git").is_dir())
-    identity = (git_identity("PRESENT", head.stdout.strip())
-                if root_ok and head.returncode == 0 and
-                GIT_RE.fullmatch(head.stdout.strip())
-                else git_identity("UNAVAILABLE", reason_code="GIT_IDENTITY_UNAVAILABLE"))
-    clean = root_ok and status.returncode == 0 and not status.stdout.strip()
-    return identity, worktree_observation(clean)
+    try:
+        audit = _audit_d12_git_worktree(ROOT)
+    except QualificationError:
+        return (git_identity(
+                    "UNAVAILABLE", reason_code="GIT_IDENTITY_UNAVAILABLE"),
+                worktree_observation(False))
+    return (git_identity("PRESENT", audit["head"]),
+            worktree_observation(True))
 
 
 def require_git_binding(start_identity, end_identity, start_worktree,
@@ -8079,8 +8156,36 @@ def _command_output(command):
     return command[command.index("-o") + 1]
 
 
+def _d12_dependency_inputs(path, expected_target):
+    try:
+        raw = pathlib.Path(path).read_bytes()
+        text = raw.decode("utf-8", errors="strict")
+    except UnicodeError as error:
+        raise QualificationError(
+            "D12 compiler dependency output is not UTF-8") from error
+    require(raw.endswith(b"\n") and b"\r" not in raw,
+            "D12 compiler dependency output framing drift")
+    flattened = text.replace("\\\n", " ").strip()
+    require("\\" not in flattened and ": " in flattened,
+            "D12 compiler dependency output escaping/shape drift")
+    target, dependency_text = flattened.split(": ", 1)
+    dependencies = dependency_text.split()
+    require(target == str(pathlib.Path(expected_target).resolve()) and
+            dependencies and len(dependencies) == len(set(dependencies)),
+            "D12 compiler dependency target/set drift")
+    result = []
+    for token in dependencies:
+        dependency = pathlib.Path(token).resolve()
+        require(token == str(dependency) and dependency.is_file(),
+                "D12 compiler dependency path is not canonical/available")
+        result.append({"path": str(dependency),
+                       "sha256": sha256_file(dependency)})
+    return result
+
+
 def _require_reproducible_object(
-        command, observed_object, working_directory, environment, label):
+        command, observed_object, working_directory, environment, label,
+        dependency_root=None, expected_dependencies=None):
     """Re-run one exact compile argv and require identical object bytes."""
     observed = pathlib.Path(observed_object).resolve()
     with tempfile.TemporaryDirectory(
@@ -8091,19 +8196,36 @@ def _require_reproducible_object(
         require(replay.count(output) == 1,
                 "D12 object compile output ownership drift: " + label)
         replay[replay.index(output)] = str(rebuilt)
+        dependency = rebuilt.with_suffix(".d")
         if "-MF" in replay:
             require(replay.count("-MF") == 1 and
                     replay.index("-MF") + 1 < len(replay),
                     "D12 object dependency-output grammar drift: " + label)
-            replay[replay.index("-MF") + 1] = str(
-                rebuilt.with_suffix(".d"))
+            replay[replay.index("-MF") + 1] = str(dependency)
+        else:
+            output_index = replay.index("-o")
+            replay[output_index:output_index] = [
+                "-MMD", "-MF", str(dependency)]
         _run_d12_rebuild_command(
             replay, label + ".object", working_directory, environment)
+        dependency_inputs = _d12_dependency_inputs(dependency, rebuilt)
+        dependency_paths = [item["path"] for item in dependency_inputs]
+        if dependency_root is not None:
+            root = pathlib.Path(dependency_root).resolve()
+            require(all(pathlib.Path(path).is_relative_to(root)
+                        for path in dependency_paths),
+                    "D12 object dependency escaped authenticated source root: " +
+                    label)
+        if expected_dependencies is not None:
+            expected = {str(pathlib.Path(path).resolve())
+                        for path in expected_dependencies}
+            require(set(dependency_paths) == expected,
+                    "D12 object dependency closure drift: " + label)
         require(rebuilt.is_file() and
                 sha256_file(rebuilt) == sha256_file(observed),
                 "D12 object differs from independent exact-command rebuild: " +
                 label)
-    return True
+    return dependency_inputs
 
 
 def _require_reproducible_archive(
@@ -8175,6 +8297,15 @@ def _validate_d12_opensubdiv_object_chain(
     require(tuple(ordered_relative_sources) ==
                 tuple(expected_sources) + expected_non_target,
             "D12 OpenSubdiv compile database target/non-target set drift")
+    tracked_query = _run_d12_closed_git(
+        ["ls-files", "-z"], source_root, text=False)
+    require(tracked_query.returncode == 0,
+            "D12 OpenSubdiv tracked source enumeration failed")
+    tracked_source_paths = {
+        str((source_root / _d12_git_path(
+            record, "D12 OpenSubdiv tracked source")).resolve())
+        for record in _d12_z_records(
+            tracked_query.stdout, "D12 OpenSubdiv tracked source list")}
 
     profile = contract["profiles"][profile_name]
     compiler = B2.EXPECTED_COMPILER_PATH
@@ -8237,8 +8368,13 @@ def _validate_d12_opensubdiv_object_chain(
                 object_path.is_relative_to(build_root) and
                 object_path.is_file() and object_path.name == expected_member,
                 "D12 OpenSubdiv compile output object path drift")
-        _require_reproducible_object(
-            tokens, object_path, directory, environment, relative)
+        dependency_inputs = _require_reproducible_object(
+            tokens, object_path, directory, environment, relative,
+            dependency_root=source_root)
+        require({item["path"] for item in dependency_inputs}.issubset(
+                    tracked_source_paths),
+                "D12 OpenSubdiv dependency closure contains untracked input: " +
+                relative)
         nm = subprocess.run(
             ["/usr/bin/nm", "-u", str(object_path)], check=False,
             cwd=str(directory), env=environment,
@@ -8258,6 +8394,7 @@ def _validate_d12_opensubdiv_object_chain(
             "object_sha256": sha256_file(object_path),
             "undefined_symbols_sha256": sha256_bytes(nm.stdout),
             "tsan_instrumented": has_tsan,
+            "dependency_inputs": dependency_inputs,
         })
 
     link_path = build_root / \
@@ -8445,6 +8582,16 @@ def _rebuild_d12_proof_binary(
         _run_d12_rebuild_command(
             compile_replay, name + ".compile",
             working_directory, environment)
+        role = ("row_provider" if name.startswith("provider_") else
+                "representation_candidate")
+        expected_dependencies = {
+            str((ROOT / relative).resolve())
+            for relative in RUNTIME_SOURCE_PATHS[role]}
+        observed_dependencies = {
+            item["path"] for item in _d12_dependency_inputs(
+                rebuilt_dependency, rebuilt_object)}
+        require(observed_dependencies == expected_dependencies,
+                "D12 proof compiler dependency closure drift: " + name)
 
         link_replay = list(link_command)
         original_object = _command_output(compile_command)

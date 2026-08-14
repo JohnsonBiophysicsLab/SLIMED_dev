@@ -1880,9 +1880,26 @@ class AnchoredRowQualificationTests(unittest.TestCase):
 
             compile_command, link_command, runtime_binary, runtime_map = \
                 built["release"]
-            MODULE._require_reproducible_object(
+            expected_dependencies = [
+                MODULE.ROOT / relative for relative in
+                MODULE.RUNTIME_SOURCE_PATHS["representation_candidate"]]
+            dependencies = MODULE._require_reproducible_object(
                 compile_command, MODULE._command_output(compile_command),
-                MODULE.ROOT, environment, "representation_release")
+                MODULE.ROOT, environment, "representation_release",
+                dependency_root=MODULE.ROOT,
+                expected_dependencies=expected_dependencies)
+            self.assertEqual(
+                {item["path"] for item in dependencies},
+                {str(path.resolve()) for path in expected_dependencies})
+            no_dependency_command = list(compile_command)
+            dependency_index = no_dependency_command.index("-MMD")
+            del no_dependency_command[dependency_index:dependency_index + 3]
+            MODULE._require_reproducible_object(
+                no_dependency_command,
+                MODULE._command_output(compile_command), MODULE.ROOT,
+                environment, "representation_release_no_original_depfile",
+                dependency_root=MODULE.ROOT,
+                expected_dependencies=expected_dependencies)
             with self.assertRaises(MODULE.QualificationError):
                 MODULE._require_reproducible_object(
                     compile_command, "/usr/bin/true", MODULE.ROOT, environment,
@@ -2092,11 +2109,15 @@ class AnchoredRowQualificationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = pathlib.Path(temporary).resolve()
             source = root / "opensubdiv/version.cpp"
+            header = root / "opensubdiv/poisonable.h"
             source.parent.mkdir(parents=True)
-            source.write_text("int pinned_source = 1;\n", encoding="utf-8")
+            source.write_text(
+                '#include "poisonable.h"\nint pinned_source = PINNED;\n',
+                encoding="utf-8")
+            header.write_text("#define PINNED 1\n", encoding="utf-8")
             for command in (
                     ["/usr/bin/git", "init", "-q", str(root)],
-                    ["/usr/bin/git", "add", "opensubdiv/version.cpp"],
+                    ["/usr/bin/git", "add", "opensubdiv"],
                     ["/usr/bin/git", "-c", "user.name=D12",
                      "-c", "user.email=d12@example.invalid", "commit", "-qm",
                      "pinned source"]):
@@ -2114,6 +2135,33 @@ class AnchoredRowQualificationTests(unittest.TestCase):
                         "GIT_WORK_TREE": str(MODULE.ROOT)}, clear=False):
                 audit = MODULE._audit_d12_source_checkout(root, manifest)
                 self.assertEqual(audit["head"], head)
+                subprocess.run(
+                    ["/usr/bin/git", "update-index", "--skip-worktree",
+                     "opensubdiv/poisonable.h"], check=True,
+                    capture_output=True, cwd=str(root), env=environment)
+                header.write_text("#define PINNED 999\n", encoding="utf-8")
+                self.assertEqual(
+                    MODULE._run_d12_closed_git(
+                        ["status", "--porcelain=v1"], root).stdout, "")
+                with self.assertRaises(MODULE.QualificationError):
+                    MODULE._audit_d12_source_checkout(root, manifest)
+                subprocess.run(
+                    ["/usr/bin/git", "update-index", "--no-skip-worktree",
+                     "opensubdiv/poisonable.h"], check=True,
+                    capture_output=True, cwd=str(root), env=environment)
+                header.write_text("#define PINNED 1\n", encoding="utf-8")
+                subprocess.run(
+                    ["/usr/bin/git", "update-index", "--assume-unchanged",
+                     "opensubdiv/poisonable.h"], check=True,
+                    capture_output=True, cwd=str(root), env=environment)
+                header.write_text("#define PINNED 777\n", encoding="utf-8")
+                with self.assertRaises(MODULE.QualificationError):
+                    MODULE._audit_d12_source_checkout(root, manifest)
+                subprocess.run(
+                    ["/usr/bin/git", "update-index", "--no-assume-unchanged",
+                     "opensubdiv/poisonable.h"], check=True,
+                    capture_output=True, cwd=str(root), env=environment)
+                header.write_text("#define PINNED 1\n", encoding="utf-8")
                 source.write_text(
                     "int pinned_source = 2;\n", encoding="utf-8")
                 with self.assertRaises(MODULE.QualificationError):
