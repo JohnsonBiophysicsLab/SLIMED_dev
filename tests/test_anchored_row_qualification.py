@@ -1593,6 +1593,8 @@ class AnchoredRowQualificationTests(unittest.TestCase):
 
     def test_d12_command_profile_binds_distinct_compile_and_link_argv(self):
         profile = {
+            "working_directory": str(MODULE.ROOT),
+            "environment": MODULE._d12_rebuild_environment(),
             "compile_commands": [["clang++", "-O3", "-c", "source.cpp"]],
             "link_commands": [["clang++", "source.o", "-o", "proof"]]}
         with tempfile.TemporaryDirectory() as temporary:
@@ -1604,6 +1606,8 @@ class AnchoredRowQualificationTests(unittest.TestCase):
             link_path.write_bytes(MODULE.jcs_bytes(profile["link_commands"]))
             manifest = {
                 "schema_id": "d12-command-profile-manifest-v1",
+                "working_directory": profile["working_directory"],
+                "environment": copy.deepcopy(profile["environment"]),
                 "compile_commands": {
                     "relative_path": compile_path.name,
                     "sha256": MODULE.sha256_file(compile_path)},
@@ -1613,6 +1617,17 @@ class AnchoredRowQualificationTests(unittest.TestCase):
             path = root / "commands.manifest.json"
             path.write_bytes(MODULE.jcs_bytes(manifest))
             self.assertEqual(MODULE._read_command_profile(path), profile)
+            for mutate in (
+                    lambda value: value.update(
+                        working_directory=str(root)),
+                    lambda value: value["environment"].update(
+                        CCC_OVERRIDE_OPTIONS="+-fno-inline"),
+                    lambda value: value["environment"].pop("LC_ALL")):
+                bad_manifest = copy.deepcopy(manifest)
+                mutate(bad_manifest)
+                path.write_bytes(MODULE.jcs_bytes(bad_manifest))
+                with self.assertRaises(MODULE.QualificationError):
+                    MODULE._read_command_profile(path)
             for bad_relative in (
                     "./compile-commands.json",
                     "nested/../compile-commands.json",
@@ -1827,25 +1842,44 @@ class AnchoredRowQualificationTests(unittest.TestCase):
             "release"]["compile_commands"][1])
         link_command = copy.deepcopy(envelope["build_profiles"][
             "release"]["link_commands"][1])
+        environment = MODULE._d12_rebuild_environment()
         with tempfile.TemporaryDirectory() as temporary:
             root = pathlib.Path(temporary).resolve()
             runtime_object = root / "runtime.o"
             runtime_dependency = root / "runtime.d"
             runtime_map = root / "runtime.map"
-            runtime_binary = root / "runtime"
+            runtime_binary = root / "representation"
             compile_runtime = list(compile_command)
             compile_runtime[compile_runtime.index("-MF") + 1] = str(
                 runtime_dependency)
             compile_runtime[compile_runtime.index("-o") + 1] = str(
                 runtime_object)
-            subprocess.run(compile_runtime, check=True, capture_output=True)
+            subprocess.run(
+                compile_runtime, check=True, capture_output=True,
+                cwd=str(MODULE.ROOT), env=environment)
             MODULE._require_reproducible_object(
-                compile_command, runtime_object,
+                compile_command, runtime_object, MODULE.ROOT, environment,
                 "representation_release")
             with self.assertRaises(MODULE.QualificationError):
                 MODULE._require_reproducible_object(
-                    compile_command, "/usr/bin/true",
+                    compile_command, "/usr/bin/true", MODULE.ROOT, environment,
                     "representation_release")
+            contaminated_object = root / "contaminated.o"
+            contaminated_dependency = root / "contaminated.d"
+            contaminated_command = list(compile_command)
+            contaminated_command[contaminated_command.index("-MF") + 1] = str(
+                contaminated_dependency)
+            contaminated_command[contaminated_command.index("-o") + 1] = str(
+                contaminated_object)
+            contaminated_environment = dict(
+                environment, CCC_OVERRIDE_OPTIONS="+-fno-inline")
+            subprocess.run(
+                contaminated_command, check=True, capture_output=True,
+                cwd=str(MODULE.ROOT), env=contaminated_environment)
+            with self.assertRaises(MODULE.QualificationError):
+                MODULE._require_reproducible_object(
+                    compile_command, contaminated_object, MODULE.ROOT,
+                    environment, "representation_release")
             link_runtime = list(link_command)
             link_runtime[link_runtime.index(
                 MODULE._command_output(compile_command))] = str(runtime_object)
@@ -1853,7 +1887,9 @@ class AnchoredRowQualificationTests(unittest.TestCase):
                              if token.startswith("-Wl,-map,"))
             link_runtime[map_index] = "-Wl,-map," + str(runtime_map)
             link_runtime[link_runtime.index("-o") + 1] = str(runtime_binary)
-            subprocess.run(link_runtime, check=True, capture_output=True)
+            subprocess.run(
+                link_runtime, check=True, capture_output=True,
+                cwd=str(MODULE.ROOT), env=environment)
             runtime_map.write_text(
                 runtime_map.read_text(encoding="utf-8").replace(
                     str(runtime_object),
@@ -1861,17 +1897,61 @@ class AnchoredRowQualificationTests(unittest.TestCase):
                 encoding="utf-8")
             MODULE._rebuild_d12_proof_binary(
                 "representation_release", compile_command, link_command,
-                runtime_binary, runtime_map)
+                runtime_binary, runtime_map, MODULE.ROOT, environment)
             forged_map = root / "forged.map"
             forged_map.write_text("invented map\n", encoding="utf-8")
             with self.assertRaises(MODULE.QualificationError):
                 MODULE._rebuild_d12_proof_binary(
                     "representation_release", compile_command, link_command,
-                    runtime_binary, forged_map)
+                    runtime_binary, forged_map, MODULE.ROOT, environment)
             with self.assertRaises(MODULE.QualificationError):
                 MODULE._rebuild_d12_proof_binary(
                     "representation_release", compile_command, link_command,
-                    "/usr/bin/true", runtime_map)
+                    "/usr/bin/true", runtime_map,
+                    MODULE.ROOT, environment)
+
+    def test_d12_archive_is_independently_rebuilt_byte_exact(self):
+        build = MODULE.B2.load_manifest()["qualification_platform"]["build"]
+        if not pathlib.Path(build["compiler_path"]).is_file():
+            self.skipTest("pinned macOS proof compiler unavailable")
+        environment = MODULE._d12_rebuild_environment()
+        envelope = MODULE._d12_envelope_contract_fixture()
+        compile_command = copy.deepcopy(envelope["build_profiles"][
+            "release"]["compile_commands"][1])
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary).resolve()
+            object_path = root / "member.o"
+            dependency_path = root / "member.d"
+            command = list(compile_command)
+            command[command.index("-MF") + 1] = str(dependency_path)
+            command[command.index("-o") + 1] = str(object_path)
+            subprocess.run(
+                command, check=True, capture_output=True,
+                cwd=str(MODULE.ROOT), env=environment)
+            ar_command = [
+                "/Library/Developer/CommandLineTools/usr/bin/ar", "qc",
+                "libproof.a", str(object_path)]
+            ranlib_command = [
+                "/Library/Developer/CommandLineTools/usr/bin/ranlib",
+                "libproof.a"]
+            subprocess.run(
+                ar_command, check=True, capture_output=True,
+                cwd=str(root), env=environment)
+            subprocess.run(
+                ranlib_command, check=True, capture_output=True,
+                cwd=str(root), env=environment)
+            archive = root / "libproof.a"
+            MODULE._require_reproducible_archive(
+                ar_command, ranlib_command, root, archive, environment,
+                "release")
+            tampered = bytearray(archive.read_bytes())
+            self.assertGreater(len(tampered), 25)
+            tampered[24] = ord("1") if tampered[24] != ord("1") else ord("2")
+            archive.write_bytes(tampered)
+            with self.assertRaises(MODULE.QualificationError):
+                MODULE._require_reproducible_archive(
+                    ar_command, ranlib_command, root, archive, environment,
+                    "release")
 
     def test_d12_qualified_full_probe_fields_are_consequential(self):
         envelope = MODULE._d12_envelope_contract_fixture()

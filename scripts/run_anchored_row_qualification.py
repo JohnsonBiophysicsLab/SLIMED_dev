@@ -2591,6 +2591,17 @@ def _d12_build_command_fixture(profile_name, flags):
     }
 
 
+def _d12_rebuild_environment():
+    observed = B2.load_manifest()["qualification_platform"]["build"][
+        "opensubdiv"]["build_environment"]
+    expected = {
+        "LANG": "C", "LC_ALL": "C", "SOURCE_DATE_EPOCH": "0",
+        "TZ": "UTC", "ZERO_AR_DATE": "1"}
+    require(observed == expected,
+            "D12 frozen closed build environment drift")
+    return copy.deepcopy(expected)
+
+
 def _validate_d12_full_probe(probe):
     expected_keys = {
         "schema_version", "kind", "status", "finite",
@@ -7896,10 +7907,15 @@ def _read_command_profile(path_text):
     manifest = strict_json_bytes(raw)
     require(jcs_bytes(manifest) == raw and isinstance(manifest, dict) and
             set(manifest) == {
-                "schema_id", "compile_commands", "link_commands"} and
-            manifest["schema_id"] == "d12-command-profile-manifest-v1",
+                "schema_id", "working_directory", "environment",
+                "compile_commands", "link_commands"} and
+            manifest["schema_id"] == "d12-command-profile-manifest-v1" and
+            manifest["working_directory"] == str(ROOT) and
+            manifest["environment"] == _d12_rebuild_environment(),
             "D12 command profile manifest is not canonical/closed")
-    result = {}
+    result = {
+        "working_directory": manifest["working_directory"],
+        "environment": copy.deepcopy(manifest["environment"])}
     expected_sidecar_names = {
         "compile_commands": "compile-commands.json",
         "link_commands": "link-commands.json"}
@@ -8006,7 +8022,8 @@ def _command_output(command):
     return command[command.index("-o") + 1]
 
 
-def _require_reproducible_object(command, observed_object, label):
+def _require_reproducible_object(
+        command, observed_object, working_directory, environment, label):
     """Re-run one exact compile argv and require identical object bytes."""
     observed = pathlib.Path(observed_object).resolve()
     with tempfile.TemporaryDirectory(
@@ -8023,10 +8040,37 @@ def _require_reproducible_object(command, observed_object, label):
                     "D12 object dependency-output grammar drift: " + label)
             replay[replay.index("-MF") + 1] = str(
                 rebuilt.with_suffix(".d"))
-        _run_d12_rebuild_command(replay, label + ".object")
+        _run_d12_rebuild_command(
+            replay, label + ".object", working_directory, environment)
         require(rebuilt.is_file() and
                 sha256_file(rebuilt) == sha256_file(observed),
                 "D12 object differs from independent exact-command rebuild: " +
+                label)
+    return True
+
+
+def _require_reproducible_archive(
+        ar_command, ranlib_command, working_directory, observed_archive,
+        environment, label):
+    """Re-run exact archive construction and require all container bytes."""
+    observed = pathlib.Path(observed_archive).resolve()
+    with tempfile.TemporaryDirectory(
+            prefix="d12-archive-rebuild-") as temporary:
+        rebuilt = pathlib.Path(temporary).resolve() / observed.name
+        ar_replay = list(ar_command)
+        ranlib_replay = list(ranlib_command)
+        require(len(ar_replay) >= 4 and len(ranlib_replay) == 2 and
+                ar_replay[2] == ranlib_replay[1],
+                "D12 archive output ownership drift: " + label)
+        ar_replay[2] = str(rebuilt)
+        ranlib_replay[1] = str(rebuilt)
+        _run_d12_rebuild_command(
+            ar_replay, label + ".ar", working_directory, environment)
+        _run_d12_rebuild_command(
+            ranlib_replay, label + ".ranlib", working_directory, environment)
+        require(rebuilt.is_file() and
+                sha256_file(rebuilt) == sha256_file(observed),
+                "D12 archive differs from independent exact-command rebuild: " +
                 label)
     return True
 
@@ -8050,46 +8094,71 @@ def _validate_d12_opensubdiv_object_chain(
     require(isinstance(compile_entries, list),
             "D12 OpenSubdiv compile database shape drift")
     entries = {}
-    non_target = []
+    ordered_relative_sources = []
     for entry in compile_entries:
         require(isinstance(entry, dict) and
-                isinstance(entry.get("file"), str) and
-                isinstance(entry.get("directory"), str) and
-                (isinstance(entry.get("command"), str) or
-                 isinstance(entry.get("arguments"), list)),
+                set(entry) == {"directory", "command", "file", "output"} and
+                all(isinstance(entry.get(field), str) and entry[field]
+                    for field in ("directory", "command", "file", "output")),
                 "D12 OpenSubdiv compile entry shape drift")
-        source = pathlib.Path(entry["file"]).resolve()
-        require(source.is_relative_to(source_root),
+        directory_token = pathlib.Path(entry["directory"])
+        directory = directory_token.resolve()
+        file_token = pathlib.Path(entry["file"])
+        source = ((directory / file_token).resolve()
+                  if not file_token.is_absolute() else file_token.resolve())
+        require(entry["directory"] == str(directory) and
+                directory.is_dir() and directory.is_relative_to(build_root) and
+                entry["file"] == str(source) and
+                source.is_file() and source.is_relative_to(source_root),
                 "D12 OpenSubdiv compile source escaped checkout")
         relative = str(source.relative_to(source_root))
         require(relative not in entries,
                 "D12 OpenSubdiv compile source duplicated")
-        if relative in expected_sources:
-            entries[relative] = entry
-        else:
-            non_target.append(relative)
-    require(tuple(non_target) == expected_non_target and
-            tuple(entries) == tuple(expected_sources),
+        entries[relative] = (entry, directory, source)
+        ordered_relative_sources.append(relative)
+    require(tuple(ordered_relative_sources) ==
+                tuple(expected_sources) + expected_non_target,
             "D12 OpenSubdiv compile database target/non-target set drift")
 
     profile = contract["profiles"][profile_name]
     compiler = B2.EXPECTED_COMPILER_PATH
     sdk = B2.load_manifest()["qualification_platform"]["build"][
         "macos_sdk_path"]
+    environment = _d12_rebuild_environment()
+    common_suffix = [
+        "-std=c++17", "-arch", "arm64", "-isysroot", sdk,
+        "-mmacosx-version-min=26.0", "-Wall", "-Wextra",
+        "-Wno-invalid-offsetof", "-Wno-strict-aliasing",
+        "-Wno-overloaded-virtual"]
+    non_target_specs = (
+        ("regression/common/arg_utils.cpp", "regression_common_obj"),
+        ("regression/common/shape_utils.cpp", "regression_common_obj"),
+        ("regression/common/far_utils.cpp", "regression_far_utils_obj"),
+    )
+    for relative, target_name in non_target_specs:
+        entry, directory, source = entries[relative]
+        object_token = "CMakeFiles/{}.dir/{}.o".format(
+            target_name, source.name)
+        expected_tokens = [
+            compiler, '-DOPENSUBDIV_VERSION_STRING="3.7.0"',
+            "-I" + str(source_root)
+        ] + profile["compile_flags"] + common_suffix + [
+            "-o", object_token, "-c", str(source)]
+        require(directory == build_root / "regression/common" and
+                entry["output"] == "regression/common/" + object_token and
+                shlex.split(entry["command"]) == expected_tokens,
+                "D12 OpenSubdiv non-target compile entry is not exact: " +
+                relative)
     ledger = []
     for relative, expected_member in zip(
             expected_sources,
             contract["expected_archive_member_basenames_in_target_order"]):
-        entry = entries[relative]
-        source = (source_root / relative).resolve()
-        directory = pathlib.Path(entry["directory"]).resolve()
+        entry, directory, source = entries[relative]
         require(entry["file"] == str(source) and
                 entry["directory"] == str(directory) and
                 directory.is_relative_to(build_root) and directory.is_dir(),
                 "D12 OpenSubdiv compile entry path is not canonical")
-        tokens = (shlex.split(entry["command"])
-                  if isinstance(entry.get("command"), str)
-                  else entry["arguments"])
+        tokens = shlex.split(entry["command"])
         generated_include = []
         component = relative.split("/")[1]
         if component in {"sdc", "vtr", "bfr", "osd"}:
@@ -8099,23 +8168,24 @@ def _validate_d12_opensubdiv_object_chain(
         expected_tokens = [
             compiler, '-DOPENSUBDIV_VERSION_STRING="3.7.0"',
             "-I" + str(source_root / "opensubdiv")
-        ] + generated_include + profile["compile_flags"] + [
-            "-std=c++17", "-arch", "arm64", "-isysroot", sdk,
-            "-mmacosx-version-min=26.0", "-Wall", "-Wextra",
-            "-Wno-invalid-offsetof", "-Wno-strict-aliasing",
-            "-Wno-overloaded-virtual", "-fPIC", "-o", object_token,
+        ] + generated_include + profile["compile_flags"] + common_suffix + [
+            "-fPIC", "-o", object_token,
             "-c", str(source)]
         require(tokens == expected_tokens,
                 "D12 OpenSubdiv TU compiler argv is not exact")
         object_path = (directory / object_token).resolve()
         output_path = (build_root / entry.get("output", "")).resolve()
         require(object_path == output_path and
+                entry["output"] == str(object_path.relative_to(build_root)) and
+                object_token == os.path.relpath(object_path, directory) and
                 object_path.is_relative_to(build_root) and
                 object_path.is_file() and object_path.name == expected_member,
                 "D12 OpenSubdiv compile output object path drift")
-        _require_reproducible_object(tokens, object_path, relative)
+        _require_reproducible_object(
+            tokens, object_path, directory, environment, relative)
         nm = subprocess.run(
             ["/usr/bin/nm", "-u", str(object_path)], check=False,
+            cwd=str(directory), env=environment,
             stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         require(nm.returncode == 0,
                 "D12 OpenSubdiv object is not an auditable Mach-O object")
@@ -8145,22 +8215,28 @@ def _validate_d12_opensubdiv_object_chain(
     archive_relative = os.path.relpath(build_archive, link_directory)
     expected_objects = [os.path.relpath(
         item["object_path"], link_directory) for item in ledger]
-    require(shlex.split(link_lines[0]) == [
+    ar_command = shlex.split(link_lines[0])
+    ranlib_command = shlex.split(link_lines[1])
+    require(ar_command == [
                 "/Library/Developer/CommandLineTools/usr/bin/ar", "qc",
                 archive_relative] + expected_objects and
-            shlex.split(link_lines[1]) == [
+            ranlib_command == [
                 "/Library/Developer/CommandLineTools/usr/bin/ranlib",
                 archive_relative] and
             build_archive.is_file() and
             sha256_file(build_archive) == sha256_file(
                 install_root / "lib/libosdCPU.a"),
             "D12 OpenSubdiv exact ar/ranlib/archive-output chain drift")
+    _require_reproducible_archive(
+        ar_command, ranlib_command, link_directory, build_archive,
+        environment, profile_name)
 
     installed_archive = install_root / "lib/libosdCPU.a"
     for item in ledger:
         extracted = subprocess.run(
             ["/usr/bin/ar", "-p", str(installed_archive),
              item["object_member_basename"]], check=False,
+            cwd=str(link_directory), env=environment,
             stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         require(extracted.returncode == 0 and
                 sha256_bytes(extracted.stdout) == item["object_sha256"],
@@ -8276,9 +8352,15 @@ def _validate_d12_opensubdiv_profile_audits(envelope, profiles):
             jcs_bytes(instrumentation_ledger))}
 
 
-def _run_d12_rebuild_command(command, label):
+def _run_d12_rebuild_command(
+        command, label, working_directory, environment):
+    directory = pathlib.Path(working_directory).resolve()
+    require(str(working_directory) == str(directory) and directory.is_dir() and
+            environment == _d12_rebuild_environment(),
+            "D12 rebuild cwd/environment is not exact: " + label)
     completed = subprocess.run(
-        command, check=False, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        command, check=False, cwd=str(directory), env=environment,
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     require(completed.returncode == 0,
             "D12 independent proof rebuild failed: " + label + "\n" +
             completed.stderr.decode("utf-8", errors="replace"))
@@ -8286,7 +8368,7 @@ def _run_d12_rebuild_command(command, label):
 
 def _rebuild_d12_proof_binary(
         name, compile_command, link_command, runtime_binary,
-        runtime_link_map):
+        runtime_link_map, working_directory, environment):
     with tempfile.TemporaryDirectory(prefix="d12-proof-rebuild-") as temporary:
         root = pathlib.Path(temporary).resolve()
         runtime_path = pathlib.Path(runtime_binary).resolve()
@@ -8303,7 +8385,9 @@ def _rebuild_d12_proof_binary(
         compile_replay[compile_replay.index("-MF") + 1] = str(
             rebuilt_dependency)
         compile_replay[compile_replay.index("-o") + 1] = str(rebuilt_object)
-        _run_d12_rebuild_command(compile_replay, name + ".compile")
+        _run_d12_rebuild_command(
+            compile_replay, name + ".compile",
+            working_directory, environment)
 
         link_replay = list(link_command)
         original_object = _command_output(compile_command)
@@ -8316,7 +8400,9 @@ def _rebuild_d12_proof_binary(
                 "D12 link-map output grammar drift")
         link_replay[map_indexes[0]] = "-Wl,-map," + str(rebuilt_map)
         link_replay[link_replay.index("-o") + 1] = str(rebuilt_binary)
-        _run_d12_rebuild_command(link_replay, name + ".link")
+        _run_d12_rebuild_command(
+            link_replay, name + ".link",
+            working_directory, environment)
         try:
             rebuilt_map_text = rebuilt_map.read_text(
                 encoding="utf-8", errors="strict")
@@ -8326,9 +8412,16 @@ def _rebuild_d12_proof_binary(
             raise QualificationError(
                 "D12 proof rebuild map is not strict UTF-8: " + name
             ) from error
+        object_placeholder = "${D12_REBUILT_OBJECT}"
+        binary_placeholder = "${D12_REBUILT_BINARY}"
+        require(object_placeholder not in rebuilt_map_text and
+                binary_placeholder not in rebuilt_map_text,
+                "D12 rebuilt map contains reserved normalization token")
         canonical_rebuilt_map = rebuilt_map_text.replace(
-            str(rebuilt_binary), str(runtime_path)).replace(
-                str(rebuilt_object), original_object)
+            str(rebuilt_object), object_placeholder).replace(
+                str(rebuilt_binary), binary_placeholder).replace(
+                    object_placeholder, original_object).replace(
+                        binary_placeholder, str(runtime_path))
         require(rebuilt_object.is_file() and rebuilt_dependency.is_file() and
                 rebuilt_map.is_file() and rebuilt_binary.is_file() and
                 sha256_file(rebuilt_binary) == sha256_file(
@@ -8342,7 +8435,7 @@ def _rebuild_d12_proof_binary(
 def _validate_d12_runtime_binary_audit(
         name, runtime_binary, link_map_path, dynamic_path, provider_role,
         profile_name, opensubdiv_audit, compile_command, link_command,
-        audited_library):
+        working_directory, environment, audited_library):
     try:
         observed_dynamic = pathlib.Path(dynamic_path).read_text(
             encoding="utf-8", errors="strict")
@@ -8372,7 +8465,8 @@ def _validate_d12_runtime_binary_audit(
                 "D12 representation binary unexpectedly links OpenSubdiv: " +
                 name)
     return _rebuild_d12_proof_binary(
-        name, compile_command, link_command, runtime_binary, link_map_path)
+        name, compile_command, link_command, runtime_binary, link_map_path,
+        working_directory, environment)
 
 
 def _validate_d12_runtime_provenance(envelope, report, provenance,
@@ -8457,6 +8551,8 @@ def _validate_d12_runtime_provenance(envelope, report, provenance,
         command_profile = _read_command_profile(files["compiler_command"])
         profile = envelope["build_profiles"][profile_for_binary[name]]
         require(command_profile == {
+                    "working_directory": str(ROOT),
+                    "environment": _d12_rebuild_environment(),
                     "compile_commands": profile["compile_commands"],
                     "link_commands": profile["link_commands"]},
                 "D12 compile/link command bytes differ from exact build profile")
@@ -8488,6 +8584,8 @@ def _validate_d12_runtime_provenance(envelope, report, provenance,
             profile_for_binary[name], opensubdiv_audit,
             command_profile["compile_commands"][command_index],
             command_profile["link_commands"][command_index],
+            command_profile["working_directory"],
+            command_profile["environment"],
             None if not provider_role else opensubdiv_profiles[
                 "installed_library"][profile_for_binary[name]][
                     "artifact_path"])
