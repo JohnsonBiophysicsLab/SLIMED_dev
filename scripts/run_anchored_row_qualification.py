@@ -8285,7 +8285,8 @@ def _run_d12_rebuild_command(command, label):
 
 
 def _rebuild_d12_proof_binary(
-        name, compile_command, link_command, runtime_binary):
+        name, compile_command, link_command, runtime_binary,
+        runtime_link_map):
     with tempfile.TemporaryDirectory(prefix="d12-proof-rebuild-") as temporary:
         root = pathlib.Path(temporary).resolve()
         runtime_path = pathlib.Path(runtime_binary).resolve()
@@ -8316,10 +8317,23 @@ def _rebuild_d12_proof_binary(
         link_replay[map_indexes[0]] = "-Wl,-map," + str(rebuilt_map)
         link_replay[link_replay.index("-o") + 1] = str(rebuilt_binary)
         _run_d12_rebuild_command(link_replay, name + ".link")
+        try:
+            rebuilt_map_text = rebuilt_map.read_text(
+                encoding="utf-8", errors="strict")
+            observed_map_text = pathlib.Path(runtime_link_map).read_text(
+                encoding="utf-8", errors="strict")
+        except UnicodeError as error:
+            raise QualificationError(
+                "D12 proof rebuild map is not strict UTF-8: " + name
+            ) from error
+        canonical_rebuilt_map = rebuilt_map_text.replace(
+            str(rebuilt_binary), str(runtime_path)).replace(
+                str(rebuilt_object), original_object)
         require(rebuilt_object.is_file() and rebuilt_dependency.is_file() and
                 rebuilt_map.is_file() and rebuilt_binary.is_file() and
                 sha256_file(rebuilt_binary) == sha256_file(
-                    runtime_path),
+                    runtime_path) and
+                canonical_rebuilt_map == observed_map_text,
                 "D12 proof binary differs from independent exact-command rebuild: " +
                 name)
     return True
@@ -8358,7 +8372,7 @@ def _validate_d12_runtime_binary_audit(
                 "D12 representation binary unexpectedly links OpenSubdiv: " +
                 name)
     return _rebuild_d12_proof_binary(
-        name, compile_command, link_command, runtime_binary)
+        name, compile_command, link_command, runtime_binary, link_map_path)
 
 
 def _validate_d12_runtime_provenance(envelope, report, provenance,

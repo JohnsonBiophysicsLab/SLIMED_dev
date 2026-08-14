@@ -1854,13 +1854,24 @@ class AnchoredRowQualificationTests(unittest.TestCase):
             link_runtime[map_index] = "-Wl,-map," + str(runtime_map)
             link_runtime[link_runtime.index("-o") + 1] = str(runtime_binary)
             subprocess.run(link_runtime, check=True, capture_output=True)
+            runtime_map.write_text(
+                runtime_map.read_text(encoding="utf-8").replace(
+                    str(runtime_object),
+                    MODULE._command_output(compile_command)),
+                encoding="utf-8")
             MODULE._rebuild_d12_proof_binary(
                 "representation_release", compile_command, link_command,
-                runtime_binary)
+                runtime_binary, runtime_map)
+            forged_map = root / "forged.map"
+            forged_map.write_text("invented map\n", encoding="utf-8")
             with self.assertRaises(MODULE.QualificationError):
                 MODULE._rebuild_d12_proof_binary(
                     "representation_release", compile_command, link_command,
-                    "/usr/bin/true")
+                    runtime_binary, forged_map)
+            with self.assertRaises(MODULE.QualificationError):
+                MODULE._rebuild_d12_proof_binary(
+                    "representation_release", compile_command, link_command,
+                    "/usr/bin/true", runtime_map)
 
     def test_d12_qualified_full_probe_fields_are_consequential(self):
         envelope = MODULE._d12_envelope_contract_fixture()
