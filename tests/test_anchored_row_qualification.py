@@ -474,6 +474,45 @@ class AnchoredRowQualificationTests(unittest.TestCase):
         self.assertIsNone(criteria[10]["result_ledger_sha256"])
         self.assertEqual(criteria[10]["key_ledger_sha256"], digest)
 
+    def test_inventory_evidence_uses_its_explicit_aggregate_target(self):
+        digest = "a" * 64
+        ledgers = [{
+            "criterion_id": criterion_id,
+            "partition": ("oracle_request" if criterion_id ==
+                          "oracle_coverage_and_crosscheck" else "all"),
+            "expected_count": MODULE.EXPECTED_CELL_COUNTS[criterion_id],
+            "observed_count": MODULE.EXPECTED_CELL_COUNTS[criterion_id],
+            "key_ledger_sha256": digest,
+            "availability": MODULE.availability("PRESENT", digest),
+            "omission_blocker": None,
+        } for criterion_id in MODULE.CRITERION_IDS]
+        target = MODULE.unavailable_unexpected_paths_target()
+        infrastructure = {
+            "complete_artifact_inventory": {
+                "status": "PASS",
+                "observed_count": 0,
+                "commitment": {
+                    "key_ledger_sha256": digest,
+                    "result_ledger_sha256": "b" * 64,
+                    "result_merkle_root_sha256": "c" * 64,
+                },
+                "artifact": {
+                    "availability": MODULE.availability("PRESENT", "d" * 64),
+                    "relative_path": "inventory-results.json",
+                    "byte_length": 2,
+                    "record_count": 0,
+                },
+                "target": target,
+                "maximum": None,
+                "witness": None,
+                "first_failing_key": None,
+            },
+        }
+        criteria = MODULE.make_criteria(
+            MODULE.worktree_observation(True), False, ledgers,
+            infrastructure=infrastructure)
+        self.assertEqual(criteria[1]["target"], target)
+
     def test_verdict_precedence_never_turns_uncovered_into_pass(self):
         records = [MODULE.criterion_record(identifier, "PASS")
                    for identifier in MODULE.CRITERION_IDS]

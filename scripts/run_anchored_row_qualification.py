@@ -9719,6 +9719,12 @@ def make_criteria(worktree, all_required_bindings_present, ledgers,
                 ledger=key_ledger, target=aggregate_target))
             continue
         commitment = evidence["commitment"]
+        aggregate_target = evidence.get("target")
+        if aggregate_target is None:
+            aggregate_target = (
+                unavailable_unexpected_paths_target()
+                if criterion_id == "complete_artifact_inventory" else
+                report_criterion_target(criterion_id))
         records.append(criterion_record(
             criterion_id, evidence["status"],
             expectation=expectations[criterion_id],
@@ -9728,8 +9734,7 @@ def make_criteria(worktree, all_required_bindings_present, ledgers,
             result_ledger=commitment["result_ledger_sha256"],
             result_merkle_root=commitment["result_merkle_root_sha256"],
             result_artifact=evidence["artifact"],
-            target=evidence.get("target", report_criterion_target(
-                criterion_id)),
+            target=aggregate_target,
             maximum=evidence["maximum"], witness=evidence["witness"],
             first_failure=evidence["first_failing_key"]))
     binding_status = records[0]["status"]
