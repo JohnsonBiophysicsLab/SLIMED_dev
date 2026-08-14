@@ -6929,7 +6929,8 @@ def validate_d12_process_observation(record):
     return key, payload, provenance
 
 
-def validate_d12_raw_exact_value(payload, exact_value):
+def validate_d12_raw_exact_value(
+        payload, exact_value, expected_instrumented_translation_units=None):
     kind = _contract_kind(exact_value)
     raw_kind = _contract_kind(payload)
     if raw_kind == "d12_duration_raw_v1":
@@ -6979,6 +6980,11 @@ def validate_d12_raw_exact_value(payload, exact_value):
                 exact_value["instrumented_translation_units_sha256"] ==
                     payload["instrumented_translation_units_sha256"],
                 "D12 instrumentation result differs from raw payload")
+        if payload["state"] == "COMPLETE" and \
+                expected_instrumented_translation_units is not None:
+            require(payload["instrumented_translation_units_sha256"] ==
+                    expected_instrumented_translation_units,
+                    "D12 instrumentation digest differs from authenticated audit")
     else:
         require(raw_kind == "d12_tsan_finding_raw_v1" and
                 kind == "d12_tsan_finding_summary_v1",
@@ -7256,13 +7262,16 @@ class D12EvidenceVerifier:
         "fixture_x", "fixture_y", "fixture_z", "positive_zero",
         "positive_one", "negative_one", "positive_2p20", "negative_2p20"})
 
-    def __init__(self, bundle_root, envelope=None, worker_inventory=None):
+    def __init__(self, bundle_root, envelope=None, worker_inventory=None,
+                 expected_instrumented_translation_units=None):
         self.bundle_root = pathlib.Path(bundle_root).resolve()
         self.file_bindings = {}
         self.descriptor_bindings = {}
         self.top_level_slices = {}
         self.envelope = envelope
         self.worker_inventory = worker_inventory
+        self.expected_instrumented_translation_units = \
+            expected_instrumented_translation_units
 
     def close(self):
         for table, _ in self.top_level_slices.values():
@@ -7526,10 +7535,19 @@ class D12EvidenceVerifier:
         if exact_value is None:
             return True
         kind = _contract_kind(exact_value)
+        if key[13] == "instrumentation_coverage":
+            require(self.expected_instrumented_translation_units is not None and
+                    target["expected_translation_units_sha256"] ==
+                        self.expected_instrumented_translation_units and
+                    exact_value["expected_translation_units_sha256"] ==
+                        self.expected_instrumented_translation_units,
+                    "D12 instrumentation target is not audit-derived")
         raw = exact_value.get("raw_observation")
         if raw is not None:
             payload = self.raw_observation(key, raw)
-            validate_d12_raw_exact_value(payload, exact_value)
+            validate_d12_raw_exact_value(
+                payload, exact_value,
+                self.expected_instrumented_translation_units)
         if kind in {"d12_concurrency_value_v1",
                     "d12_tsan_threaded_row_value_v1"}:
             if self.worker_inventory is not None:
@@ -7866,6 +7884,8 @@ class ProviderRowVerifier:
 
 def _read_command_profile(path_text):
     manifest_path = pathlib.Path(path_text).resolve()
+    require(str(path_text) == str(manifest_path),
+            "D12 command profile manifest path is not canonical")
     raw = manifest_path.read_bytes()
     manifest = strict_json_bytes(raw)
     require(jcs_bytes(manifest) == raw and isinstance(manifest, dict) and
@@ -7874,16 +7894,23 @@ def _read_command_profile(path_text):
             manifest["schema_id"] == "d12-command-profile-manifest-v1",
             "D12 command profile manifest is not canonical/closed")
     result = {}
+    expected_sidecar_names = {
+        "compile_commands": "compile-commands.json",
+        "link_commands": "link-commands.json"}
     for field in ("compile_commands", "link_commands"):
         descriptor = manifest[field]
         require(isinstance(descriptor, dict) and
                 set(descriptor) == {"relative_path", "sha256"} and
                 isinstance(descriptor["relative_path"], str) and
-                descriptor["relative_path"] and
+                descriptor["relative_path"] == expected_sidecar_names[field] and
                 SHA256_RE.fullmatch(descriptor["sha256"] or "") is not None,
                 "D12 command sidecar descriptor is malformed: " + field)
-        path = (manifest_path.parent / descriptor["relative_path"]).resolve()
-        require(path.is_relative_to(manifest_path.parent) and path.is_file() and
+        relative = pathlib.PurePosixPath(descriptor["relative_path"])
+        path = manifest_path.parent / pathlib.Path(*relative.parts)
+        require(not relative.is_absolute() and ".." not in relative.parts and
+                descriptor["relative_path"] == relative.as_posix() and
+                path == path.resolve() and path.parent == manifest_path.parent and
+                path.is_file() and
                 sha256_file(path) == descriptor["sha256"],
                 "D12 command sidecar bytes/path differ: " + field)
         sidecar_raw = path.read_bytes()
@@ -7903,6 +7930,8 @@ def _read_command_profile(path_text):
 
 def _read_d12_opensubdiv_profile_manifest(path_text, field):
     manifest_path = pathlib.Path(path_text).resolve()
+    require(str(path_text) == str(manifest_path),
+            "D12 OpenSubdiv profile manifest path is not canonical: " + field)
     raw = manifest_path.read_bytes()
     manifest = strict_json_bytes(raw)
     require(jcs_bytes(manifest) == raw and isinstance(manifest, dict) and
@@ -7932,11 +7961,16 @@ def _read_d12_opensubdiv_profile_manifest(path_text, field):
             "D12 OpenSubdiv artifact path is not canonical: " + field)
         root = pathlib.Path(root_text)
         artifact = pathlib.Path(artifact_text)
+        expected_artifact = root / {
+            "build_root_provenance": "d12-opensubdiv-build-audit.json",
+            "install_provenance": "d12-opensubdiv-install-provenance.json",
+            "link_provenance": "d12-opensubdiv-link-provenance.json",
+            "installed_library": "lib/libosdCPU.a",
+        }[field]
         require(root.is_dir() and artifact.is_file() and
                 artifact.is_relative_to(root) and
                 sha256_file(artifact) == descriptor["sha256"] and
-                (field != "installed_library" or
-                 artifact == root / "lib/libosdCPU.a"),
+                artifact == expected_artifact,
                 "D12 OpenSubdiv profile artifact bytes/root differ: " + field)
         result[profile_name] = {
             "root": str(root), "artifact_path": str(artifact),
@@ -7945,11 +7979,151 @@ def _read_d12_opensubdiv_profile_manifest(path_text, field):
     tsan_root = pathlib.Path(result["tsan"]["root"])
     require(not release_root.is_relative_to(tsan_root) and
             not tsan_root.is_relative_to(release_root) and
-            (field != "installed_library" or
-             result["release"]["sha256"] != result["tsan"]["sha256"]),
+            result["release"]["sha256"] != result["tsan"]["sha256"],
             "D12 OpenSubdiv Release/TSan profile artifacts are not distinct: " +
             field)
     return result
+
+
+def _read_canonical_json_object(path, label):
+    raw = pathlib.Path(path).read_bytes()
+    value = strict_json_bytes(raw)
+    require(jcs_bytes(value) == raw and isinstance(value, dict),
+            label + " is not a canonical JSON object")
+    return value
+
+
+def _validate_d12_opensubdiv_profile_audits(envelope, profiles):
+    """Re-run the frozen B2 OpenSubdiv audit and derive TSan TU truth."""
+    manifest = B2.load_manifest()
+    contract = manifest["qualification_platform"]["build"]["opensubdiv"]
+    audited = {}
+    source_roots = []
+    for profile_name, b2_profile_name in (
+            ("release", "release"), ("tsan", "thread_sanitizer")):
+        build_root = pathlib.Path(profiles[
+            "build_root_provenance"][profile_name]["root"])
+        install_root = pathlib.Path(profiles[
+            "install_provenance"][profile_name]["root"])
+        build_packet_path = pathlib.Path(profiles[
+            "build_root_provenance"][profile_name]["artifact_path"])
+        build_packet = _read_canonical_json_object(
+            build_packet_path, "D12 OpenSubdiv build audit")
+        require(set(build_packet) == {
+                    "schema_id", "profile", "source_root", "source", "audit"} and
+                build_packet["schema_id"] ==
+                    "d12-opensubdiv-build-audit-v1" and
+                build_packet["profile"] == profile_name,
+                "D12 OpenSubdiv build audit identity/shape drift")
+        source_root_text = _absolute_command_path(
+            build_packet["source_root"], "",
+            "D12 OpenSubdiv source root is not canonical")
+        source_root = pathlib.Path(source_root_text)
+        require(source_root.is_dir(),
+                "D12 OpenSubdiv source root is unavailable")
+        independent_source = B2.audit_source_checkout(source_root, manifest)
+        independent_audit = B2.audit_opensubdiv(
+            install_root, build_root, source_root, contract, b2_profile_name)
+        require(build_packet["source"] == independent_source and
+                build_packet["audit"] == independent_audit,
+                "D12 OpenSubdiv build audit differs from actual frozen audit")
+        source_roots.append(str(source_root))
+
+        header = install_root / "include/opensubdiv/version.h"
+        install_expected = {
+            "schema_id": "d12-opensubdiv-install-provenance-v1",
+            "profile": profile_name,
+            "install_root": str(install_root),
+            "version_header_sha256": sha256_file(header),
+            "install_manifest_sha256": independent_audit[
+                "provenance_artifacts"]["install_manifest"]["sha256"],
+            "archive_sha256": independent_audit["archive_sha256"],
+        }
+        install_observed = _read_canonical_json_object(
+            profiles["install_provenance"][profile_name]["artifact_path"],
+            "D12 OpenSubdiv install provenance")
+        require(install_observed == install_expected,
+                "D12 OpenSubdiv install provenance differs from audit")
+
+        link_expected = {
+            "schema_id": "d12-opensubdiv-link-provenance-v1",
+            "profile": profile_name,
+            "build_root": str(build_root),
+            "archive_sha256": independent_audit["archive_sha256"],
+            "raw_archive_members": independent_audit["raw_archive_members"],
+            "link_command_sha256": independent_audit[
+                "provenance_artifacts"]["link_command"]["sha256"],
+        }
+        link_observed = _read_canonical_json_object(
+            profiles["link_provenance"][profile_name]["artifact_path"],
+            "D12 OpenSubdiv link provenance")
+        require(link_observed == link_expected,
+                "D12 OpenSubdiv link provenance differs from audit")
+        require(pathlib.Path(independent_audit["archive"]) == pathlib.Path(
+                    profiles["installed_library"][profile_name][
+                        "artifact_path"]) and
+                independent_audit["archive_sha256"] == profiles[
+                    "installed_library"][profile_name]["sha256"],
+                "D12 OpenSubdiv installed archive differs from actual audit")
+        audited[profile_name] = independent_audit
+    require(len(set(source_roots)) == 1 and
+            audited["release"]["archive_sha256"] !=
+                audited["tsan"]["archive_sha256"],
+            "D12 OpenSubdiv profiles do not share one source/distinct archives")
+
+    proof_units = []
+    tsan_profile = envelope["build_profiles"]["tsan"]
+    for index, binary_name in enumerate(
+            ("provider_tsan", "representation_tsan")):
+        source = next(item for item in envelope["binaries"][binary_name][
+            "source_inventory"] if item["path"].endswith(".cpp"))
+        proof_units.append({
+            "binary": binary_name, "source": source,
+            "compile_command": tsan_profile["compile_commands"][index]})
+    instrumentation_ledger = {
+        "schema_id": "d12-instrumented-translation-unit-ledger-v1",
+        "proof_translation_units": proof_units,
+        "opensubdiv_translation_units": audited["tsan"][
+            "translation_unit_ledger"],
+    }
+    return {
+        "profiles": audited,
+        "instrumented_translation_units_sha256": sha256_bytes(
+            jcs_bytes(instrumentation_ledger))}
+
+
+def _validate_d12_runtime_binary_audit(
+        name, runtime_binary, link_map_path, dynamic_path, provider_role,
+        profile_name, opensubdiv_audit):
+    try:
+        observed_dynamic = pathlib.Path(dynamic_path).read_text(
+            encoding="utf-8", errors="strict")
+        observed_map = pathlib.Path(link_map_path).read_text(
+            encoding="utf-8", errors="strict")
+    except UnicodeError as error:
+        raise QualificationError(
+            "D12 binary audit artifact is not strict UTF-8: " + name) from error
+    actual_dynamic = B2.run(
+        ["/usr/bin/otool", "-L", str(pathlib.Path(runtime_binary).resolve())]
+    ).stdout
+    tsan_runtime = "libclang_rt.tsan" in actual_dynamic
+    require(observed_dynamic == actual_dynamic and
+            bool(observed_map.strip()) and
+            (tsan_runtime == (profile_name == "tsan")),
+            "D12 binary dynamic/TSan audit differs from executable: " + name)
+    if provider_role:
+        expected_members = {
+            item["object_member_basename"] for item in
+            opensubdiv_audit[profile_name]["translation_unit_ledger"]}
+        require("libosdCPU.a" in observed_map and
+                any(member in observed_map for member in expected_members),
+                "D12 provider link map does not use audited OpenSubdiv archive: " +
+                name)
+    else:
+        require("libosdCPU.a" not in observed_map,
+                "D12 representation binary unexpectedly links OpenSubdiv: " +
+                name)
+    return True
 
 
 def _validate_d12_runtime_provenance(envelope, report, provenance,
@@ -7977,6 +8151,7 @@ def _validate_d12_runtime_provenance(envelope, report, provenance,
     opensubdiv = envelope["dependencies"]["opensubdiv"]
     opensubdiv_files = provenance["dependencies"]["opensubdiv"]
     opensubdiv_profiles = {}
+    opensubdiv_manifest_paths = []
     for field, digest_field in (
             ("build_root_provenance", "build_root_provenance_sha256"),
             ("install_provenance", "install_provenance_sha256"),
@@ -7986,8 +8161,20 @@ def _validate_d12_runtime_provenance(envelope, report, provenance,
         require(manifest_path.is_file() and
                 sha256_file(manifest_path) == opensubdiv[digest_field],
                 "D12 OpenSubdiv profile manifest bytes differ: " + field)
+        opensubdiv_manifest_paths.append(str(manifest_path))
         opensubdiv_profiles[field] = \
             _read_d12_opensubdiv_profile_manifest(manifest_path, field)
+    artifact_paths = [
+        opensubdiv_profiles[field][profile_name]["artifact_path"]
+        for field in opensubdiv_profiles
+        for profile_name in ("release", "tsan")]
+    artifact_hashes = [
+        opensubdiv_profiles[field][profile_name]["sha256"]
+        for field in opensubdiv_profiles
+        for profile_name in ("release", "tsan")]
+    require(len(set(opensubdiv_manifest_paths)) == 4 and
+            len(set(artifact_paths)) == 8 and len(set(artifact_hashes)) == 8,
+            "D12 OpenSubdiv manifest/artifact roles are not distinct")
     command_roots = _validate_d12_build_profile_commands(envelope)
     for profile_name in ("release", "tsan"):
         require(opensubdiv_profiles["build_root_provenance"][profile_name][
@@ -8000,6 +8187,8 @@ def _validate_d12_runtime_provenance(envelope, report, provenance,
                     "root"] == command_roots[profile_name]["install_root"],
                 "D12 OpenSubdiv profile provenance root differs from commands: " +
                 profile_name)
+    opensubdiv_audit = _validate_d12_opensubdiv_profile_audits(
+        envelope, opensubdiv_profiles)
     binary_fields = {
         "compiler_command": "compiler_command_sha256",
         "link_map": "link_map_sha256",
@@ -8044,6 +8233,10 @@ def _validate_d12_runtime_provenance(envelope, report, provenance,
                             "artifact_path"])),
                 "D12 command output/link-map/library differs from supplied artifacts: " +
                 name)
+        _validate_d12_runtime_binary_audit(
+            name, runtime_binaries[name], files["link_map"],
+            files["dynamic_dependencies"], provider_role,
+            profile_for_binary[name], opensubdiv_audit["profiles"])
     dependency_fields = {
         "archive": "archive_sha256",
         "build_root_provenance": "build_root_provenance_sha256",
@@ -8060,7 +8253,7 @@ def _validate_d12_runtime_provenance(envelope, report, provenance,
                     dependency[digest_field],
                     "D12 dependency provenance bytes differ: " + name + "." +
                     field)
-    return True
+    return opensubdiv_audit
 
 
 def validate_result_sidecar_bundle(report, bundle_root, checkpoint_path=None,
@@ -8087,6 +8280,7 @@ def validate_result_sidecar_bundle(report, bundle_root, checkpoint_path=None,
             report, runtime_binaries, runtime_provenance)
     provider_rows = None
     worker_inventory = None
+    d12_runtime_audit = None
     if d12_envelope is not None:
         d12_runtime_binaries = d12_runtime_binaries or {}
         require(set(d12_runtime_binaries) == set(
@@ -8097,7 +8291,7 @@ def validate_result_sidecar_bundle(report, bundle_root, checkpoint_path=None,
             path = pathlib.Path(d12_runtime_binaries[name]).resolve()
             require(path.is_file() and sha256_file(path) == binary["sha256"],
                     "D12 runtime binary differs from envelope: " + name)
-        _validate_d12_runtime_provenance(
+        d12_runtime_audit = _validate_d12_runtime_provenance(
             d12_envelope, report, d12_runtime_provenance,
             d12_runtime_binaries)
         provider_rows = ProviderRowVerifier(
@@ -8122,7 +8316,9 @@ def validate_result_sidecar_bundle(report, bundle_root, checkpoint_path=None,
                         "PRESENT", expected["digest"]),
                     "D12 pre-result ledger differs from checkpoint universe")
     d12_evidence = D12EvidenceVerifier(
-        bundle_root, d12_envelope, worker_inventory)
+        bundle_root, d12_envelope, worker_inventory,
+        None if d12_runtime_audit is None else d12_runtime_audit[
+            "instrumented_translation_units_sha256"])
     if d12_envelope is not None:
         workload = d12_envelope["workload"]
         d12_evidence.sidecar(workload["provider_serial_reference"])

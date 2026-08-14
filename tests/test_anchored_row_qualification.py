@@ -716,7 +716,7 @@ class AnchoredRowQualificationTests(unittest.TestCase):
 
     def test_infrastructure_sidecars_bind_real_keys_and_raw_maximum(self):
         with tempfile.TemporaryDirectory() as temporary:
-            root = pathlib.Path(temporary)
+            root = pathlib.Path(temporary).resolve()
             artifacts = root / "artifacts"
             output = root / "evidence"
             artifacts.mkdir()
@@ -1468,6 +1468,21 @@ class AnchoredRowQualificationTests(unittest.TestCase):
         MODULE.validate_contract_result_record(
             "d12_instrumented_tsan", bad_instrumentation)
 
+        audit_digest = "a" * 64
+        complete_raw = {
+            "kind": "d12_tsan_instrumentation_raw_v1",
+            "state": "COMPLETE",
+            "instrumented_translation_units_sha256": audit_digest}
+        complete_value = copy.deepcopy(instrumentation)
+        complete_value.update({
+            "instrumentation_complete": True,
+            "instrumented_translation_units_sha256": audit_digest})
+        MODULE.validate_d12_raw_exact_value(
+            complete_raw, complete_value, audit_digest)
+        with self.assertRaises(MODULE.QualificationError):
+            MODULE.validate_d12_raw_exact_value(
+                complete_raw, complete_value, "b" * 64)
+
         invalid_rss = {"kind": "d12_rss_raw_v1",
                        "state": "MISSING_OBSERVATION",
                        "baseline_token": "123", "observed_token": None}
@@ -1581,7 +1596,7 @@ class AnchoredRowQualificationTests(unittest.TestCase):
             "compile_commands": [["clang++", "-O3", "-c", "source.cpp"]],
             "link_commands": [["clang++", "source.o", "-o", "proof"]]}
         with tempfile.TemporaryDirectory() as temporary:
-            root = pathlib.Path(temporary)
+            root = pathlib.Path(temporary).resolve()
             compile_path = root / "compile-commands.json"
             link_path = root / "link-commands.json"
             compile_path.write_bytes(MODULE.jcs_bytes(
@@ -1598,6 +1613,24 @@ class AnchoredRowQualificationTests(unittest.TestCase):
             path = root / "commands.manifest.json"
             path.write_bytes(MODULE.jcs_bytes(manifest))
             self.assertEqual(MODULE._read_command_profile(path), profile)
+            for bad_relative in (
+                    "./compile-commands.json",
+                    "nested/../compile-commands.json",
+                    str(compile_path)):
+                bad_manifest = copy.deepcopy(manifest)
+                bad_manifest["compile_commands"][
+                    "relative_path"] = bad_relative
+                path.write_bytes(MODULE.jcs_bytes(bad_manifest))
+                with self.assertRaises(MODULE.QualificationError):
+                    MODULE._read_command_profile(path)
+            path.write_bytes(MODULE.jcs_bytes(manifest))
+            actual_compile = root / "actual-compile-commands.json"
+            compile_path.rename(actual_compile)
+            compile_path.symlink_to(actual_compile)
+            with self.assertRaises(MODULE.QualificationError):
+                MODULE._read_command_profile(path)
+            compile_path.unlink()
+            actual_compile.rename(compile_path)
             link_path.write_bytes(MODULE.jcs_bytes(
                 profile["compile_commands"]))
             with self.assertRaises(MODULE.QualificationError):
@@ -1641,6 +1674,116 @@ class AnchoredRowQualificationTests(unittest.TestCase):
             with self.assertRaises(MODULE.QualificationError):
                 MODULE._read_d12_opensubdiv_profile_manifest(
                     path, "installed_library")
+
+    def test_d12_opensubdiv_audit_derives_instrumentation_digest(self):
+        envelope = MODULE._d12_envelope_contract_fixture()
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary).resolve()
+            source_root = root / "source"
+            source_root.mkdir()
+            source_audit = {
+                "head": "a" * 40, "tree": "b" * 40,
+                "translation_units": []}
+            profiles = {field: {} for field in (
+                "build_root_provenance", "install_provenance",
+                "link_provenance", "installed_library")}
+            independent_audits = {}
+            for profile_name, b2_name in (
+                    ("release", "release"),
+                    ("tsan", "thread_sanitizer")):
+                build_root = root / (profile_name + "-build")
+                install_root = root / (profile_name + "-install")
+                build_root.mkdir()
+                (install_root / "include/opensubdiv").mkdir(parents=True)
+                (install_root / "lib").mkdir()
+                header = install_root / "include/opensubdiv/version.h"
+                header.write_text("version", encoding="utf-8")
+                archive = install_root / "lib/libosdCPU.a"
+                archive.write_bytes((profile_name + " archive").encode())
+                install_manifest = build_root / "install_manifest.txt"
+                install_manifest.write_text("installed", encoding="utf-8")
+                link_command = build_root / "link.txt"
+                link_command.write_text("linked", encoding="utf-8")
+                audit = {
+                    "profile": b2_name, "build_root": str(build_root),
+                    "install_root": str(install_root),
+                    "archive": str(archive),
+                    "archive_sha256": MODULE.sha256_file(archive),
+                    "raw_archive_members": ["__.SYMDEF", "version.cpp.o"],
+                    "translation_unit_ledger": [{
+                        "source_relative_path": "opensubdiv/version.cpp",
+                        "source_sha256": profile_name[0] * 64,
+                        "object_member_basename": "version.cpp.o",
+                        "compile_command": ["clang++"] +
+                            (["-fsanitize=thread"]
+                             if profile_name == "tsan" else [])}],
+                    "provenance_artifacts": {
+                        "install_manifest": {
+                            "sha256": MODULE.sha256_file(install_manifest)},
+                        "link_command": {
+                            "sha256": MODULE.sha256_file(link_command)}}}
+                independent_audits[b2_name] = audit
+
+                build_packet = {
+                    "schema_id": "d12-opensubdiv-build-audit-v1",
+                    "profile": profile_name,
+                    "source_root": str(source_root),
+                    "source": source_audit, "audit": audit}
+                build_path = build_root / \
+                    "d12-opensubdiv-build-audit.json"
+                build_path.write_bytes(MODULE.jcs_bytes(build_packet))
+                install_value = {
+                    "schema_id": "d12-opensubdiv-install-provenance-v1",
+                    "profile": profile_name,
+                    "install_root": str(install_root),
+                    "version_header_sha256": MODULE.sha256_file(header),
+                    "install_manifest_sha256":
+                        MODULE.sha256_file(install_manifest),
+                    "archive_sha256": MODULE.sha256_file(archive)}
+                install_path = install_root / \
+                    "d12-opensubdiv-install-provenance.json"
+                install_path.write_bytes(MODULE.jcs_bytes(install_value))
+                link_value = {
+                    "schema_id": "d12-opensubdiv-link-provenance-v1",
+                    "profile": profile_name, "build_root": str(build_root),
+                    "archive_sha256": MODULE.sha256_file(archive),
+                    "raw_archive_members": audit["raw_archive_members"],
+                    "link_command_sha256": MODULE.sha256_file(link_command)}
+                link_path = build_root / \
+                    "d12-opensubdiv-link-provenance.json"
+                link_path.write_bytes(MODULE.jcs_bytes(link_value))
+                for field, path, field_root in (
+                        ("build_root_provenance", build_path, build_root),
+                        ("install_provenance", install_path, install_root),
+                        ("link_provenance", link_path, build_root),
+                        ("installed_library", archive, install_root)):
+                    profiles[field][profile_name] = {
+                        "root": str(field_root),
+                        "artifact_path": str(path),
+                        "sha256": MODULE.sha256_file(path)}
+
+            def audit_profile(_install, _build, _source, _contract, profile):
+                return copy.deepcopy(independent_audits[profile])
+
+            with mock.patch.object(
+                    MODULE.B2, "audit_source_checkout",
+                    return_value=copy.deepcopy(source_audit)), \
+                    mock.patch.object(
+                        MODULE.B2, "audit_opensubdiv",
+                        side_effect=audit_profile):
+                result = MODULE._validate_d12_opensubdiv_profile_audits(
+                    envelope, profiles)
+                self.assertRegex(
+                    result["instrumented_translation_units_sha256"],
+                    r"^[0-9a-f]{64}$")
+                build_path = pathlib.Path(profiles[
+                    "build_root_provenance"]["tsan"]["artifact_path"])
+                packet = MODULE.strict_json_bytes(build_path.read_bytes())
+                packet["audit"]["archive_sha256"] = "f" * 64
+                build_path.write_bytes(MODULE.jcs_bytes(packet))
+                with self.assertRaises(MODULE.QualificationError):
+                    MODULE._validate_d12_opensubdiv_profile_audits(
+                        envelope, profiles)
 
     def test_d12_qualified_full_probe_fields_are_consequential(self):
         envelope = MODULE._d12_envelope_contract_fixture()
