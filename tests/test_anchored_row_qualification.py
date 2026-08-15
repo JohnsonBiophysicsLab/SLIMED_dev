@@ -829,11 +829,47 @@ class AnchoredRowQualificationTests(unittest.TestCase):
             present = MODULE.availability("PRESENT", "3" * 64)
             unavailable = MODULE.availability(
                 "UNAVAILABLE", reason_code="EXECUTION_UNAVAILABLE")
+            dependency_versions = {
+                "gmp": "6.3.0", "mpfr": "4.2.2",
+                "opensubdiv": "3.7.0"}
+
+            def complete_dependencies():
+                return {
+                    name: {
+                        "version": version,
+                        "source_archive": copy.deepcopy(present),
+                        "build_provenance": copy.deepcopy(present),
+                        "install_provenance": copy.deepcopy(present),
+                        "link_map": copy.deepcopy(present),
+                        "dynamic_dependencies": copy.deepcopy(present),
+                    }
+                    for name, version in dependency_versions.items()}
+
+            def present_binary():
+                return {
+                    "availability": copy.deepcopy(present),
+                    "sources": [{"path": "source.cpp", "sha256": "5" * 64}],
+                    "compiler_command": copy.deepcopy(present),
+                    "compiler_version": copy.deepcopy(present),
+                    "link_map": copy.deepcopy(present),
+                    "dynamic_dependencies": copy.deepcopy(present),
+                    "dependencies": complete_dependencies(),
+                }
+
+            unavailable_binary = present_binary()
+            unavailable_binary.update({
+                "availability": copy.deepcopy(unavailable),
+                "sources": [],
+                "compiler_command": copy.deepcopy(unavailable),
+                "compiler_version": copy.deepcopy(unavailable),
+                "link_map": copy.deepcopy(unavailable),
+                "dynamic_dependencies": copy.deepcopy(unavailable),
+            })
             binaries = {
-                "row_provider": {"availability": present},
-                "representation_candidate": {"availability": present},
-                "exact_dyadic_boundary": {"availability": present},
-                "independent_oracle": {"availability": unavailable},
+                "row_provider": present_binary(),
+                "representation_candidate": present_binary(),
+                "exact_dyadic_boundary": present_binary(),
+                "independent_oracle": unavailable_binary,
                 "oracle_independence_audit": "INCOMPLETE",
             }
             maximum_value = MODULE.binary64_from_bits_hex(
@@ -925,6 +961,9 @@ class AnchoredRowQualificationTests(unittest.TestCase):
             binding_record = json.loads((
                 output / evidence["bindings_and_independence"]["artifact"][
                     "relative_path"]).read_text(encoding="utf-8"))[0][2]
+            self.assertTrue(binding_record["provenance_complete"])
+            self.assertEqual(MODULE._binding_outcome_reason(binding_record),
+                             ("INCOMPLETE", "BINDING_UNAVAILABLE"))
             report["identity"] = {
                 "git_start": {"git_commit": binding_record["git_start"]},
                 "git_end": {"git_commit": binding_record["git_end"]},
@@ -934,21 +973,9 @@ class AnchoredRowQualificationTests(unittest.TestCase):
                     "clean": binding_record["worktree_end_clean"]},
                 "validator": {"sha256": binding_record["validator_sha256"]},
             }
-            report["binaries"] = {
-                "oracle_independence_audit": binding_record[
-                    "oracle_independence_audit"]}
-            for prefix, binary_name in (
-                    ("row_provider", "row_provider"),
-                    ("representation", "representation_candidate"),
-                    ("exact_boundary", "exact_dyadic_boundary"),
-                    ("independent_oracle", "independent_oracle")):
-                report["binaries"][binary_name] = {
-                    "availability": MODULE.availability(
-                        binding_record[prefix + "_availability"],
-                        binding_record[prefix + "_sha256"],
-                        reason_code=(None if binding_record[
-                            prefix + "_availability"] == "PRESENT" else
-                            "EXECUTION_UNAVAILABLE"))}
+            report["binaries"] = copy.deepcopy(binaries)
+            self.assertTrue(MODULE._validate_binding_against_report(
+                binding_record, report))
             with mock.patch.object(MODULE, "validate_report",
                                    return_value=True):
                 self.assertTrue(MODULE.validate_result_sidecar_bundle(

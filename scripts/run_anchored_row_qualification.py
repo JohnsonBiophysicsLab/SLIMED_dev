@@ -9528,6 +9528,22 @@ def write_infrastructure_result_evidence(
         binaries["exact_dyadic_boundary"])
     oracle_state, oracle_sha = _availability_state_and_sha(
         binaries["independent_oracle"])
+    provenance_binaries = [
+        binaries[binary_name] for binary_name in (
+            "row_provider", "representation_candidate",
+            "exact_dyadic_boundary", "independent_oracle")
+        if binaries[binary_name]["availability"]["state"] == "PRESENT"]
+    provenance_complete = all(
+        binary.get("sources") and
+        all(binary.get(field, {}).get("state") == "PRESENT" for field in
+            ("compiler_command", "compiler_version", "link_map",
+             "dynamic_dependencies")) and
+        all(dependency.get(field, {}).get("state") == "PRESENT"
+            for dependency in binary.get("dependencies", {}).values()
+            for field in ("source_archive", "build_provenance",
+                          "install_provenance", "link_map",
+                          "dynamic_dependencies"))
+        for binary in provenance_binaries)
     binding_value = {
         "kind": "binding_value_v1",
         "git_start": git_start["git_commit"],
@@ -9549,7 +9565,7 @@ def write_infrastructure_result_evidence(
         "gmp_identity": "gmp-6.3.0",
         "mpfr_identity": "mpfr-4.2.2",
         "opensubdiv_identity": "opensubdiv-3.7.0",
-        "provenance_complete": False,
+        "provenance_complete": provenance_complete,
     }
     binding_key = ["bindings_and_independence",
                    "exact_head_and_provenance"]
