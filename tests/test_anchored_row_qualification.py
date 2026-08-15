@@ -132,7 +132,7 @@ class AnchoredRowQualificationTests(unittest.TestCase):
         self.assertEqual(counts["M12"], 32 * 9)
         self.assertEqual(counts["M16"], 26)
 
-    def test_all_3501_literal_mutations_have_executable_rejections(self):
+    def test_all_3505_literal_mutations_have_executable_rejections(self):
         rejected = MODULE.execute_literal_mutation_suite()
         self.assertEqual(rejected, MODULE.literal_mutation_manifest())
 
@@ -693,6 +693,135 @@ class AnchoredRowQualificationTests(unittest.TestCase):
         duplicate.add_encoded(encoded, "PASS")
         with self.assertRaises(MODULE.QualificationError):
             duplicate.add_encoded(encoded, "PASS")
+
+    def test_oracle_uncovered_records_propagate_exactly_to_d10_dependents(self):
+        reasons = ("EIGENBASIS_CERTIFICATION_FAILED",
+                   "UNIFORM_CROSSCHECK_FAILED")
+
+        def records_by_criterion(mutation=None):
+            records = {criterion_id: [] for criterion_id in
+                       ("oracle_coverage_and_crosscheck",) + tuple(
+                           identifier for identifier in MODULE.CRITERION_IDS
+                           if identifier in
+                           MODULE.ORACLE_DEPENDENT_CRITERIA)}
+            for face_id, reason in zip((0, 1), reasons):
+                coeff_key = MODULE._criterion_mutation_key(
+                    "exact_effective_d10_coeff")
+                coeff_key[3] = face_id
+                oracle_key = MODULE.oracle_request_key_for_dependent_key(
+                    "exact_effective_d10_coeff", coeff_key)
+                records["oracle_coverage_and_crosscheck"].append([
+                    oracle_key, "UNCOVERED", None, None, reason])
+                for criterion_id in MODULE.ORACLE_DEPENDENT_CRITERIA:
+                    axes = (("x", "y", "z") if criterion_id in getattr(
+                            MODULE.OracleUncoveredPropagationVerifier,
+                            "AXIS_CRITERIA") else (None,))
+                    for axis in axes:
+                        key = MODULE._criterion_mutation_key(criterion_id)
+                        key[3] = face_id
+                        key[11] = axis
+                        target = MODULE.absolute_rational_target(
+                            MODULE._row_target_denominator(criterion_id, key))
+                        records[criterion_id].append([
+                            key, "UNCOVERED", None, target, reason])
+            if mutation == "gap":
+                records["exact_effective_d10_coeff"].pop()
+            elif mutation == "extra":
+                extra = copy.deepcopy(
+                    records["exact_effective_d10_coeff"][-1])
+                extra[0][3] = 2
+                records["exact_effective_d10_coeff"].append(extra)
+            elif mutation == "wrong_reason":
+                records["exact_effective_d10_coeff"][-1][4] = reasons[0]
+            elif mutation == "axis_gap":
+                records["exact_effective_d10_geometry"].pop()
+            return records
+
+        def verify(records):
+            verifier = MODULE.OracleUncoveredPropagationVerifier()
+            for criterion_id in ("oracle_coverage_and_crosscheck",) + tuple(
+                    identifier for identifier in MODULE.CRITERION_IDS
+                    if identifier in MODULE.ORACLE_DEPENDENT_CRITERIA):
+                for record in sorted(
+                        records[criterion_id],
+                        key=lambda item: MODULE.jcs_bytes(item[0])):
+                    verifier.add(criterion_id, record)
+            return verifier.finish()
+
+        summaries = verify(records_by_criterion())
+        expected = summaries["oracle_coverage_and_crosscheck"]
+        self.assertEqual(expected[0], 2)
+        self.assertTrue(all(summaries[criterion_id] == expected
+                            for criterion_id in
+                            MODULE.ORACLE_DEPENDENT_CRITERIA))
+        for mutation in ("gap", "extra", "wrong_reason", "axis_gap"):
+            with self.subTest(mutation=mutation):
+                with self.assertRaises(MODULE.QualificationError):
+                    verify(records_by_criterion(mutation))
+
+        failure_key = MODULE._criterion_mutation_key(
+            "exact_effective_d10_coeff")
+        MODULE.validate_criterion_result_outcomes(
+            "exact_effective_d10_coeff", "UNCOVERED",
+            {"PASS", "UNCOVERED"}, 2, None, None)
+        MODULE.validate_criterion_result_outcomes(
+            "exact_effective_d10_coeff", "FAIL",
+            {"PASS", "FAIL", "UNCOVERED"}, 3,
+            failure_key, failure_key)
+        for status, outcomes in (
+                ("PASS", {"PASS", "UNCOVERED"}),
+                ("UNCOVERED", {"PASS", "FAIL", "UNCOVERED"}),
+                ("FAIL", {"PASS", "UNCOVERED"})):
+            with self.subTest(status=status, outcomes=outcomes):
+                with self.assertRaises(MODULE.QualificationError):
+                    MODULE.validate_criterion_result_outcomes(
+                        "exact_effective_d10_coeff", status, outcomes,
+                        len(outcomes), failure_key, failure_key)
+
+    def test_oracle_dependent_uncovered_form_and_aggregate_are_fail_closed(self):
+        reason = "UNIFORM_CROSSCHECK_FAILED"
+        for criterion_id in MODULE.ORACLE_DEPENDENT_CRITERIA:
+            key = MODULE._criterion_mutation_key(criterion_id)
+            target = MODULE.absolute_rational_target(
+                MODULE._row_target_denominator(criterion_id, key))
+            record = [key, "UNCOVERED", None, target, reason]
+            MODULE.validate_contract_result_record(criterion_id, record)
+            for mutation in (
+                    [key, "PASS", None, target, None],
+                    [key, "UNCOVERED", {"kind": "geometry_axis_v1"},
+                     target, reason],
+                    [key, "UNCOVERED", None, None, reason],
+                    [key, "UNCOVERED", None, target,
+                     "D10_GEOMETRY_TARGET_EXCEEDED"]):
+                with self.subTest(criterion=criterion_id,
+                                  mutation=mutation[1:]):
+                    with self.assertRaises(MODULE.QualificationError):
+                        MODULE.validate_contract_result_record(
+                            criterion_id, mutation)
+
+        criteria = self.make_incomplete_criteria_fixture()
+        for criterion_id in MODULE.ORACLE_DEPENDENT_CRITERIA:
+            index = MODULE.CRITERION_IDS.index(criterion_id)
+            expected = MODULE.EXPECTED_CELL_COUNTS[criterion_id]
+            digest = format(index + 1, "064x")
+            criteria[index] = MODULE.criterion_record(
+                criterion_id, "UNCOVERED", expected=expected,
+                observed=expected, ledger="a" * 64,
+                result_ledger=digest, result_merkle_root="c" * 64,
+                result_artifact=self.present_result_artifact(
+                    criterion_id, digest, expected),
+                maximum=None, witness=None)
+        MODULE.validate_criteria(criteria)
+        verdict = MODULE.calculate_verdict(criteria)
+        self.assertEqual(verdict["status"], "INCOMPLETE")
+        self.assertEqual(verdict["first_decisive_criterion"],
+                         "bindings_and_independence")
+        mutation = copy.deepcopy(criteria)
+        index = MODULE.CRITERION_IDS.index("exact_effective_d10_coeff")
+        mutation[index]["maximum"] = MODULE._absolute_rational_descriptor(
+            MODULE.Fraction(0, 1))
+        with self.assertRaises(MODULE.QualificationError):
+            MODULE.validate_criteria(mutation)
 
     def test_persistent_result_ledger_and_merkle_witness_are_exact(self):
         def key(index):

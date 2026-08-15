@@ -25,7 +25,8 @@ result_ledger_sha256       64 lowercase hex | null
 result_merkle_root_sha256  64 lowercase hex | null
 ```
 
-An executed `PASS`, candidate-owned `FAIL`, or oracle `UNCOVERED` has a
+An executed `PASS`, candidate-owned `FAIL`, oracle `UNCOVERED`, or exact
+oracle-dependent propagated `UNCOVERED` has a
 complete result record for every expected applicability key, so both digests
 are non-null and `observed_cell_count == expected_cell_count`. The rule for an
 executed infrastructure or D12 `INCOMPLETE` is deterministic: a complete
@@ -238,7 +239,8 @@ single string `"0"`, and never carry a sign unless the field says so.
   denominator power 1074. For source `i`, the runner derives
   `absolute_error_uppers[i] = max(|observed_i-lower_i|,
   |observed_i-upper_i|)` exactly and requires `l1` to be the reduced exact sum
-  of every upper. This is the sole coefficient result form for criterion 11.
+  of every upper. This is the sole covered-cell coefficient result form for
+  criterion 11; propagated oracle-uncovered cells use null as specified below.
 - `exact_coefficient_l1_v1` = `{kind:"exact_coefficient_l1_v1",
   source_ids:[signed integers],observed:[signed_dyadic_v1],
   expected:[signed_dyadic_v1],absolute_errors:[absolute_dyadic_v1],
@@ -364,9 +366,9 @@ not reinterpret it.
 | 08 | `regular_analytic_area_integrand` | 50,880 | `regular_area_integrand_exact_and_emitted` | view-dependent `integrand_exact_interval_v1|integrand_emitted_interval_v1` | `1/200000` | `PASS|FAIL` / `REGULAR_INTEGRAND_TARGET_EXCEEDED` | numeric:`absolute_error_upper` |
 | 09 | `regular_analytic_legacy_volume_integrand` | 50,880 | `regular_legacy_volume_integrand_exact_and_emitted` | view-dependent `integrand_exact_interval_v1|integrand_emitted_interval_v1` | `1/200000` | `PASS|FAIL` / `REGULAR_INTEGRAND_TARGET_EXCEEDED` | numeric:`absolute_error_upper` |
 | 10 | `oracle_coverage_and_crosscheck` | 1,188,000 | `primary_Stam_plus_uniform_coverage` | outcome-dependent: `PASS` uses `oracle_covered_value_v1`; `UNCOVERED` uses null; infrastructure `INCOMPLETE` has no complete result ledger | null | complete ledger: `PASS|UNCOVERED` / `d10_oracle_reason_v1`; absent or partial ledger: `INCOMPLETE` / `oracle_infrastructure_reason_v1` | none |
-| 11 | `exact_effective_d10_coeff` | 1,188,000 | `covered_primary_oracle_coefficient_l1` | `oracle_coefficient_l1_v1` | `row_D10` | `PASS|FAIL` / `D10_COEFFICIENT_TARGET_EXCEEDED` | numeric:`l1` |
-| 12 | `exact_effective_d10_geometry` | 3,564,000 | `covered_primary_oracle_exact_geometry_axis` | `geometry_axis_v1` | `row_D10` | `PASS|FAIL` / `D10_GEOMETRY_TARGET_EXCEEDED` | numeric:`normalized_bound.normalized_upper` |
-| 13 | `emitted_direct_geometry_d10` | 3,564,000 | `covered_primary_oracle_emitted_geometry_axis` | `geometry_axis_v1` | `row_D10` | `PASS|FAIL` / `D10_EMITTED_GEOMETRY_TARGET_EXCEEDED` | numeric:`normalized_bound.normalized_upper` |
+| 11 | `exact_effective_d10_coeff` | 1,188,000 | `covered_primary_oracle_coefficient_l1` | outcome-dependent: covered `PASS|FAIL` uses `oracle_coefficient_l1_v1`; propagated `UNCOVERED` uses null | `row_D10` | `PASS|FAIL|UNCOVERED` / `D10_COEFFICIENT_TARGET_EXCEEDED|d10_oracle_reason_v1` | numeric:`l1` for `PASS|FAIL`; null for `UNCOVERED` |
+| 12 | `exact_effective_d10_geometry` | 3,564,000 | `covered_primary_oracle_exact_geometry_axis` | outcome-dependent: covered `PASS|FAIL` uses `geometry_axis_v1`; propagated `UNCOVERED` uses null | `row_D10` | `PASS|FAIL|UNCOVERED` / `D10_GEOMETRY_TARGET_EXCEEDED|d10_oracle_reason_v1` | numeric:`normalized_bound.normalized_upper` for `PASS|FAIL`; null for `UNCOVERED` |
+| 13 | `emitted_direct_geometry_d10` | 3,564,000 | `covered_primary_oracle_emitted_geometry_axis` | outcome-dependent: covered `PASS|FAIL` uses `geometry_axis_v1`; propagated `UNCOVERED` uses null | `row_D10` | `PASS|FAIL|UNCOVERED` / `D10_EMITTED_GEOMETRY_TARGET_EXCEEDED|d10_oracle_reason_v1` | numeric:`normalized_bound.normalized_upper` for `PASS|FAIL`; null for `UNCOVERED` |
 | 14 | `anchor_sensitivity_exact_coeff` | 1,188,000 | `all_three_anchor_pairs_exact_coefficient_l1` | `exact_coefficient_l1_v1` | `row_component` | `PASS|FAIL` / `ANCHOR_SENSITIVITY_TARGET_EXCEEDED` | numeric:`l1` |
 | 15 | `anchor_sensitivity_exact_geometry` | 3,564,000 | `all_three_anchor_pairs_exact_geometry_axis` | `geometry_axis_v1` | `row_component` | `PASS|FAIL` / `ANCHOR_SENSITIVITY_TARGET_EXCEEDED` | numeric:`normalized_bound.normalized_upper` |
 | 16 | `anchor_sensitivity_emitted_geometry` | 3,564,000 | `all_three_anchor_pairs_emitted_geometry_axis` | `geometry_axis_v1` | `row_component` | `PASS|FAIL` / `ANCHOR_SENSITIVITY_TARGET_EXCEEDED` | numeric:`normalized_bound.normalized_upper` |
@@ -505,7 +507,7 @@ recomputes the certification fields from the full primary and independent
 uniform records; literal `CERTIFIED` strings cannot substitute for those
 checks.
 
-Every `UNCOVERED` record therefore has exactly
+Every criterion-10 `UNCOVERED` record therefore has exactly
 `[key,"UNCOVERED",null,null,reason]`, where `reason` is one frozen D10 oracle
 reason. If non-oracle infrastructure prevents construction of the request or
 a complete coverage partition, criterion 10 is `INCOMPLETE`, its result
@@ -660,6 +662,31 @@ exactly 1,188,000 `UNCOVERED` records with reason
 `target=null`. The empty covered partition is present, not absent. No
 uniform-only, candidate, absent-executable, or infrastructure observation may
 be relabeled as primary-oracle coverage.
+
+### Oracle-dependent UNCOVERED propagation
+
+Criteria 11--13 consume criterion 10's coverage decision; they cannot invent
+coverage or a candidate comparison. For each criterion-10 `UNCOVERED` key,
+criterion 11 contains exactly one propagated record and criteria 12 and 13
+contain exactly the three `x`, `y`, and `z` propagated records. Each has
+`outcome="UNCOVERED"`, `exact_value=null`, the unchanged row-D10 target, and
+the identical frozen oracle reason. Its key differs from the oracle key only
+in the criterion-owned view and, for criteria 12 and 13, axis. The base
+content, cache mode, level, face, local corner, sample, row kind, anchor, and
+identity relabel are byte-identical. The validator streams a bounded-memory
+canonical digest of `[oracle_request_key,reason]` for criterion 10 and for
+each dependent criterion, collapses each complete ordered `x,y,z` group once,
+and requires exact count and digest equality.
+
+Covered cells retain their candidate-owned `PASS|FAIL` comparison. Within
+each of criteria 11--13, any covered-cell `FAIL` has precedence; otherwise any
+propagated cell makes the criterion `UNCOVERED`; only an all-covered,
+all-passing ledger is `PASS`. An aggregate `UNCOVERED` has null maximum and
+witness even if some covered cells pass. A propagated cell contributes no
+candidate PASS or FAIL. Criteria 14--26 remain independently executable; an
+oracle `UNCOVERED` is not an infrastructure omission blocker. The overall
+verdict remains `INCOMPLETE` unless another candidate criterion establishes
+`FAIL`.
 
 ## Binary64 basis diagnostic ownership
 
@@ -1833,7 +1860,7 @@ M13 maximum-witness                    for every numeric C: noncorpus key, wrong
 M14 merkle-proof                       for every numeric C: short, extra, wrong sibling, reversed direction, wrong index, padding index, wrong root
 M15 first-failure                      for every FAIL-capable C: null, passing key, later failure, noncorpus key
 M16 authority-value                    each six-row item, tolerance, each D10/component/D12 target, each dependency version, each anchor/relabel/level/order, each manifest/fixture/fingerprint field
-M17 oracle-partition                   gap, overlap, outside-request, covered-as-uncovered, wrong reason, missing reason, uniform-as-primary
+M17 oracle-partition                   gap, overlap, outside-request, covered-as-uncovered, wrong reason, missing reason, uniform-as-primary, propagation gap, propagation extra, propagation wrong reason, propagation axis gap
 M18 basis-aggregation                  distributed per-source error, identity-only failure, reverse-only failure, rotate-only failure, signed coefficient, wrong inverse map, wrong group L1
 M19 raw-D9a                            case state, case digest, failing-row count, 124 count, exact numerator, maximum bits, maximum witness
 M20 D12-envelope                       malformed, duplicate-key, content hash, cross-head, dirty, old-B2, boolean-only, missing provenance, fingerprint, hosted-as-qualified, workload, reference digest, instrumentation, operational gap
