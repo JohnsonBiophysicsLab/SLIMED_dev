@@ -41,10 +41,13 @@ jobs:
 
       - name: Validate frozen contract before dependencies
         run: |
+          python3 scripts/update_anchored_row_contract_schema.py --check
           python3 scripts/run_bfr_qualification.py --self-test --json
           python3 -m unittest tests.test_bfr_qualification
           python3 scripts/run_invariant_row_representation_preflight.py --self-test --json
           python3 -m unittest tests.test_invariant_row_representation_preflight
+          python3 scripts/run_anchored_row_qualification.py --self-test --json
+          python3 -m unittest tests.test_anchored_row_qualification
 
       - name: Download and checksum proof archives
         shell: bash
@@ -223,6 +226,124 @@ jobs:
             --output "$RUNNER_TEMP/invariant-row-representation-preflight.json" \
             --json
 
+      - name: Execute anchored-row qualification fail-closed boundary
+        env:
+          QUALIFICATION_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          QUALIFICATION_ROOT="$RUNNER_TEMP/anchored-row-qualification"
+          mkdir -p "$QUALIFICATION_ROOT"
+          COMMON_FLAGS=(
+            -std=c++17 -O3 -DNDEBUG -fno-fast-math -ffp-contract=off
+            -fno-omit-frame-pointer -Wall -Wextra -Wpedantic -Werror
+            -isysroot /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk
+            -mmacosx-version-min=26.0
+          )
+          CANDIDATE_COMMAND=(/Library/Developer/CommandLineTools/usr/bin/clang++ \
+            "${COMMON_FLAGS[@]}" -MMD -MF "$QUALIFICATION_ROOT/candidate.d" \
+            experiments/anchored_row_qualification/candidate.cpp \
+            -Wl,-map,"$QUALIFICATION_ROOT/candidate.map" \
+            -o "$QUALIFICATION_ROOT/anchored_row_candidate")
+          BOUNDARY_COMMAND=(/Library/Developer/CommandLineTools/usr/bin/clang++ \
+            "${COMMON_FLAGS[@]}" -MMD -MF "$QUALIFICATION_ROOT/exact_boundary.d" \
+            -I"$MPFR_ROOT/include" \
+            experiments/anchored_row_qualification/exact_dyadic_boundary.cpp \
+            -L"$MPFR_ROOT/lib" -Wl,-rpath,"$MPFR_ROOT/lib" -lmpfr -lgmp \
+            -Wl,-map,"$QUALIFICATION_ROOT/exact_boundary.map" \
+            -o "$QUALIFICATION_ROOT/exact_dyadic_boundary")
+          printf '%s\n' "${CANDIDATE_COMMAND[@]}" > "$QUALIFICATION_ROOT/candidate.command"
+          printf '%s\n' "${BOUNDARY_COMMAND[@]}" > "$QUALIFICATION_ROOT/exact_boundary.command"
+          /Library/Developer/CommandLineTools/usr/bin/clang++ --version \
+            > "$QUALIFICATION_ROOT/compiler.version"
+          "${CANDIDATE_COMMAND[@]}"
+          "${BOUNDARY_COMMAND[@]}"
+          /usr/bin/otool -L "$RUNNER_TEMP/bfr-proof-artifacts/bfr_candidate" \
+            > "$QUALIFICATION_ROOT/provider.otool-L"
+          /usr/bin/otool -L "$QUALIFICATION_ROOT/anchored_row_candidate" \
+            > "$QUALIFICATION_ROOT/candidate.otool-L"
+          /usr/bin/otool -L "$QUALIFICATION_ROOT/exact_dyadic_boundary" \
+            > "$QUALIFICATION_ROOT/exact_boundary.otool-L"
+          python3 -c 'import json, os, pathlib; root=pathlib.Path(os.environ["RUNNER_TEMP"]); value=json.load(open(root / "bfr-qualification-evidence.json")); (root / "anchored-row-qualification" / "provider.command").write_text(json.dumps(value["dependency_provenance"]["proof_compile_commands"]["release_candidate"], ensure_ascii=False, separators=(",", ":")), encoding="utf-8")'
+          /usr/bin/otool -l "$MPFR_ROOT/lib/libgmp.dylib" \
+            > "$QUALIFICATION_ROOT/gmp.link-map"
+          /usr/bin/otool -L "$MPFR_ROOT/lib/libgmp.dylib" \
+            > "$QUALIFICATION_ROOT/gmp.otool-L"
+          /usr/bin/otool -l "$MPFR_ROOT/lib/libmpfr.dylib" \
+            > "$QUALIFICATION_ROOT/mpfr.link-map"
+          /usr/bin/otool -L "$MPFR_ROOT/lib/libmpfr.dylib" \
+            > "$QUALIFICATION_ROOT/mpfr.otool-L"
+          "$QUALIFICATION_ROOT/anchored_row_candidate" --self-test
+          "$QUALIFICATION_ROOT/exact_dyadic_boundary" --self-test
+          "$QUALIFICATION_ROOT/exact_dyadic_boundary" --capability
+          python3 scripts/run_anchored_row_qualification.py \
+            --checkpoint "$RUNNER_TEMP/bfr-release-checkpoint.json" \
+            --artifact-dir "$RUNNER_TEMP/bfr-case-json" \
+            --provider-binary "$RUNNER_TEMP/bfr-proof-artifacts/bfr_candidate" \
+            --candidate-binary "$QUALIFICATION_ROOT/anchored_row_candidate" \
+            --exact-dyadic-boundary-binary "$QUALIFICATION_ROOT/exact_dyadic_boundary" \
+            --compiler-version-file "$QUALIFICATION_ROOT/compiler.version" \
+            --provider-command-file "$QUALIFICATION_ROOT/provider.command" \
+            --provider-link-map "$RUNNER_TEMP/bfr-proof-artifacts/candidate.map" \
+            --provider-dynamic-dependencies "$QUALIFICATION_ROOT/provider.otool-L" \
+            --candidate-command-file "$QUALIFICATION_ROOT/candidate.command" \
+            --candidate-link-map "$QUALIFICATION_ROOT/candidate.map" \
+            --candidate-dynamic-dependencies "$QUALIFICATION_ROOT/candidate.otool-L" \
+            --boundary-command-file "$QUALIFICATION_ROOT/exact_boundary.command" \
+            --boundary-link-map "$QUALIFICATION_ROOT/exact_boundary.map" \
+            --boundary-dynamic-dependencies "$QUALIFICATION_ROOT/exact_boundary.otool-L" \
+            --gmp-archive "$RUNNER_TEMP/b2-downloads/gmp.tar.xz" \
+            --gmp-build-provenance "$GMP_BUILD_ROOT/build.log" \
+            --gmp-install-provenance "$GMP_BUILD_ROOT/install.log" \
+            --gmp-link-provenance "$QUALIFICATION_ROOT/gmp.link-map" \
+            --gmp-dynamic-dependency "$QUALIFICATION_ROOT/gmp.otool-L" \
+            --mpfr-archive "$RUNNER_TEMP/b2-downloads/mpfr.tar.xz" \
+            --mpfr-build-provenance "$MPFR_BUILD_ROOT/build.log" \
+            --mpfr-install-provenance "$MPFR_BUILD_ROOT/install.log" \
+            --mpfr-link-provenance "$QUALIFICATION_ROOT/mpfr.link-map" \
+            --mpfr-dynamic-dependency "$QUALIFICATION_ROOT/mpfr.otool-L" \
+            --opensubdiv-archive "$RUNNER_TEMP/b2-downloads/opensubdiv.tar.gz" \
+            --opensubdiv-build-provenance "$OPENSUBDIV_RELEASE_BUILD_ROOT/build.log" \
+            --opensubdiv-install-provenance "$OPENSUBDIV_RELEASE_BUILD_ROOT/install.log" \
+            --opensubdiv-link-provenance "$OPENSUBDIV_RELEASE_BUILD_ROOT/opensubdiv/CMakeFiles/osd_static_cpu.dir/link.txt" \
+            --opensubdiv-dynamic-dependency "$OPENSUBDIV_ROOT/lib/libosdCPU.a" \
+            --d12-evidence "$RUNNER_TEMP/bfr-qualification-evidence.json" \
+            --expected-binding-head "$QUALIFICATION_HEAD" \
+            --output "$RUNNER_TEMP/anchored-row-qualification-report.json"
+          python3 scripts/run_anchored_row_qualification.py \
+            --validate-report "$RUNNER_TEMP/anchored-row-qualification-report.json" \
+            --checkpoint "$RUNNER_TEMP/bfr-release-checkpoint.json" \
+            --artifact-dir "$RUNNER_TEMP/bfr-case-json" \
+            --provider-binary "$RUNNER_TEMP/bfr-proof-artifacts/bfr_candidate" \
+            --candidate-binary "$QUALIFICATION_ROOT/anchored_row_candidate" \
+            --exact-dyadic-boundary-binary "$QUALIFICATION_ROOT/exact_dyadic_boundary" \
+            --compiler-version-file "$QUALIFICATION_ROOT/compiler.version" \
+            --provider-command-file "$QUALIFICATION_ROOT/provider.command" \
+            --provider-link-map "$RUNNER_TEMP/bfr-proof-artifacts/candidate.map" \
+            --provider-dynamic-dependencies "$QUALIFICATION_ROOT/provider.otool-L" \
+            --candidate-command-file "$QUALIFICATION_ROOT/candidate.command" \
+            --candidate-link-map "$QUALIFICATION_ROOT/candidate.map" \
+            --candidate-dynamic-dependencies "$QUALIFICATION_ROOT/candidate.otool-L" \
+            --boundary-command-file "$QUALIFICATION_ROOT/exact_boundary.command" \
+            --boundary-link-map "$QUALIFICATION_ROOT/exact_boundary.map" \
+            --boundary-dynamic-dependencies "$QUALIFICATION_ROOT/exact_boundary.otool-L" \
+            --gmp-archive "$RUNNER_TEMP/b2-downloads/gmp.tar.xz" \
+            --gmp-build-provenance "$GMP_BUILD_ROOT/build.log" \
+            --gmp-install-provenance "$GMP_BUILD_ROOT/install.log" \
+            --gmp-link-provenance "$QUALIFICATION_ROOT/gmp.link-map" \
+            --gmp-dynamic-dependency "$QUALIFICATION_ROOT/gmp.otool-L" \
+            --mpfr-archive "$RUNNER_TEMP/b2-downloads/mpfr.tar.xz" \
+            --mpfr-build-provenance "$MPFR_BUILD_ROOT/build.log" \
+            --mpfr-install-provenance "$MPFR_BUILD_ROOT/install.log" \
+            --mpfr-link-provenance "$QUALIFICATION_ROOT/mpfr.link-map" \
+            --mpfr-dynamic-dependency "$QUALIFICATION_ROOT/mpfr.otool-L" \
+            --opensubdiv-archive "$RUNNER_TEMP/b2-downloads/opensubdiv.tar.gz" \
+            --opensubdiv-build-provenance "$OPENSUBDIV_RELEASE_BUILD_ROOT/build.log" \
+            --opensubdiv-install-provenance "$OPENSUBDIV_RELEASE_BUILD_ROOT/install.log" \
+            --opensubdiv-link-provenance "$OPENSUBDIV_RELEASE_BUILD_ROOT/opensubdiv/CMakeFiles/osd_static_cpu.dir/link.txt" \
+            --opensubdiv-dynamic-dependency "$OPENSUBDIV_ROOT/lib/libosdCPU.a" \
+            --json
+          python3 -c 'import json, os; value=json.load(open(os.environ["RUNNER_TEMP"] + "/anchored-row-qualification-report.json")); assert value["identity"]["implementation_state"] == "INCOMPLETE_MISSING_ORACLE_DEPENDENT_CELL_EXECUTION_D12_EXECUTION_AND_PRIMARY_STAM_UNIFORM_ORACLES"; assert value["verdict"]["status"] == "INCOMPLETE"; assert value["criteria"][10]["status"] == "INCOMPLETE"; assert value["criteria"][10]["result_ledger_sha256"] is None; assert value["criteria"][10]["observed_cell_count"] == 0'
+
       - name: Publish hosted correctness and reproduction evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -232,6 +353,9 @@ jobs:
             ${{ runner.temp }}/bfr-qualification-evidence.json
             ${{ runner.temp }}/bfr-release-checkpoint.json
             ${{ runner.temp }}/invariant-row-representation-preflight.json
+            ${{ runner.temp }}/anchored-row-qualification-report.json
+            ${{ runner.temp }}/anchored-row-result-ledgers-v1
+            ${{ runner.temp }}/anchored-row-qualification
             ${{ runner.temp }}/bfr-case-json
             ${{ runner.temp }}/bfr-proof-artifacts
             ${{ runner.temp }}/b2-downloads
