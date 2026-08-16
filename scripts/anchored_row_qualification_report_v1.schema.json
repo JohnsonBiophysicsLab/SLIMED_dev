@@ -2908,6 +2908,7 @@
               "enum": [
                 "PASS",
                 "FAIL",
+                "UNCOVERED",
                 "OMITTED_AFTER_CANDIDATE_FAILURE",
                 "OMITTED_AFTER_INFRASTRUCTURE_FAILURE"
               ]
@@ -3031,6 +3032,7 @@
               "enum": [
                 "PASS",
                 "FAIL",
+                "UNCOVERED",
                 "OMITTED_AFTER_CANDIDATE_FAILURE",
                 "OMITTED_AFTER_INFRASTRUCTURE_FAILURE"
               ]
@@ -3154,6 +3156,7 @@
               "enum": [
                 "PASS",
                 "FAIL",
+                "UNCOVERED",
                 "OMITTED_AFTER_CANDIDATE_FAILURE",
                 "OMITTED_AFTER_INFRASTRUCTURE_FAILURE"
               ]

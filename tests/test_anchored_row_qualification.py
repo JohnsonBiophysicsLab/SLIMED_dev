@@ -132,7 +132,7 @@ class AnchoredRowQualificationTests(unittest.TestCase):
         self.assertEqual(counts["M12"], 32 * 9)
         self.assertEqual(counts["M16"], 26)
 
-    def test_all_3501_literal_mutations_have_executable_rejections(self):
+    def test_all_3506_literal_mutations_have_executable_rejections(self):
         rejected = MODULE.execute_literal_mutation_suite()
         self.assertEqual(rejected, MODULE.literal_mutation_manifest())
 
@@ -694,6 +694,273 @@ class AnchoredRowQualificationTests(unittest.TestCase):
         with self.assertRaises(MODULE.QualificationError):
             duplicate.add_encoded(encoded, "PASS")
 
+    def test_oracle_uncovered_records_propagate_exactly_to_d10_dependents(self):
+        reasons = ("EIGENBASIS_CERTIFICATION_FAILED",
+                   "UNIFORM_CROSSCHECK_FAILED")
+
+        def records_by_criterion(mutation=None):
+            records = {criterion_id: [] for criterion_id in
+                       ("oracle_coverage_and_crosscheck",) + tuple(
+                           identifier for identifier in MODULE.CRITERION_IDS
+                           if identifier in
+                           MODULE.ORACLE_DEPENDENT_CRITERIA)}
+            for face_id, reason in zip((0, 1), reasons):
+                coeff_key = MODULE._criterion_mutation_key(
+                    "exact_effective_d10_coeff")
+                coeff_key[3] = face_id
+                oracle_key = MODULE.oracle_request_key_for_dependent_key(
+                    "exact_effective_d10_coeff", coeff_key)
+                records["oracle_coverage_and_crosscheck"].append([
+                    oracle_key, "UNCOVERED", None, None, reason])
+                for criterion_id in MODULE.ORACLE_DEPENDENT_CRITERIA:
+                    axes = (("x", "y", "z") if criterion_id in getattr(
+                            MODULE.OracleUncoveredPropagationVerifier,
+                            "AXIS_CRITERIA") else (None,))
+                    for axis in axes:
+                        key = MODULE._criterion_mutation_key(criterion_id)
+                        key[3] = face_id
+                        key[11] = axis
+                        target = MODULE.absolute_rational_target(
+                            MODULE._row_target_denominator(criterion_id, key))
+                        records[criterion_id].append([
+                            key, "UNCOVERED", None, target, reason])
+            if mutation == "gap":
+                records["exact_effective_d10_coeff"].pop()
+            elif mutation == "extra":
+                extra = copy.deepcopy(
+                    records["exact_effective_d10_coeff"][-1])
+                extra[0][3] = 2
+                records["exact_effective_d10_coeff"].append(extra)
+            elif mutation == "wrong_reason":
+                records["exact_effective_d10_coeff"][-1][4] = reasons[0]
+            elif mutation == "axis_gap":
+                records["exact_effective_d10_geometry"].pop()
+            return records
+
+        def verify(records):
+            verifier = MODULE.OracleUncoveredPropagationVerifier()
+            for criterion_id in ("oracle_coverage_and_crosscheck",) + tuple(
+                    identifier for identifier in MODULE.CRITERION_IDS
+                    if identifier in MODULE.ORACLE_DEPENDENT_CRITERIA):
+                for record in sorted(
+                        records[criterion_id],
+                        key=lambda item: MODULE.jcs_bytes(item[0])):
+                    verifier.add(criterion_id, record)
+            return verifier.finish()
+
+        summaries = verify(records_by_criterion())
+        expected = summaries["oracle_coverage_and_crosscheck"]
+        self.assertEqual(expected[0], 2)
+        self.assertTrue(all(summaries[criterion_id] == expected
+                            for criterion_id in
+                            MODULE.ORACLE_DEPENDENT_CRITERIA))
+        for mutation in ("gap", "extra", "wrong_reason", "axis_gap"):
+            with self.subTest(mutation=mutation):
+                with self.assertRaises(MODULE.QualificationError):
+                    verify(records_by_criterion(mutation))
+
+        failure_key = MODULE._criterion_mutation_key(
+            "exact_effective_d10_coeff")
+        MODULE.validate_criterion_result_outcomes(
+            "exact_effective_d10_coeff", "UNCOVERED",
+            {"PASS", "UNCOVERED"}, 2, None, None)
+        MODULE.validate_criterion_result_outcomes(
+            "exact_effective_d10_coeff", "FAIL",
+            {"PASS", "FAIL", "UNCOVERED"}, 3,
+            failure_key, failure_key)
+        for status, outcomes in (
+                ("PASS", {"PASS", "UNCOVERED"}),
+                ("UNCOVERED", {"PASS", "FAIL", "UNCOVERED"}),
+                ("FAIL", {"PASS", "UNCOVERED"})):
+            with self.subTest(status=status, outcomes=outcomes):
+                with self.assertRaises(MODULE.QualificationError):
+                    MODULE.validate_criterion_result_outcomes(
+                        "exact_effective_d10_coeff", status, outcomes,
+                        len(outcomes), failure_key, failure_key)
+
+    def test_oracle_dependent_uncovered_form_and_aggregate_are_fail_closed(self):
+        reason = "UNIFORM_CROSSCHECK_FAILED"
+        for criterion_id in MODULE.ORACLE_DEPENDENT_CRITERIA:
+            key = MODULE._criterion_mutation_key(criterion_id)
+            target = MODULE.absolute_rational_target(
+                MODULE._row_target_denominator(criterion_id, key))
+            record = [key, "UNCOVERED", None, target, reason]
+            MODULE.validate_contract_result_record(criterion_id, record)
+            for mutation in (
+                    [key, "PASS", None, target, None],
+                    [key, "UNCOVERED", {"kind": "geometry_axis_v1"},
+                     target, reason],
+                    [key, "UNCOVERED", None, None, reason],
+                    [key, "UNCOVERED", None, target,
+                     "D10_GEOMETRY_TARGET_EXCEEDED"]):
+                with self.subTest(criterion=criterion_id,
+                                  mutation=mutation[1:]):
+                    with self.assertRaises(MODULE.QualificationError):
+                        MODULE.validate_contract_result_record(
+                            criterion_id, mutation)
+
+        criteria = self.make_incomplete_criteria_fixture()
+        for criterion_id in MODULE.ORACLE_DEPENDENT_CRITERIA:
+            index = MODULE.CRITERION_IDS.index(criterion_id)
+            expected = MODULE.EXPECTED_CELL_COUNTS[criterion_id]
+            digest = format(index + 1, "064x")
+            criteria[index] = MODULE.criterion_record(
+                criterion_id, "UNCOVERED", expected=expected,
+                observed=expected, ledger="a" * 64,
+                result_ledger=digest, result_merkle_root="c" * 64,
+                result_artifact=self.present_result_artifact(
+                    criterion_id, digest, expected),
+                maximum=None, witness=None)
+        MODULE.validate_criteria(criteria)
+        verdict = MODULE.calculate_verdict(criteria)
+        self.assertEqual(verdict["status"], "INCOMPLETE")
+        self.assertEqual(verdict["first_decisive_criterion"],
+                         "bindings_and_independence")
+        mutation = copy.deepcopy(criteria)
+        index = MODULE.CRITERION_IDS.index("exact_effective_d10_coeff")
+        mutation[index]["maximum"] = MODULE._absolute_rational_descriptor(
+            MODULE.Fraction(0, 1))
+        with self.assertRaises(MODULE.QualificationError):
+            MODULE.validate_criteria(mutation)
+
+    def test_persisted_oracle_propagation_binds_numeric_scan_and_partitions(self):
+        reason = "EIGENBASIS_CERTIFICATION_FAILED"
+        criterion_ids = ("oracle_coverage_and_crosscheck",
+                         "exact_effective_d10_coeff",
+                         "exact_effective_d10_geometry",
+                         "emitted_direct_geometry_d10")
+
+        def covered_records(criterion_id):
+            if criterion_id == "oracle_coverage_and_crosscheck":
+                return [MODULE._valid_oracle_covered_record()]
+            base = MODULE._valid_result_record_for_mutation(criterion_id)
+            if criterion_id not in {
+                    "exact_effective_d10_geometry",
+                    "emitted_direct_geometry_d10"}:
+                return [base]
+            result = []
+            for axis in ("x", "y", "z"):
+                record = copy.deepcopy(base)
+                record[0][11] = axis
+                record[2]["axis"] = axis
+                MODULE.validate_contract_result_record(criterion_id, record)
+                result.append(record)
+            return result
+
+        def uncovered_records(criterion_id):
+            if criterion_id == "oracle_coverage_and_crosscheck":
+                key = copy.deepcopy(covered_records(criterion_id)[0][0])
+                key[3] = 1
+                return [[key, "UNCOVERED", None, None, reason]]
+            axes = (("x", "y", "z") if criterion_id in {
+                    "exact_effective_d10_geometry",
+                    "emitted_direct_geometry_d10"} else (None,))
+            result = []
+            for axis in axes:
+                key = MODULE._criterion_mutation_key(criterion_id)
+                key[3] = 1
+                key[11] = axis
+                target = MODULE.absolute_rational_target(
+                    MODULE._row_target_denominator(criterion_id, key))
+                result.append([key, "UNCOVERED", None, target, reason])
+            return result
+
+        records = {}
+        for criterion_id in criterion_ids:
+            records[criterion_id] = sorted(
+                covered_records(criterion_id) +
+                uncovered_records(criterion_id),
+                key=lambda item: MODULE.jcs_bytes(item[0]))
+
+        with tempfile.TemporaryDirectory() as temporary:
+            output = pathlib.Path(temporary).resolve()
+            criteria = []
+            unavailable = MODULE.availability(
+                "UNAVAILABLE", reason_code="EXECUTION_UNAVAILABLE")
+            for criterion_id in MODULE.CRITERION_IDS:
+                if criterion_id in records:
+                    commitment, artifact = (
+                        MODULE.write_result_ledger_artifact(
+                            output, criterion_id, records[criterion_id]))
+                    criteria.append({
+                        "criterion_id": criterion_id,
+                        "result_ledger_artifact": artifact,
+                        "observed_cell_count": len(records[criterion_id]),
+                        "key_ledger_sha256": commitment[
+                            "key_ledger_sha256"],
+                        "result_ledger_sha256": commitment[
+                            "result_ledger_sha256"],
+                        "result_merkle_root_sha256": commitment[
+                            "result_merkle_root_sha256"],
+                        "status": "UNCOVERED", "maximum": None,
+                        "witness": None, "first_failing_key": None,
+                        "target": MODULE.report_criterion_target(
+                            criterion_id)})
+                else:
+                    criteria.append({
+                        "criterion_id": criterion_id,
+                        "result_ledger_artifact": {
+                            "availability": copy.deepcopy(unavailable),
+                            "relative_path": None, "byte_length": None,
+                            "record_count": None},
+                        "observed_cell_count": 0,
+                        "key_ledger_sha256": None,
+                        "result_ledger_sha256": None,
+                        "result_merkle_root_sha256": None,
+                        "status": "INCOMPLETE", "maximum": None,
+                        "witness": None, "first_failing_key": None,
+                        "target": None})
+
+            empty_digest = MODULE.sha256_bytes(b"[]")
+            unexpected_target = {
+                "kind": "unexpected_paths_target_v1",
+                "required_record_count": 0,
+                "sidecar": {
+                    "availability": MODULE.availability(
+                        "PRESENT", empty_digest),
+                    "relative_path": MODULE.RESULT_LEDGER_DIRECTORY +
+                        "/unexpected-artifact-paths.json",
+                    "byte_length": 2, "record_count": 0,
+                    "sha256": empty_digest}}
+            criteria[1]["target"] = unexpected_target
+            unexpected_path = output / unexpected_target["sidecar"][
+                "relative_path"]
+            unexpected_path.parent.mkdir(parents=True, exist_ok=True)
+            unexpected_path.write_bytes(b"[]")
+
+            oracle_records = records["oracle_coverage_and_crosscheck"]
+            covered_keys = [record[0] for record in oracle_records
+                            if record[1] == "PASS"]
+            uncovered_keys = [record[0] for record in oracle_records
+                              if record[1] == "UNCOVERED"]
+
+            def partition(name, keys):
+                digest = MODULE.generic_key_ledger_sha256(keys)
+                return {
+                    "criterion_id": "oracle_coverage_and_crosscheck",
+                    "partition": name, "expected_count": None,
+                    "observed_count": len(keys),
+                    "key_ledger_sha256": digest,
+                    "availability": MODULE.availability("PRESENT", digest),
+                    "omission_blocker": None}
+
+            report = {
+                "criteria": criteria,
+                "matrix": {
+                    "ledgers": [partition("covered", covered_keys),
+                                partition("uncovered", uncovered_keys)],
+                    "unexpected_paths": unexpected_target}}
+            with mock.patch.object(MODULE, "validate_report",
+                                   return_value=True):
+                self.assertTrue(MODULE.validate_result_sidecar_bundle(
+                    report, output))
+                drift = copy.deepcopy(report)
+                drift["matrix"]["ledgers"] = [
+                    partition("covered", []),
+                    partition("uncovered", covered_keys + uncovered_keys)]
+                with self.assertRaises(MODULE.QualificationError):
+                    MODULE.validate_result_sidecar_bundle(drift, output)
+
     def test_persistent_result_ledger_and_merkle_witness_are_exact(self):
         def key(index):
             return ["content", "cache_disabled", 2, index, None,
@@ -955,8 +1222,11 @@ class AnchoredRowQualificationTests(unittest.TestCase):
                     })
             report = {
                 "criteria": criteria,
-                "matrix": {"unexpected_paths": evidence[
-                    "complete_artifact_inventory"]["unexpected_paths"]},
+                "matrix": {
+                    "ledgers": MODULE.oracle_unavailable_partition_ledgers(
+                        "oracle_coverage_and_crosscheck"),
+                    "unexpected_paths": evidence[
+                        "complete_artifact_inventory"]["unexpected_paths"]},
             }
             binding_record = json.loads((
                 output / evidence["bindings_and_independence"]["artifact"][

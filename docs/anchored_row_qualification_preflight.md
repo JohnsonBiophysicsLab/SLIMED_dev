@@ -618,7 +618,11 @@ d12_instrumented_tsan
 Each criterion owns one exhaustive record per applicable frozen cell; no
 summary-only PASS is valid. Oracle-uncovered cells remain present with state
 `UNCOVERED` and make the overall result `INCOMPLETE` unless an earlier candidate
-failure already fixes `FAIL`. The four regular criterion records use the
+failure already fixes `FAIL`. Criteria `exact_effective_d10_coeff`,
+`exact_effective_d10_geometry`, and `emitted_direct_geometry_d10` propagate
+each such cell as `UNCOVERED` with the identical oracle request identity and
+reason; they do not manufacture a candidate observation for it. The four
+regular criterion records use the
 existing regular coverage only. The two row records cover all six row
 quantities in their named exact/emitted views. Each integrand record covers
 both `exact_effective` and `emitted_binary64` scalar views, every anchor, both
@@ -645,13 +649,15 @@ Status ownership and verdict effects are frozen by group:
 | --- | --- | --- |
 | Required infrastructure | `bindings_and_independence`, `complete_artifact_inventory`, `raw_bfr_d9a_reproduction` | `PASS` or `INCOMPLETE`; never candidate `FAIL`. A missing/invalid binding, corpus mismatch, or failure to reproduce the frozen raw D9a observation is infrastructure incomplete. Later records may be `OMITTED_AFTER_INFRASTRUCTURE_FAILURE`. |
 | Oracle validity/coverage | `oracle_coverage_and_crosscheck` | `PASS`, `UNCOVERED`, or `INCOMPLETE`; never candidate `FAIL`. Every scientific condition named by unchanged D10 section 3.2—including independence/dependency/MPFR failures and every certification condition enumerated above—is per-cell `UNCOVERED` with its exact reason only after the independent oracle executable actually processes the request key. `INCOMPLETE` covers validator, Git, artifact, report, or execution infrastructure that prevents request construction, and an absent, unstartable, aborted, or incomplete oracle execution that cannot produce the complete coverage partition. In either case downstream partition/result construction is omitted under that infrastructure blocker, any partial result bytes are non-authoritative, and the result sidecar and commitments are null rather than invented. |
-| Candidate scientific | `representation_structure`, `constant_field_bits`, `relabel_exact_effective_coefficients`, all four `regular_analytic_*` IDs, all three D10 IDs, all three `anchor_sensitivity_*` IDs, all three binary64 fidelity/diagnostic IDs, all six stabilization IDs, and `cache_mode_bit_identity` | `PASS` or candidate-owned `FAIL` after required inputs validate. Any exceeded numeric/categorical target, nonfinite candidate arithmetic, evaluator-semantics mismatch, structural failure, or cache disagreement is `FAIL`. If it cannot execute because of prior infrastructure, it is omitted with the infrastructure blocker rather than mislabeled. |
+| Oracle-dependent candidate comparison | `exact_effective_d10_coeff`, `exact_effective_d10_geometry`, `emitted_direct_geometry_d10` | A covered oracle cell is candidate-owned `PASS` or `FAIL`; an oracle `UNCOVERED` cell is propagated as `UNCOVERED` with null exact value, its unchanged row-D10 target, and the identical frozen oracle reason. A criterion is `FAIL` if any covered cell fails; otherwise it is `UNCOVERED` if any cell is propagated; otherwise it is `PASS`. Aggregate maximum/witness are null for `UNCOVERED`. |
+| Candidate scientific | `representation_structure`, `constant_field_bits`, `relabel_exact_effective_coefficients`, all four `regular_analytic_*` IDs, all three `anchor_sensitivity_*` IDs, all three binary64 fidelity/diagnostic IDs, all six stabilization IDs, and `cache_mode_bit_identity` | `PASS` or candidate-owned `FAIL` after required inputs validate. Any exceeded numeric/categorical target, nonfinite candidate arithmetic, evaluator-semantics mismatch, structural failure, or cache disagreement is `FAIL`. If it cannot execute because of prior infrastructure, it is omitted with the infrastructure blocker rather than mislabeled. Criteria after the three oracle-dependent comparisons remain independently executable when those comparisons are `UNCOVERED`. |
 | D12 hybrid | all five `d12_*` IDs | `PASS` or candidate-owned `FAIL` only from exact-head evidence on the qualified frozen physical host; a measured budget overrun or fully instrumented race is `FAIL`. `INCOMPLETE` is required for a missing/unqualified platform, missing instrumentation, invalid provenance, or unavailable evidence. Hosted raw measurements cannot PASS or FAIL numeric budgets. |
 
 An omitted status is legal only for a criterion ordered after its named blocker,
 requires zero observed cells and null maximum/witness, and has no independent
 verdict effect. `FAIL` is forbidden for infrastructure and oracle groups;
-`UNCOVERED` is forbidden outside the oracle group; `INCOMPLETE` in a candidate
+`UNCOVERED` is forbidden outside the oracle group and its three exact
+oracle-dependent comparison criteria; `INCOMPLETE` in a candidate
 scientific record is represented as its causal infrastructure record plus
 `OMITTED_AFTER_INFRASTRUCTURE_FAILURE`, not as an ambiguous candidate outcome.
 
