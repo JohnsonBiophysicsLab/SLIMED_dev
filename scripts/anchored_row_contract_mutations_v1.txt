@@ -3448,6 +3448,7 @@ M17|global|missing-reason
 M17|global|outside-request
 M17|global|overlap
 M17|global|propagation-axis-gap
+M17|global|propagation-covered-partition-drift
 M17|global|propagation-extra
 M17|global|propagation-gap
 M17|global|propagation-wrong-reason

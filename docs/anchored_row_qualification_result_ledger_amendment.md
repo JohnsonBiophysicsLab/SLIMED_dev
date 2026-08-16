@@ -676,7 +676,10 @@ content, cache mode, level, face, local corner, sample, row kind, anchor, and
 identity relabel are byte-identical. The validator streams a bounded-memory
 canonical digest of `[oracle_request_key,reason]` for criterion 10 and for
 each dependent criterion, collapses each complete ordered `x,y,z` group once,
-and requires exact count and digest equality.
+and requires exact count and digest equality. It also derives the criterion-10
+`PASS` and `UNCOVERED` key streams from the persisted result sidecar and
+requires their counts and RFC 8785 key-ledger digests to equal the matrix
+`covered` and `uncovered` partitions; matrix labels cannot override outcomes.
 
 Covered cells retain their candidate-owned `PASS|FAIL` comparison. Within
 each of criteria 11--13, any covered-cell `FAIL` has precedence; otherwise any
@@ -1860,7 +1863,7 @@ M13 maximum-witness                    for every numeric C: noncorpus key, wrong
 M14 merkle-proof                       for every numeric C: short, extra, wrong sibling, reversed direction, wrong index, padding index, wrong root
 M15 first-failure                      for every FAIL-capable C: null, passing key, later failure, noncorpus key
 M16 authority-value                    each six-row item, tolerance, each D10/component/D12 target, each dependency version, each anchor/relabel/level/order, each manifest/fixture/fingerprint field
-M17 oracle-partition                   gap, overlap, outside-request, covered-as-uncovered, wrong reason, missing reason, uniform-as-primary, propagation gap, propagation extra, propagation wrong reason, propagation axis gap
+M17 oracle-partition                   gap, overlap, outside-request, covered-as-uncovered, wrong reason, missing reason, uniform-as-primary, propagation gap, propagation extra, propagation wrong reason, propagation axis gap, propagation covered-partition drift
 M18 basis-aggregation                  distributed per-source error, identity-only failure, reverse-only failure, rotate-only failure, signed coefficient, wrong inverse map, wrong group L1
 M19 raw-D9a                            case state, case digest, failing-row count, 124 count, exact numerator, maximum bits, maximum witness
 M20 D12-envelope                       malformed, duplicate-key, content hash, cross-head, dirty, old-B2, boolean-only, missing provenance, fingerprint, hosted-as-qualified, workload, reference digest, instrumentation, operational gap

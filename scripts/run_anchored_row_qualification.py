@@ -56,7 +56,7 @@ APPROVED_RESULT_EVIDENCE_AMENDMENT_MERGE = (
 RESULT_EVIDENCE_PATH_ANCHOR_SHA256 = (
     "0e82d15b0244aaa779a1ca600fdc8b43ac501ab91aa615e8adb8dcd8682ecf66")
 RESULT_EVIDENCE_MUTATION_MANIFEST_SHA256 = (
-    "caec23beb9e02ea80b239cd3e94889d323dea6dcd82b6e83bb005db55458a229")
+    "7916c8175984863086da48ebcf57d0943d983da069dcc000603c315741dca01d")
 RESULT_EVIDENCE_MUTATION_MANIFEST_ID = (
     "anchored-row-result-evidence-mutations-v1")
 RESULT_EVIDENCE_MUTATION_OPERATORS = RESULT_CONTRACT.MUTATION_OPERATORS
@@ -1696,6 +1696,32 @@ class _CanonicalOracleSignatureStream:
         return self.count, self.digest.hexdigest()
 
 
+class _CanonicalOracleKeyStream:
+    """Bounded-memory RFC 8785 digest of one ordered oracle-key partition."""
+
+    def __init__(self, label):
+        self.label = label
+        self.digest = hashlib.sha256(b"[")
+        self.previous = None
+        self.count = 0
+
+    def add(self, oracle_key):
+        validate_scientific_cell_key(
+            oracle_key, "oracle_coverage_and_crosscheck")
+        encoded = jcs_bytes(oracle_key)
+        require(self.previous is None or self.previous < encoded,
+                self.label + " oracle partition duplicate/order drift")
+        if self.count:
+            self.digest.update(b",")
+        self.digest.update(encoded)
+        self.previous = encoded
+        self.count += 1
+
+    def finish(self):
+        self.digest.update(b"]")
+        return self.count, self.digest.hexdigest()
+
+
 class OracleUncoveredPropagationVerifier:
     """Bind criteria 11--13 UNCOVERED rows to criterion 10 exactly."""
 
@@ -1711,6 +1737,9 @@ class OracleUncoveredPropagationVerifier:
             for criterion_id in criterion_ids)
         self.axis_groups = dict(
             (criterion_id, None) for criterion_id in self.AXIS_CRITERIA)
+        self.partition_streams = {
+            "covered": _CanonicalOracleKeyStream("covered"),
+            "uncovered": _CanonicalOracleKeyStream("uncovered")}
 
     def _flush_axis_group(self, criterion_id):
         group = self.axis_groups[criterion_id]
@@ -1727,6 +1756,14 @@ class OracleUncoveredPropagationVerifier:
                 "oracle propagation criterion")
         require(isinstance(record, list) and len(record) == 5,
                 "oracle propagation result record")
+        if criterion_id == "oracle_coverage_and_crosscheck":
+            if record[1] == "PASS":
+                self.partition_streams["covered"].add(record[0])
+                return True
+            if record[1] == "UNCOVERED":
+                self.partition_streams["uncovered"].add(record[0])
+            else:
+                return True
         if record[1] != "UNCOVERED":
             return True
         key, _, _, _, reason = record
@@ -1752,7 +1789,7 @@ class OracleUncoveredPropagationVerifier:
         group["axes"].append(key[11])
         return True
 
-    def finish(self, criteria=None):
+    def finish(self, criteria=None, oracle_partitions=None):
         for criterion_id in self.AXIS_CRITERIA:
             self._flush_axis_group(criterion_id)
         summaries = dict((criterion_id, stream.finish())
@@ -1761,6 +1798,9 @@ class OracleUncoveredPropagationVerifier:
         require(all(summaries[criterion_id] == expected
                     for criterion_id in ORACLE_DEPENDENT_CRITERIA),
                 "oracle-dependent UNCOVERED propagation drift")
+        partition_summaries = dict(
+            (name, stream.finish()) for name, stream in
+            self.partition_streams.items())
         if criteria is not None:
             statuses = dict((item["criterion_id"], item["status"])
                             for item in criteria)
@@ -1772,6 +1812,32 @@ class OracleUncoveredPropagationVerifier:
             else:
                 require(expected[0] == 0,
                         "non-UNCOVERED oracle carries uncovered records")
+            if oracle_partitions is not None:
+                require(set(oracle_partitions) == {"covered", "uncovered"},
+                        "oracle result partition inventory")
+                for name, summary in partition_summaries.items():
+                    partition = oracle_partitions[name]
+                    if statuses["oracle_coverage_and_crosscheck"] in {
+                            "PASS", "UNCOVERED"}:
+                        require(partition["availability"]["state"] ==
+                                    "PRESENT" and
+                                partition["observed_count"] == summary[0] and
+                                partition["key_ledger_sha256"] == summary[1] and
+                                partition["availability"]["sha256"] ==
+                                    summary[1] and
+                                partition["omission_blocker"] is None,
+                                "criterion-10 result/{} partition drift".format(
+                                    name))
+                    else:
+                        require(summary[0] == 0 and
+                                partition["availability"]["state"] ==
+                                    "UNAVAILABLE" and
+                                partition["observed_count"] == 0 and
+                                partition["key_ledger_sha256"] is None and
+                                partition["omission_blocker"] ==
+                                    "oracle_coverage_and_crosscheck",
+                                "incomplete oracle {} partition drift".format(
+                                    name))
         return summaries
 
 
@@ -2121,7 +2187,7 @@ def literal_mutation_manifest():
             sha256_bytes(raw) == RESULT_EVIDENCE_MUTATION_MANIFEST_SHA256,
             "result-evidence mutation-manifest byte binding")
     entries = raw[:-1].decode("utf-8").split("\n")
-    require(len(entries) == 3505 and entries == sorted(entries) and
+    require(len(entries) == 3506 and entries == sorted(entries) and
             len(entries) == len(set(entries)),
             "result-evidence mutation-manifest order/count")
     require(tuple(entries) == RESULT_CONTRACT.expand_mutation_manifest(
@@ -2247,6 +2313,37 @@ def _wrong_schema_type(value):
     candidates = [None, {}, [], "__wrong_type__", 0, True]
     return next(candidate for candidate in candidates
                 if type(candidate) is not type(value))
+
+
+def _valid_oracle_covered_record(key=None):
+    """Build one semantically valid covered-oracle record for mutation probes."""
+    key = (copy.deepcopy(_criterion_mutation_key(
+        "oracle_coverage_and_crosscheck")) if key is None else
+        copy.deepcopy(key))
+    rational = {"kind": "rational_v1", "numerator": "0",
+                "denominator": "1"}
+    interval = {"kind": "interval_rational_v1",
+                "lower": copy.deepcopy(rational),
+                "upper": copy.deepcopy(rational)}
+    certification = {"kind": "oracle_certification_v1"}
+    certification.update(dict(
+        (field, "CERTIFIED")
+        for field in RESULT_CONTRACT.ORACLE_CERTIFICATION_FIELDS))
+    value = {
+        "kind": "oracle_covered_value_v1", "coverage": "COVERED",
+        "row_kind": key[6], "source_ids": [0],
+        "primary_depth_intervals": [[copy.deepcopy(interval)
+                                      for _ in range(5)]],
+        "uniform_depth_intervals": [[copy.deepcopy(interval)
+                                      for _ in range(5)]],
+        "intersected_primary_intervals": [copy.deepcopy(interval)],
+        "first_isolating_depth": 0, "first_regular_support_depth": 0,
+        "evaluated_depths": [0, 1, 2, 3, 4], "child_branches": [],
+        "certification": certification}
+    record = [key, "PASS", value, None, None]
+    validate_contract_result_record(
+        "oracle_coverage_and_crosscheck", record)
+    return record
 
 
 def _valid_result_record_for_mutation(criterion_id, variant=0):
@@ -3729,9 +3826,16 @@ def execute_literal_mutation_suite():
                     dependent_key[3] = face_id
                     oracle_keys.append(oracle_request_key_for_dependent_key(
                         "exact_effective_d10_coeff", dependent_key))
-                for oracle_key, reason in zip(oracle_keys, reasons):
-                    verifier.add("oracle_coverage_and_crosscheck", [
-                        oracle_key, "UNCOVERED", None, None, reason])
+                partition_drift = (mutation ==
+                                   "propagation-covered-partition-drift")
+                for index, (oracle_key, reason) in enumerate(zip(
+                        oracle_keys, reasons)):
+                    if partition_drift and index == 0:
+                        record = _valid_oracle_covered_record(oracle_key)
+                    else:
+                        record = [oracle_key, "UNCOVERED", None, None,
+                                  reason]
+                    verifier.add("oracle_coverage_and_crosscheck", record)
                 for criterion_id in ORACLE_DEPENDENT_CRITERIA:
                     keys = []
                     axes = (("x", "y", "z") if criterion_id in
@@ -3743,6 +3847,8 @@ def execute_literal_mutation_suite():
                             key[3] = face_id
                             key[11] = axis
                             keys.append([key, reason])
+                    if partition_drift:
+                        keys = [item for item in keys if item[0][3] != 0]
                     if (mutation == "propagation-gap" and criterion_id ==
                             "exact_effective_d10_coeff"):
                         keys.pop()
@@ -3764,7 +3870,33 @@ def execute_literal_mutation_suite():
                         verifier.add(criterion_id, [
                             key, "UNCOVERED", None, target, reason])
                 try:
-                    verifier.finish()
+                    if partition_drift:
+                        empty_digest = sha256_bytes(b"[]")
+                        request_digest = generic_key_ledger_sha256(oracle_keys)
+                        partitions = {
+                            "covered": {
+                                "availability": availability(
+                                    "PRESENT", empty_digest),
+                                "observed_count": 0,
+                                "key_ledger_sha256": empty_digest,
+                                "omission_blocker": None},
+                            "uncovered": {
+                                "availability": availability(
+                                    "PRESENT", request_digest),
+                                "observed_count": 2,
+                                "key_ledger_sha256": request_digest,
+                                "omission_blocker": None}}
+                        statuses = [{"criterion_id": criterion_id,
+                                     "status": "UNCOVERED"}
+                                    for criterion_id in (
+                                        "oracle_coverage_and_crosscheck",
+                                    ) + tuple(
+                                        item for item in CRITERION_IDS
+                                        if item in
+                                        ORACLE_DEPENDENT_CRITERIA)]
+                        verifier.finish(statuses, partitions)
+                    else:
+                        verifier.finish()
                 except QualificationError:
                     did_reject = True
                 require(did_reject, "mutation was not rejected: " + entry)
@@ -4075,7 +4207,7 @@ def execute_literal_mutation_suite():
                 "mutation operator lacks executable handler: " + operator)
         require(did_reject, "mutation was not rejected: " + entry)
         rejected.append(entry)
-    require(len(rejected) == 3505 and tuple(rejected) ==
+    require(len(rejected) == 3506 and tuple(rejected) ==
             entries and handlers == {
                 "M{:02d}".format(index) for index in range(1, 24)},
             "mutation dispatcher coverage drift: rejected={} entries={} "
@@ -7097,14 +7229,19 @@ def validate_report(report, serial_context=None):
     oracle_covered = by_key[("oracle_coverage_and_crosscheck", "covered")]
     oracle_uncovered = by_key[("oracle_coverage_and_crosscheck", "uncovered")]
     if oracle_covered["availability"]["state"] == "PRESENT":
-        require(oracle_covered["observed_count"] == 0 and
-                oracle_covered["key_ledger_sha256"] == sha256_bytes(b"[]") and
-                oracle_uncovered["availability"]["state"] == "PRESENT" and
-                oracle_uncovered["observed_count"] ==
+        covered_count = oracle_covered["observed_count"]
+        uncovered_count = oracle_uncovered["observed_count"]
+        oracle_status = report["criteria"][CRITERION_IDS.index(
+            "oracle_coverage_and_crosscheck")]["status"]
+        require(oracle_uncovered["availability"]["state"] == "PRESENT" and
+                covered_count + uncovered_count ==
                     EXPECTED_CELL_COUNTS["oracle_coverage_and_crosscheck"] and
-                oracle_uncovered["key_ledger_sha256"] ==
-                    oracle_request["key_ledger_sha256"],
-                "executed oracle partition is not empty/request")
+                (covered_count != 0 or oracle_covered[
+                    "key_ledger_sha256"] == sha256_bytes(b"[]")) and
+                (uncovered_count != 0 or oracle_uncovered[
+                    "key_ledger_sha256"] == sha256_bytes(b"[]")) and
+                oracle_status == ("UNCOVERED" if uncovered_count else "PASS"),
+                "executed oracle partition count/status drift")
     else:
         require(all(partition["availability"]["state"] == "UNAVAILABLE" and
                     partition["observed_count"] == 0 and
@@ -9387,7 +9524,7 @@ def validate_result_sidecar_bundle(report, bundle_root, checkpoint_path=None,
                         record[2]["raw_invariant_state"] == "FAIL")
                 field = RESULT_CONTRACT.CRITERION_BY_ID[criterion_id][
                     "maximum_field"]
-                if field is not None:
+                if field is not None and record[1] != "UNCOVERED":
                     measure = _record_numeric_measure_or_none(
                         criterion_id, record[2])
                     if (measure is not None and
@@ -9442,7 +9579,11 @@ def validate_result_sidecar_bundle(report, bundle_root, checkpoint_path=None,
                     criterion["witness"] is None,
                     "criterion claims maximum without measurable record")
 
-    oracle_propagation.finish(report["criteria"])
+    oracle_partitions = {
+        item["partition"]: item for item in report["matrix"]["ledgers"]
+        if item["criterion_id"] == "oracle_coverage_and_crosscheck" and
+        item["partition"] in {"covered", "uncovered"}}
+    oracle_propagation.finish(report["criteria"], oracle_partitions)
     d12_cross_records.finish()
     computed_serial_context = d12_serial_context.finish()
     if serial_context is not None:
