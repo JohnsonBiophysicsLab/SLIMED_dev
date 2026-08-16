@@ -1,8 +1,8 @@
 # Anchored-difference row qualification input preflight
 
-Status: **original input packet merged and explicitly approved; additive
-result-evidence amendment pending exact-SHA T2 review and explicit user
-approval; no new qualification execution authorized**
+Status: **original input packet and additive result-evidence amendment merged
+and explicitly approved; separately authorized B2c proof execution may resume;
+no qualification, B3, Far, or production authority**
 
 Date prepared: 2026-08-10
 
@@ -314,11 +314,13 @@ schemas.
 
 ## Frozen B2c report contract
 
-A separately reviewed additive amendment is proposed in
+A separately reviewed additive amendment is frozen in
 [`anchored_row_qualification_result_ledger_amendment.md`](anchored_row_qualification_result_ledger_amendment.md).
-Until that amendment passes exact-SHA T2 review and receives explicit user
-approval, its result-ledger fields and encodings are not frozen authority and
-no execution using them is authoritative.
+PR 204 merged exact reviewed head
+`0c6e8898dae979685fdcb09d531e1dfeb40e505d` as main merge commit
+`67e5c2c84c907fe79bab257d992fbcbdf0480d48`; after all exact-SHA and
+hosted gates passed, the user explicitly approved it on 2026-08-16. Its
+result-ledger fields and encodings are therefore frozen B2b authority.
 
 The B2c report is UTF-8 JSON with schema identifier
 `anchored-row-qualification-report-v1`. Its canonical byte representation is

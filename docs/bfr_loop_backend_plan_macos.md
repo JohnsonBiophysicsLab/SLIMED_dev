@@ -1414,17 +1414,26 @@ It requires exact-SHA technical, scientific, and gatekeeper review followed by
 explicit user approval before a separate B2c proof implementation may start.
 
 Review of the first B2c development execution exposed a result-evidence gap.
-The separate documentation-only
+The separate evidence-contract
 [`anchored_row_qualification_result_ledger_amendment.md`](anchored_row_qualification_result_ledger_amendment.md)
-is therefore proposed as an additive B2b input amendment. It freezes complete
+was therefore reviewed and merged as an additive B2b input amendment. It
+freezes complete
 criterion result records and commitments, non-forgeable maximum membership,
 the all-relabel basis ownership/cardinality, real infrastructure/raw-D9a
 records, a closed B2c D12 representation-work envelope, and exhaustive
-mutation requirements. It changes no scientific or operational target. It is
-not authority until it independently passes the B2b T2 gate and receives
-explicit user approval; development results cannot supply that approval.
+mutation requirements. It changes no scientific or operational target.
 
-Frozen proposal:
+**Recorded B2b additive-amendment approval (2026-08-16).** PR 204 merged exact
+reviewed head `0c6e8898dae979685fdcb09d531e1dfeb40e505d` as main merge
+commit `67e5c2c84c907fe79bab257d992fbcbdf0480d48`. Exact-SHA verification,
+technical, scientific, and gatekeeper reviews passed, as did the hosted
+exact-head qualification, build, coverage, and inventory gates. The user then
+explicitly accepted the amendment as a frozen B2b input before B2c resumes.
+This records evidence-contract authority only: it does not qualify the
+candidate, reopen D9a, unblock B3, select Far, authorize post-hoc normalization,
+or authorize production.
+
+Frozen inputs:
 
 - reuse the exact D10 MPFR/Stam oracle, fixtures, manifest hashes, row targets,
   `1.0e-12` invariant, inner-radius exclusion, and D12 contract unchanged;
@@ -1452,15 +1461,20 @@ Frozen proposal:
 - preserve raw Bfr failure evidence separately, with no normalized or repaired
   provider row and no Far comparison as truth.
 
-Allowed files for B2b: this plan and the new external Markdown input packet.
-Forbidden: every candidate/oracle executable or result; `src/**`, `include/**`,
-`experiments/**`, `scripts/**`, `tests/**`, workflows, fixtures, build files,
-tolerances, decision changes other than recording the user's exact candidate
-selection, B3, and production.
+Allowed files for the original B2b packet were this plan and the external
+Markdown input packet. The separately reviewed additive amendment was limited
+to its exact seven-file contract scope: the preflight and amendment documents,
+literal mutation manifest, generated report schema, result-contract module,
+qualification validator, and focused test. Forbidden throughout: every
+candidate/oracle executable or result; `src/**`, `include/**`, `experiments/**`,
+other scripts/tests/workflows, fixtures, build files, tolerances, decision
+changes other than recording the user's exact candidate selection, B3, and
+production.
 
 Gate: exact-head verification, technical, scientific, and gatekeeper PASS, then
-explicit user approval of the B2b frozen inputs. Passing B2b does not authorize
-execution by itself; B2c remains a separately scoped proof package.
+explicit user approval of the B2b frozen inputs. This gate was satisfied for
+the additive amendment on 2026-08-16. Passing B2b does not authorize execution
+by itself; B2c remains a separately scoped proof package.
 
 Stop conditions: a target is derived from candidate qualification output; a D10
 or D12 input changes; an anchor may be selected from observed results; an
@@ -1900,8 +1914,8 @@ Nothing in this plan decides them.
 | KB2r | B2-readiness budgets plus complete section-8/section-7 fixture execution manifest | Merged as PR 195 at `b8cb9470077c1c5e15449318eff7b61e7464cd51`; D12 approved 2026-08-10 before any candidate run | T2 + explicit user D12 |
 | KB2 | Bfr qualification evidence against B2p's and D12's frozen inputs; Far comparator results published | Merged as PR 197 at `5d49b7ff06160cbdfa25eb19c973b4bcccac59d9`; exact head `efbe73f94e42e9f364baf6b2531ef4c7104cded9` passed all T2 reviews; D9a recorded Bfr not qualified on 2026-08-10 | T2 verification + technical + scientific + gatekeeper completed; explicit user D9a decision recorded |
 | KB2a | Proof-only invariant-preserving row-representation architecture preflight; no production | Merged as PR 199 at `1a8763fc931ace724828504972b2fc3fc61a1795`; exact head `2c6d455abde562d63967d4ab301c6365775d0662` passed verification, technical, scientific, and gatekeeper review; user selected `anchored_difference_rows_v1` solely as a proof qualification candidate | Reviews complete; candidate selection recorded, not qualification |
-| KB2b | Freeze anchored-row independent-oracle application, all-three-anchor sensitivity protocol, scientific targets, verdict semantics, and the separately reviewed complete result-evidence amendment before authoritative execution | Original input packet merged and approved; additive result-evidence amendment proposed after B2c review and still requires T2 PASS plus explicit user approval | T2 verification + technical + scientific + gatekeeper, then explicit user amendment approval |
-| KB2c | Execute the separately scoped proof-only anchored-row qualification against approved B2b inputs | Development execution remains non-authoritative and blocked pending merged and explicitly approved B2b result-evidence amendment plus a corrected exact-SHA package | T2 verification + technical + scientific + gatekeeper, then explicit user qualification decision |
+| KB2b | Freeze anchored-row independent-oracle application, all-three-anchor sensitivity protocol, scientific targets, verdict semantics, and the separately reviewed complete result-evidence amendment before authoritative execution | Original packet and additive amendment merged and explicitly approved; PR 204 exact head `0c6e8898dae979685fdcb09d531e1dfeb40e505d`, merge `67e5c2c84c907fe79bab257d992fbcbdf0480d48` | T2 verification + technical + scientific + gatekeeper complete; explicit user amendment approval recorded 2026-08-16 |
+| KB2c | Execute the separately scoped proof-only anchored-row qualification against approved B2b inputs | Separately authorized proof execution may resume against the approved B2b inputs; authoritative exact-SHA result and qualification decision remain pending | T2 verification + technical + scientific + gatekeeper, then explicit user qualification decision |
 | KB3 | Bfr full-mesh provider; owns the exact 30700 pin and the no-Far-in-production tests | Blocked by recorded D9a outcome: Bfr not qualified. Requires a new explicit architecture decision; no Far fallback. | T2, only after a new explicit architecture decision |
 | KB4 | Topology epoch cache, invalidation, flip-pair re-preparation cost | Pending B3 | Technical |
 | KB9b | D9b Bfr production-activation acceptance on integrated-functional evidence | Deferred to after WP5.2 | Scientific + explicit user |
