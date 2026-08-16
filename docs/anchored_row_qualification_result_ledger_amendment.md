@@ -1,15 +1,18 @@
 # B2b anchored-row result-evidence amendment
 
-Status: **proposed frozen-input amendment; no execution authority**
+Status: **merged as PR 204 and explicitly approved as frozen B2b input;
+evidence-contract authority only; no qualification or production authority**
 
 This document is an additive amendment to
 [`anchored_row_qualification_preflight.md`](anchored_row_qualification_preflight.md).
 It repairs evidence-contract gaps found during exact-SHA review of the first
 B2c development execution. It changes no candidate, fixture, sample, row,
 tolerance, D10 target, B2b component target, oracle rule, D12 budget, decision,
-route, or production state. It is not authoritative until it passes exact-SHA
-verification, technical, scientific, and gatekeeper review and is explicitly
-approved by the user.
+route, or production state. PR 204 merged exact reviewed head
+`0c6e8898dae979685fdcb09d531e1dfeb40e505d` as main merge commit
+`67e5c2c84c907fe79bab257d992fbcbdf0480d48` after exact-SHA verification,
+technical, scientific, gatekeeper, and hosted gates passed. The user explicitly
+approved it as a frozen B2b input on 2026-08-16 before B2c resumes.
 
 The first development execution and all values observed from it are
 non-authoritative. No target or acceptance rule in this amendment is derived
