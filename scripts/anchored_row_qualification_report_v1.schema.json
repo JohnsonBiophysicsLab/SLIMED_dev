@@ -7519,7 +7519,7 @@
       "additionalProperties": false,
       "properties": {
         "approved_b2b_merge_git_commit": {
-          "const": "029816125619f58f99464e8055170ffa12e957e3"
+          "const": "67e5c2c84c907fe79bab257d992fbcbdf0480d48"
         },
         "base_merge_git_commit": {
           "pattern": "^[0-9a-f]{40}$",
@@ -7538,7 +7538,7 @@
           "$ref": "#/$defs/gitIdentity"
         },
         "implementation_state": {
-          "const": "INCOMPLETE_MISSING_ORACLE_DEPENDENT_CELL_EXECUTION_D12_EXECUTION_AND_PRIMARY_STAM_UNIFORM_ORACLES"
+          "const": "PACKAGE2_EXECUTED_PROOF_ONLY_NO_QUALIFICATION_DECISION"
         },
         "schema_id": {
           "const": "anchored-row-qualification-report-v1"
