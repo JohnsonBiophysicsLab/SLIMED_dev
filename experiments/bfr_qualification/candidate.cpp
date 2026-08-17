@@ -91,6 +91,7 @@ struct RowPackage {
     std::vector<RowGroup> groups;
     double maxRowSumError = 0.0;
     std::uint64_t maxRetainedPayloadPerFace = 0;
+    std::vector<std::uint64_t> retainedPayloadPerFace;
 };
 
 struct Preparation {
@@ -103,6 +104,15 @@ struct Preparation {
 };
 
 struct RssLedger {
+    struct Observation {
+        std::string repeatPhase;
+        int repeatIndex;
+        int face;
+        int localCorner;
+        std::string sampleId;
+        std::string stage;
+        std::uint64_t residentBytes;
+    };
     std::uint64_t baseline = 0;
     std::uint64_t peakDeltaBytes = 0;
     std::uint64_t afterRefinerConstruction = 0;
@@ -112,6 +122,10 @@ struct RssLedger {
     std::uint64_t afterRowPackageDestruction = 0;
     std::uint64_t afterFactoryOrCacheDestruction = 0;
     std::uint64_t afterRefinerDestruction = 0;
+    bool captureObservations = false;
+    std::string repeatPhase;
+    int repeatIndex = -1;
+    std::vector<Observation> observations;
 };
 
 struct PlatformProbe {
@@ -327,16 +341,21 @@ std::uint64_t resident_bytes() {
     return static_cast<std::uint64_t>(info.resident_size);
 }
 
-void observe_rss(std::uint64_t baseline, std::uint64_t &peak) {
-    std::uint64_t const current = resident_bytes();
-    std::uint64_t const delta = current > baseline ? current - baseline : 0;
-    peak = std::max(peak, delta);
-}
-
-void observe_named_rss(RssLedger *ledger, std::uint64_t RssLedger::*counter) {
+void observe_named_rss(RssLedger *ledger, std::uint64_t RssLedger::*counter,
+                       char const *stage, int face = -1,
+                       int localCorner = -1,
+                       std::string const &sampleId = std::string()) {
     if (!ledger) return;
-    observe_rss(ledger->baseline, ledger->peakDeltaBytes);
+    std::uint64_t const current = resident_bytes();
+    std::uint64_t const delta = current > ledger->baseline ?
+        current - ledger->baseline : 0;
+    ledger->peakDeltaBytes = std::max(ledger->peakDeltaBytes, delta);
     ++(ledger->*counter);
+    if (ledger->captureObservations) {
+        ledger->observations.push_back(RssLedger::Observation{
+            ledger->repeatPhase, ledger->repeatIndex, face, localCorner,
+            sampleId, stage, current});
+    }
 }
 
 std::vector<Sample> face_samples(b2fixture::Mesh const &mesh, int face) {
@@ -576,6 +595,68 @@ void append_group(RowPackage &package, int face, Sample const &sample,
     package.groups.push_back(RowGroup{face, sample, std::move(rows)});
 }
 
+void execute_anchored_representation_workload(
+        b2fixture::Mesh const &mesh, RowGroup const &group) {
+    if (group.face < 0 ||
+        static_cast<std::size_t>(group.face) >= mesh.faces.size() ||
+        mesh.faces[static_cast<std::size_t>(group.face)].empty()) {
+        throw std::runtime_error("anchored representation face is unavailable");
+    }
+    int const anchorSource =
+        mesh.faces[static_cast<std::size_t>(group.face)][0];
+    static double const constants[] = {
+        0.0, 1.0, -1.0, 1048576.0, -1048576.0};
+    for (int row = 0; row < kRowCount; ++row) {
+        std::vector<int> const &ids = group.rows.ids[row];
+        std::vector<double> const &coefficients =
+            group.rows.coefficients[row];
+        std::vector<int>::const_iterator anchor =
+            std::find(ids.begin(), ids.end(), anchorSource);
+        if (anchor == ids.end()) {
+            throw std::runtime_error(
+                "oriented v0 anchor is absent from provider row");
+        }
+        std::size_t const anchorIndex = static_cast<std::size_t>(
+            std::distance(ids.begin(), anchor));
+        for (int input = 0; input < 8; ++input) {
+            double anchorValue = 0.0;
+            if (input < 3) {
+                anchorValue = mesh.vertices.at(
+                    static_cast<std::size_t>(anchorSource))[
+                        static_cast<std::size_t>(input)];
+            } else {
+                anchorValue = constants[input - 3];
+            }
+            double accumulator = 0.0;
+            for (std::size_t index = 0; index < ids.size(); ++index) {
+                double source = constants[0];
+                if (input < 3) {
+                    source = mesh.vertices.at(
+                        static_cast<std::size_t>(ids[index]))[
+                            static_cast<std::size_t>(input)];
+                } else {
+                    source = constants[input - 3];
+                }
+                double const delta = source - anchorValue;
+                double const term = coefficients[index] * delta;
+                accumulator = accumulator + term;
+                if (!std::isfinite(delta) || !std::isfinite(term) ||
+                    !std::isfinite(accumulator)) {
+                    throw std::runtime_error(
+                        "anchored representation evaluation is nonfinite");
+                }
+            }
+            double const result = row == 0 ? anchorValue + accumulator :
+                                              accumulator;
+            if (!std::isfinite(result)) {
+                throw std::runtime_error(
+                    "anchored representation result is nonfinite");
+            }
+        }
+        (void)anchorIndex;
+    }
+}
+
 void finalize_payload(RowPackage &package, int faceCount) {
     for (int face = 0; face < faceCount; ++face) {
         std::set<int> sourceUnion;
@@ -592,6 +673,7 @@ void finalize_payload(RowPackage &package, int faceCount) {
         }
         std::uint64_t const payload = UINT64_C(12) + UINT64_C(4) * sourceUnion.size() +
             UINT64_C(72) * sampleCount + UINT64_C(12) * coefficientCount;
+        package.retainedPayloadPerFace.push_back(payload);
         package.maxRetainedPayloadPerFace =
             std::max(package.maxRetainedPayloadPerFace, payload);
     }
@@ -609,11 +691,18 @@ std::unique_ptr<RowPackage> build_bfr_workload(b2fixture::Mesh const &mesh,
                          evaluate_bfr_surface(factory, face,
                                               samples[sample].u, samples[sample].v),
                          "Bfr");
-            observe_named_rss(rss, &RssLedger::afterEachCompletedFaceRowInsertion);
+            execute_anchored_representation_workload(
+                mesh, package->groups.back());
+            RowGroup const &completed = package->groups.back();
+            observe_named_rss(
+                rss, &RssLedger::afterEachCompletedFaceRowInsertion,
+                "after_face_insert", completed.face,
+                completed.sample.localCorner, completed.sample.id);
         }
     }
     finalize_payload(*package, static_cast<int>(mesh.faces.size()));
-    observe_named_rss(rss, &RssLedger::afterImmutablePackagePublication);
+    observe_named_rss(rss, &RssLedger::afterImmutablePackagePublication,
+                      "after_package_publication");
     return package;
 }
 
@@ -622,7 +711,8 @@ Preparation prepare_bfr_case(b2fixture::Mesh const &mesh, int level,
     Preparation result;
     std::uint64_t const begin = continuous_nanoseconds();
     result.refiner = make_mesh_refiner(mesh);
-    observe_named_rss(rss, &RssLedger::afterRefinerConstruction);
+    observe_named_rss(rss, &RssLedger::afterRefinerConstruction,
+                      "after_refiner");
     Bfr::SurfaceFactory::Options options;
     options.EnableCaching(mode != "cache_disabled");
     options.SetApproxLevelSmooth(level);
@@ -631,7 +721,8 @@ Preparation prepare_bfr_case(b2fixture::Mesh const &mesh, int level,
         throw std::runtime_error("invalid Bfr numeric cache mode");
     }
     result.bfrFactory.reset(new Bfr::RefinerSurfaceFactory<>(*result.refiner, options));
-    observe_named_rss(rss, &RssLedger::afterFactoryOrCacheConstruction);
+    observe_named_rss(rss, &RssLedger::afterFactoryOrCacheConstruction,
+                      "after_factory_cache");
     result.package = build_bfr_workload(mesh, *result.bfrFactory, rss);
     result.elapsedNanoseconds = continuous_nanoseconds() - begin;
     return result;
@@ -660,7 +751,8 @@ Preparation prepare_far_case(b2fixture::Mesh const &mesh, int level,
     Preparation result;
     std::uint64_t const begin = continuous_nanoseconds();
     result.refiner = make_mesh_refiner(mesh);
-    observe_named_rss(rss, &RssLedger::afterRefinerConstruction);
+    observe_named_rss(rss, &RssLedger::afterRefinerConstruction,
+                      "after_refiner");
     Far::PatchTableFactory::Options patchOptions(level);
     patchOptions.endCapType = Far::PatchTableFactory::Options::ENDCAP_GREGORY_BASIS;
     Far::TopologyRefiner::AdaptiveOptions adaptive = patchOptions.GetRefineAdaptiveOptions();
@@ -693,7 +785,8 @@ Preparation prepare_far_case(b2fixture::Mesh const &mesh, int level,
     stencilOptions.generate2ndDerivatives = true;
     result.farTable.reset(
         Factory::Create(*result.refiner, locations, nullptr, nullptr, stencilOptions));
-    observe_named_rss(rss, &RssLedger::afterFactoryOrCacheConstruction);
+    observe_named_rss(rss, &RssLedger::afterFactoryOrCacheConstruction,
+                      "after_factory_cache");
     std::size_t expectedCount = 0;
     for (std::size_t face = 0; face < samplesByFace.size(); ++face) {
         expectedCount += samplesByFace[face].size();
@@ -710,11 +803,16 @@ Preparation prepare_far_case(b2fixture::Mesh const &mesh, int level,
                          samplesByFace[static_cast<std::size_t>(face)][sample],
                          rows_from_far_stencil(
                              result.farTable->GetLimitStencil(stencilIndex++)), "Far");
-            observe_named_rss(rss, &RssLedger::afterEachCompletedFaceRowInsertion);
+            RowGroup const &completed = result.package->groups.back();
+            observe_named_rss(
+                rss, &RssLedger::afterEachCompletedFaceRowInsertion,
+                "after_face_insert", completed.face,
+                completed.sample.localCorner, completed.sample.id);
         }
     }
     finalize_payload(*result.package, static_cast<int>(mesh.faces.size()));
-    observe_named_rss(rss, &RssLedger::afterImmutablePackagePublication);
+    observe_named_rss(rss, &RssLedger::afterImmutablePackagePublication,
+                      "after_package_publication");
     result.elapsedNanoseconds = continuous_nanoseconds() - begin;
     return result;
 }
@@ -825,12 +923,15 @@ Preparation prepare_numeric_case(b2fixture::Mesh const &mesh,
 
 void destroy_preparation(Preparation &preparation, RssLedger *rss) {
     preparation.package.reset();
-    observe_named_rss(rss, &RssLedger::afterRowPackageDestruction);
+    observe_named_rss(rss, &RssLedger::afterRowPackageDestruction,
+                      "after_package_destruction");
     preparation.bfrFactory.reset();
     preparation.farTable.reset();
-    observe_named_rss(rss, &RssLedger::afterFactoryOrCacheDestruction);
+    observe_named_rss(rss, &RssLedger::afterFactoryOrCacheDestruction,
+                      "after_factory_cache_destruction");
     preparation.refiner.reset();
-    observe_named_rss(rss, &RssLedger::afterRefinerDestruction);
+    observe_named_rss(rss, &RssLedger::afterRefinerDestruction,
+                      "after_refiner_destruction");
 }
 
 std::string binary64_bits_hex(double value) {
@@ -852,9 +953,12 @@ int execute_case(char const *meshDirectory, char const *mutation,
     b2fixture::validate_closed_oriented_two_manifold(mesh);
     RssLedger rss;
     rss.baseline = resident_bytes();
+    rss.captureObservations = candidate == "bfr";
     std::vector<std::uint64_t> measured;
     std::size_t measuredRowGroupCount = 0;
     for (int repeat = 0; repeat < 18; ++repeat) {
+        rss.repeatPhase = repeat < 3 ? "warmup" : "measured";
+        rss.repeatIndex = repeat < 3 ? repeat : repeat - 3;
         Preparation preparation = prepare_numeric_case(mesh, candidate, level, mode, &rss);
         if (!preparation.package) throw std::runtime_error("numeric row package missing");
         if (repeat == 0) measuredRowGroupCount = preparation.package->groups.size();
@@ -925,8 +1029,41 @@ int execute_case(char const *meshDirectory, char const *mutation,
               << ",\"untimed_serialization_replay\":true"
               << ",\"serialization_replay_rss_sampled\":false"
               << ",\"retained_payload_bytes_per_face\":"
-              << package.maxRetainedPayloadPerFace
-              << ",\"row_group_count\":" << package.groups.size()
+              << package.maxRetainedPayloadPerFace;
+    if (candidate == "bfr") {
+        output << ",\"d12_representation_workload_included\":true"
+               << ",\"d12_rss_baseline_bytes\":" << rss.baseline
+               << ",\"d12_retained_payload_bytes_by_face\":[";
+        for (std::size_t index = 0;
+             index < package.retainedPayloadPerFace.size(); ++index) {
+            if (index) output << ',';
+            output << package.retainedPayloadPerFace[index];
+        }
+        output << "],\"d12_rss_observations\":[";
+        for (std::size_t index = 0; index < rss.observations.size(); ++index) {
+            if (index) output << ',';
+            RssLedger::Observation const &observation =
+                rss.observations[index];
+            output << "{\"repeat_phase\":";
+            emit_json_string(output, observation.repeatPhase);
+            output << ",\"repeat_index\":" << observation.repeatIndex
+                   << ",\"face_id\":";
+            if (observation.face < 0) output << "null";
+            else output << observation.face;
+            output << ",\"local_corner_or_none\":";
+            if (observation.localCorner < 0) output << "null";
+            else output << observation.localCorner;
+            output << ",\"sample_id\":";
+            if (observation.sampleId.empty()) output << "null";
+            else emit_json_string(output, observation.sampleId);
+            output << ",\"stage\":";
+            emit_json_string(output, observation.stage);
+            output << ",\"rss_bytes\":" << observation.residentBytes
+                   << '}';
+        }
+        output << ']';
+    }
+    output << ",\"row_group_count\":" << package.groups.size()
               << ",\"max_row_sum_error\":" << package.maxRowSumError
               << ",\"source_reconstruction_complete\":true,\"row_kind_counts\":{";
     for (int row = 0; row < kRowCount; ++row) {
@@ -1001,6 +1138,93 @@ std::vector<unsigned char> canonical_package_bytes(RowPackage const &package) {
     return bytes;
 }
 
+std::vector<unsigned char> canonical_representation_bytes(
+        b2fixture::Mesh const &mesh, RowPackage const &package,
+        char const *contentIdentity, int level) {
+    static char const *rowNames[kRowCount] = {
+        "position", "du", "dv", "duu", "duv", "dvv"};
+    struct Input {
+        char const *id;
+        int axis;
+        double constant;
+    };
+    // Unsigned RFC-8785 string-byte order, as frozen by the D12 validator.
+    static Input const inputs[] = {
+        {"fixture_x", 0, 0.0}, {"fixture_y", 1, 0.0},
+        {"fixture_z", 2, 0.0}, {"negative_2p20", -1, -1048576.0},
+        {"negative_one", -1, -1.0},
+        {"positive_2p20", -1, 1048576.0},
+        {"positive_one", -1, 1.0}, {"positive_zero", -1, 0.0},
+    };
+    std::ostringstream output;
+    output << '[';
+    bool first = true;
+    for (std::size_t groupIndex = 0; groupIndex < package.groups.size();
+         ++groupIndex) {
+        RowGroup const &group = package.groups[groupIndex];
+        int const anchorSource =
+            mesh.faces.at(static_cast<std::size_t>(group.face)).at(0);
+        for (int row = 0; row < kRowCount; ++row) {
+            std::vector<int> const &ids = group.rows.ids[row];
+            std::vector<double> const &coefficients =
+                group.rows.coefficients[row];
+            if (std::find(ids.begin(), ids.end(), anchorSource) == ids.end()) {
+                throw std::runtime_error(
+                    "oriented v0 anchor is absent from representation row");
+            }
+            for (std::size_t inputIndex = 0;
+                 inputIndex < sizeof(inputs) / sizeof(inputs[0]);
+                 ++inputIndex) {
+                Input const &input = inputs[inputIndex];
+                double const anchorValue = input.axis >= 0 ?
+                    mesh.vertices.at(static_cast<std::size_t>(anchorSource))[
+                        static_cast<std::size_t>(input.axis)] :
+                    input.constant;
+                double accumulator = 0.0;
+                for (std::size_t index = 0; index < ids.size(); ++index) {
+                    double const source = input.axis >= 0 ?
+                        mesh.vertices.at(static_cast<std::size_t>(ids[index]))[
+                            static_cast<std::size_t>(input.axis)] :
+                        input.constant;
+                    double const delta = source - anchorValue;
+                    double const term = coefficients[index] * delta;
+                    accumulator = accumulator + term;
+                    if (!std::isfinite(delta) || !std::isfinite(term) ||
+                        !std::isfinite(accumulator)) {
+                        throw std::runtime_error(
+                            "D12 representation stream is nonfinite");
+                    }
+                }
+                double const result = row == 0 ?
+                    anchorValue + accumulator : accumulator;
+                if (!std::isfinite(result)) {
+                    throw std::runtime_error(
+                        "D12 representation result is nonfinite");
+                }
+                if (!first) output << ',';
+                first = false;
+                output << '[';
+                emit_json_string(output, contentIdentity);
+                output << ',' << level << ',' << group.face << ',';
+                if (group.sample.localCorner < 0) output << "null";
+                else output << group.sample.localCorner;
+                output << ',';
+                emit_json_string(output, group.sample.id);
+                output << ',';
+                emit_json_string(output, rowNames[row]);
+                output << ',';
+                emit_json_string(output, input.id);
+                output << ',';
+                emit_json_string(output, binary64_bits_hex(result));
+                output << ']';
+            }
+        }
+    }
+    output << ']';
+    std::string const text = output.str();
+    return std::vector<unsigned char>(text.begin(), text.end());
+}
+
 class StartBarrier {
 public:
     explicit StartBarrier(int participants) : participants_(participants), waiting_(0), generation_(0) {}
@@ -1024,7 +1248,8 @@ private:
 };
 
 int thread_case(char const *meshDirectory, char const *mutation, int level,
-                std::string const &mode, int workerCount, char const *contentIdentity) {
+                std::string const &mode, int workerCount,
+                char const *contentIdentity, bool emitStreams) {
     if (level < 2 || level > 8 || (workerCount != 1 && workerCount != 2 && workerCount != 4)) {
         throw std::runtime_error("thread tuple outside frozen matrix");
     }
@@ -1049,11 +1274,15 @@ int thread_case(char const *meshDirectory, char const *mutation, int level,
     } else {
         throw std::runtime_error("thread cache mode outside frozen matrix");
     }
-    std::vector<unsigned char> reference;
+    std::vector<unsigned char> providerReference;
+    std::vector<unsigned char> representationReference;
     std::uint64_t canonicalByteCount = 0;
     for (int round = 0; round < 20; ++round) {
         StartBarrier barrier(workerCount);
-        std::vector<std::vector<unsigned char> > results(static_cast<std::size_t>(workerCount));
+        std::vector<std::vector<unsigned char> > providerResults(
+            static_cast<std::size_t>(workerCount));
+        std::vector<std::vector<unsigned char> > representationResults(
+            static_cast<std::size_t>(workerCount));
         std::vector<std::exception_ptr> errors(static_cast<std::size_t>(workerCount));
         std::vector<std::thread> workers;
         workers.reserve(static_cast<std::size_t>(workerCount));
@@ -1063,8 +1292,11 @@ int thread_case(char const *meshDirectory, char const *mutation, int level,
                     barrier.wait();
                     std::unique_ptr<RowPackage> package =
                         build_bfr_workload(mesh, *factory, nullptr);
-                    results[static_cast<std::size_t>(worker)] =
+                    providerResults[static_cast<std::size_t>(worker)] =
                         canonical_package_bytes(*package);
+                    representationResults[static_cast<std::size_t>(worker)] =
+                        canonical_representation_bytes(
+                            mesh, *package, contentIdentity, level);
                 } catch (...) {
                     errors[static_cast<std::size_t>(worker)] = std::current_exception();
                 }
@@ -1075,17 +1307,50 @@ int thread_case(char const *meshDirectory, char const *mutation, int level,
             if (errors[worker]) std::rethrow_exception(errors[worker]);
         }
         for (int worker = 1; worker < workerCount; ++worker) {
-            if (results[static_cast<std::size_t>(worker)] != results[0]) {
+            if (providerResults[static_cast<std::size_t>(worker)] !=
+                    providerResults[0] ||
+                representationResults[static_cast<std::size_t>(worker)] !=
+                    representationResults[0]) {
                 throw std::runtime_error("thread workers emitted different canonical rows");
             }
         }
         if (round == 0) {
-            reference = results[0];
-            canonicalByteCount = reference.size();
-        } else if (results[0] != reference) {
+            providerReference = providerResults[0];
+            representationReference = representationResults[0];
+            canonicalByteCount = providerReference.size();
+        } else if (providerResults[0] != providerReference ||
+                   representationResults[0] != representationReference) {
             throw std::runtime_error("thread rounds emitted different canonical rows");
         }
+        if (emitStreams) {
+            if (round == 0) {
+                static char const magic[] = "D12WORK1";
+                std::cout.write(magic, 8);
+            }
+            for (int worker = 0; worker < workerCount; ++worker) {
+                std::vector<unsigned char> header;
+                append_u32(header, static_cast<std::uint32_t>(round));
+                append_u32(header, static_cast<std::uint32_t>(worker));
+                append_u64(header, providerResults[
+                    static_cast<std::size_t>(worker)].size());
+                append_u64(header, representationResults[
+                    static_cast<std::size_t>(worker)].size());
+                std::cout.write(reinterpret_cast<char const *>(header.data()),
+                                static_cast<std::streamsize>(header.size()));
+                std::cout.write(reinterpret_cast<char const *>(providerResults[
+                                    static_cast<std::size_t>(worker)].data()),
+                                static_cast<std::streamsize>(providerResults[
+                                    static_cast<std::size_t>(worker)].size()));
+                std::cout.write(reinterpret_cast<char const *>(
+                                    representationResults[
+                                    static_cast<std::size_t>(worker)].data()),
+                                static_cast<std::streamsize>(
+                                    representationResults[
+                                    static_cast<std::size_t>(worker)].size()));
+            }
+        }
     }
+    if (emitStreams) return 0;
     std::cout << "{\"schema_version\":1,\"kind\":\"bfr_thread_case\",\"status\":\"ok\","
               << "\"finite\":true,\"content_identity_key\":\"" << contentIdentity << "\","
               << "\"approxLevelSmooth\":" << level << ",\"mode\":\"" << mode << "\","
@@ -1113,11 +1378,16 @@ int main(int argc, char **argv) {
         }
         if (argc == 8 && std::string(argv[1]) == "--thread-case") {
             return thread_case(argv[2], argv[3], std::atoi(argv[4]), argv[5],
-                               std::atoi(argv[6]), argv[7]);
+                               std::atoi(argv[6]), argv[7], false);
+        }
+        if (argc == 8 && std::string(argv[1]) == "--d12-thread-stream") {
+            return thread_case(argv[2], argv[3], std::atoi(argv[4]), argv[5],
+                               std::atoi(argv[6]), argv[7], true);
         }
         std::cerr << "usage: bfr_candidate --self-test | --platform-probe | "
                      "--preflight MESH_DIR MUTATION | "
-                     "--execute-case MESH_DIR MUTATION CANDIDATE LEVEL MODE CONTENT_ID\n";
+                     "--execute-case MESH_DIR MUTATION CANDIDATE LEVEL MODE CONTENT_ID\n"
+                     "       anchored provider --d12-thread-stream MESH_DIR MUTATION LEVEL MODE WORKERS CONTENT_ID\n";
         return 2;
     } catch (std::exception const &error) {
         std::cerr << error.what() << "\n";

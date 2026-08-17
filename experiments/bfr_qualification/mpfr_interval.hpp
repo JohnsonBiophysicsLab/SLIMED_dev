@@ -3,6 +3,9 @@
 #include <mpfr.h>
 
 #include <algorithm>
+#include <array>
+#include <cmath>
+#include <limits>
 #include <stdexcept>
 #include <string>
 
@@ -31,6 +34,59 @@ public:
         mpfr_set_si(lo_, value, MPFR_RNDD);
         mpfr_set_si(hi_, value, MPFR_RNDU);
         reject_bad_flags("integer import");
+    }
+
+    static MpfrInterval rational(long numerator, unsigned long denominator) {
+        if (denominator == 0) {
+            throw std::runtime_error("zero rational denominator");
+        }
+        MpfrInterval out;
+        mpfr_clear_flags();
+        mpfr_set_si(out.lo_, numerator, MPFR_RNDD);
+        mpfr_div_ui(out.lo_, out.lo_, denominator, MPFR_RNDD);
+        mpfr_set_si(out.hi_, numerator, MPFR_RNDU);
+        mpfr_div_ui(out.hi_, out.hi_, denominator, MPFR_RNDU);
+        reject_bad_flags("rational import");
+        out.validate();
+        return out;
+    }
+
+    static MpfrInterval exact_double(double value) {
+        if (!std::isfinite(value)) {
+            throw std::runtime_error("nonfinite binary64 import");
+        }
+        MpfrInterval out;
+        mpfr_clear_flags();
+        int const lo_ternary = mpfr_set_d(out.lo_, value, MPFR_RNDN);
+        int const hi_ternary = mpfr_set_d(out.hi_, value, MPFR_RNDN);
+        reject_bad_flags("binary64 import");
+        if (lo_ternary != 0 || hi_ternary != 0) {
+            throw std::runtime_error("inexact binary64 import");
+        }
+        out.validate();
+        return out;
+    }
+
+    static MpfrInterval point(mpfr_srcptr value) {
+        MpfrInterval out;
+        mpfr_clear_flags();
+        if (mpfr_set(out.lo_, value, MPFR_RNDN) != 0 ||
+            mpfr_set(out.hi_, value, MPFR_RNDN) != 0) {
+            throw std::runtime_error("inexact MPFR point import");
+        }
+        reject_bad_flags("MPFR point import");
+        out.validate();
+        return out;
+    }
+
+    static MpfrInterval endpoints(mpfr_srcptr lower, mpfr_srcptr upper) {
+        MpfrInterval out;
+        mpfr_clear_flags();
+        mpfr_set(out.lo_, lower, MPFR_RNDD);
+        mpfr_set(out.hi_, upper, MPFR_RNDU);
+        reject_bad_flags("endpoint import");
+        out.validate();
+        return out;
     }
 
     static MpfrInterval decimal(char const *value) {
@@ -74,6 +130,54 @@ public:
         }
     }
 
+    bool contains_zero() const {
+        return mpfr_sgn(lo_) <= 0 && mpfr_sgn(hi_) >= 0;
+    }
+
+    bool is_exact_zero() const {
+        return mpfr_zero_p(lo_) && mpfr_zero_p(hi_);
+    }
+
+    MpfrInterval midpoint() const {
+        mpfr_t value;
+        mpfr_init2(value, kPrecision);
+        mpfr_clear_flags();
+        mpfr_add(value, lo_, hi_, MPFR_RNDN);
+        mpfr_div_2ui(value, value, 1, MPFR_RNDN);
+        reject_bad_flags("midpoint");
+        MpfrInterval out = point(value);
+        mpfr_clear(value);
+        return out;
+    }
+
+    MpfrInterval expanded(char const *radius) const {
+        MpfrInterval delta = decimal(radius);
+        if (mpfr_sgn(delta.lo()) < 0) {
+            throw std::runtime_error("negative interval expansion");
+        }
+        MpfrInterval out;
+        mpfr_clear_flags();
+        mpfr_sub(out.lo_, lo_, delta.hi(), MPFR_RNDD);
+        mpfr_add(out.hi_, hi_, delta.hi(), MPFR_RNDU);
+        reject_bad_flags("interval expansion");
+        out.validate();
+        return out;
+    }
+
+    std::string lower_decimal(int digits = 40) const {
+        std::string buffer(static_cast<std::size_t>(digits) + 32, '\0');
+        mpfr_snprintf(buffer.data(), buffer.size(), "%.*Re", digits, lo_);
+        buffer.resize(std::char_traits<char>::length(buffer.c_str()));
+        return buffer;
+    }
+
+    std::string upper_decimal(int digits = 40) const {
+        std::string buffer(static_cast<std::size_t>(digits) + 32, '\0');
+        mpfr_snprintf(buffer.data(), buffer.size(), "%.*Re", digits, hi_);
+        buffer.resize(std::char_traits<char>::length(buffer.c_str()));
+        return buffer;
+    }
+
 private:
     mpfr_t lo_;
     mpfr_t hi_;
@@ -95,6 +199,16 @@ inline MpfrInterval subtract(MpfrInterval const &a, MpfrInterval const &b) {
     mpfr_sub(out.mutable_lo(), a.lo(), b.hi(), MPFR_RNDD);
     mpfr_sub(out.mutable_hi(), a.hi(), b.lo(), MPFR_RNDU);
     reject_bad_flags("subtract");
+    out.validate();
+    return out;
+}
+
+inline MpfrInterval negate(MpfrInterval const &value) {
+    MpfrInterval out;
+    mpfr_clear_flags();
+    mpfr_neg(out.mutable_lo(), value.hi(), MPFR_RNDD);
+    mpfr_neg(out.mutable_hi(), value.lo(), MPFR_RNDU);
+    reject_bad_flags("negate");
     out.validate();
     return out;
 }
@@ -165,6 +279,72 @@ inline MpfrInterval square_root(MpfrInterval const &value) {
     return out;
 }
 
+inline MpfrInterval absolute(MpfrInterval const &value) {
+    if (mpfr_sgn(value.lo()) >= 0) {
+        return value;
+    }
+    if (mpfr_sgn(value.hi()) <= 0) {
+        return negate(value);
+    }
+    MpfrInterval out;
+    mpfr_set_zero(out.mutable_lo(), 0);
+    mpfr_clear_flags();
+    mpfr_abs(out.mutable_hi(), value.lo(), MPFR_RNDU);
+    mpfr_t candidate;
+    mpfr_init2(candidate, kPrecision);
+    mpfr_abs(candidate, value.hi(), MPFR_RNDU);
+    if (mpfr_greater_p(candidate, out.hi())) {
+        mpfr_set(out.mutable_hi(), candidate, MPFR_RNDU);
+    }
+    mpfr_clear(candidate);
+    reject_bad_flags("absolute value");
+    out.validate();
+    return out;
+}
+
+inline MpfrInterval integer_power(MpfrInterval base, unsigned exponent) {
+    MpfrInterval result(1);
+    while (exponent != 0) {
+        if ((exponent & 1U) != 0) {
+            result = multiply(result, base);
+        }
+        exponent >>= 1U;
+        if (exponent != 0) {
+            base = multiply(base, base);
+        }
+    }
+    return result;
+}
+
+inline MpfrInterval intersect(MpfrInterval const &left,
+                              MpfrInterval const &right) {
+    MpfrInterval out;
+    mpfr_set(out.mutable_lo(),
+             mpfr_greater_p(left.lo(), right.lo()) ? left.lo() : right.lo(),
+             MPFR_RNDD);
+    mpfr_set(out.mutable_hi(),
+             mpfr_less_p(left.hi(), right.hi()) ? left.hi() : right.hi(),
+             MPFR_RNDU);
+    out.validate();
+    return out;
+}
+
+inline bool overlaps(MpfrInterval const &left, MpfrInterval const &right) {
+    return !mpfr_greater_p(left.lo(), right.hi()) &&
+           !mpfr_greater_p(right.lo(), left.hi());
+}
+
+inline bool strict_interior(MpfrInterval const &inner,
+                            MpfrInterval const &outer) {
+    return mpfr_greater_p(inner.lo(), outer.lo()) &&
+           mpfr_less_p(inner.hi(), outer.hi());
+}
+
+inline bool upper_at_most(MpfrInterval const &value, char const *decimal) {
+    MpfrInterval target = MpfrInterval::decimal(decimal);
+    return mpfr_lessequal_p(value.hi(), target.lo());
+}
+
 inline MpfrInterval loop_cosine(unsigned long valence) {
     if (valence < 3) {
         throw std::runtime_error("invalid Loop valence");
@@ -185,6 +365,104 @@ inline MpfrInterval loop_cosine(unsigned long valence) {
     reject_bad_flags("cosine");
     out.validate();
     return out;
+}
+
+inline MpfrInterval loop_angle_cosine(unsigned long valence,
+                                      unsigned long frequency) {
+    if (valence < 3 || frequency >= valence) {
+        throw std::runtime_error("invalid Loop frequency");
+    }
+    MpfrInterval pi;
+    mpfr_clear_flags();
+    mpfr_const_pi(pi.mutable_lo(), MPFR_RNDD);
+    mpfr_const_pi(pi.mutable_hi(), MPFR_RNDU);
+    reject_bad_flags("pi");
+    MpfrInterval angle = divide(
+        multiply(MpfrInterval(static_cast<long>(2 * frequency)), pi),
+        MpfrInterval(static_cast<long>(valence)));
+    MpfrInterval two_pi = multiply(MpfrInterval(2), pi);
+    if (mpfr_sgn(angle.lo()) < 0 ||
+        mpfr_greater_p(angle.hi(), two_pi.lo())) {
+        throw std::runtime_error("cosine branch domain was not certified");
+    }
+    MpfrInterval out;
+    mpfr_clear_flags();
+    // The frozen valence range needs only angles in [0,pi].  Reflect higher
+    // frequencies to their exact 2*pi complement before using monotonicity.
+    if (2 * frequency <= valence) {
+        mpfr_cos(out.mutable_lo(), angle.hi(), MPFR_RNDD);
+        mpfr_cos(out.mutable_hi(), angle.lo(), MPFR_RNDU);
+    } else {
+        MpfrInterval reflected = subtract(two_pi, angle);
+        mpfr_cos(out.mutable_lo(), reflected.hi(), MPFR_RNDD);
+        mpfr_cos(out.mutable_hi(), reflected.lo(), MPFR_RNDU);
+    }
+    reject_bad_flags("frequency cosine");
+    out.validate();
+    return out;
+}
+
+inline MpfrInterval loop_angle_sine(unsigned long valence,
+                                    unsigned long frequency) {
+    if (valence < 3 || frequency >= valence) {
+        throw std::runtime_error("invalid Loop frequency");
+    }
+    MpfrInterval pi;
+    mpfr_clear_flags();
+    mpfr_const_pi(pi.mutable_lo(), MPFR_RNDD);
+    mpfr_const_pi(pi.mutable_hi(), MPFR_RNDU);
+    reject_bad_flags("pi");
+    MpfrInterval angle = divide(
+        multiply(MpfrInterval(static_cast<long>(2 * frequency)), pi),
+        MpfrInterval(static_cast<long>(valence)));
+    MpfrInterval out;
+    mpfr_clear_flags();
+    // Sine is monotone only on half-quadrants.  Reduce the exact rational
+    // angle to [0,pi/2] and carry the certified sign separately.
+    unsigned long quadrant = (4 * frequency) / valence;
+    unsigned long reduced_numerator = 0;
+    bool negative = false;
+    switch (quadrant) {
+    case 0:
+        reduced_numerator = frequency;
+        break;
+    case 1:
+        reduced_numerator = valence / 2 - frequency;
+        if ((valence & 1U) != 0) {
+            // Avoid integer truncation for odd valence by using pi-angle.
+            MpfrInterval reflected = subtract(pi, angle);
+            mpfr_sin(out.mutable_lo(), reflected.lo(), MPFR_RNDD);
+            mpfr_sin(out.mutable_hi(), reflected.hi(), MPFR_RNDU);
+            reject_bad_flags("frequency sine");
+            out.validate();
+            return out;
+        }
+        break;
+    case 2:
+        reduced_numerator = frequency - valence / 2;
+        negative = true;
+        if ((valence & 1U) != 0) {
+            MpfrInterval reflected = subtract(angle, pi);
+            mpfr_sin(out.mutable_lo(), reflected.lo(), MPFR_RNDD);
+            mpfr_sin(out.mutable_hi(), reflected.hi(), MPFR_RNDU);
+            reject_bad_flags("frequency sine");
+            out.validate();
+            return negate(out);
+        }
+        break;
+    default:
+        reduced_numerator = valence - frequency;
+        negative = true;
+        break;
+    }
+    MpfrInterval reduced = divide(
+        multiply(MpfrInterval(static_cast<long>(2 * reduced_numerator)), pi),
+        MpfrInterval(static_cast<long>(valence)));
+    mpfr_sin(out.mutable_lo(), reduced.lo(), MPFR_RNDD);
+    mpfr_sin(out.mutable_hi(), reduced.hi(), MPFR_RNDU);
+    reject_bad_flags("frequency sine");
+    out.validate();
+    return negative ? negate(out) : out;
 }
 
 inline bool contains(MpfrInterval const &interval, char const *decimal) {
