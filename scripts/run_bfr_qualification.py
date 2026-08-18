@@ -84,6 +84,7 @@ ORACLE_SOURCE_PATHS = (
     "experiments/bfr_qualification/stam_primary.hpp",
     "experiments/bfr_qualification/stam_fixture.hpp",
     "experiments/bfr_qualification/stam_uniform.hpp",
+    "experiments/bfr_qualification/stam_uniform_box_spline.hpp",
 )
 CANONICAL_CASE_ORDER = [
     "u8_01_regular_closed", "u8_02_tetrahedron", "u8_03_octahedron",
@@ -529,6 +530,12 @@ def validate_source_separation():
         require(token not in oracle_text, "oracle source contains forbidden dependency token {}".format(token))
     require("MPFR_RNDD" in oracle_text and "MPFR_RNDU" in oracle_text, "directed interval rounding is absent")
     require("mpfr_init2" in oracle_text and "544" in oracle_text, "544-bit MPFR endpoints are absent")
+    uniform_text = (proof_dir / "stam_uniform.hpp").read_text(
+        encoding="utf-8") + (proof_dir / "stam_uniform_box_spline.hpp").read_text(
+            encoding="utf-8")
+    require("stam_box_spline.hpp" not in uniform_text and
+            "b2stam::" not in uniform_text,
+            "uniform oracle route depends on primary Stam implementation")
     candidate_text = candidate.read_text(encoding="utf-8")
     require("OPENSUBDIV_VERSION_NUMBER != 30700" in candidate_text, "candidate exact OpenSubdiv version pin missing")
     require("validation-only sentinel" in candidate_text, "candidate sentinel exclusion anchor missing")
@@ -1001,7 +1008,7 @@ def compile_proofs(build_dir, mpfr_root, opensubdiv_root, tsan_root,
     common = [str(compiler)] + list(build["common_release_compile_flags"])
     oracle_cmd = common + ["-MMD", "-MF", str(build_dir / "oracle.d"),
                            "-I" + str(mpfr_root / "include"),
-                           str(REPO / "experiments/bfr_qualification/stam_oracle.cpp"),
+                           "experiments/bfr_qualification/stam_oracle.cpp",
                            "-L" + str(mpfr_root / "lib"),
                            "-Wl,-rpath," + str(mpfr_root / "lib"),
                            "-lmpfr", "-lgmp",

@@ -9,7 +9,9 @@ import struct
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
+from types import SimpleNamespace
 from unittest import mock
 
 
@@ -1535,6 +1537,15 @@ class AnchoredRowQualificationTests(unittest.TestCase):
         for kind, value in zip(MODULE.ROW_ORDER,
                                oracle_observation["rows"]):
             value["row_kind"] = kind
+            if kind != "position":
+                derivative_intervals = [interval(zero) for _ in range(3)]
+                value["primary_depth_intervals"] = [
+                    [copy.deepcopy(item) for _ in range(5)]
+                    for item in derivative_intervals]
+                value["uniform_depth_intervals"] = copy.deepcopy(
+                    value["primary_depth_intervals"])
+                value["intersected_primary_intervals"] = copy.deepcopy(
+                    derivative_intervals)
         MODULE.validate_oracle_sample_observation(oracle_observation)
 
         with tempfile.TemporaryDirectory() as temporary:
@@ -3253,7 +3264,12 @@ class AnchoredRowQualificationTests(unittest.TestCase):
     def test_runtime_source_sets_include_local_transitive_headers(self):
         self.assertEqual(MODULE.RUNTIME_SOURCE_PATHS["row_provider"], (
             "experiments/bfr_qualification/candidate.cpp",
-            "experiments/bfr_qualification/fixture_mesh.hpp"))
+            "experiments/bfr_qualification/fixture_mesh.hpp",
+            "experiments/anchored_row_qualification/anchored_row_evaluator.hpp"))
+        self.assertEqual(MODULE.RUNTIME_SOURCE_PATHS[
+            "representation_candidate"], (
+                "experiments/anchored_row_qualification/candidate.cpp",
+                "experiments/anchored_row_qualification/anchored_row_evaluator.hpp"))
         self.assertEqual(MODULE.RUNTIME_SOURCE_PATHS["independent_oracle"], (
             "experiments/bfr_qualification/stam_oracle.cpp",
             "experiments/bfr_qualification/stam_box_spline.hpp",
@@ -3262,10 +3278,133 @@ class AnchoredRowQualificationTests(unittest.TestCase):
             "experiments/bfr_qualification/stam_primary.hpp",
             "experiments/bfr_qualification/stam_fixture.hpp",
             "experiments/bfr_qualification/stam_uniform.hpp",
+            "experiments/bfr_qualification/stam_uniform_box_spline.hpp",
             ))
         for name, entrypoints in MODULE.RUNTIME_SOURCE_ENTRYPOINTS.items():
             self.assertEqual(MODULE.RUNTIME_SOURCE_PATHS[name],
                              MODULE._repository_source_closure(entrypoints))
+
+    def test_oracle_certificates_are_computed_and_uniform_route_is_separate(self):
+        oracle = (ROOT / "experiments/bfr_qualification/stam_oracle.cpp").read_text(
+            encoding="utf-8")
+        primary = (ROOT / "experiments/bfr_qualification/stam_primary.hpp").read_text(
+            encoding="utf-8")
+        uniform = (ROOT / "experiments/bfr_qualification/stam_uniform.hpp").read_text(
+            encoding="utf-8")
+        self.assertNotIn("bool projector_ok = true", primary)
+        self.assertIn("certify_frozen_valence", oracle)
+        for point in ("{0.25, 0.25}", "{0.5, 0.25}", "{0.25, 0.5}"):
+            self.assertIn(point, oracle)
+        self.assertIn('"1e-20"', oracle)
+        self.assertIn("EIGENBASIS_CERTIFICATION_FAILED", oracle)
+        self.assertIn("PARAMETRIC_MAP_CHECK_FAILED", oracle)
+        self.assertIn("TANGENT_PROJECTION_CHECK_FAILED", oracle)
+        self.assertNotIn('#include "stam_box_spline.hpp"', uniform)
+        self.assertIn('#include "stam_uniform_box_spline.hpp"', uniform)
+        forged = MODULE._valid_oracle_covered_record()
+        zero = {"kind": "interval_rational_v1",
+                "lower": {"kind": "rational_v1", "numerator": "0",
+                          "denominator": "1"},
+                "upper": {"kind": "rational_v1", "numerator": "0",
+                          "denominator": "1"}}
+        forged[2]["primary_depth_intervals"] = [[
+            copy.deepcopy(zero) for _ in range(5)]]
+        forged[2]["uniform_depth_intervals"] = [[
+            copy.deepcopy(zero) for _ in range(5)]]
+        forged[2]["intersected_primary_intervals"] = [copy.deepcopy(zero)]
+        with self.assertRaises(MODULE.QualificationError):
+            MODULE.validate_contract_result_record(
+                "oracle_coverage_and_crosscheck", forged)
+
+    def test_oracle_independence_audit_is_executable_and_fail_closed(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary).resolve()
+            binary = root / "stam_oracle"
+            dependency = root / "oracle.d"
+            link_map = root / "oracle.map"
+            dynamic = root / "oracle.otool-L"
+            for path, data in ((binary, b"binary"),
+                               (dependency, b"dependency\n"),
+                               (link_map, b"# Path: stam_oracle\n"),
+                               (dynamic, b"stam_oracle:\n\t/usr/lib/libmpfr.6.dylib\n")):
+                path.write_bytes(data)
+            command = [
+                MODULE.B2.EXPECTED_COMPILER_PATH,
+                "-std=c++17", "-O3", "-DNDEBUG", "-fno-fast-math",
+                "-ffp-contract=off", "-fno-omit-frame-pointer", "-Wall",
+                "-Wextra", "-Wpedantic", "-Werror", "-isysroot",
+                "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk",
+                "-mmacosx-version-min=26.0", "-MMD", "-MF", str(dependency),
+                "-I/private/tmp/mpfr/include",
+                "experiments/bfr_qualification/stam_oracle.cpp",
+                "-L/private/tmp/mpfr/lib",
+                "-Wl,-rpath,/private/tmp/mpfr/lib", "-lmpfr", "-lgmp",
+                "-Wl,-map," + str(link_map), "-o", str(binary)]
+            command_path = root / "oracle.command"
+            command_path.write_text("\n".join(command) + "\n", encoding="utf-8")
+            dependencies = [{"path": str((ROOT / relative).resolve()),
+                             "sha256": MODULE.sha256_file(ROOT / relative)}
+                            for relative in MODULE.RUNTIME_SOURCE_PATHS[
+                                "independent_oracle"]]
+
+            def completed(argv, **unused):
+                output = (dynamic.read_bytes() if argv[1] == "-L" else
+                          b"                 U _mpfr_add\n")
+                return SimpleNamespace(returncode=0, stdout=output, stderr=b"")
+
+            with mock.patch.object(MODULE.B2, "validate_source_separation"), \
+                    mock.patch.object(MODULE, "_d12_dependency_inputs",
+                                      return_value=dependencies), \
+                    mock.patch.object(MODULE.subprocess, "run",
+                                      side_effect=completed):
+                self.assertEqual(MODULE.audit_oracle_independence(
+                    binary, command_path, link_map, dynamic), "PASS")
+
+            for injected in ("@/private/tmp/oracle-extra.rsp", "-include"):
+                command_path.write_text(
+                    "\n".join(command + [injected]) + "\n", encoding="utf-8")
+                with mock.patch.object(MODULE.B2,
+                                       "validate_source_separation"), \
+                        mock.patch.object(MODULE,
+                                          "_d12_dependency_inputs",
+                                          return_value=dependencies), \
+                        mock.patch.object(MODULE.subprocess, "run",
+                                          side_effect=completed), \
+                        self.assertRaises(MODULE.QualificationError):
+                    MODULE.audit_oracle_independence(
+                        binary, command_path, link_map, dynamic)
+            command_path.write_text(
+                "\n".join(command) + "\n", encoding="utf-8")
+
+            def forbidden(argv, **unused):
+                output = (dynamic.read_bytes() if argv[1] == "-L" else
+                          b"                 U _Far_poison\n                 U _mpfr_add\n")
+                return SimpleNamespace(returncode=0, stdout=output, stderr=b"")
+
+            with mock.patch.object(MODULE.B2, "validate_source_separation"), \
+                    mock.patch.object(MODULE, "_d12_dependency_inputs",
+                                      return_value=dependencies), \
+                    mock.patch.object(MODULE.subprocess, "run",
+                                      side_effect=forbidden), \
+                    self.assertRaises(MODULE.QualificationError):
+                MODULE.audit_oracle_independence(
+                    binary, command_path, link_map, dynamic)
+
+    def test_standalone_d12_uses_distinct_opensubdiv_library_argument(self):
+        arguments = MODULE.parse_args([
+            "--opensubdiv-dynamic-dependency", "/proof/opensubdiv.otool-L",
+            "--opensubdiv-installed-library", "/proof/libosdCPU.a"])
+        self.assertEqual(arguments.opensubdiv_dynamic_dependency,
+                         "/proof/opensubdiv.otool-L")
+        self.assertEqual(arguments.opensubdiv_installed_library,
+                         "/proof/libosdCPU.a")
+        runner = RUNNER.read_text(encoding="utf-8")
+        self.assertIn('"installed_library":\n'
+                      '                                args.opensubdiv_installed_library',
+                      runner)
+        self.assertNotIn('"installed_library":\n'
+                         '                                args.opensubdiv_dynamic_dependency',
+                         runner)
 
     def test_d12_provider_reference_preserves_frozen_row_order(self):
         rows = []
@@ -3786,6 +3925,13 @@ class AnchoredRowQualificationTests(unittest.TestCase):
                 "printf 'WARNING: ThreadSanitizer: data race\\n' >&2\n"
                 "exit 66\n", encoding="utf-8")
             os.chmod(binary, 0o755)
+            representation_binary = root / "representation-worker"
+            representation_binary.write_text(
+                "#!/bin/sh\ncat >/dev/null\nexit 0\n", encoding="utf-8")
+            os.chmod(representation_binary, 0o755)
+            request = root / "request.tsv"
+            request.write_text("request\n", encoding="utf-8")
+            references[("content", 2)]["request_path"] = str(request)
             output_root = root / "output"
             output_root.mkdir()
             artifact = MODULE.D12ProcessObservationArtifact(output_root)
@@ -3796,7 +3942,8 @@ class AnchoredRowQualificationTests(unittest.TestCase):
                             MODULE.B2, "valid_content_jobs",
                             return_value=jobs):
                     sidecars, aborts = MODULE.execute_d12_worker_streams(
-                        binary, {}, output_root, references, artifact,
+                        binary, representation_binary, {}, output_root,
+                        references, artifact,
                         instrumentation_digest, timeout_seconds=10)
                 self.assertEqual(sidecars, [])
                 self.assertEqual(aborts, {
@@ -3833,19 +3980,34 @@ class AnchoredRowQualificationTests(unittest.TestCase):
                 "provider_count": 1, "representation_count": 1}}
         with tempfile.TemporaryDirectory() as temporary:
             root = pathlib.Path(temporary)
-            binary = root / "successful-worker"
-            binary.write_text(
+            provider_binary = root / "successful-provider-worker"
+            provider_binary.write_text(
                 "#!/usr/bin/python3\n"
                 "import struct,sys\n"
                 "p=b'provider-bytes'\n"
+                "o=sys.stdout.buffer\n"
+                "o.write(b'D12PROV1')\n"
+                "for i in range(20):\n"
+                " o.write(struct.pack('<IIQ',i,0,len(p)))\n"
+                " o.write(p)\n",
+                encoding="utf-8")
+            os.chmod(provider_binary, 0o755)
+            representation_binary = root / "successful-representation-worker"
+            representation_binary.write_text(
+                "#!/usr/bin/python3\n"
+                "import struct,sys\n"
+                "sys.stdin.buffer.read()\n"
                 "r=b'[\\\"representation\\\"]'\n"
                 "o=sys.stdout.buffer\n"
-                "o.write(b'D12WORK1')\n"
+                "o.write(b'D12REPR1')\n"
                 "for i in range(20):\n"
-                " o.write(struct.pack('<IIQQ',i,0,len(p),len(r)))\n"
-                " o.write(p); o.write(r)\n",
+                " o.write(struct.pack('>QQQ',i,0,len(r)))\n"
+                " o.write(r)\n",
                 encoding="utf-8")
-            os.chmod(binary, 0o755)
+            os.chmod(representation_binary, 0o755)
+            request = root / "request.tsv"
+            request.write_text("request\n", encoding="utf-8")
+            references[("content", 2)]["request_path"] = str(request)
             output_root = root / "output"
             output_root.mkdir()
             artifact = MODULE.D12ProcessObservationArtifact(output_root)
@@ -3856,7 +4018,8 @@ class AnchoredRowQualificationTests(unittest.TestCase):
                             MODULE.B2, "valid_content_jobs",
                             return_value=jobs):
                     sidecars, aborts = MODULE.execute_d12_worker_streams(
-                        binary, {}, output_root, references, artifact,
+                        provider_binary, representation_binary, {},
+                        output_root, references, artifact,
                         instrumentation_digest, timeout_seconds=10)
                 self.assertEqual(aborts, {})
                 self.assertEqual(len(sidecars), 40)
@@ -4132,12 +4295,28 @@ class AnchoredRowQualificationTests(unittest.TestCase):
         with self.assertRaises(MODULE.QualificationError):
             MODULE.validate_schema_instance(reordered, ledger_schema, schema)
 
+    def test_candidate_observation_timeout_precedes_blocking_reads(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            binary = pathlib.Path(temporary) / "stalled-candidate"
+            binary.write_text(
+                "#!/bin/sh\n/bin/sleep 5\n", encoding="utf-8")
+            os.chmod(binary, 0o755)
+            started = time.monotonic()
+            with self.assertRaises(MODULE.QualificationError):
+                list(MODULE.iter_candidate_observations(
+                    binary, "representation_structure",
+                    ["position 1 0 0 3ff0000000000000\n"], 1,
+                    timeout_seconds=0.1))
+            self.assertLess(time.monotonic() - started, 2.0)
+
     def test_candidate_cpp_has_observable_round_points_and_executes(self):
         source = ROOT / "experiments/anchored_row_qualification/candidate.cpp"
         text = source.read_text(encoding="utf-8")
+        evaluator = (ROOT / "experiments/anchored_row_qualification/"
+                     "anchored_row_evaluator.hpp").read_text(encoding="utf-8")
         self.assertIn("#pragma STDC FENV_ACCESS ON", text)
-        self.assertIn("volatile double", text)
-        self.assertNotIn("std::fma", text)
+        self.assertIn("volatile double", evaluator)
+        self.assertNotIn("std::fma", text + evaluator)
         with tempfile.TemporaryDirectory() as temporary:
             binary = pathlib.Path(temporary) / "candidate"
             compile_result = subprocess.run(
@@ -4149,6 +4328,36 @@ class AnchoredRowQualificationTests(unittest.TestCase):
                                        stdout=subprocess.PIPE,
                                        stderr=subprocess.PIPE, text=True)
             self.assertEqual(self_test.returncode, 0, self_test.stderr)
+            d12_request = (
+                "content\t2\t0\t-1\tsample\tposition\t0\t"
+                "3ff0000000000000\t3ff0000000000000\t"
+                "4000000000000000\t4008000000000000\n")
+            d12 = subprocess.run(
+                [str(binary), "--d12-representation-stream", "1"],
+                input=d12_request.encode("ascii"), stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE)
+            self.assertEqual(d12.returncode, 0,
+                             d12.stderr.decode("utf-8", errors="replace"))
+            self.assertEqual(d12.stdout[:8], b"D12REPR1")
+            offset = 8
+            reference = None
+            for round_index in range(20):
+                observed_round, worker, length = struct.unpack(
+                    ">QQQ", d12.stdout[offset:offset + 24])
+                offset += 24
+                payload = d12.stdout[offset:offset + length]
+                offset += length
+                self.assertEqual((observed_round, worker), (round_index, 0))
+                self.assertEqual(payload, reference if reference is not None
+                                 else payload)
+                reference = payload
+            self.assertEqual(offset, len(d12.stdout))
+            records = json.loads(reference)
+            self.assertEqual(len(records), 8)
+            self.assertEqual([record[6] for record in records], [
+                "fixture_x", "fixture_y", "fixture_z", "negative_2p20",
+                "negative_one", "positive_2p20", "positive_one",
+                "positive_zero"])
             request = "position 1 3fe0000000000000,3fd0000000000000,3fd0000000000000 " \
                       "3ff0000000000000,4000000000000000,4008000000000000"
             result = subprocess.run([str(binary), "--evaluate-line", request],

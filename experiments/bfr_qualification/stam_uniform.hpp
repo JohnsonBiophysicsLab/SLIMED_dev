@@ -1,6 +1,6 @@
 #pragma once
 
-#include "stam_box_spline.hpp"
+#include "stam_uniform_box_spline.hpp"
 
 #include <array>
 #include <cstddef>
@@ -14,8 +14,114 @@ using Row = std::vector<MpfrInterval>;
 using Stencils = std::vector<Row>;
 using SixRows = std::array<Row, 6>;
 using Jacobian = std::array<std::array<MpfrInterval, 2>, 2>;
+using Matrix = std::vector<Row>;
 
 enum class Branch { T0, T1, T2, Tc };
+
+inline Row extraordinary_vertex_limit_row(unsigned valence) {
+    if (valence < 3 || valence > 50) {
+        throw std::runtime_error("uniform vertex-limit valence");
+    }
+    MpfrInterval const tangent = b2interval::add(
+        MpfrInterval::rational(3, 8),
+        b2interval::multiply(MpfrInterval::rational(1, 4),
+                             b2interval::loop_angle_cosine(valence, 1)));
+    MpfrInterval const beta = b2interval::divide(
+        b2interval::subtract(MpfrInterval::rational(5, 8),
+                             b2interval::multiply(tangent, tangent)),
+        MpfrInterval(static_cast<long>(valence)));
+    MpfrInterval const gamma = b2interval::divide(
+        MpfrInterval(1), b2interval::add(
+            MpfrInterval(static_cast<long>(valence)),
+            b2interval::divide(MpfrInterval(3),
+                b2interval::multiply(MpfrInterval(8), beta))));
+    Row result(valence + 6, MpfrInterval(0));
+    result[0] = b2interval::subtract(
+        MpfrInterval(1), b2interval::multiply(
+            MpfrInterval(static_cast<long>(valence)), gamma));
+    for (unsigned ring = 0; ring < valence; ++ring) result[1 + ring] = gamma;
+    return result;
+}
+
+inline Matrix tangent_projector(unsigned valence) {
+    if (valence < 3 || valence > 50) {
+        throw std::runtime_error("uniform tangent-projector valence");
+    }
+    std::size_t const size = valence + 6;
+    Matrix columns(2, Row(size, MpfrInterval(0)));
+    MpfrInterval const lambda = b2interval::add(
+        MpfrInterval::rational(3, 8),
+        b2interval::multiply(MpfrInterval::rational(1, 4),
+                             b2interval::loop_angle_cosine(valence, 1)));
+    for (unsigned ring = 0; ring < valence; ++ring) {
+        columns[0][1 + ring] = b2interval::loop_angle_cosine(valence, ring);
+        columns[1][1 + ring] = b2interval::loop_angle_sine(valence, ring);
+    }
+    auto complete_outer = [&](Row &column) {
+        std::size_t const outer = 1 + valence;
+        auto edge = [&](MpfrInterval const &left, MpfrInterval const &right) {
+            return b2interval::divide(b2interval::add(
+                b2interval::multiply(MpfrInterval::rational(1, 8), column[0]),
+                b2interval::multiply(MpfrInterval::rational(3, 8),
+                                     b2interval::add(left, right))),
+                b2interval::subtract(lambda, MpfrInterval::rational(1, 8)));
+        };
+        column[outer] = edge(column[1], column[valence]);
+        column[outer + 2] = edge(column[1], column[2]);
+        column[outer + 4] = edge(column[valence - 1], column[valence]);
+        MpfrInterval left = column[0];
+        left = b2interval::add(left, b2interval::multiply(
+            MpfrInterval(10), column[1]));
+        left = b2interval::add(left, column[2]);
+        left = b2interval::add(left, column[valence]);
+        left = b2interval::add(left, column[outer]);
+        left = b2interval::add(left, column[outer + 2]);
+        column[outer + 1] = b2interval::divide(
+            b2interval::multiply(MpfrInterval::rational(1, 16), left),
+            b2interval::subtract(lambda, MpfrInterval::rational(1, 16)));
+        MpfrInterval right = column[0];
+        right = b2interval::add(right, column[1]);
+        right = b2interval::add(right, column[valence - 1]);
+        right = b2interval::add(right, b2interval::multiply(
+            MpfrInterval(10), column[valence]));
+        right = b2interval::add(right, column[outer]);
+        right = b2interval::add(right, column[outer + 4]);
+        column[outer + 3] = b2interval::divide(
+            b2interval::multiply(MpfrInterval::rational(1, 16), right),
+            b2interval::subtract(lambda, MpfrInterval::rational(1, 16)));
+    };
+    complete_outer(columns[0]);
+    complete_outer(columns[1]);
+    MpfrInterval gram00(0), gram01(0), gram11(0);
+    for (std::size_t row = 0; row < size; ++row) {
+        gram00 = b2interval::add(gram00, b2interval::multiply(
+            columns[0][row], columns[0][row]));
+        gram01 = b2interval::add(gram01, b2interval::multiply(
+            columns[0][row], columns[1][row]));
+        gram11 = b2interval::add(gram11, b2interval::multiply(
+            columns[1][row], columns[1][row]));
+    }
+    MpfrInterval const determinant = b2interval::subtract(
+        b2interval::multiply(gram00, gram11),
+        b2interval::multiply(gram01, gram01));
+    MpfrInterval const inverse00 = b2interval::divide(gram11, determinant);
+    MpfrInterval const inverse01 = b2interval::negate(
+        b2interval::divide(gram01, determinant));
+    MpfrInterval const inverse11 = b2interval::divide(gram00, determinant);
+    Matrix result(size, Row(size, MpfrInterval(0)));
+    for (std::size_t row = 0; row < size; ++row) {
+        for (std::size_t column = 0; column < size; ++column) {
+            result[row][column] = b2interval::add(
+                b2interval::multiply(columns[0][row], b2interval::add(
+                    b2interval::multiply(inverse00, columns[0][column]),
+                    b2interval::multiply(inverse01, columns[1][column]))),
+                b2interval::multiply(columns[1][row], b2interval::add(
+                    b2interval::multiply(inverse01, columns[0][column]),
+                    b2interval::multiply(inverse11, columns[1][column]))));
+        }
+    }
+    return result;
+}
 
 inline Stencils zeros(std::size_t rows, std::size_t columns) {
     return Stencils(rows, Row(columns, MpfrInterval(0)));
@@ -232,7 +338,7 @@ inline Jacobian multiply_jacobian(Jacobian const &left,
     return result;
 }
 
-inline Row combine_box(b2stam::BoxSplineRow const &basis,
+inline Row combine_box(b2uniform_box::BoxSplineRow const &basis,
                        Stencils const &controls) {
     Row result(controls.front().size(), MpfrInterval(0));
     for (std::size_t i=0;i<12;++i) for (std::size_t j=0;j<result.size();++j)
@@ -244,13 +350,13 @@ inline Row combine_box(b2stam::BoxSplineRow const &basis,
 inline SixRows evaluate_regular(Stencils const &controls,
                                 std::array<MpfrInterval,2> const &point,
                                 Jacobian const &jacobian) {
-    using b2stam::BoxSplineRow;
-    BoxSplineRow b=b2stam::box_spline_row(point[0],point[1],0,0);
-    BoxSplineRow s=b2stam::box_spline_row(point[0],point[1],1,0);
-    BoxSplineRow t=b2stam::box_spline_row(point[0],point[1],0,1);
-    BoxSplineRow ss=b2stam::box_spline_row(point[0],point[1],2,0);
-    BoxSplineRow st=b2stam::box_spline_row(point[0],point[1],1,1);
-    BoxSplineRow tt=b2stam::box_spline_row(point[0],point[1],0,2);
+    using b2uniform_box::BoxSplineRow;
+    BoxSplineRow b=b2uniform_box::box_spline_row(point[0],point[1],0,0);
+    BoxSplineRow s=b2uniform_box::box_spline_row(point[0],point[1],1,0);
+    BoxSplineRow t=b2uniform_box::box_spline_row(point[0],point[1],0,1);
+    BoxSplineRow ss=b2uniform_box::box_spline_row(point[0],point[1],2,0);
+    BoxSplineRow st=b2uniform_box::box_spline_row(point[0],point[1],1,1);
+    BoxSplineRow tt=b2uniform_box::box_spline_row(point[0],point[1],0,2);
     auto linear=[&](std::size_t column){
         BoxSplineRow out;
         for(std::size_t i=0;i<12;++i) out[i]=b2interval::add(

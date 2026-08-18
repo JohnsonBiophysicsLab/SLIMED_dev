@@ -1,20 +1,26 @@
 // Proof-only anchored-difference evaluator.  This file has no production caller.
 
+#include "anchored_row_evaluator.hpp"
+
 #pragma STDC FENV_ACCESS ON
 
 #include <cfenv>
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <condition_variable>
 #include <cstdint>
 #include <cstring>
+#include <exception>
 #include <iomanip>
 #include <iostream>
 #include <limits>
 #include <map>
+#include <mutex>
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -23,6 +29,11 @@
 #endif
 
 namespace {
+
+using anchoredrow::rounded_add;
+using anchoredrow::rounded_mul;
+using anchoredrow::rounded_sqrt;
+using anchoredrow::rounded_sub;
 
 class Sha256 {
 public:
@@ -697,50 +708,10 @@ std::vector<std::string> split(std::string const &value, char delimiter) {
     return result;
 }
 
-double rounded_sub(double left, double right) {
-    volatile double result = left - right;
-    return result;
-}
-
-double rounded_mul(double left, double right) {
-    volatile double result = left * right;
-    return result;
-}
-
-double rounded_add(double left, double right) {
-    volatile double result = left + right;
-    return result;
-}
-
-double rounded_sqrt(double value) {
-    volatile double result = std::sqrt(value);
-    return result;
-}
-
 double evaluate(bool position, std::size_t anchor,
                 std::vector<double> const &coefficients,
                 std::vector<double> const &sources) {
-    if (coefficients.empty() || coefficients.size() != sources.size() ||
-        anchor >= sources.size()) {
-        throw std::runtime_error("row cardinality or anchor index");
-    }
-    if (std::fegetround() != FE_TONEAREST) throw std::runtime_error("rounding mode before row");
-    volatile double accumulator = 0.0;
-    double const anchor_value = sources[anchor];
-    for (std::size_t index = 0; index < sources.size(); ++index) {
-        double const delta = rounded_sub(sources[index], anchor_value);
-        double const term = rounded_mul(coefficients[index], delta);
-        accumulator = rounded_add(accumulator, term);
-        if (!std::isfinite(delta) || !std::isfinite(term) ||
-            !std::isfinite(static_cast<double>(accumulator))) {
-            throw std::runtime_error("nonfinite intermediate");
-        }
-    }
-    double result = static_cast<double>(accumulator);
-    if (position) result = rounded_add(anchor_value, result);
-    if (std::fegetround() != FE_TONEAREST) throw std::runtime_error("rounding mode after row");
-    if (!std::isfinite(result)) throw std::runtime_error("nonfinite result");
-    return result;
+    return anchoredrow::evaluate(position, anchor, coefficients, sources);
 }
 
 bool is_position(std::string const &kind) {
@@ -2791,6 +2762,195 @@ int component_observation_stream(std::string const &criterion) {
     return 0;
 }
 
+struct D12RepresentationRequest {
+    std::string content_id;
+    std::size_t level;
+    std::size_t face;
+    int local_corner;
+    std::string sample_id;
+    std::string row_kind;
+    std::size_t anchor;
+    std::vector<double> coefficients;
+    std::array<std::vector<double>, 3> fixture_sources;
+};
+
+std::string json_quote(std::string const &value) {
+    std::ostringstream output;
+    output << '"';
+    for (unsigned char byte : value) {
+        if (byte == '"' || byte == '\\') output << '\\' << byte;
+        else if (byte == '\b') output << "\\b";
+        else if (byte == '\f') output << "\\f";
+        else if (byte == '\n') output << "\\n";
+        else if (byte == '\r') output << "\\r";
+        else if (byte == '\t') output << "\\t";
+        else if (byte < 0x20U) {
+            output << "\\u00" << std::hex << std::setfill('0')
+                   << std::setw(2) << static_cast<unsigned>(byte) << std::dec;
+        } else {
+            output << byte;
+        }
+    }
+    output << '"';
+    return output.str();
+}
+
+D12RepresentationRequest parse_d12_representation_request(
+        std::string const &line) {
+    std::vector<std::string> const fields = split(line, '\t');
+    if (fields.size() != 11U) {
+        throw std::runtime_error("D12 representation request field count");
+    }
+    D12RepresentationRequest request;
+    request.content_id = fields[0];
+    request.level = parse_size(fields[1], "D12 level syntax");
+    request.face = parse_size(fields[2], "D12 face syntax");
+    request.local_corner = std::stoi(fields[3]);
+    request.sample_id = fields[4];
+    request.row_kind = fields[5];
+    (void)is_position(request.row_kind);
+    request.anchor = parse_size(fields[6], "D12 anchor syntax");
+    for (std::string const &label : split(fields[7], ',')) {
+        request.coefficients.push_back(from_bits(label));
+    }
+    for (std::size_t axis = 0; axis < 3U; ++axis) {
+        for (std::string const &label : split(fields[8U + axis], ',')) {
+            request.fixture_sources[axis].push_back(from_bits(label));
+        }
+    }
+    if (request.content_id.empty() || request.sample_id.empty() ||
+        request.level < 2U || request.level > 8U ||
+        request.local_corner < -1 || request.local_corner > 2 ||
+        request.coefficients.empty() || request.anchor >= request.coefficients.size() ||
+        request.fixture_sources[0].size() != request.coefficients.size() ||
+        request.fixture_sources[1].size() != request.coefficients.size() ||
+        request.fixture_sources[2].size() != request.coefficients.size()) {
+        throw std::runtime_error("D12 representation request shape");
+    }
+    return request;
+}
+
+std::vector<unsigned char> d12_representation_bytes(
+        std::vector<D12RepresentationRequest> const &requests) {
+    struct Input { char const *id; int axis; double constant; };
+    // Execution order is frozen independently of RFC-8785 output ordering.
+    static Input const execution_inputs[] = {
+        {"fixture_x", 0, 0.0}, {"fixture_y", 1, 0.0},
+        {"fixture_z", 2, 0.0}, {"positive_zero", -1, 0.0},
+        {"positive_one", -1, 1.0}, {"negative_one", -1, -1.0},
+        {"positive_2p20", -1, 1048576.0},
+        {"negative_2p20", -1, -1048576.0},
+    };
+    static char const *output_order[] = {
+        "fixture_x", "fixture_y", "fixture_z", "negative_2p20",
+        "negative_one", "positive_2p20", "positive_one", "positive_zero"};
+    std::ostringstream output;
+    output << '[';
+    bool first = true;
+    for (D12RepresentationRequest const &request : requests) {
+        std::map<std::string, std::string> results;
+        for (Input const &input : execution_inputs) {
+            std::vector<double> sources = input.axis >= 0 ?
+                request.fixture_sources[static_cast<std::size_t>(input.axis)] :
+                std::vector<double>(request.coefficients.size(), input.constant);
+            double const observed = anchoredrow::evaluate(
+                request.row_kind == "position", request.anchor,
+                request.coefficients, sources);
+            results.emplace(input.id, to_bits(observed));
+        }
+        if (results.size() != 8U) {
+            throw std::runtime_error("D12 representation input coverage");
+        }
+        for (char const *input_id : output_order) {
+            if (!first) output << ',';
+            first = false;
+            output << '[' << json_quote(request.content_id) << ','
+                   << request.level << ',' << request.face << ',';
+            if (request.local_corner < 0) output << "null";
+            else output << request.local_corner;
+            output << ',' << json_quote(request.sample_id) << ','
+                   << json_quote(request.row_kind) << ','
+                   << json_quote(input_id) << ','
+                   << json_quote(results.at(input_id)) << ']';
+        }
+    }
+    output << ']';
+    std::string const bytes = output.str();
+    return std::vector<unsigned char>(bytes.begin(), bytes.end());
+}
+
+class D12StartBarrier {
+public:
+    explicit D12StartBarrier(std::size_t participants)
+        : participants_(participants) {}
+    void wait() {
+        std::unique_lock<std::mutex> lock(mutex_);
+        std::size_t const generation = generation_;
+        if (++waiting_ == participants_) {
+            waiting_ = 0;
+            ++generation_;
+            condition_.notify_all();
+        } else {
+            condition_.wait(lock, [&]() { return generation_ != generation; });
+        }
+    }
+private:
+    std::size_t participants_;
+    std::size_t waiting_ = 0;
+    std::size_t generation_ = 0;
+    std::mutex mutex_;
+    std::condition_variable condition_;
+};
+
+int d12_representation_stream(std::size_t worker_count) {
+    if (worker_count != 1U && worker_count != 2U && worker_count != 4U) {
+        throw std::runtime_error("D12 representation worker count");
+    }
+    if (std::fesetround(FE_TONEAREST) != 0 ||
+        std::fegetround() != FE_TONEAREST) {
+        throw std::runtime_error("D12 representation FE_TONEAREST");
+    }
+    std::vector<D12RepresentationRequest> requests;
+    std::string line;
+    while (std::getline(std::cin, line)) {
+        if (line.empty()) throw std::runtime_error("empty D12 request");
+        requests.push_back(parse_d12_representation_request(line));
+    }
+    if (requests.empty()) throw std::runtime_error("empty D12 workload");
+    std::cout.write("D12REPR1", 8);
+    std::vector<unsigned char> reference;
+    for (std::size_t round = 0; round < 20U; ++round) {
+        D12StartBarrier barrier(worker_count);
+        std::vector<std::vector<unsigned char>> results(worker_count);
+        std::vector<std::exception_ptr> errors(worker_count);
+        std::vector<std::thread> workers;
+        for (std::size_t worker = 0; worker < worker_count; ++worker) {
+            workers.emplace_back([&, worker]() {
+                try {
+                    barrier.wait();
+                    results[worker] = d12_representation_bytes(requests);
+                } catch (...) {
+                    errors[worker] = std::current_exception();
+                }
+            });
+        }
+        for (std::thread &worker : workers) worker.join();
+        for (std::exception_ptr const &error : errors) if (error) std::rethrow_exception(error);
+        for (std::size_t worker = 0; worker < worker_count; ++worker) {
+            if (round == 0U && worker == 0U) reference = results[worker];
+            if (results[worker] != reference) {
+                throw std::runtime_error("D12 representation worker/round drift");
+            }
+            write_uint64_be(std::cout, round);
+            write_uint64_be(std::cout, worker);
+            write_uint64_be(std::cout, results[worker].size());
+            std::cout.write(reinterpret_cast<char const *>(results[worker].data()),
+                            static_cast<std::streamsize>(results[worker].size()));
+        }
+    }
+    return 0;
+}
+
 int self_test() {
     if (std::fesetround(FE_TONEAREST) != 0 || std::fegetround() != FE_TONEAREST) {
         throw std::runtime_error("FE_TONEAREST unavailable");
@@ -3011,6 +3171,11 @@ int main(int argc, char **argv) {
             return cache_observation_stream();
         }
         if (argc == 3 &&
+            std::string(argv[1]) == "--d12-representation-stream") {
+            return d12_representation_stream(
+                parse_size(argv[2], "D12 representation worker count"));
+        }
+        if (argc == 3 &&
             std::string(argv[1]) == "--preoracle-observation-stream") {
             std::string const criterion = argv[2];
             if (criterion == "representation_structure") {
@@ -3051,7 +3216,7 @@ int main(int argc, char **argv) {
                          "compatibility output\n";
             return audit_stream();
         }
-        std::cerr << "usage: anchored_row_candidate --self-test | --evaluate-line REQUEST | --stream | --integrand-stream | --integrand-observation-stream CRITERION | --fidelity-stream | --component-audit-stream | --component-observation-stream CRITERION | --cache-observation-stream | --preoracle-observation-stream CRITERION | --audit-stream (legacy non-authoritative)\n";
+        std::cerr << "usage: anchored_row_candidate --self-test | --evaluate-line REQUEST | --stream | --integrand-stream | --integrand-observation-stream CRITERION | --fidelity-stream | --component-audit-stream | --component-observation-stream CRITERION | --cache-observation-stream | --d12-representation-stream WORKERS | --preoracle-observation-stream CRITERION | --audit-stream (legacy non-authoritative)\n";
         return 2;
     } catch (std::exception const &error) {
         std::cerr << error.what() << '\n';

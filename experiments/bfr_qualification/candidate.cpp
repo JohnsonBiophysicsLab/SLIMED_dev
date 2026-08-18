@@ -11,6 +11,7 @@
 #include <opensubdiv/version.h>
 
 #include "fixture_mesh.hpp"
+#include "../anchored_row_qualification/anchored_row_evaluator.hpp"
 
 #include <CoreFoundation/CoreFoundation.h>
 #include <IOKit/ps/IOPowerSources.h>
@@ -619,41 +620,20 @@ void execute_anchored_representation_workload(
         std::size_t const anchorIndex = static_cast<std::size_t>(
             std::distance(ids.begin(), anchor));
         for (int input = 0; input < 8; ++input) {
-            double anchorValue = 0.0;
-            if (input < 3) {
-                anchorValue = mesh.vertices.at(
-                    static_cast<std::size_t>(anchorSource))[
-                        static_cast<std::size_t>(input)];
-            } else {
-                anchorValue = constants[input - 3];
-            }
-            double accumulator = 0.0;
+            std::vector<double> sources;
+            sources.reserve(ids.size());
             for (std::size_t index = 0; index < ids.size(); ++index) {
-                double source = constants[0];
                 if (input < 3) {
-                    source = mesh.vertices.at(
+                    sources.push_back(mesh.vertices.at(
                         static_cast<std::size_t>(ids[index]))[
-                            static_cast<std::size_t>(input)];
+                            static_cast<std::size_t>(input)]);
                 } else {
-                    source = constants[input - 3];
-                }
-                double const delta = source - anchorValue;
-                double const term = coefficients[index] * delta;
-                accumulator = accumulator + term;
-                if (!std::isfinite(delta) || !std::isfinite(term) ||
-                    !std::isfinite(accumulator)) {
-                    throw std::runtime_error(
-                        "anchored representation evaluation is nonfinite");
+                    sources.push_back(constants[input - 3]);
                 }
             }
-            double const result = row == 0 ? anchorValue + accumulator :
-                                              accumulator;
-            if (!std::isfinite(result)) {
-                throw std::runtime_error(
-                    "anchored representation result is nonfinite");
-            }
+            (void)anchoredrow::evaluate(
+                row == 0, anchorIndex, coefficients, sources);
         }
-        (void)anchorIndex;
     }
 }
 
@@ -1148,14 +1128,18 @@ std::vector<unsigned char> canonical_representation_bytes(
         int axis;
         double constant;
     };
-    // Unsigned RFC-8785 string-byte order, as frozen by the D12 validator.
-    static Input const inputs[] = {
+    // Execute the frozen workload order; serialize separately in RFC-8785
+    // key order so output ordering cannot change the numerical workload.
+    static Input const executionInputs[] = {
         {"fixture_x", 0, 0.0}, {"fixture_y", 1, 0.0},
-        {"fixture_z", 2, 0.0}, {"negative_2p20", -1, -1048576.0},
-        {"negative_one", -1, -1.0},
+        {"fixture_z", 2, 0.0}, {"positive_zero", -1, 0.0},
+        {"positive_one", -1, 1.0}, {"negative_one", -1, -1.0},
         {"positive_2p20", -1, 1048576.0},
-        {"positive_one", -1, 1.0}, {"positive_zero", -1, 0.0},
+        {"negative_2p20", -1, -1048576.0},
     };
+    static char const *outputOrder[] = {
+        "fixture_x", "fixture_y", "fixture_z", "negative_2p20",
+        "negative_one", "positive_2p20", "positive_one", "positive_zero"};
     std::ostringstream output;
     output << '[';
     bool first = true;
@@ -1172,35 +1156,28 @@ std::vector<unsigned char> canonical_representation_bytes(
                 throw std::runtime_error(
                     "oriented v0 anchor is absent from representation row");
             }
-            for (std::size_t inputIndex = 0;
-                 inputIndex < sizeof(inputs) / sizeof(inputs[0]);
-                 ++inputIndex) {
-                Input const &input = inputs[inputIndex];
-                double const anchorValue = input.axis >= 0 ?
-                    mesh.vertices.at(static_cast<std::size_t>(anchorSource))[
-                        static_cast<std::size_t>(input.axis)] :
-                    input.constant;
-                double accumulator = 0.0;
+            std::map<std::string, std::string> results;
+            for (Input const &input : executionInputs) {
+                std::vector<double> sources;
+                sources.reserve(ids.size());
                 for (std::size_t index = 0; index < ids.size(); ++index) {
-                    double const source = input.axis >= 0 ?
+                    sources.push_back(input.axis >= 0 ?
                         mesh.vertices.at(static_cast<std::size_t>(ids[index]))[
                             static_cast<std::size_t>(input.axis)] :
-                        input.constant;
-                    double const delta = source - anchorValue;
-                    double const term = coefficients[index] * delta;
-                    accumulator = accumulator + term;
-                    if (!std::isfinite(delta) || !std::isfinite(term) ||
-                        !std::isfinite(accumulator)) {
-                        throw std::runtime_error(
-                            "D12 representation stream is nonfinite");
-                    }
+                        input.constant);
                 }
-                double const result = row == 0 ?
-                    anchorValue + accumulator : accumulator;
-                if (!std::isfinite(result)) {
-                    throw std::runtime_error(
-                        "D12 representation result is nonfinite");
-                }
+                std::size_t const anchorIndex = static_cast<std::size_t>(
+                    std::distance(ids.begin(), std::find(
+                        ids.begin(), ids.end(), anchorSource)));
+                double const result = anchoredrow::evaluate(
+                    row == 0, anchorIndex, coefficients, sources);
+                results.emplace(input.id, binary64_bits_hex(result));
+            }
+            if (results.size() != 8) {
+                throw std::runtime_error(
+                    "representation workload input coverage drift");
+            }
+            for (char const *inputId : outputOrder) {
                 if (!first) output << ',';
                 first = false;
                 output << '[';
@@ -1213,9 +1190,9 @@ std::vector<unsigned char> canonical_representation_bytes(
                 output << ',';
                 emit_json_string(output, rowNames[row]);
                 output << ',';
-                emit_json_string(output, input.id);
+                emit_json_string(output, inputId);
                 output << ',';
-                emit_json_string(output, binary64_bits_hex(result));
+                emit_json_string(output, results.at(inputId));
                 output << ']';
             }
         }
@@ -1324,7 +1301,7 @@ int thread_case(char const *meshDirectory, char const *mutation, int level,
         }
         if (emitStreams) {
             if (round == 0) {
-                static char const magic[] = "D12WORK1";
+                static char const magic[] = "D12PROV1";
                 std::cout.write(magic, 8);
             }
             for (int worker = 0; worker < workerCount; ++worker) {
@@ -1333,19 +1310,11 @@ int thread_case(char const *meshDirectory, char const *mutation, int level,
                 append_u32(header, static_cast<std::uint32_t>(worker));
                 append_u64(header, providerResults[
                     static_cast<std::size_t>(worker)].size());
-                append_u64(header, representationResults[
-                    static_cast<std::size_t>(worker)].size());
                 std::cout.write(reinterpret_cast<char const *>(header.data()),
                                 static_cast<std::streamsize>(header.size()));
                 std::cout.write(reinterpret_cast<char const *>(providerResults[
                                     static_cast<std::size_t>(worker)].data()),
                                 static_cast<std::streamsize>(providerResults[
-                                    static_cast<std::size_t>(worker)].size()));
-                std::cout.write(reinterpret_cast<char const *>(
-                                    representationResults[
-                                    static_cast<std::size_t>(worker)].data()),
-                                static_cast<std::streamsize>(
-                                    representationResults[
                                     static_cast<std::size_t>(worker)].size()));
             }
         }

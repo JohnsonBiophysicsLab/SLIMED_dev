@@ -156,6 +156,27 @@ b2stam::SixRows map_to_coarse(b2stam::SixRows const &local,
     }return out;
 }
 
+b2uniform::Row map_row_to_coarse(
+        b2uniform::Row const &local,
+        OracleStencils const &control_stencils) {
+    if (local.size() != control_stencils.size() || control_stencils.empty()) {
+        throw std::runtime_error("oracle local/coarse row cardinality");
+    }
+    b2uniform::Row result(
+        control_stencils.front().size(), MpfrInterval(0));
+    for (std::size_t local_id = 0; local_id < local.size(); ++local_id) {
+        if (control_stencils[local_id].size() != result.size()) {
+            throw std::runtime_error("oracle coarse stencil cardinality");
+        }
+        for (std::size_t source = 0; source < result.size(); ++source) {
+            result[source] = b2interval::add(
+                result[source], b2interval::multiply(
+                    local[local_id], control_stencils[local_id][source]));
+        }
+    }
+    return result;
+}
+
 MpfrInterval fixture_coordinate(b2stam_fixture::Mesh const &mesh,
                                 std::size_t source,std::size_t axis){
     std::string const &text=mesh.coordinate_text.at(source).at(axis);
@@ -286,6 +307,140 @@ struct OracleSample {
     std::array<std::vector<MpfrInterval>,6> intersections;
 };
 
+void certify_frozen_valence(
+        unsigned valence, b2stam_fixture::Mesh const &mesh,
+        OracleStencils const &control_stencils,
+        std::string const &cache_identity) {
+    if (control_stencils.size() != valence + 6 ||
+        control_stencils.empty() ||
+        control_stencils.front().size() != mesh.vertices.size()) {
+        throw std::runtime_error("EIGENBASIS_CERTIFICATION_FAILED");
+    }
+    // The spectral objects depend only on valence, but the frozen vertex and
+    // dyadic uncertainty bounds also depend on the source-ID ordered fixture
+    // coordinates.  Cache only the complete fixture-local certificate.
+    static std::set<std::string> certified;
+    if (certified.count(cache_identity)) return;
+    std::vector<int> source_ids(mesh.vertices.size());
+    for (std::size_t source = 0; source < source_ids.size(); ++source) {
+        source_ids[source] = static_cast<int>(source);
+    }
+    MpfrInterval const length = normalization_length(mesh);
+    try {
+        b2stam::Certification const value = b2stam::certify_eigenbasis(valence);
+        if (!value.eigen_residual || !value.krawczyk_inclusion ||
+            !value.inverse_residual || !value.condition_number ||
+            !value.jordan_power || !value.spectral_projectors ||
+            !value.deterministic_mgs) {
+            throw std::runtime_error("certificate bit false");
+        }
+    } catch (std::runtime_error const &) {
+        throw std::runtime_error("EIGENBASIS_CERTIFICATION_FAILED");
+    }
+    try {
+        b2stam::Vector const primary_limit = map_row_to_coarse(
+            b2stam::extraordinary_vertex_limit_row(valence),
+            control_stencils);
+        b2uniform::Row const uniform_limit = map_row_to_coarse(
+            b2uniform::extraordinary_vertex_limit_row(valence),
+            control_stencils);
+        if (primary_limit.size() != uniform_limit.size()) {
+            throw std::runtime_error("vertex-limit shape");
+        }
+        for (std::size_t source = 0; source < primary_limit.size(); ++source) {
+            if (!b2interval::overlaps(primary_limit[source],
+                                      uniform_limit[source])) {
+                throw std::runtime_error("vertex-limit mismatch");
+            }
+        }
+        certify_uncertainty(mesh, source_ids, primary_limit, length, "5e-7");
+        certify_uncertainty(mesh, source_ids, uniform_limit, length, "5e-7");
+    } catch (std::runtime_error const &) {
+        throw std::runtime_error("UNIFORM_CROSSCHECK_FAILED");
+    }
+    try {
+        b2stam::Matrix const primary = b2stam::tangent_projector(valence);
+        b2uniform::Matrix const uniform = b2uniform::tangent_projector(valence);
+        if (primary.size() != uniform.size()) {
+            throw std::runtime_error("tangent projector shape");
+        }
+        MpfrInterval maximum_row_sum(0);
+        for (std::size_t row = 0; row < primary.size(); ++row) {
+            if (primary[row].size() != uniform[row].size()) {
+                throw std::runtime_error("tangent projector row shape");
+            }
+            MpfrInterval row_sum(0);
+            for (std::size_t column = 0; column < primary[row].size(); ++column) {
+                row_sum = b2interval::add(row_sum, b2interval::absolute(
+                    b2interval::subtract(primary[row][column],
+                                         uniform[row][column])));
+            }
+            if (mpfr_greater_p(row_sum.hi(), maximum_row_sum.hi())) {
+                maximum_row_sum = row_sum;
+            }
+        }
+        if (!b2interval::upper_at_most(maximum_row_sum, "1e-20")) {
+            throw std::runtime_error("tangent projector mismatch");
+        }
+    } catch (std::runtime_error const &) {
+        throw std::runtime_error("TANGENT_PROJECTION_CHECK_FAILED");
+    }
+    try {
+        static double const points[3][2] = {
+            {0.25, 0.25}, {0.5, 0.25}, {0.25, 0.5}};
+        for (auto const &point : points) {
+            std::vector<b2stam::PrimaryDepthRows> const primary =
+                b2stam::primary_depth_rows(valence, point[0], point[1]);
+            std::vector<b2uniform::DepthRows> const uniform =
+                b2uniform::uniform_depth_rows(valence, point[0], point[1]);
+            if (primary.size() != 5 || uniform.size() != 5) {
+                throw std::runtime_error("dyadic depth count");
+            }
+            std::array<b2uniform::Row, 5> primary_coarse;
+            std::array<b2uniform::Row, 5> uniform_coarse;
+            for (std::size_t depth = 0; depth < 5; ++depth) {
+                primary_coarse[depth] = map_row_to_coarse(
+                    primary[depth].rows[0], control_stencils);
+                uniform_coarse[depth] = map_row_to_coarse(
+                    uniform[depth].rows[0], control_stencils);
+            }
+            std::vector<MpfrInterval> primary_intersection;
+            std::vector<MpfrInterval> uniform_intersection;
+            primary_intersection.reserve(mesh.vertices.size());
+            uniform_intersection.reserve(mesh.vertices.size());
+            for (std::size_t source = 0; source < mesh.vertices.size(); ++source) {
+                MpfrInterval p = primary_coarse[0][source];
+                MpfrInterval u = uniform_coarse[0][source];
+                for (std::size_t depth = 0; depth < 5; ++depth) {
+                    if (primary[depth].depth != uniform[depth].depth ||
+                        !b2interval::overlaps(primary_coarse[depth][source],
+                                              uniform_coarse[depth][source])) {
+                        throw std::runtime_error("dyadic route overlap");
+                    }
+                    if (depth != 0) {
+                        p = b2interval::intersect(
+                            p, primary_coarse[depth][source]);
+                        u = b2interval::intersect(
+                            u, uniform_coarse[depth][source]);
+                    }
+                }
+                if (!b2interval::overlaps(p, u)) {
+                    throw std::runtime_error("dyadic intersection overlap");
+                }
+                primary_intersection.push_back(p);
+                uniform_intersection.push_back(u);
+            }
+            certify_uncertainty(mesh, source_ids, primary_intersection,
+                                length, "5e-7");
+            certify_uncertainty(mesh, source_ids, uniform_intersection,
+                                length, "5e-7");
+        }
+    } catch (std::runtime_error const &) {
+        throw std::runtime_error("PARAMETRIC_MAP_CHECK_FAILED");
+    }
+    certified.insert(cache_identity);
+}
+
 OracleSample assemble_sample(
     b2stam_fixture::Mesh const &mesh,unsigned isolated,unsigned start_depth,
     std::vector<std::string> const &prefix_branches,
@@ -391,6 +546,10 @@ OracleSample evaluate_sample(std::string const &directory,std::string const &mut
             throw std::runtime_error("REGULAR_SUPPORT_NOT_REACHED_BY_DEPTH_30");
         OracleStencils local_stencils;
         for(int id:local.source_ids)local_stencils.push_back(initial.stencils[id]);
+        certify_frozen_valence(
+            6, initial.mesh, local_stencils,
+            directory + "\n" + mutation + "\n" + std::to_string(face) +
+                "\n-1");
         return assemble_sample(initial.mesh,0,0,{},local_stencils,
             b2stam::identity_jacobian(),
             b2stam::primary_regular_depth_rows(q0,q1),
@@ -435,6 +594,10 @@ OracleSample evaluate_sample(std::string const &directory,std::string const &mut
         throw std::runtime_error("UNIFORM_CROSSCHECK_FAILED");
     OracleStencils local_stencils;local_stencils.reserve(local.source_ids.size());
     for(int id:local.source_ids)local_stencils.push_back(start->stencils[id]);
+    certify_frozen_valence(
+        local.valence, initial.mesh, local_stencils,
+        directory + "\n" + mutation + "\n" + std::to_string(face) + "\n" +
+            std::to_string(corner));
     double canonical0=mpfr_get_d(start->point[0].lo(),MPFR_RNDN);
     double canonical1=mpfr_get_d(start->point[1].lo(),MPFR_RNDN);
     auto local_point=b2stam_fixture::local_parameter(canonical0,canonical1,start_corner);
@@ -576,6 +739,10 @@ int self_test() {
     }
     if (!b2stam::box_spline_partition_self_test()) {
         throw std::runtime_error("quartic box-spline partition self-test failed");
+    }
+    if (!b2uniform_box::box_spline_partition_self_test()) {
+        throw std::runtime_error(
+            "uniform quartic box-spline partition self-test failed");
     }
     for(std::array<double,2> const &point:
         std::array<std::array<double,2>,4>{{{{0.125,0.125}},{{0.75,0.125}},
