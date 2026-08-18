@@ -1439,7 +1439,8 @@ def validate_candidate_case(case_report, identity, candidate, level, mode,
                 ("after_factory_cache", None, None, None)]
             expected_observations.extend(
                 ("after_face_insert", sample["face_row"],
-                 sample["local_corner_or_none"], sample["sample_id"])
+                 (None if sample["local_corner_or_none"] < 0 else
+                  sample["local_corner_or_none"]), sample["sample_id"])
                 for sample in expected_samples)
             expected_observations.extend([
                 ("after_package_publication", None, None, None),
