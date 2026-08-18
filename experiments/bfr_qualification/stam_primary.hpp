@@ -753,25 +753,60 @@ struct Certification {
     bool tangent_projector;
 };
 
+inline Matrix tangent_projector(unsigned valence) {
+    Eigenbasis const seed = analytic_eigenbasis(valence);
+    if (seed.eigenvalues.size() < 3 ||
+        !certified_same_value(seed.eigenvalues[1],
+                              loop_tangent_eigenvalue(valence, 1)) ||
+        !certified_same_value(seed.eigenvalues[2],
+                              loop_tangent_eigenvalue(valence, 1))) {
+        throw std::runtime_error("tangent eigenvalue certification failed");
+    }
+    return deterministic_projector_block(seed.vectors, {1, 2}).projector;
+}
+
+inline Vector extraordinary_vertex_limit_row(unsigned valence) {
+    Eigenbasis const basis = analytic_eigenbasis(valence);
+    Matrix const inverse = krawczyk_inverse(basis.vectors);
+    if (!certified_same_value(basis.eigenvalues.front(), MpfrInterval(1))) {
+        throw std::runtime_error("constant eigenvalue certification failed");
+    }
+    Vector result(basis.vectors.size(), MpfrInterval(0));
+    for (std::size_t source = 0; source < result.size(); ++source) {
+        result[source] = b2interval::multiply(
+            basis.vectors[0][0], inverse[0][source]);
+    }
+    return result;
+}
+
 inline Certification certify_eigenbasis(unsigned valence) {
     Matrix subdivision = stock_subdivision_matrix(valence);
     Eigenbasis seed = analytic_eigenbasis(valence);
-    (void)krawczyk_inverse(seed.vectors);
+    Matrix const certified_inverse = krawczyk_inverse(seed.vectors);
     Eigenbasis basis = deterministic_eigenbasis(valence);
     Matrix eigen_residual = subtract(
         multiply(subdivision, basis.vectors),
         multiply(basis.vectors, basis.canonical));
     bool const eigen_ok = residual_contains_zero(eigen_residual, "1e-70");
     Matrix inverse = interval_inverse(basis.vectors);
-    Matrix inverse_residual = subtract(
-        multiply(basis.vectors, inverse),
-        identity_matrix(basis.vectors.size()));
-    bool const inverse_ok = residual_contains_zero(inverse_residual, "1e-100");
+    Matrix inverse_residual_left = subtract(
+        multiply(basis.vectors, inverse), identity_matrix(basis.vectors.size()));
+    Matrix inverse_residual_right = subtract(
+        multiply(inverse, basis.vectors), identity_matrix(basis.vectors.size()));
+    bool const inverse_ok =
+        residual_contains_zero(inverse_residual_left, "1e-100") &&
+        residual_contains_zero(inverse_residual_right, "1e-100") &&
+        residual_contains_zero(subtract(
+            multiply(seed.vectors, certified_inverse),
+            identity_matrix(seed.vectors.size())), "1e-100") &&
+        residual_contains_zero(subtract(
+            multiply(certified_inverse, seed.vectors),
+            identity_matrix(seed.vectors.size())), "1e-100");
     MpfrInterval condition = b2interval::multiply(
         infinity_norm(basis.vectors), infinity_norm(inverse));
     bool const condition_ok = b2interval::upper_at_most(condition, "1e12");
     bool jordan_ok = true;
-    bool projector_ok = true;
+    bool projector_ok = false;
     if (valence == 3) {
         for (unsigned exponent = 0; exponent <= 12; ++exponent) {
             Matrix const residual = subtract(
@@ -784,12 +819,30 @@ inline Certification certify_eigenbasis(unsigned valence) {
         // basis, but all three real invariant spaces are independently
         // enclosed as spectral projectors and subjected to the same
         // source-ID-ordered MGS acceptance protocol.
-        for (std::vector<std::size_t> const &columns :
-             std::vector<std::vector<std::size_t>>{
-                 {1, 2}, {3, 4, 5}, {6, 7, 8}}) {
-            (void)deterministic_projector_block(seed.vectors, columns);
-        }
     }
+    std::size_t certified_blocks = 0;
+    for (std::size_t begin = 0; begin < seed.eigenvalues.size();) {
+        std::size_t end = begin + 1;
+        while (end < seed.eigenvalues.size() &&
+               certified_same_value(seed.eigenvalues[begin],
+                                    seed.eigenvalues[end])) ++end;
+        if (end - begin > 1) {
+            std::vector<std::size_t> columns;
+            for (std::size_t column = begin; column < end; ++column)
+                columns.push_back(column);
+            (void)deterministic_projector_block(seed.vectors, columns);
+            ++certified_blocks;
+        }
+        begin = end;
+    }
+    bool constant_ok = certified_same_value(
+        seed.eigenvalues.front(), MpfrInterval(1));
+    for (std::size_t row = 0; row < seed.vectors.size(); ++row) {
+        constant_ok = constant_ok &&
+            certified_same_value(seed.vectors[row][0], MpfrInterval(1));
+    }
+    (void)tangent_projector(valence);
+    projector_ok = constant_ok && certified_blocks > 0;
     return {valence, basis.vectors.size(), eigen_ok, true, inverse_ok,
             condition_ok, jordan_ok, projector_ok, projector_ok,
             projector_ok};

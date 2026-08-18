@@ -20,7 +20,9 @@ import math
 import os
 import pathlib
 import re
+import shutil
 import shlex
+import signal
 import sqlite3
 import struct
 import subprocess
@@ -93,9 +95,11 @@ D12_CONTRACT = {
 RUNTIME_SOURCE_PATHS = {
     "row_provider": (
         "experiments/bfr_qualification/candidate.cpp",
-        "experiments/bfr_qualification/fixture_mesh.hpp"),
+        "experiments/bfr_qualification/fixture_mesh.hpp",
+        "experiments/anchored_row_qualification/anchored_row_evaluator.hpp"),
     "representation_candidate": (
-        "experiments/anchored_row_qualification/candidate.cpp",),
+        "experiments/anchored_row_qualification/candidate.cpp",
+        "experiments/anchored_row_qualification/anchored_row_evaluator.hpp"),
     "exact_dyadic_boundary": (
         "experiments/anchored_row_qualification/exact_dyadic_boundary.cpp",),
     "independent_oracle": (
@@ -106,6 +110,7 @@ RUNTIME_SOURCE_PATHS = {
         "experiments/bfr_qualification/stam_primary.hpp",
         "experiments/bfr_qualification/stam_fixture.hpp",
         "experiments/bfr_qualification/stam_uniform.hpp",
+        "experiments/bfr_qualification/stam_uniform_box_spline.hpp",
         ),
 }
 RUNTIME_SOURCE_ENTRYPOINTS = {
@@ -830,6 +835,8 @@ def validate_contract_value(kind, value):
     if kind == "oracle_covered_value_v1":
         source_count = len(value["source_ids"])
         d0 = value["first_regular_support_depth"]
+        partition_target = Fraction(
+            1 if value["row_kind"] == "position" else 0)
         require(value["source_ids"] == sorted(set(value["source_ids"])) and
                 len(value["primary_depth_intervals"]) == source_count and
                 len(value["uniform_depth_intervals"]) == source_count and
@@ -837,6 +844,9 @@ def validate_contract_value(kind, value):
                 value["evaluated_depths"] == list(range(d0, d0 + 5)) and
                 d0 + 4 <= 30 and len(value["child_branches"]) == d0,
                 "oracle coverage cardinality/depth contract")
+        primary_sums = [[Fraction(0), Fraction(0)] for _ in range(5)]
+        uniform_sums = [[Fraction(0), Fraction(0)] for _ in range(5)]
+        intersection_sum = [Fraction(0), Fraction(0)]
         for source_index in range(source_count):
             primary = value["primary_depth_intervals"][source_index]
             uniform = value["uniform_depth_intervals"][source_index]
@@ -847,6 +857,10 @@ def validate_contract_value(kind, value):
                     primary[depth])
                 uniform_lower, uniform_upper = _interval_fractions(
                     uniform[depth])
+                primary_sums[depth][0] += primary_lower
+                primary_sums[depth][1] += primary_upper
+                uniform_sums[depth][0] += uniform_lower
+                uniform_sums[depth][1] += uniform_upper
                 require(primary_lower <= uniform_upper and
                         uniform_lower <= primary_upper,
                         "primary/uniform oracle interval separation")
@@ -856,11 +870,19 @@ def validate_contract_value(kind, value):
                 intersection_upper = (primary_upper if
                     intersection_upper is None else
                     min(intersection_upper, primary_upper))
+            observed_intersection = _interval_fractions(value[
+                "intersected_primary_intervals"][source_index])
+            intersection_sum[0] += observed_intersection[0]
+            intersection_sum[1] += observed_intersection[1]
             require(intersection_lower <= intersection_upper and
-                    _interval_fractions(value[
-                        "intersected_primary_intervals"][source_index]) ==
-                    (intersection_lower, intersection_upper),
+                    observed_intersection ==
+                        (intersection_lower, intersection_upper),
                     "oracle primary five-depth intersection mismatch")
+        require(all(lower <= partition_target <= upper
+                    for lower, upper in primary_sums + uniform_sums) and
+                intersection_sum[0] <= partition_target <=
+                    intersection_sum[1],
+                "oracle covered rows do not certify partition/derivative sum")
     if kind == "d12_sidecar_descriptor":
         _validate_d12_sidecar_descriptor(value)
     if kind == "unexpected_paths_target_v1":
@@ -1311,6 +1333,18 @@ def _validate_runtime_bindings(report, runtime_binaries,
                                 dependency[field]["sha256"],
                             "runtime dependency provenance differs from "
                             "report: " + dependency_name + "." + field)
+        oracle_binding = report["binaries"]["independent_oracle"][
+            "availability"]
+        if oracle_binding["state"] == "PRESENT":
+            oracle_files = runtime_provenance["binaries"][
+                "independent_oracle"]
+            require(report["binaries"]["oracle_independence_audit"] ==
+                        audit_oracle_independence(
+                            runtime_binaries["independent_oracle"],
+                            oracle_files["compiler_command"],
+                            oracle_files["link_map"],
+                            oracle_files["dynamic_dependencies"]),
+                    "oracle independence audit differs from runtime evidence")
     return True
 
 
@@ -2367,7 +2401,8 @@ def _valid_oracle_covered_record(key=None):
     key = (copy.deepcopy(_criterion_mutation_key(
         "oracle_coverage_and_crosscheck")) if key is None else
         copy.deepcopy(key))
-    rational = {"kind": "rational_v1", "numerator": "0",
+    rational = {"kind": "rational_v1",
+                "numerator": "1" if key[6] == "position" else "0",
                 "denominator": "1"}
     interval = {"kind": "interval_rational_v1",
                 "lower": copy.deepcopy(rational),
@@ -7861,17 +7896,21 @@ def write_d12_serial_references(checkpoint, artifact_root, output_root):
         "anchored-row-d12-v1/serial/representation-outputs.json")
     provider_path = output_root / provider_relative
     representation_path = output_root / representation_relative
+    request_root = output_root / "anchored-row-d12-v1/requests"
     provider_path.parent.mkdir(parents=True, exist_ok=True)
+    request_root.mkdir(parents=True, exist_ok=True)
     fixtures = {}
     for job in B2.valid_content_jobs(B2.load_manifest()):
         vertices, faces, _ = B2.independent_mesh(job)
         fixtures[job["content_identity_key"]] = {
             "vertices": vertices, "faces": faces}
-    inputs = sorted((
+    execution_inputs = (
         ("fixture_x", 0), ("fixture_y", 1), ("fixture_z", 2),
         ("positive_zero", 0.0), ("positive_one", 1.0),
         ("negative_one", -1.0), ("positive_2p20", 2.0 ** 20),
-        ("negative_2p20", -(2.0 ** 20))), key=lambda item: jcs_bytes(item[0]))
+        ("negative_2p20", -(2.0 ** 20)))
+    output_inputs = sorted(execution_inputs,
+                           key=lambda item: jcs_bytes(item[0]))
     provider_digest = hashlib.sha256()
     representation_digest = hashlib.sha256(b"[")
     provider_count = 0
@@ -7890,42 +7929,72 @@ def write_d12_serial_references(checkpoint, artifact_root, output_root):
             case_representation = hashlib.sha256(b"[")
             case_provider_count = 0
             case_representation_count = 0
-            for row in report["rows"]:
-                provider_record = D12WorkerInventoryVerifier.\
-                    _provider_record_bytes(row)
-                provider_stream.write(provider_record)
-                provider_digest.update(provider_record)
-                case_provider.update(provider_record)
-                provider_count += 1
-                case_provider_count += 1
-                anchor_source = fixture["faces"][row["face_row"]][0]
-                require(anchor_source in row["source_ids"],
-                        "D12 serial reference lacks oriented v0 anchor")
-                for input_id, input_value in inputs:
-                    if isinstance(input_value, int):
-                        sources = [fixture["vertices"][source_id][input_value]
-                                   for source_id in row["source_ids"]]
-                    else:
-                        sources = [input_value] * len(row["source_ids"])
-                    record = [
+            request_name = sha256_bytes(jcs_bytes([
+                case["content_identity_key"],
+                case["approximation_level"]])) + ".tsv"
+            request_path = request_root / request_name
+            with request_path.open("wb") as request_stream:
+                for row in report["rows"]:
+                    provider_record = D12WorkerInventoryVerifier.\
+                        _provider_record_bytes(row)
+                    provider_stream.write(provider_record)
+                    provider_digest.update(provider_record)
+                    case_provider.update(provider_record)
+                    provider_count += 1
+                    case_provider_count += 1
+                    anchor_source = fixture["faces"][row["face_row"]][0]
+                    require(anchor_source in row["source_ids"],
+                            "D12 serial reference lacks oriented v0 anchor")
+                    anchor_index = row["source_ids"].index(anchor_source)
+                    request_fields = [
                         case["content_identity_key"],
-                        case["approximation_level"], row["face_row"],
-                        None if row["local_corner_or_none"] == -1 else
-                        row["local_corner_or_none"], row["sample_id"],
-                        row["row_kind"], input_id,
-                        D12WorkerInventoryVerifier._anchored_evaluate(
-                            row, anchor_source, sources)]
-                    encoded = jcs_bytes(record)
-                    separator = b"," if representation_count else b""
-                    representation_stream.write(separator)
-                    representation_stream.write(encoded)
-                    representation_digest.update(separator)
-                    representation_digest.update(encoded)
-                    if case_representation_count:
-                        case_representation.update(b",")
-                    case_representation.update(encoded)
-                    representation_count += 1
-                    case_representation_count += 1
+                        str(case["approximation_level"]),
+                        str(row["face_row"]),
+                        str(row["local_corner_or_none"]), row["sample_id"],
+                        row["row_kind"], str(anchor_index),
+                        ",".join(B2A.binary64_bits_hex(value)
+                                 for value in row["coefficients"])]
+                    for axis in range(3):
+                        request_fields.append(",".join(
+                            B2A.binary64_bits_hex(
+                                fixture["vertices"][source_id][axis])
+                            for source_id in row["source_ids"]))
+                    require(all("\t" not in field and "\n" not in field
+                                for field in request_fields),
+                            "D12 representation request delimiter collision")
+                    request_stream.write(
+                        ("\t".join(request_fields) + "\n").encode("utf-8"))
+                    observed_results = {}
+                    for input_id, input_value in execution_inputs:
+                        if isinstance(input_value, int):
+                            sources = [fixture["vertices"][source_id][input_value]
+                                       for source_id in row["source_ids"]]
+                        else:
+                            sources = [input_value] * len(row["source_ids"])
+                        observed_results[input_id] = \
+                            D12WorkerInventoryVerifier._anchored_evaluate(
+                                row, anchor_source, sources)
+                    require(len(observed_results) == 8,
+                            "D12 serial representation input coverage")
+                    for input_id, _ in output_inputs:
+                        record = [
+                            case["content_identity_key"],
+                            case["approximation_level"], row["face_row"],
+                            None if row["local_corner_or_none"] == -1 else
+                            row["local_corner_or_none"], row["sample_id"],
+                            row["row_kind"], input_id,
+                            observed_results[input_id]]
+                        encoded = jcs_bytes(record)
+                        separator = b"," if representation_count else b""
+                        representation_stream.write(separator)
+                        representation_stream.write(encoded)
+                        representation_digest.update(separator)
+                        representation_digest.update(encoded)
+                        if case_representation_count:
+                            case_representation.update(b",")
+                        case_representation.update(encoded)
+                        representation_count += 1
+                        case_representation_count += 1
             case_representation.update(b"]")
             require(case_provider_count > 0 and
                     case_representation_count == case_provider_count * 8 and
@@ -7937,7 +8006,9 @@ def write_d12_serial_references(checkpoint, artifact_root, output_root):
                 "provider": case_provider.hexdigest(),
                 "representation": case_representation.hexdigest(),
                 "provider_count": case_provider_count,
-                "representation_count": case_representation_count}
+                "representation_count": case_representation_count,
+                "request_path": str(request_path),
+                "request_sha256": sha256_file(request_path)}
         representation_stream.write(b"]")
         representation_digest.update(b"]")
     require(len(references) == 98 and provider_count == 693000 and
@@ -7976,17 +8047,21 @@ def _copy_d12_stream_bytes(source, destination, byte_count):
     return digest.hexdigest()
 
 
-def execute_d12_worker_streams(provider_tsan_binary, checkpoint,
+def execute_d12_worker_streams(provider_tsan_binary,
+                               representation_tsan_binary, checkpoint,
                                output_root, references,
                                process_artifact,
                                instrumentation_digest,
                                timeout_seconds=3600):
     """Execute every frozen tuple, atomically publishing only complete bytes."""
-    binary = pathlib.Path(provider_tsan_binary).resolve()
-    require(binary.is_file() and
+    provider_binary = pathlib.Path(provider_tsan_binary).resolve()
+    representation_binary = pathlib.Path(
+        representation_tsan_binary).resolve()
+    require(provider_binary.is_file() and representation_binary.is_file() and
             SHA256_RE.fullmatch(instrumentation_digest or "") is not None,
-            "D12 TSan worker executable/instrumentation unavailable")
-    executable_sha256 = sha256_file(binary)
+            "D12 TSan worker executables/instrumentation unavailable")
+    provider_sha256 = sha256_file(provider_binary)
+    representation_sha256 = sha256_file(representation_binary)
     jobs = {job["content_identity_key"]: job
             for job in B2.valid_content_jobs(B2.load_manifest())}
     environment = _d12_rebuild_environment()
@@ -8004,22 +8079,30 @@ def execute_d12_worker_streams(provider_tsan_binary, checkpoint,
                 (content_id, level) in references,
                 "D12 worker tuple/reference identity")
         job = jobs[content_id]
-        command = [str(binary), "--d12-thread-stream", job["mesh_path"],
-                   job["mutation"], str(level), mode, str(worker_count),
-                   content_id]
-        started = iso_utc_now()
-        with tempfile.TemporaryFile() as stdout_stream, \
-                tempfile.TemporaryFile() as stderr_stream:
+        provider_command = [
+            str(provider_binary), "--d12-thread-stream", job["mesh_path"],
+            job["mutation"], str(level), mode, str(worker_count), content_id]
+        representation_command = [
+            str(representation_binary), "--d12-representation-stream",
+            str(worker_count)]
+
+        def run_worker(command, input_path=None):
+            stdout = tempfile.TemporaryFile()
+            stderr_file = tempfile.TemporaryFile()
+            input_stream = (pathlib.Path(input_path).open("rb")
+                            if input_path is not None else None)
+            started = iso_utc_now()
             process = subprocess.Popen(
                 command, cwd=str(ROOT), env=environment,
-                stdout=stdout_stream, stderr=stderr_stream)
+                stdin=input_stream, stdout=stdout, stderr=stderr_file,
+                start_new_session=True)
             expired = []
 
             def expire():
                 expired.append(True)
                 try:
-                    process.kill()
-                except OSError:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
                     pass
 
             timer = threading.Timer(timeout_seconds, expire)
@@ -8029,11 +8112,17 @@ def execute_d12_worker_streams(provider_tsan_binary, checkpoint,
             finally:
                 timer.cancel()
                 if process.poll() is None:
-                    process.kill()
+                    try:
+                        os.killpg(process.pid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
                     process.wait()
+                if input_stream is not None:
+                    input_stream.close()
             ended = iso_utc_now()
-            stderr_stream.seek(0)
-            stderr = stderr_stream.read()
+            stderr_file.seek(0)
+            stderr = stderr_file.read()
+            stderr_file.close()
             require(not expired, "D12 TSan worker process timed out")
             lower_stderr = stderr.lower()
             race = (returncode != 0 and
@@ -8041,11 +8130,26 @@ def execute_d12_worker_streams(provider_tsan_binary, checkpoint,
             require(returncode == 0 or race,
                     "D12 TSan worker failed without a sanitizer data-race "
                     "report")
-            if returncode == 0:
-                require(b"threadsanitizer" not in lower_stderr and
-                        b"data race" not in lower_stderr,
-                        "D12 successful TSan worker emitted sanitizer output")
-                stdout_stream.seek(0)
+            stdout.seek(0)
+            return {"stdout": stdout, "stderr": stderr, "race": race,
+                    "returncode": returncode, "process": process,
+                    "command": command, "started": started, "ended": ended}
+
+        provider_run = run_worker(provider_command)
+        representation_run = run_worker(
+            representation_command,
+            references[(content_id, level)]["request_path"])
+        try:
+            race = provider_run["race"] or representation_run["race"]
+            for run in (provider_run, representation_run):
+                if run["returncode"] == 0:
+                    lower_stderr = run["stderr"].lower()
+                    require(b"threadsanitizer" not in lower_stderr and
+                            b"data race" not in lower_stderr,
+                            "D12 successful TSan worker emitted sanitizer output")
+            if not race:
+                provider_stream = provider_run["stdout"]
+                representation_stream = representation_run["stdout"]
                 tuple_relative_root = (
                     "anchored-row-d12-v1/workers/{}/{}/level-{}/workers-{}"
                     .format(cache_mode, content_id, level, worker_count))
@@ -8061,18 +8165,30 @@ def execute_d12_worker_streams(provider_tsan_binary, checkpoint,
                     tuple_descriptors = {}
                     tuple_masters = {}
                     new_master_paths = {}
-                    require(stdout_stream.read(8) == b"D12WORK1",
-                            "D12 worker stream magic")
+                    provider_magic = provider_stream.read(8)
+                    representation_magic = representation_stream.read(8)
+                    require(provider_magic == b"D12PROV1" and
+                            representation_magic == b"D12REPR1",
+                            "D12 provider/representation worker stream magic: " +
+                            repr((provider_magic, representation_magic)))
                     for round_index in range(20):
                         for worker_index in range(worker_count):
-                            header = stdout_stream.read(24)
-                            require(len(header) == 24,
+                            provider_header = provider_stream.read(16)
+                            representation_header = \
+                                representation_stream.read(24)
+                            require(len(provider_header) == 16 and
+                                    len(representation_header) == 24,
                                     "D12 worker stream header truncation")
-                            observed_round, observed_worker, provider_length, \
+                            provider_round, provider_worker, provider_length = \
+                                struct.unpack("<IIQ", provider_header)
+                            representation_round, representation_worker, \
                                 representation_length = struct.unpack(
-                                    "<IIQQ", header)
-                            require((observed_round, observed_worker) ==
-                                    (round_index, worker_index) and
+                                    ">QQQ", representation_header)
+                            require((provider_round, provider_worker) ==
+                                        (round_index, worker_index) and
+                                    (representation_round,
+                                     representation_worker) ==
+                                        (round_index, worker_index) and
                                     provider_length > 0 and
                                     representation_length > 0,
                                     "D12 worker stream identity/length drift")
@@ -8080,13 +8196,15 @@ def execute_d12_worker_streams(provider_tsan_binary, checkpoint,
                                 "/round-{:02d}/worker-{}".format(
                                     round_index, worker_index)
                             expected = references[(content_id, level)]
-                            for suffix, length, expected_count, \
+                            for suffix, source_stream, length, expected_count, \
                                     expected_digest in (
                                         ("-provider.b2rowv1",
+                                         provider_stream,
                                          provider_length,
                                          expected["provider_count"],
                                          expected["provider"]),
                                         ("-representation.json",
+                                         representation_stream,
                                          representation_length,
                                          expected["representation_count"],
                                          expected["representation"])):
@@ -8104,7 +8222,7 @@ def execute_d12_worker_streams(provider_tsan_binary, checkpoint,
                                     stream = None
                                 try:
                                     observed_digest = _copy_d12_stream_bytes(
-                                        stdout_stream, stream, length)
+                                        source_stream, stream, length)
                                 finally:
                                     if stream is not None:
                                         stream.close()
@@ -8131,7 +8249,8 @@ def execute_d12_worker_streams(provider_tsan_binary, checkpoint,
                                         relative_path not in tuple_descriptors,
                                         "D12 worker sidecar path collision")
                                 tuple_descriptors[relative_path] = descriptor
-                    require(stdout_stream.read(1) == b"",
+                    require(provider_stream.read(1) == b"" and
+                            representation_stream.read(1) == b"",
                             "D12 worker stream trailing bytes")
                     final_tuple_root.parent.mkdir(parents=True, exist_ok=True)
                     staged_tuple_root.replace(final_tuple_root)
@@ -8140,9 +8259,18 @@ def execute_d12_worker_streams(provider_tsan_binary, checkpoint,
                             new_master_paths.items():
                         published_content_files[content_file_key] = \
                             pathlib.Path(output_root) / relative_path
+            selected_run = (provider_run if provider_run["race"] else
+                            representation_run)
+            returncode = selected_run["returncode"]
+            stderr = selected_run["stderr"]
+            command = selected_run["command"]
+            executable_sha256 = (provider_sha256 if provider_run["race"]
+                                 else representation_sha256)
             exit_kind = "SIGNALED" if returncode < 0 else "EXITED"
             process_base = {
-                "pid": process.pid, "start_utc": started, "end_utc": ended,
+                "pid": selected_run["process"].pid,
+                "start_utc": selected_run["started"],
+                "end_utc": selected_run["ended"],
                 "exit_kind": exit_kind,
                 "exit_code": None if returncode < 0 else returncode,
                 "signal": -returncode if returncode < 0 else None,
@@ -8169,6 +8297,9 @@ def execute_d12_worker_streams(provider_tsan_binary, checkpoint,
                     _d12_tsan_report_relative_path(finding_key)
                 require(not report_path.exists(),
                         "D12 successful tuple has a stale sanitizer report")
+        finally:
+            provider_run["stdout"].close()
+            representation_run["stdout"].close()
         for quantity, payload in (
                 ("instrumentation_coverage", {
                     "kind": "d12_tsan_instrumentation_raw_v1",
@@ -8736,9 +8867,44 @@ def produce_d12_evidence(args):
             process_artifact.add(criterion_id, record)
         references_descriptors, references = write_d12_serial_references(
             checkpoint, artifact_root, output_root)
-        worker_sidecars, worker_aborts = execute_d12_worker_streams(
-            args.provider_tsan_binary, checkpoint, output_root, references,
-            process_artifact, instrumentation_digest)
+        with tempfile.TemporaryDirectory(
+                prefix="anchored-row-d12-runtime-snapshot-") as snapshot:
+            worker_paths = {}
+            for role, original_text in (
+                    ("provider_tsan", args.provider_tsan_binary),
+                    ("representation_tsan", args.representation_tsan_binary)):
+                original = pathlib.Path(original_text).resolve()
+                destination = pathlib.Path(snapshot) / role
+                digest = sha256_file(original)
+                shutil.copyfile(str(original), str(destination))
+                destination.chmod(0o500)
+                require(sha256_file(original) == digest ==
+                            sha256_file(destination) == binaries[role]["sha256"],
+                        "D12 runtime executable changed while snapshotting")
+                worker_paths[role] = str(destination)
+            worker_sidecars, worker_aborts = execute_d12_worker_streams(
+                worker_paths["provider_tsan"],
+                worker_paths["representation_tsan"], checkpoint,
+                output_root, references, process_artifact,
+                instrumentation_digest)
+            require(sha256_file(pathlib.Path(
+                        args.provider_tsan_binary).resolve()) ==
+                        binaries["provider_tsan"]["sha256"] and
+                    sha256_file(pathlib.Path(
+                        args.representation_tsan_binary).resolve()) ==
+                        binaries["representation_tsan"]["sha256"],
+                    "D12 runtime executable identity changed during execution")
+        request_paths = {
+            pathlib.Path(reference["request_path"]).resolve()
+            for reference in references.values()}
+        require(len(request_paths) == 98 and all(
+                    path.parent == output_root /
+                        "anchored-row-d12-v1/requests"
+                    for path in request_paths),
+                "D12 representation request inventory drift")
+        for path in request_paths:
+            path.unlink()
+        (output_root / "anchored-row-d12-v1/requests").rmdir()
         process_descriptor = process_artifact.finish(4189640)
         executed = execute_d12_numeric_criteria(
             process_artifact, output_root, platform["platform_state"])
@@ -9570,8 +9736,9 @@ def oracle_unavailable_partition_ledgers(blocker):
 def run_json(binary, argument, expected_kind):
     path = pathlib.Path(binary).resolve()
     require(path.is_file(), "binary unavailable: {}".format(path))
-    completed = subprocess.run([str(path), argument], stdout=subprocess.PIPE,
-                               stderr=subprocess.PIPE, text=True, timeout=30)
+    completed = subprocess.run(
+        [str(path), argument], cwd=str(ROOT), env=_d12_rebuild_environment(),
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=30)
     require(completed.returncode == 0,
             "binary failed: {}".format(completed.stderr.strip()))
     value = strict_json_bytes(completed.stdout.encode("utf-8"))
@@ -9821,7 +9988,7 @@ def validate_candidate_observation(criterion_id, payload):
 
 
 def iter_candidate_observations(binary, criterion_id, request_lines,
-                                expected_count):
+                                expected_count, timeout_seconds=900):
     """Yield one strict ordinal-ordered observation stream from the candidate."""
     require(criterion_id in {
         "representation_structure", "constant_field_bits",
@@ -9861,8 +10028,9 @@ def iter_candidate_observations(binary, criterion_id, request_lines,
     if criterion_id != "cache_mode_bit_identity":
         command.append(criterion_id)
     process = subprocess.Popen(
-        command,
-        stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        command, cwd=str(ROOT), env=_d12_rebuild_environment(),
+        stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        start_new_session=True)
     require(process.stdin is not None and process.stdout is not None and
             process.stderr is not None, "candidate observation pipes")
     feeder_errors = []
@@ -9884,6 +10052,17 @@ def iter_candidate_observations(binary, criterion_id, request_lines,
 
     feeder = threading.Thread(target=feed, name="candidate-observation-input")
     feeder.start()
+    expired = []
+
+    def expire():
+        expired.append(True)
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+
+    timer = threading.Timer(timeout_seconds, expire)
+    timer.start()
     try:
         require(_read_exact(process.stdout, len(CANDIDATE_VALUES_MAGIC)) ==
                 CANDIDATE_VALUES_MAGIC,
@@ -9900,19 +10079,30 @@ def iter_candidate_observations(binary, criterion_id, request_lines,
             yield validate_candidate_observation(criterion_id, payload)
         require(process.stdout.read(1) == b"",
                 "candidate observation trailing record")
-        feeder.join()
+        feeder.join(timeout_seconds)
+        require(not feeder.is_alive(), "candidate observation input timed out")
         stderr = process.stderr.read().decode("utf-8", errors="strict")
-        returncode = process.wait(timeout=900)
+        returncode = process.wait()
+        require(not expired, "candidate observation process timed out")
         require(not feeder_errors, "candidate observation input failure")
         require(returncode == 0, "candidate observation process failed: {}".format(
             stderr.strip()))
     finally:
+        timer.cancel()
         if feeder.is_alive() or process.poll() is None:
-            process.kill()
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
         if process.stdin is not None and not process.stdin.closed:
             process.stdin.close()
-        feeder.join()
-        process.wait()
+        feeder.join(timeout=5)
+        if process.poll() is None:
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+        process.wait(timeout=5)
         if process.stdout is not None:
             process.stdout.close()
         if process.stderr is not None:
@@ -10015,6 +10205,96 @@ def binary_record(path, source_paths, capability, dependencies,
             "dynamic_dependencies": file_availability(dynamic),
             "dependencies": dependencies,
             "capability": capability}
+
+
+def audit_oracle_independence(binary_path, command_path, link_map_path,
+                              dynamic_dependencies_path):
+    """Recompute the frozen primary-oracle independence proof."""
+    B2.validate_source_separation()
+    binary = pathlib.Path(binary_path).resolve()
+    command_file = pathlib.Path(command_path).resolve()
+    link_map = pathlib.Path(link_map_path).resolve()
+    dynamic_file = pathlib.Path(dynamic_dependencies_path).resolve()
+    require(all(path.is_file() for path in (
+                binary, command_file, link_map, dynamic_file)),
+            "oracle independence audit artifact unavailable")
+    command = command_file.read_text(encoding="utf-8").splitlines()
+    require(command and all(command) and len(command) == len(set(command)) and
+            command[0] == B2.EXPECTED_COMPILER_PATH and
+            command.count("-MMD") == 1 and command.count("-MF") == 1 and
+            command.count("-o") == 1,
+            "oracle compile command is not exact/closed")
+    fixed_flags = [
+        "-std=c++17", "-O3", "-DNDEBUG", "-fno-fast-math",
+        "-ffp-contract=off", "-fno-omit-frame-pointer", "-Wall",
+        "-Wextra", "-Wpedantic", "-Werror", "-isysroot",
+        "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk",
+        "-mmacosx-version-min=26.0"]
+    require(command[1:1 + len(fixed_flags)] == fixed_flags,
+            "oracle compile profile flags drift")
+    tail = command[1 + len(fixed_flags):]
+    require(len(tail) == 12 and tail[0:2] == ["-MMD", "-MF"] and
+            tail[3].startswith("-I") and len(tail[3]) > 2 and
+            tail[4] == "experiments/bfr_qualification/stam_oracle.cpp" and
+            tail[5].startswith("-L") and len(tail[5]) > 2 and
+            tail[6].startswith("-Wl,-rpath,") and
+            tail[7:9] == ["-lmpfr", "-lgmp"] and
+            tail[9].startswith("-Wl,-map,") and tail[10] == "-o" and
+            pathlib.Path(tail[11]).resolve() == binary,
+            "oracle command source/output/dependency grammar drift")
+    dependency_path = pathlib.Path(tail[2]).resolve()
+    include_root = pathlib.Path(tail[3][2:]).resolve()
+    library_root = pathlib.Path(tail[5][2:]).resolve()
+    rpath_root = pathlib.Path(tail[6][len("-Wl,-rpath,"):]).resolve()
+    command_map = pathlib.Path(tail[9][len("-Wl,-map,"):]).resolve()
+    require(str(dependency_path) == tail[2] and
+            str(include_root) == tail[3][2:] and
+            str(library_root) == tail[5][2:] and
+            str(rpath_root) == tail[6][len("-Wl,-rpath,"):] and
+            library_root == rpath_root and
+            include_root.parent == library_root.parent and
+            command_map == link_map and
+            str(command_map) == tail[9][len("-Wl,-map,"):] and
+            str(binary) == tail[11],
+            "oracle command artifact roots are not canonical/distinct")
+    dependency_inputs = _d12_dependency_inputs(
+        dependency_path, binary, ROOT)
+    expected_dependencies = {
+        str((ROOT / relative).resolve())
+        for relative in RUNTIME_SOURCE_PATHS["independent_oracle"]}
+    require({item["path"] for item in dependency_inputs} ==
+                expected_dependencies and
+            all(item["sha256"] == sha256_file(pathlib.Path(item["path"]))
+                for item in dependency_inputs),
+            "oracle dependency closure differs from frozen independent sources")
+    environment = _d12_rebuild_environment()
+
+    def checked_output(command_line):
+        completed = subprocess.run(
+            command_line, cwd=str(ROOT), env=environment,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=60)
+        require(completed.returncode == 0 and completed.stdout,
+                "oracle binary audit command failed")
+        return completed.stdout
+
+    actual_dynamic = checked_output(["/usr/bin/otool", "-L", str(binary)])
+    require(actual_dynamic == dynamic_file.read_bytes(),
+            "oracle dynamic-dependency transcript differs from executable")
+    undefined_symbols = checked_output(["/usr/bin/nm", "-u", str(binary)])
+    forbidden = B2.FORBIDDEN_ORACLE_TOKENS
+    dynamic_text = actual_dynamic.decode("utf-8", errors="strict")
+    symbol_text = undefined_symbols.decode("utf-8", errors="strict")
+    require(not any(token in dynamic_text for token in forbidden) and
+            "osd" not in dynamic_text.lower() and
+            not any(token in symbol_text for token in forbidden) and
+            b"mpfr_" in undefined_symbols.lower(),
+            "oracle binary links or imports a forbidden/non-MPFR route")
+    map_text = link_map.read_text(encoding="utf-8", errors="strict")
+    require(map_text and not any(token in map_text
+                                 for token in forbidden) and
+            ("stam_oracle" in map_text or "stam_oracle.cpp" in map_text),
+            "oracle link map does not bind the independent translation unit")
+    return "PASS"
 
 
 def criterion_record(criterion_id, status, blocker=None, expectation=None,
@@ -11235,12 +11515,16 @@ class D12EvidenceVerifier:
                     key, payload, provenance = validate_d12_process_observation(
                         record)
                     if self.envelope is not None:
-                        binary_role = ("provider_tsan" if key[2] == "tsan"
-                                       else "provider_release")
-                        expected_binary = self.envelope["binaries"][
-                            binary_role]["sha256"]
-                        require(provenance["executable_sha256"] ==
-                                expected_binary,
+                        expected_binaries = ({
+                            self.envelope["binaries"][
+                                "provider_tsan"]["sha256"],
+                            self.envelope["binaries"][
+                                "representation_tsan"]["sha256"]}
+                            if key[2] == "tsan" else {
+                                self.envelope["binaries"][
+                                    "provider_release"]["sha256"]})
+                        require(provenance["executable_sha256"] in
+                                expected_binaries,
                                 "D12 raw observation executable drift")
                     if key[2] == "tsan":
                         tuple_key = jcs_bytes(key[:5])
@@ -13568,6 +13852,35 @@ def execute(args):
     require(worktree_start["state"] == "PRESENT" and
             worktree_start["clean"] is True,
             "worktree must be clean before execution")
+    original_args = args
+    args = copy.copy(args)
+    snapshot_directory = tempfile.TemporaryDirectory(
+        prefix="anchored-row-runtime-snapshot-")
+    original_runtime = {}
+    snapshot_runtime = {}
+    for attribute in (
+            "provider_binary", "candidate_binary",
+            "exact_dyadic_boundary_binary", "independent_oracle_binary"):
+        original = pathlib.Path(getattr(original_args, attribute)).resolve()
+        require(original.is_file(), "runtime executable unavailable: " + attribute)
+        digest = sha256_file(original)
+        destination = pathlib.Path(snapshot_directory.name) / attribute
+        shutil.copyfile(str(original), str(destination))
+        destination.chmod(0o500)
+        require(sha256_file(original) == digest and
+                sha256_file(destination) == digest,
+                "runtime executable changed while snapshotting: " + attribute)
+        original_runtime[attribute] = (original, digest)
+        snapshot_runtime[attribute] = destination
+        setattr(args, attribute, str(destination))
+    oracle_independence_audit = audit_oracle_independence(
+        original_runtime["independent_oracle_binary"][0],
+        args.oracle_command_file, args.oracle_link_map,
+        args.oracle_dynamic_dependencies)
+    require(all(path.is_file() and sha256_file(path) == digest and
+                sha256_file(snapshot_runtime[attribute]) == digest
+                for attribute, (path, digest) in original_runtime.items()),
+            "runtime executable identity changed during pre-execution audit")
     candidate_self_test = run_json(args.candidate_binary, "--self-test",
                                    "anchored_row_candidate_self_test")
     require(candidate_self_test.get("status") == "ok" and
@@ -13659,6 +13972,11 @@ def execute(args):
                     "{} result keys differ from D12 pre-result universe".
                     format(criterion_id))
     git_end, worktree_end = git_observations()
+    require(all(path.is_file() and sha256_file(path) == digest and
+                snapshot_runtime[attribute].is_file() and
+                sha256_file(snapshot_runtime[attribute]) == digest
+                for attribute, (path, digest) in original_runtime.items()),
+            "runtime executable identity changed during scientific execution")
     require_git_binding(git_start, git_end, worktree_start, worktree_end,
                         expected_head, checkpoint["binding"]["git_head"])
 
@@ -13688,7 +14006,7 @@ def execute(args):
             "exact_integer_over_2p1074_outward_MPFR_import", dependencies,
             args.boundary_command_file, args.compiler_version_file,
             args.boundary_link_map, args.boundary_dynamic_dependencies),
-        "oracle_independence_audit": "PASS",
+        "oracle_independence_audit": oracle_independence_audit,
     }
     ledgers = make_complete_pre_result_ledgers(
         checkpoint, artifact_root, manifest, executed, scientific_ledgers,
@@ -13742,6 +14060,7 @@ def execute(args):
     digest_copy["verdict"]["report_content_sha256"] = ZERO_SHA256
     report["verdict"]["report_content_sha256"] = sha256_bytes(jcs_bytes(digest_copy))
     validate_report(report, d12_serial_context)
+    snapshot_directory.cleanup()
     return report
 
 
@@ -13848,6 +14167,7 @@ def parse_args(argv=None):
     parser.add_argument("--opensubdiv-install-provenance")
     parser.add_argument("--opensubdiv-link-provenance")
     parser.add_argument("--opensubdiv-dynamic-dependency")
+    parser.add_argument("--opensubdiv-installed-library")
     parser.add_argument("--d12-evidence")
     parser.add_argument("--b2-evidence")
     parser.add_argument("--opensubdiv-source-root")
@@ -13934,7 +14254,8 @@ def main(argv=None):
                 "opensubdiv_build_provenance",
                 "opensubdiv_install_provenance",
                 "opensubdiv_link_provenance",
-                "opensubdiv_dynamic_dependency"}
+                "opensubdiv_dynamic_dependency",
+                "opensubdiv_installed_library"}
             supplied = [value for key, value in vars(args).items()
                         if key not in accepted]
             require(not any(supplied),
@@ -13958,7 +14279,8 @@ def main(argv=None):
                 args.opensubdiv_build_provenance,
                 args.opensubdiv_install_provenance,
                 args.opensubdiv_link_provenance,
-                args.opensubdiv_dynamic_dependency]
+                args.opensubdiv_dynamic_dependency,
+                args.opensubdiv_installed_library]
             require(all(required_provenance),
                     "report validation requires every provenance input")
             report_path = pathlib.Path(args.validate_report).resolve()
@@ -14090,7 +14412,7 @@ def main(argv=None):
                             "link_provenance":
                                 args.opensubdiv_link_provenance,
                             "installed_library":
-                                args.opensubdiv_dynamic_dependency}}})
+                                args.opensubdiv_installed_library}}})
             encoded = jcs_bytes({
                 "kind": "anchored_row_qualification_bundle_validation",
                 "report_sha256": sha256_bytes(raw), "status": "ok"}) + b"\n"
