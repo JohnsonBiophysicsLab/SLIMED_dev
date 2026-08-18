@@ -1,6 +1,6 @@
 # B2c anchored-row qualification evidence
 
-Status: **Package 2 implementation exists, but exact-SHA review is `FAIL`;
+Status: **Package 2 remediation is in progress after an exact-SHA `FAIL`;
 qualification remains `INCOMPLETE` and numeric D12 execution is blocked**
 
 Candidate: `anchored_difference_rows_v1`
@@ -53,22 +53,30 @@ projector checks, evaluates the quartic box-spline basis, follows a selected
 subdivision path, and emits all six interval rows. It also computes
 extraordinary vertex-limit, dyadic-interior, and tangent-projector checks.
 
-A separately coded uniform route refines a selected dependency patch and
-intersects five consecutive depths with the primary intervals. Oracle cells
-are emitted as either `COVERED` with the closed certified observation or
-`UNCOVERED` with a frozen per-cell reason. The runner propagates actual
-criterion-10 uncovered outcomes into criteria 11--13 and binds the result
-partitions to the matrix ledgers.
+A separately coded uniform route propagates original-source basis rows through
+its own stock-mask and box-spline implementation and intersects five
+consecutive depths with the primary intervals. The current remediation grants
+coverage only where that independent sparse source closure is complete. A
+request whose selected path needs a refined-isolation closure that has not been
+independently established is emitted as `UNCOVERED/UNIFORM_CROSSCHECK_FAILED`;
+it is not evaluated through primary-owned stencils. Oracle cells are emitted
+as either `COVERED` with the closed certified observation or `UNCOVERED` with a
+frozen per-cell reason. The runner propagates actual criterion-10 uncovered
+outcomes into criteria 11--13 and binds the result partitions to the matrix
+ledgers.
 
-The executable independence audit now checks the reviewed source allowlist,
+The executable independence audit checks the reviewed source allowlist,
 compiler dependency closure, linked libraries and hashes, undefined symbols,
 link-map ownership, MPFR/GMP calls, and forbidden OpenSubdiv/Far/Bfr symbols.
-Execution snapshots the proof binaries and most input/provenance artifacts,
-and process-tree timers begin before blocking pipe reads.
+The remediation snapshots the compiler depfile and both audited MPFR/GMP
+dylibs before execution and rechecks both the live loaded paths and immutable
+snapshot bytes after scientific execution. The report continues to name the
+actual `otool -L` paths loaded by the proof binary. Process-tree timers begin
+before blocking pipe reads.
 
 These are implemented mechanisms, not accepted scientific evidence. The exact
-SHA review below found that the uniform route and persisted certification
-boundary still do not satisfy the frozen oracle contract.
+SHA review below describes the prior failure. This remediation revision must
+receive four new exact-SHA PASS verdicts before it becomes admissible evidence.
 
 ### D12 provider and representation execution
 
@@ -108,6 +116,14 @@ remain false.
 
 No unavailable executable, dependency, sidecar, or partition receives an
 invented zero hash. Availability state and reason remain explicit.
+
+Covered oracle sidecars are no longer self-authorizing. Generic canonical
+ledger construction cannot mint covered-oracle authority. Standalone bundle
+validation reruns the exact authenticated oracle over the frozen request
+corpus, derives the complete criterion-10 record stream, and requires every
+persisted record to equal that executable replay before accepting its
+certification fields. A coordinated sidecar containing only literal
+`CERTIFIED` strings is rejected.
 
 ## Existing candidate-only development evidence
 
@@ -170,13 +186,61 @@ The hosted smoke probes cover only face 0/corner 0 examples and therefore do
 not detect item 7. A green hosted job at this state would demonstrate build and
 provisioning health, not correctness of the complete frozen oracle ledger.
 
+## Remediation after the `c4ab2a0` review
+
+This remediation revision makes the following fail-closed changes and remains
+subject to exact-SHA review:
+
+1. selected-path isolation no longer searches for an unrelated face and then
+   reuses the requested point/Jacobian; loss of the tracked extraordinary
+   frame is a per-cell `NO_ISOLATION_BY_DEPTH_12` result;
+2. the uniform route owns independently constructed full original-source
+   controls, and refined-isolation cases are uncovered instead of borrowing
+   primary refinement stencils;
+3. generic and persisted ledgers cannot authorize covered oracle literals;
+   exact standalone validation re-executes the authenticated oracle and
+   compares the complete derived criterion-10 stream;
+4. the directed-rounding mutation self-test replaces each lower and upper
+   endpoint mode separately for add, subtract, multiply, divide, square root,
+   cosine, and the matrix accumulator, and requires the mutated interval to
+   exclude a higher-precision reference;
+5. MPFR flag/domain failures and uncertain child/cosine branches reach the
+   frozen `DIRECTED_INTERVAL_PRIMITIVE_FAILED` and
+   `INTERVAL_BRANCH_ORDERING_UNCERTIFIED` reasons;
+6. the oracle compiler depfile plus the exact audited MPFR/GMP dylibs are
+   snapshotted before execution, while the live loaded paths and snapshot
+   copies are both byte-rechecked afterward; and
+7. the previously aborting `b2p_valence789` and
+   `b2p_adjacent_extraordinary` nonzero-corner probes now return canonical
+   per-cell `UNCOVERED` observations and keep the batch alive.
+
+An exact-source framing audit then executed all 16,500 unique frozen oracle
+requests derived from the retained 294-artifact corpus. It completed with no
+process abort, malformed JSON, ordinal drift, or unmapped reason: 1,920
+requests emitted six-row `COVERED` observations; 2,340 emitted
+`REGULAR_SUPPORT_NOT_REACHED_BY_DEPTH_30`; 1,350 emitted
+`NO_ISOLATION_BY_DEPTH_12`; and 10,890 emitted
+`UNIFORM_CROSSCHECK_FAILED`. This audit intentionally establishes complete
+request framing and fail-closed disposition. It is not a qualification run and
+does not replace exact interval rescanning by the persisted-bundle validator.
+
+The conservative refined-isolation disposition can reduce coverage and leave
+the eventual verdict `INCOMPLETE`. That is an allowed scientific result, not a
+qualification shortcut. No tolerance, fixture, sample, or acceptance target
+has been changed in response.
+
 ## Hosted and physical-host disposition
 
-The mandatory `macos-26` workflow has not yet been run at the post-TSan exact
-head. When run, it can establish exact-head build correctness, dependency
-provisioning, and execution of the independence audit. It can never satisfy
-numeric D12 because a GitHub-hosted runner is `UNQUALIFIED_PLATFORM`; its only
-honest numeric disposition is `INCOMPLETE`.
+The mandatory `macos-26` workflow completed successfully at exact SHA
+`81396e5a88c3d91da674a6430bd2cb466aa7d24d` (run `32171942441`). It established
+exact-head build correctness, pinned GMP/MPFR/OpenSubdiv provisioning, Release
+and TSan reproduction, and execution of the then-current independence audit.
+Its observed virtual Apple-M1 fingerprint was correctly classified
+`UNQUALIFIED_PLATFORM`; `oracle_coverage_complete`,
+`threading_tsan_complete`, and `package_review_complete` remained false, and
+the budget verdict was `NEITHER_PASS_NOR_FAIL`. The run is useful hosted
+correctness evidence but is not evidence for the later remediation and can
+never satisfy numeric D12.
 
 The available physical machine matches the frozen D12 fingerprint in plan
 section 3.4: macOS `26.5.1` build `25F80`, `arm64`, `Mac17,2`, Apple M5,
@@ -192,11 +256,10 @@ inadmissible SHA and conflict with the implementation plan.
 
 ## Required next work
 
-1. Repair the seven exact-SHA oracle blockers above and add full-corpus tests,
-   especially every `all_non6_corners` request and adjacent extraordinary
-   cases.
+1. Commit the seven-blocker remediation together with the full
+   16,500-unique-request frozen-corpus framing-audit record.
 2. Run four fresh independent exact-SHA reviews and obtain PASS verdicts.
-3. Run the hosted `macos-26` workflow at that reviewed exact head and retain
+3. Rerun the hosted `macos-26` workflow at that reviewed exact head and retain
    its correctness, provisioning, and independence-audit artifacts.
 4. On the frozen physical host, confirm the worktree is empty, AC power and
    nominal thermal state are continuously observed, then execute numeric D12
