@@ -3703,7 +3703,7 @@ class AnchoredRowQualificationTests(unittest.TestCase):
                 "byte_length": len(row), "record_count": 6,
                 "sha256": row_digest}))
 
-    def test_d12_sanitizer_abort_binds_one_process_and_report_bytes(self):
+    def test_d12_sanitizer_abort_binds_two_processes_and_report_bytes(self):
         content_id = "content"
         base_key = [content_id, 2, "tsan", "threaded_cache", 1,
                     None, None, None, None, None, None, None,
@@ -3836,6 +3836,24 @@ class AnchoredRowQualificationTests(unittest.TestCase):
                 changed = copy.deepcopy(finding_provenance)
                 changed["executable_sha256"] = \
                     instrumentation_provenance["executable_sha256"]
+                artifact.add("d12_instrumented_tsan", [
+                    finding_key, finding_payload, changed])
+                with self.assertRaises(MODULE.QualificationError):
+                    artifact.finish(2)
+            finally:
+                artifact.close()
+
+        with tempfile.TemporaryDirectory() as temporary:
+            artifact = MODULE.D12ProcessObservationArtifact(
+                temporary, {
+                    instrumentation_provenance["executable_sha256"],
+                    finding_provenance["executable_sha256"]})
+            try:
+                artifact.add("d12_instrumented_tsan", [
+                    instrumentation_key, instrumentation_payload,
+                    copy.deepcopy(instrumentation_provenance)])
+                changed = copy.deepcopy(finding_provenance)
+                changed["pid"] = instrumentation_provenance["pid"]
                 artifact.add("d12_instrumented_tsan", [
                     finding_key, finding_payload, changed])
                 with self.assertRaises(MODULE.QualificationError):
@@ -4023,7 +4041,11 @@ class AnchoredRowQualificationTests(unittest.TestCase):
             references[("content", 2)]["request_path"] = str(request)
             output_root = root / "output"
             output_root.mkdir()
-            artifact = MODULE.D12ProcessObservationArtifact(output_root)
+            expected_executables = {
+                MODULE.sha256_file(binary),
+                MODULE.sha256_file(representation_binary)}
+            artifact = MODULE.D12ProcessObservationArtifact(
+                output_root, expected_executables)
             try:
                 with mock.patch.object(
                         MODULE.B2, "expected_threading_identities",
@@ -4104,7 +4126,11 @@ class AnchoredRowQualificationTests(unittest.TestCase):
             references[("content", 2)]["request_path"] = str(request)
             output_root = root / "output"
             output_root.mkdir()
-            artifact = MODULE.D12ProcessObservationArtifact(output_root)
+            expected_executables = {
+                MODULE.sha256_file(provider_binary),
+                MODULE.sha256_file(representation_binary)}
+            artifact = MODULE.D12ProcessObservationArtifact(
+                output_root, expected_executables)
             try:
                 with mock.patch.object(
                         MODULE.B2, "expected_threading_identities",
