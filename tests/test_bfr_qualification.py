@@ -418,7 +418,8 @@ class BfrQualificationContractTests(unittest.TestCase):
                 ("after_factory_cache", None, None, None)]
             stages.extend((
                 "after_face_insert", sample["face_row"],
-                sample["local_corner_or_none"], sample["sample_id"])
+                (None if sample["local_corner_or_none"] < 0 else
+                 sample["local_corner_or_none"]), sample["sample_id"])
                 for sample in samples)
             stages.extend([
                 ("after_package_publication", None, None, None),
@@ -533,6 +534,10 @@ class BfrQualificationContractTests(unittest.TestCase):
         validated = MODULE.validate_candidate_case(
             report, *identity_tuple, manifest, job)
         self.assertEqual(validated["row_group_count"], report["row_group_count"])
+        self.assertTrue(any(
+            item["stage"] == "after_face_insert" and
+            item["local_corner_or_none"] is None
+            for item in report["d12_rss_observations"]))
         self.assertTrue(MODULE.validate_candidate_case(
             json.loads(json.dumps(report, sort_keys=True, allow_nan=False)),
             *identity_tuple, manifest, job))
