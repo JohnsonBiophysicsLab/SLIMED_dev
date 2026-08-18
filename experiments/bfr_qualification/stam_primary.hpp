@@ -195,6 +195,26 @@ inline MpfrInterval infinity_norm(Matrix const &value) {
     return maximum;
 }
 
+inline bool normalized_eigen_residual(
+        Matrix const &subdivision, Matrix const &vectors,
+        Matrix const &canonical, Matrix const &residual,
+        char const *maximum) {
+    (void)canonical;
+    MpfrInterval const vector_norm = infinity_norm(vectors);
+    MpfrInterval const operator_scale = b2interval::multiply(
+        infinity_norm(subdivision), vector_norm);
+    MpfrInterval denominator(1);
+    if (mpfr_greater_p(operator_scale.lo(), denominator.hi())) {
+        denominator = MpfrInterval::point(operator_scale.lo());
+    }
+    if (!mpfr_greater_p(denominator.lo(), MpfrInterval(0).hi())) {
+        throw std::runtime_error("normalized eigen residual scale uncertified");
+    }
+    MpfrInterval const normalized = b2interval::divide(
+        infinity_norm(residual), denominator);
+    return b2interval::upper_at_most(normalized, maximum);
+}
+
 inline bool residual_contains_zero(Matrix const &residual,
                                    char const *maximum_width) {
     MpfrInterval bound = MpfrInterval::decimal(maximum_width);
@@ -313,6 +333,70 @@ inline std::size_t signed_pivot(Vector const &value) {
         }
     }
     throw std::runtime_error("eigenvector maximum pivot ordering uncertified");
+}
+
+inline bool krawczyk_simple_eigenpair(
+        Matrix const &subdivision, MpfrInterval const &eigenvalue,
+        Vector const &seed_vector) {
+    if (subdivision.empty() || subdivision.size() != seed_vector.size()) {
+        throw std::runtime_error("simple eigenpair Krawczyk shape mismatch");
+    }
+    std::size_t const size = seed_vector.size();
+    std::size_t const pivot = signed_pivot(seed_vector);
+    Vector normalized(size, MpfrInterval(0));
+    for (std::size_t row = 0; row < size; ++row) {
+        normalized[row] = b2interval::divide(
+            seed_vector[row], seed_vector[pivot]);
+    }
+    Matrix equation = subdivision;
+    for (std::size_t row = 0; row < size; ++row) {
+        equation[row][row] = b2interval::subtract(
+            equation[row][row], eigenvalue);
+    }
+    // Replace one redundant eigen equation by the deterministic signed-pivot
+    // normalization.  At least one row must give a nonsingular augmented
+    // system for a simple eigenvalue.
+    for (std::size_t removed = 0; removed < size; ++removed) {
+        try {
+            Matrix augmented = equation;
+            Matrix right = zero_matrix(size, 1);
+            for (std::size_t column = 0; column < size; ++column) {
+                augmented[removed][column] = MpfrInterval(
+                    column == pivot ? 1 : 0);
+            }
+            right[removed][0] = MpfrInterval(1);
+            Matrix approximate_inverse = midpoint_matrix(
+                interval_inverse(midpoint_matrix(augmented)));
+            Matrix residual_operator = subtract(
+                identity_matrix(size),
+                multiply(approximate_inverse, augmented));
+            Matrix center = zero_matrix(size, 1);
+            Matrix box_delta = zero_matrix(size, 1);
+            MpfrInterval const delta = MpfrInterval(0).expanded("1e-110");
+            for (std::size_t row = 0; row < size; ++row) {
+                center[row][0] = normalized[row].midpoint();
+                box_delta[row][0] = delta;
+            }
+            Matrix equation_residual = subtract(
+                multiply(augmented, center), right);
+            Matrix base = subtract(
+                center, multiply(approximate_inverse, equation_residual));
+            Matrix image = multiply(residual_operator, box_delta);
+            for (std::size_t row = 0; row < size; ++row) {
+                MpfrInterval const krawczyk = b2interval::add(
+                    base[row][0], image[row][0]);
+                if (!b2interval::strict_interior(
+                        krawczyk, center[row][0].expanded("1e-110"))) {
+                    throw std::runtime_error(
+                        "simple eigenpair Krawczyk inclusion failed");
+                }
+            }
+            return true;
+        } catch (std::runtime_error const &) {
+            // Exhaust the deterministic removed-equation order.
+        }
+    }
+    throw std::runtime_error("simple eigenpair Krawczyk inclusion failed");
 }
 
 struct DeterministicBlock {
@@ -787,7 +871,11 @@ inline Certification certify_eigenbasis(unsigned valence) {
     Matrix eigen_residual = subtract(
         multiply(subdivision, basis.vectors),
         multiply(basis.vectors, basis.canonical));
-    bool const eigen_ok = residual_contains_zero(eigen_residual, "1e-70");
+    bool const eigen_ok =
+        residual_contains_zero(eigen_residual, "1e-70") &&
+        normalized_eigen_residual(
+            subdivision, basis.vectors, basis.canonical,
+            eigen_residual, "1e-70");
     Matrix inverse = interval_inverse(basis.vectors);
     Matrix inverse_residual_left = subtract(
         multiply(basis.vectors, inverse), identity_matrix(basis.vectors.size()));
@@ -807,6 +895,7 @@ inline Certification certify_eigenbasis(unsigned valence) {
     bool const condition_ok = b2interval::upper_at_most(condition, "1e12");
     bool jordan_ok = true;
     bool projector_ok = false;
+    bool krawczyk_ok = true;
     if (valence == 3) {
         for (unsigned exponent = 0; exponent <= 12; ++exponent) {
             Matrix const residual = subtract(
@@ -821,12 +910,27 @@ inline Certification certify_eigenbasis(unsigned valence) {
         // source-ID-ordered MGS acceptance protocol.
     }
     std::size_t certified_blocks = 0;
+    std::size_t certified_simple_pairs = 0;
     for (std::size_t begin = 0; begin < seed.eigenvalues.size();) {
         std::size_t end = begin + 1;
         while (end < seed.eigenvalues.size() &&
                certified_same_value(seed.eigenvalues[begin],
                                     seed.eigenvalues[end])) ++end;
-        if (end - begin > 1) {
+        for (std::size_t other = 0; other < seed.eigenvalues.size(); ++other) {
+            if (other >= begin && other < end) continue;
+            MpfrInterval const &left = seed.eigenvalues[begin];
+            MpfrInterval const &right = seed.eigenvalues[other];
+            if (!mpfr_greater_p(left.lo(), right.hi()) &&
+                !mpfr_greater_p(right.lo(), left.hi())) {
+                throw std::runtime_error("eigenvalue block separation failed");
+            }
+        }
+        if (end - begin == 1) {
+            krawczyk_ok = krawczyk_ok && krawczyk_simple_eigenpair(
+                subdivision, seed.eigenvalues[begin],
+                matrix_column(seed.vectors, begin));
+            ++certified_simple_pairs;
+        } else {
             std::vector<std::size_t> columns;
             for (std::size_t column = begin; column < end; ++column)
                 columns.push_back(column);
@@ -843,7 +947,8 @@ inline Certification certify_eigenbasis(unsigned valence) {
     }
     (void)tangent_projector(valence);
     projector_ok = constant_ok && certified_blocks > 0;
-    return {valence, basis.vectors.size(), eigen_ok, true, inverse_ok,
+    krawczyk_ok = krawczyk_ok && certified_simple_pairs > 0;
+    return {valence, basis.vectors.size(), eigen_ok, krawczyk_ok, inverse_ok,
             condition_ok, jordan_ok, projector_ok, projector_ok,
             projector_ok};
 }

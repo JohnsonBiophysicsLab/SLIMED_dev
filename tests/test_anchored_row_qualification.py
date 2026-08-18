@@ -1341,6 +1341,23 @@ class AnchoredRowQualificationTests(unittest.TestCase):
                     make_oracle("oracle-reordered", reverse=True),
                     requests, identifiers, timeout=10))
 
+    def test_oracle_batch_timeout_kills_descendant_pipe_holders(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            oracle = pathlib.Path(temporary) / "stalling-oracle"
+            oracle.write_text(
+                "#!/bin/sh\n"
+                "(sleep 30) &\n"
+                "sleep 30\n", encoding="utf-8")
+            oracle.chmod(0o755)
+            identifier = "a" * 64
+            request = "{}\t/mesh\tnone\t0\t-1\t{}\t{}\n".format(
+                identifier, "0" * 16, "0" * 16)
+            started = time.monotonic()
+            with self.assertRaises(MODULE.QualificationError):
+                list(MODULE.iter_oracle_batch_observations(
+                    oracle, [request], [identifier], timeout=0.2))
+            self.assertLess(time.monotonic() - started, 6.0)
+
     def test_independent_oracle_capability_and_self_test_are_closed(self):
         capability = {
             "schema_version": 1,
@@ -1374,6 +1391,7 @@ class AnchoredRowQualificationTests(unittest.TestCase):
             "mpfr_compile_version": "4.2.2",
             "mpfr_runtime_version": "4.2.2",
             "directed_rounding": True,
+            "single_rounding_direction_mutations_rejected": True,
             "zero_denominator_rejected": True,
             "candidate_dependency_free": True,
             "stock_loop_matrix_constructed_from_masks": True,
@@ -1546,7 +1564,10 @@ class AnchoredRowQualificationTests(unittest.TestCase):
                     value["primary_depth_intervals"])
                 value["intersected_primary_intervals"] = copy.deepcopy(
                     derivative_intervals)
-        MODULE.validate_oracle_sample_observation(oracle_observation)
+        with self.assertRaises(MODULE.QualificationError):
+            MODULE.validate_oracle_sample_observation(oracle_observation)
+        MODULE.validate_oracle_sample_observation(
+            oracle_observation, MODULE._ORACLE_CERTIFICATION_AUTHORITY)
 
         with tempfile.TemporaryDirectory() as temporary:
             root = pathlib.Path(temporary)
@@ -3299,6 +3320,14 @@ class AnchoredRowQualificationTests(unittest.TestCase):
         self.assertIn("EIGENBASIS_CERTIFICATION_FAILED", oracle)
         self.assertIn("PARAMETRIC_MAP_CHECK_FAILED", oracle)
         self.assertIn("TANGENT_PROJECTION_CHECK_FAILED", oracle)
+        self.assertIn('"DIRECTED_INTERVAL_PRIMITIVE_FAILED"', oracle)
+        self.assertIn('"INTERVAL_BRANCH_ORDERING_UNCERTIFIED"', oracle)
+        self.assertIn("directed_rounding_mutation_self_test", oracle)
+        self.assertNotIn("mpfr_sin", (
+            ROOT / "experiments/bfr_qualification/mpfr_interval.hpp"
+        ).read_text(encoding="utf-8"))
+        self.assertIn("selected_face_distances", oracle)
+        self.assertNotIn("for(auto const &face:state.mesh.faces)", oracle)
         self.assertNotIn('#include "stam_box_spline.hpp"', uniform)
         self.assertIn('#include "stam_uniform_box_spline.hpp"', uniform)
         forged = MODULE._valid_oracle_covered_record()
@@ -3323,10 +3352,30 @@ class AnchoredRowQualificationTests(unittest.TestCase):
             dependency = root / "oracle.d"
             link_map = root / "oracle.map"
             dynamic = root / "oracle.otool-L"
+            dependency_root = root / "mpfr"
+            include_root = dependency_root / "include"
+            library_root = dependency_root / "lib"
+            include_root.mkdir(parents=True)
+            library_root.mkdir(parents=True)
+            mpfr_header = include_root / "mpfr.h"
+            gmp_header = include_root / "gmp.h"
+            mpfr_library = library_root / "libmpfr.6.dylib"
+            gmp_library = library_root / "libgmp.10.dylib"
+            for path, data in ((mpfr_header, b"mpfr header\n"),
+                               (gmp_header, b"gmp header\n"),
+                               (mpfr_library, b"mpfr library\n"),
+                               (gmp_library, b"gmp library\n")):
+                path.write_bytes(data)
+            dynamic_bytes = (
+                (str(binary) + ":\n\t" + str(mpfr_library) +
+                 " (compatibility version 7.0.0, current version 7.2.2)\n" +
+                 "\t" + str(gmp_library) +
+                 " (compatibility version 11.0.0, current version 11.0.0)\n")
+                .encode("utf-8"))
             for path, data in ((binary, b"binary"),
                                (dependency, b"dependency\n"),
                                (link_map, b"# Path: stam_oracle\n"),
-                               (dynamic, b"stam_oracle:\n\t/usr/lib/libmpfr.6.dylib\n")):
+                               (dynamic, dynamic_bytes)):
                 path.write_bytes(data)
             command = [
                 MODULE.B2.EXPECTED_COMPILER_PATH,
@@ -3335,10 +3384,10 @@ class AnchoredRowQualificationTests(unittest.TestCase):
                 "-Wextra", "-Wpedantic", "-Werror", "-isysroot",
                 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk",
                 "-mmacosx-version-min=26.0", "-MMD", "-MF", str(dependency),
-                "-I/private/tmp/mpfr/include",
+                "-I" + str(include_root),
                 "experiments/bfr_qualification/stam_oracle.cpp",
-                "-L/private/tmp/mpfr/lib",
-                "-Wl,-rpath,/private/tmp/mpfr/lib", "-lmpfr", "-lgmp",
+                "-L" + str(library_root),
+                "-Wl,-rpath," + str(library_root), "-lmpfr", "-lgmp",
                 "-Wl,-map," + str(link_map), "-o", str(binary)]
             command_path = root / "oracle.command"
             command_path.write_text("\n".join(command) + "\n", encoding="utf-8")
@@ -3346,6 +3395,9 @@ class AnchoredRowQualificationTests(unittest.TestCase):
                              "sha256": MODULE.sha256_file(ROOT / relative)}
                             for relative in MODULE.RUNTIME_SOURCE_PATHS[
                                 "independent_oracle"]]
+            dependencies.extend({"path": str(path),
+                                 "sha256": MODULE.sha256_file(path)}
+                                for path in (mpfr_header, gmp_header))
 
             def completed(argv, **unused):
                 output = (dynamic.read_bytes() if argv[1] == "-L" else
@@ -3357,8 +3409,17 @@ class AnchoredRowQualificationTests(unittest.TestCase):
                                       return_value=dependencies), \
                     mock.patch.object(MODULE.subprocess, "run",
                                       side_effect=completed):
+                sealed = root / "oracle.dynamic-audit.json"
                 self.assertEqual(MODULE.audit_oracle_independence(
-                    binary, command_path, link_map, dynamic), "PASS")
+                    binary, command_path, link_map, dynamic,
+                    sealed_output_path=sealed), "PASS")
+                self.assertEqual(MODULE.audit_oracle_independence(
+                    binary, command_path, link_map, sealed), "PASS")
+                mpfr_library.write_bytes(b"tampered mpfr library\n")
+                with self.assertRaises(MODULE.QualificationError):
+                    MODULE.audit_oracle_independence(
+                        binary, command_path, link_map, sealed)
+                mpfr_library.write_bytes(b"mpfr library\n")
 
             for injected in ("@/private/tmp/oracle-extra.rsp", "-include"):
                 command_path.write_text(
@@ -3654,7 +3715,7 @@ class AnchoredRowQualificationTests(unittest.TestCase):
         instrumentation_digest = "a" * 64
         report = b"WARNING: ThreadSanitizer: data race\nexact report\n"
         report_digest = MODULE.sha256_bytes(report)
-        provenance = {
+        finding_provenance = {
             "kind": "d12_process_provenance_v1",
             "process_tuple_sha256": MODULE.sha256_bytes(
                 MODULE.jcs_bytes(base_key[:5])),
@@ -3665,6 +3726,13 @@ class AnchoredRowQualificationTests(unittest.TestCase):
             "end_utc": "2026-08-16T00:00:01Z",
             "exit_kind": "EXITED", "exit_code": 66, "signal": None,
             "stderr_sha256": report_digest}
+        instrumentation_provenance = copy.deepcopy(finding_provenance)
+        instrumentation_provenance.update({
+            "executable_sha256": "f" * 64,
+            "argv_sha256": "e" * 64,
+            "pid": 122,
+            "exit_code": 0,
+            "stderr_sha256": MODULE.sha256_bytes(b"")})
         instrumentation_payload = {
             "kind": "d12_tsan_instrumentation_raw_v1",
             "state": "COMPLETE",
@@ -3680,13 +3748,16 @@ class AnchoredRowQualificationTests(unittest.TestCase):
                 finding_key)
             report_path.parent.mkdir(parents=True)
             report_path.write_bytes(report)
-            artifact = MODULE.D12ProcessObservationArtifact(root)
+            artifact = MODULE.D12ProcessObservationArtifact(
+                root, {instrumentation_provenance["executable_sha256"],
+                       finding_provenance["executable_sha256"]})
             try:
                 artifact.add("d12_instrumented_tsan", [
                     instrumentation_key, instrumentation_payload,
-                    copy.deepcopy(provenance)])
+                    copy.deepcopy(instrumentation_provenance)])
                 artifact.add("d12_instrumented_tsan", [
-                    finding_key, finding_payload, copy.deepcopy(provenance)])
+                    finding_key, finding_payload,
+                    copy.deepcopy(finding_provenance)])
                 descriptor = artifact.finish(2)
                 verifier = MODULE.D12EvidenceVerifier(
                     root, expected_instrumented_translation_units=
@@ -3740,13 +3811,31 @@ class AnchoredRowQualificationTests(unittest.TestCase):
                 artifact.close()
 
         with tempfile.TemporaryDirectory() as temporary:
+            artifact = MODULE.D12ProcessObservationArtifact(
+                temporary, {
+                    instrumentation_provenance["executable_sha256"],
+                    "9" * 64})
+            try:
+                artifact.add("d12_instrumented_tsan", [
+                    instrumentation_key, instrumentation_payload,
+                    copy.deepcopy(instrumentation_provenance)])
+                artifact.add("d12_instrumented_tsan", [
+                    finding_key, finding_payload,
+                    copy.deepcopy(finding_provenance)])
+                with self.assertRaises(MODULE.QualificationError):
+                    artifact.finish(2)
+            finally:
+                artifact.close()
+
+        with tempfile.TemporaryDirectory() as temporary:
             artifact = MODULE.D12ProcessObservationArtifact(temporary)
             try:
                 artifact.add("d12_instrumented_tsan", [
                     instrumentation_key, instrumentation_payload,
-                    copy.deepcopy(provenance)])
-                changed = copy.deepcopy(provenance)
-                changed["stderr_sha256"] = "e" * 64
+                    copy.deepcopy(instrumentation_provenance)])
+                changed = copy.deepcopy(finding_provenance)
+                changed["executable_sha256"] = \
+                    instrumentation_provenance["executable_sha256"]
                 artifact.add("d12_instrumented_tsan", [
                     finding_key, finding_payload, changed])
                 with self.assertRaises(MODULE.QualificationError):
@@ -3940,7 +4029,12 @@ class AnchoredRowQualificationTests(unittest.TestCase):
                         MODULE.B2, "expected_threading_identities",
                         return_value=identities), mock.patch.object(
                             MODULE.B2, "valid_content_jobs",
-                            return_value=jobs):
+                            return_value=jobs), mock.patch.object(
+                            MODULE, "_d12_rebuild_environment",
+                            return_value={
+                                "LANG": "C", "LC_ALL": "C",
+                                "SOURCE_DATE_EPOCH": "0", "TZ": "UTC",
+                                "ZERO_AR_DATE": "1", "TMPDIR": "/tmp"}):
                     sidecars, aborts = MODULE.execute_d12_worker_streams(
                         binary, representation_binary, {}, output_root,
                         references, artifact,
@@ -4016,7 +4110,12 @@ class AnchoredRowQualificationTests(unittest.TestCase):
                         MODULE.B2, "expected_threading_identities",
                         return_value=identities), mock.patch.object(
                             MODULE.B2, "valid_content_jobs",
-                            return_value=jobs):
+                            return_value=jobs), mock.patch.object(
+                            MODULE, "_d12_rebuild_environment",
+                            return_value={
+                                "LANG": "C", "LC_ALL": "C",
+                                "SOURCE_DATE_EPOCH": "0", "TZ": "UTC",
+                                "ZERO_AR_DATE": "1", "TMPDIR": "/tmp"}):
                     sidecars, aborts = MODULE.execute_d12_worker_streams(
                         provider_binary, representation_binary, {},
                         output_root, references, artifact,
@@ -4035,7 +4134,15 @@ class AnchoredRowQualificationTests(unittest.TestCase):
                         representation_inodes.add(path.stat().st_ino)
                 self.assertEqual(len(provider_inodes), 1)
                 self.assertEqual(len(representation_inodes), 1)
-                artifact.finish(2)
+                descriptor = artifact.finish(2)
+                process_records = json.loads(
+                    (output_root / descriptor["relative_path"]).read_text(
+                        encoding="utf-8"))
+                self.assertEqual(
+                    {record[2]["executable_sha256"]
+                     for record in process_records},
+                    {MODULE.sha256_file(provider_binary),
+                     MODULE.sha256_file(representation_binary)})
             finally:
                 artifact.close()
 
