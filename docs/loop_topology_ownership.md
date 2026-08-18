@@ -39,9 +39,32 @@ cycles, and disconnected meshes. Diagnostics retain deterministic edge
 incidence counts, both vertex-link degree and connectivity failures, component
 and boundary-loop counts, Euler characteristic, and per-vertex valence.
 
-The test-only friend accessor can omit one check at a time. Tests demonstrate
-that every omission admits a mesh rejected by the ordinary entry point; callers
-cannot select that path.
+`build()` is the only entry point, and there is no second, less-validated one:
+the type exposes no private builder, no validation-check mask, and no friend
+declaration, so no translation unit can obtain ownership that skipped a check.
+An earlier revision did carry a mask builder reachable through a friend
+declared but not defined in this header; because that name was injected at
+global scope, any translation unit could claim it and publish unvalidated
+ownership, so both the mask and the friend were removed rather than hidden.
+
+Check sensitivity is instead demonstrated through the public entry point.
+`build()` applies its checks in a fixed precedence order and returns the first
+matching reason code, so a fixture whose earliest violated check is X must
+produce X's own code; deleting X changes the observed code or accepts the mesh
+outright. Each fixture is additionally shown to leave every strictly earlier
+signature clean, which is what makes X decisive. Later signatures are left
+unconstrained deliberately: a fixture may violate a later check too, and
+precedence already settles which one rejected it. All ten checks are verified
+load-bearing this way.
+
+Note one deliberate asymmetry the tests rely on: `edge_incidence_counts` is raw
+evidence and counts every incident face, while the edge-incidence check first
+attributes duplicate faces away. The two therefore disagree for a
+duplicate-face mesh, which is why sensitivity is argued from precedence rather
+than by re-deriving the attribution rule in the test.
+
+All names live in `namespace slimed::loop_topology`, matching the repository's
+`slimed::<lane>` convention, so nothing in this header occupies global scope.
 
 ## Evidence contract
 

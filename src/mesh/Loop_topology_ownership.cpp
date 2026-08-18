@@ -7,6 +7,9 @@
 #include <set>
 #include <tuple>
 
+namespace slimed::loop_topology
+{
+
 namespace
 {
 struct ParsedFace
@@ -26,11 +29,6 @@ std::array<LoopTopologyVertexId, 3> canonical_face(
 {
     std::sort(vertices.begin(), vertices.end());
     return vertices;
-}
-
-bool check_enabled(unsigned int checks, unsigned int check)
-{
-    return (checks & check) != 0u;
 }
 
 std::size_t count_graph_components(
@@ -202,16 +200,6 @@ const char* loop_topology_reason_code_name(LoopTopologyReasonCode code)
 LoopTopologyBuildResult LoopTopologyOwnershipIndex::build(
     std::size_t vertex_count,
     const std::vector<Face>& faces)
-{
-    return build_with_validation_checks(vertex_count, faces,
-                                        all_validation_checks);
-}
-
-LoopTopologyBuildResult
-LoopTopologyOwnershipIndex::build_with_validation_checks(
-    std::size_t vertex_count,
-    const std::vector<Face>& faces,
-    unsigned int validation_checks)
 {
     LoopTopologyBuildResult result;
     result.diagnostics.vertex_count = vertex_count;
@@ -462,67 +450,47 @@ LoopTopologyOwnershipIndex::build_with_validation_checks(
         return false;
     };
 
-    if (check_enabled(validation_checks,
-                      static_cast<unsigned int>(ValidationCheck::triangle)) &&
-        !result.diagnostics.non_triangular_faces.empty())
+    if (!result.diagnostics.non_triangular_faces.empty())
     {
         result.reason = LoopTopologyReasonCode::non_triangular_face;
     }
-    else if (check_enabled(validation_checks,
-                           static_cast<unsigned int>(ValidationCheck::vertex_range)) &&
-             !result.diagnostics.vertex_id_out_of_range_faces.empty())
+    else if (!result.diagnostics.vertex_id_out_of_range_faces.empty())
     {
         result.reason = LoopTopologyReasonCode::vertex_id_out_of_range;
     }
-    else if (check_enabled(validation_checks,
-                           static_cast<unsigned int>(ValidationCheck::repeated_vertex)) &&
-             !result.diagnostics.repeated_vertex_faces.empty())
+    else if (!result.diagnostics.repeated_vertex_faces.empty())
     {
         result.reason = LoopTopologyReasonCode::repeated_vertex_in_face;
     }
-    else if (check_enabled(validation_checks,
-                           static_cast<unsigned int>(ValidationCheck::duplicate_face)) &&
-             !result.diagnostics.duplicate_faces.empty())
+    else if (!result.diagnostics.duplicate_faces.empty())
     {
         result.reason = LoopTopologyReasonCode::duplicate_face;
     }
-    else if (check_enabled(validation_checks,
-                           static_cast<unsigned int>(ValidationCheck::unused_vertex)) &&
-             !result.diagnostics.unused_vertices.empty())
+    else if (!result.diagnostics.unused_vertices.empty())
     {
         result.reason = LoopTopologyReasonCode::unused_vertex;
     }
-    else if (check_enabled(validation_checks,
-                           static_cast<unsigned int>(ValidationCheck::edge_incidence)) &&
-             has_unattributed_edge_count(true))
+    else if (has_unattributed_edge_count(true))
     {
         result.reason =
             LoopTopologyReasonCode::edge_has_more_than_two_incident_faces;
     }
-    else if (check_enabled(validation_checks,
-                           static_cast<unsigned int>(ValidationCheck::edge_incidence)) &&
-             has_unattributed_edge_count(false))
+    else if (has_unattributed_edge_count(false))
     {
         result.reason = LoopTopologyReasonCode::edge_has_one_incident_face;
     }
-    else if (check_enabled(validation_checks,
-                           static_cast<unsigned int>(ValidationCheck::edge_orientation)) &&
-             !result.diagnostics.inconsistently_oriented_edges.empty())
+    else if (!result.diagnostics.inconsistently_oriented_edges.empty())
     {
         result.reason =
             LoopTopologyReasonCode::inconsistent_shared_edge_orientation;
     }
-    else if (check_enabled(validation_checks,
-                           static_cast<unsigned int>(ValidationCheck::vertex_link)) &&
-             (!result.diagnostics.vertex_link_degree_failures.empty() ||
-              !result.diagnostics.disconnected_vertex_links.empty()))
+    else if (!result.diagnostics.vertex_link_degree_failures.empty() ||
+             !result.diagnostics.disconnected_vertex_links.empty())
     {
         result.reason = LoopTopologyReasonCode::
             vertex_link_not_connected_degree_two_cycle;
     }
-    else if (check_enabled(validation_checks,
-                           static_cast<unsigned int>(ValidationCheck::connected_mesh)) &&
-             result.diagnostics.connected_component_count != 1u)
+    else if (result.diagnostics.connected_component_count != 1u)
     {
         result.reason = LoopTopologyReasonCode::disconnected_mesh;
     }
@@ -567,3 +535,5 @@ LoopTopologyOwnershipIndex::build_with_validation_checks(
     result.ownership = std::move(candidate);
     return result;
 }
+
+} // namespace slimed::loop_topology

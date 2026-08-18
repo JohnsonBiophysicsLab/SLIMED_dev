@@ -15,42 +15,7 @@
 
 #include "mesh/Loop_topology_ownership.hpp"
 
-class LoopTopologyOwnershipTestAccess
-{
-public:
-    enum Check : unsigned int
-    {
-        triangle = static_cast<unsigned int>(
-            LoopTopologyOwnershipIndex::ValidationCheck::triangle),
-        vertex_range = static_cast<unsigned int>(
-            LoopTopologyOwnershipIndex::ValidationCheck::vertex_range),
-        repeated_vertex = static_cast<unsigned int>(
-            LoopTopologyOwnershipIndex::ValidationCheck::repeated_vertex),
-        duplicate_face = static_cast<unsigned int>(
-            LoopTopologyOwnershipIndex::ValidationCheck::duplicate_face),
-        unused_vertex = static_cast<unsigned int>(
-            LoopTopologyOwnershipIndex::ValidationCheck::unused_vertex),
-        edge_incidence = static_cast<unsigned int>(
-            LoopTopologyOwnershipIndex::ValidationCheck::edge_incidence),
-        edge_orientation = static_cast<unsigned int>(
-            LoopTopologyOwnershipIndex::ValidationCheck::edge_orientation),
-        vertex_link = static_cast<unsigned int>(
-            LoopTopologyOwnershipIndex::ValidationCheck::vertex_link),
-        connected_mesh = static_cast<unsigned int>(
-            LoopTopologyOwnershipIndex::ValidationCheck::connected_mesh)
-    };
-
-    static LoopTopologyBuildResult build_omitting(
-        std::size_t vertex_count,
-        const std::vector<Face>& faces,
-        Check omitted)
-    {
-        return LoopTopologyOwnershipIndex::build_with_validation_checks(
-            vertex_count, faces,
-            LoopTopologyOwnershipIndex::all_validation_checks &
-                ~static_cast<unsigned int>(omitted));
-    }
-};
+using namespace slimed::loop_topology;
 
 namespace
 {
@@ -604,42 +569,157 @@ TEST(LoopTopologyOwnership, PreservesSignedOrientationUnderWholeMeshReversal)
     }
 }
 
+// Each validation check must be load-bearing, proved through the ordinary
+// public entry point only.
+//
+// build() applies its checks in a fixed precedence order and returns the first
+// matching reason code.  So for a fixture whose earliest violated check is X,
+// build() must report X's own code; if X were deleted the fixture would fall
+// through to a different code, or be accepted outright, and the assertion
+// below would fail.  That is the sensitivity property, and it needs no
+// privileged access to a check mask.
+//
+// The companion assertion is what makes the argument sound: every signature
+// STRICTLY EARLIER than the expected one must be clean, so no earlier check
+// could have been the decisive one.  Signatures later in the order are left
+// unconstrained on purpose - a fixture may legitimately violate a later check
+// too, and precedence already guarantees it is not the one deciding.
+//
+// Note that edge_incidence_counts is raw evidence and counts every incident
+// face, while build()'s own edge-incidence check attributes duplicates away
+// first.  The two therefore disagree for a duplicate-face fixture, which is
+// exactly why this helper reasons about precedence rather than re-deriving
+// the check's attribution rule here.
+namespace
+{
+// Must match the precedence order in LoopTopologyOwnershipIndex::build.
+enum class DefectSignature
+{
+    non_triangular = 0,
+    vertex_out_of_range = 1,
+    repeated_vertex = 2,
+    duplicate_face = 3,
+    unused_vertex = 4,
+    edge_incidence = 5,
+    edge_orientation = 6,
+    vertex_link = 7,
+    disconnected = 8
+};
+
+void expect_decisive_rejection(std::size_t vertex_count,
+                               const std::vector<Face>& faces,
+                               LoopTopologyReasonCode expected_reason,
+                               DefectSignature expected_signature)
+{
+    const auto before = face_vertices(faces);
+    const auto result = LoopTopologyOwnershipIndex::build(vertex_count, faces);
+
+    EXPECT_FALSE(result.accepted());
+    EXPECT_EQ(result.reason, expected_reason)
+        << "expected " << loop_topology_reason_code_name(expected_reason)
+        << " but got " << loop_topology_reason_code_name(result.reason);
+    EXPECT_FALSE(result.ownership.has_value());
+    EXPECT_EQ(face_vertices(faces), before);
+
+    const auto& diagnostics = result.diagnostics;
+    bool raw_unattributed_edge = false;
+    for (const auto& entry : diagnostics.edge_incidence_counts)
+    {
+        if (entry.incident_face_count != 2u)
+        {
+            raw_unattributed_edge = true;
+        }
+    }
+
+    const std::array<std::pair<bool, const char*>, 9> signatures{{
+        {!diagnostics.non_triangular_faces.empty(), "non_triangular_faces"},
+        {!diagnostics.vertex_id_out_of_range_faces.empty(),
+         "vertex_id_out_of_range_faces"},
+        {!diagnostics.repeated_vertex_faces.empty(), "repeated_vertex_faces"},
+        {!diagnostics.duplicate_faces.empty(), "duplicate_faces"},
+        {!diagnostics.unused_vertices.empty(), "unused_vertices"},
+        {raw_unattributed_edge, "edge_incidence_counts"},
+        {!diagnostics.inconsistently_oriented_edges.empty(),
+         "inconsistently_oriented_edges"},
+        {!diagnostics.vertex_link_degree_failures.empty() ||
+             !diagnostics.disconnected_vertex_links.empty(),
+         "vertex_link failures"},
+        {diagnostics.connected_component_count != 1u,
+         "connected_component_count"}}};
+
+    const std::size_t expected_index =
+        static_cast<std::size_t>(expected_signature);
+    for (std::size_t index = 0; index < expected_index; ++index)
+    {
+        EXPECT_FALSE(signatures[index].first)
+            << signatures[index].second << " failed earlier in precedence "
+            << "than " << loop_topology_reason_code_name(expected_reason)
+            << ", so that code cannot be the decisive one";
+    }
+    EXPECT_TRUE(signatures[expected_index].first)
+        << signatures[expected_index].second << " did not fail, so it cannot "
+        << "be the check that rejected this fixture";
+}
+} // namespace
+
 TEST(LoopTopologyOwnership, EveryValidationCheckHasRejectionSensitivity)
 {
     auto non_triangle = tetrahedron_faces(0, 1);
     append_face(non_triangle, {0, 1, 2, 3});
+    expect_decisive_rejection(
+        4, non_triangle, LoopTopologyReasonCode::non_triangular_face,
+        DefectSignature::non_triangular);
+
     auto out_of_range = tetrahedron_faces(0, 1);
     append_face(out_of_range, {0, 1, 4});
+    expect_decisive_rejection(
+        4, out_of_range, LoopTopologyReasonCode::vertex_id_out_of_range,
+        DefectSignature::vertex_out_of_range);
+
     auto repeated = tetrahedron_faces(0, 1);
     append_face(repeated, {0, 0, 1});
+    expect_decisive_rejection(
+        4, repeated, LoopTopologyReasonCode::repeated_vertex_in_face,
+        DefectSignature::repeated_vertex);
+
     auto duplicate = tetrahedron_faces(0, 1);
     append_face(duplicate, {0, 2, 1});
+    expect_decisive_rejection(
+        4, duplicate, LoopTopologyReasonCode::duplicate_face,
+        DefectSignature::duplicate_face);
+
+    expect_decisive_rejection(
+        5, tetrahedron_faces(), LoopTopologyReasonCode::unused_vertex,
+        DefectSignature::unused_vertex);
+
     auto boundary = tetrahedron_faces();
     boundary.pop_back();
+    expect_decisive_rejection(
+        4, boundary, LoopTopologyReasonCode::edge_has_one_incident_face,
+        DefectSignature::edge_incidence);
+
+    auto non_manifold_edge = tetrahedron_faces(0, 1);
+    append_face(non_manifold_edge, {0, 1, 4});
+    expect_decisive_rejection(
+        5, non_manifold_edge,
+        LoopTopologyReasonCode::edge_has_more_than_two_incident_faces,
+        DefectSignature::edge_incidence);
+
     auto same_direction = tetrahedron_faces();
     same_direction[0].adjacentVertices = {0, 1, 2};
+    expect_decisive_rejection(
+        4, same_direction,
+        LoopTopologyReasonCode::inconsistent_shared_edge_orientation,
+        DefectSignature::edge_orientation);
 
-    auto expect_sensitive = [](std::size_t vertex_count,
-                               const std::vector<Face>& faces,
-                               LoopTopologyOwnershipTestAccess::Check check)
-    {
-        EXPECT_FALSE(LoopTopologyOwnershipIndex::build(
-                         vertex_count, faces).accepted());
-        EXPECT_TRUE(LoopTopologyOwnershipTestAccess::build_omitting(
-                        vertex_count, faces, check).accepted());
-    };
-    expect_sensitive(4, non_triangle, LoopTopologyOwnershipTestAccess::triangle);
-    expect_sensitive(4, out_of_range, LoopTopologyOwnershipTestAccess::vertex_range);
-    expect_sensitive(4, repeated, LoopTopologyOwnershipTestAccess::repeated_vertex);
-    expect_sensitive(4, duplicate, LoopTopologyOwnershipTestAccess::duplicate_face);
-    const auto unused = tetrahedron_faces();
-    expect_sensitive(5, unused, LoopTopologyOwnershipTestAccess::unused_vertex);
-    expect_sensitive(4, boundary, LoopTopologyOwnershipTestAccess::edge_incidence);
-    expect_sensitive(4, same_direction, LoopTopologyOwnershipTestAccess::edge_orientation);
-    const auto pinched = pinched_vertex_faces();
-    expect_sensitive(7, pinched, LoopTopologyOwnershipTestAccess::vertex_link);
-    const auto disconnected = disconnected_faces();
-    expect_sensitive(8, disconnected, LoopTopologyOwnershipTestAccess::connected_mesh);
+    expect_decisive_rejection(
+        7, pinched_vertex_faces(),
+        LoopTopologyReasonCode::vertex_link_not_connected_degree_two_cycle,
+        DefectSignature::vertex_link);
+
+    expect_decisive_rejection(
+        8, disconnected_faces(), LoopTopologyReasonCode::disconnected_mesh,
+        DefectSignature::disconnected);
 }
 
 TEST(LoopTopologyOwnership, ConstructionTimingMeasurementOnLargestFixture)

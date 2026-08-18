@@ -9,6 +9,9 @@
 
 #include "mesh/Face.hpp"
 
+namespace slimed::loop_topology
+{
+
 using LoopTopologyVertexId = int;
 using LoopTopologyFaceId = int;
 
@@ -165,28 +168,6 @@ class LoopTopologyOwnershipIndex
 public:
     static LoopTopologyBuildResult build(std::size_t vertex_count,
                                          const std::vector<Face>& faces);
-
-private:
-    enum class ValidationCheck : unsigned int
-    {
-        triangle = 1u << 0,
-        vertex_range = 1u << 1,
-        repeated_vertex = 1u << 2,
-        duplicate_face = 1u << 3,
-        unused_vertex = 1u << 4,
-        edge_incidence = 1u << 5,
-        edge_orientation = 1u << 6,
-        vertex_link = 1u << 7,
-        connected_mesh = 1u << 8
-    };
-
-    static constexpr unsigned int all_validation_checks =
-        (1u << 9) - 1u;
-
-    static LoopTopologyBuildResult build_with_validation_checks(
-        std::size_t vertex_count,
-        const std::vector<Face>& faces,
-        unsigned int validation_checks);
-
-    friend class LoopTopologyOwnershipTestAccess;
 };
+
+} // namespace slimed::loop_topology
