@@ -16,7 +16,8 @@ constexpr mpfr_prec_t kPrecision = 544;
 inline void reject_bad_flags(char const *operation) {
     if (mpfr_nanflag_p() || mpfr_divby0_p() || mpfr_overflow_p() ||
         mpfr_underflow_p() || mpfr_erangeflag_p()) {
-        throw std::runtime_error(std::string("MPFR flag failure in ") + operation);
+        throw std::runtime_error(
+            std::string("DIRECTED_INTERVAL_PRIMITIVE_FAILED ") + operation);
     }
 }
 
@@ -38,7 +39,8 @@ public:
 
     static MpfrInterval rational(long numerator, unsigned long denominator) {
         if (denominator == 0) {
-            throw std::runtime_error("zero rational denominator");
+            throw std::runtime_error(
+                "DIRECTED_INTERVAL_PRIMITIVE_FAILED zero rational denominator");
         }
         MpfrInterval out;
         mpfr_clear_flags();
@@ -53,7 +55,8 @@ public:
 
     static MpfrInterval exact_double(double value) {
         if (!std::isfinite(value)) {
-            throw std::runtime_error("nonfinite binary64 import");
+            throw std::runtime_error(
+                "DIRECTED_INTERVAL_PRIMITIVE_FAILED nonfinite binary64 import");
         }
         MpfrInterval out;
         mpfr_clear_flags();
@@ -61,7 +64,8 @@ public:
         int const hi_ternary = mpfr_set_d(out.hi_, value, MPFR_RNDN);
         reject_bad_flags("binary64 import");
         if (lo_ternary != 0 || hi_ternary != 0) {
-            throw std::runtime_error("inexact binary64 import");
+            throw std::runtime_error(
+                "DIRECTED_INTERVAL_PRIMITIVE_FAILED inexact binary64 import");
         }
         out.validate();
         return out;
@@ -72,7 +76,8 @@ public:
         mpfr_clear_flags();
         if (mpfr_set(out.lo_, value, MPFR_RNDN) != 0 ||
             mpfr_set(out.hi_, value, MPFR_RNDN) != 0) {
-            throw std::runtime_error("inexact MPFR point import");
+            throw std::runtime_error(
+                "DIRECTED_INTERVAL_PRIMITIVE_FAILED inexact MPFR point import");
         }
         reject_bad_flags("MPFR point import");
         out.validate();
@@ -94,7 +99,8 @@ public:
         mpfr_clear_flags();
         if (mpfr_set_str(out.lo_, value, 10, MPFR_RNDD) != 0 ||
             mpfr_set_str(out.hi_, value, 10, MPFR_RNDU) != 0) {
-            throw std::runtime_error("invalid exact decimal interval");
+            throw std::runtime_error(
+                "DIRECTED_INTERVAL_PRIMITIVE_FAILED invalid decimal import");
         }
         reject_bad_flags("decimal import");
         out.validate();
@@ -126,7 +132,8 @@ public:
 
     void validate() const {
         if (!mpfr_number_p(lo_) || !mpfr_number_p(hi_) || mpfr_greater_p(lo_, hi_)) {
-            throw std::runtime_error("invalid finite interval");
+            throw std::runtime_error(
+                "DIRECTED_INTERVAL_PRIMITIVE_FAILED invalid finite interval");
         }
     }
 
@@ -153,7 +160,8 @@ public:
     MpfrInterval expanded(char const *radius) const {
         MpfrInterval delta = decimal(radius);
         if (mpfr_sgn(delta.lo()) < 0) {
-            throw std::runtime_error("negative interval expansion");
+            throw std::runtime_error(
+                "DIRECTED_INTERVAL_PRIMITIVE_FAILED negative expansion");
         }
         MpfrInterval out;
         mpfr_clear_flags();
@@ -251,7 +259,8 @@ inline MpfrInterval multiply(MpfrInterval const &a, MpfrInterval const &b) {
 
 inline MpfrInterval reciprocal(MpfrInterval const &value) {
     if (mpfr_sgn(value.lo()) <= 0 && mpfr_sgn(value.hi()) >= 0) {
-        throw std::runtime_error("division interval contains zero");
+        throw std::runtime_error(
+            "DIRECTED_INTERVAL_PRIMITIVE_FAILED division contains zero");
     }
     MpfrInterval out;
     mpfr_clear_flags();
@@ -268,7 +277,8 @@ inline MpfrInterval divide(MpfrInterval const &a, MpfrInterval const &b) {
 
 inline MpfrInterval square_root(MpfrInterval const &value) {
     if (mpfr_sgn(value.lo()) < 0) {
-        throw std::runtime_error("square root interval has negative lower endpoint");
+        throw std::runtime_error(
+            "DIRECTED_INTERVAL_PRIMITIVE_FAILED negative square-root domain");
     }
     MpfrInterval out;
     mpfr_clear_flags();
@@ -347,7 +357,8 @@ inline bool upper_at_most(MpfrInterval const &value, char const *decimal) {
 
 inline MpfrInterval loop_cosine(unsigned long valence) {
     if (valence < 3) {
-        throw std::runtime_error("invalid Loop valence");
+        throw std::runtime_error(
+            "DIRECTED_INTERVAL_PRIMITIVE_FAILED invalid Loop valence");
     }
     MpfrInterval pi;
     mpfr_clear_flags();
@@ -356,7 +367,8 @@ inline MpfrInterval loop_cosine(unsigned long valence) {
     reject_bad_flags("pi");
     MpfrInterval angle = divide(multiply(MpfrInterval(2), pi), MpfrInterval(static_cast<long>(valence)));
     if (mpfr_sgn(angle.lo()) < 0 || mpfr_greater_p(angle.hi(), pi.lo())) {
-        throw std::runtime_error("cosine monotonic domain was not certified");
+        throw std::runtime_error(
+            "INTERVAL_BRANCH_ORDERING_UNCERTIFIED cosine monotonic domain");
     }
     MpfrInterval out;
     mpfr_clear_flags();
@@ -370,7 +382,8 @@ inline MpfrInterval loop_cosine(unsigned long valence) {
 inline MpfrInterval loop_angle_cosine(unsigned long valence,
                                       unsigned long frequency) {
     if (valence < 3 || frequency >= valence) {
-        throw std::runtime_error("invalid Loop frequency");
+        throw std::runtime_error(
+            "DIRECTED_INTERVAL_PRIMITIVE_FAILED invalid Loop frequency");
     }
     MpfrInterval pi;
     mpfr_clear_flags();
@@ -383,7 +396,8 @@ inline MpfrInterval loop_angle_cosine(unsigned long valence,
     MpfrInterval two_pi = multiply(MpfrInterval(2), pi);
     if (mpfr_sgn(angle.lo()) < 0 ||
         mpfr_greater_p(angle.hi(), two_pi.lo())) {
-        throw std::runtime_error("cosine branch domain was not certified");
+        throw std::runtime_error(
+            "INTERVAL_BRANCH_ORDERING_UNCERTIFIED cosine branch domain");
     }
     MpfrInterval out;
     mpfr_clear_flags();
@@ -405,7 +419,8 @@ inline MpfrInterval loop_angle_cosine(unsigned long valence,
 inline MpfrInterval loop_angle_sine(unsigned long valence,
                                     unsigned long frequency) {
     if (valence < 3 || frequency >= valence) {
-        throw std::runtime_error("invalid Loop frequency");
+        throw std::runtime_error(
+            "DIRECTED_INTERVAL_PRIMITIVE_FAILED invalid Loop frequency");
     }
     // The frozen proof surface permits cosine as its sole transcendental.
     // Reduce sin(2*pi*f/N) by quadrant and evaluate it as the signed
@@ -437,51 +452,92 @@ inline bool contains(MpfrInterval const &interval, char const *decimal) {
 }
 
 inline bool directed_rounding_mutation_self_test() {
-    mpfr_t a, b, downward, upward;
+    mpfr_t a, b, reference, lower, upper;
     mpfr_init2(a, kPrecision);
     mpfr_init2(b, kPrecision);
-    mpfr_init2(downward, kPrecision);
-    mpfr_init2(upward, kPrecision);
-    auto distinct = [&]() {
-        return mpfr_less_p(downward, upward) != 0;
+    mpfr_init2(reference, 2 * kPrecision);
+    mpfr_init2(lower, kPrecision);
+    mpfr_init2(upper, kPrecision);
+    auto rejected = [&]() {
+        return mpfr_greater_p(lower, reference) != 0 ||
+               mpfr_less_p(upper, reference) != 0;
     };
     bool ok = true;
 
+    // Each pair mutates exactly one production endpoint direction.  The
+    // high-precision reference must fall outside the resulting false bound.
     mpfr_set_ui(a, 1, MPFR_RNDN);
     mpfr_set_ui_2exp(b, 1, -600, MPFR_RNDN);
-    mpfr_add(downward, a, b, MPFR_RNDD);
-    mpfr_add(upward, a, b, MPFR_RNDU);
-    ok = ok && distinct();
-    mpfr_sub(downward, a, b, MPFR_RNDD);
-    mpfr_sub(upward, a, b, MPFR_RNDU);
-    ok = ok && distinct();
+    mpfr_add(reference, a, b, MPFR_RNDN);
+    mpfr_add(lower, a, b, MPFR_RNDU);  // mutated lower RNDD -> RNDU
+    mpfr_add(upper, a, b, MPFR_RNDU);
+    ok = ok && rejected();
+    mpfr_add(lower, a, b, MPFR_RNDD);
+    mpfr_add(upper, a, b, MPFR_RNDD);  // mutated upper RNDU -> RNDD
+    ok = ok && rejected();
+    mpfr_sub(reference, a, b, MPFR_RNDN);
+    mpfr_sub(lower, a, b, MPFR_RNDU);
+    mpfr_sub(upper, a, b, MPFR_RNDU);
+    ok = ok && rejected();
+    mpfr_sub(lower, a, b, MPFR_RNDD);
+    mpfr_sub(upper, a, b, MPFR_RNDD);
+    ok = ok && rejected();
 
     if (mpfr_set_str(a, "1.1", 10, MPFR_RNDN) != 0 ||
         mpfr_set_str(b, "1.3", 10, MPFR_RNDN) != 0) {
         ok = false;
     }
-    mpfr_mul(downward, a, b, MPFR_RNDD);
-    mpfr_mul(upward, a, b, MPFR_RNDU);
-    ok = ok && distinct();
+    mpfr_mul(reference, a, b, MPFR_RNDN);
+    mpfr_mul(lower, a, b, MPFR_RNDU);
+    mpfr_mul(upper, a, b, MPFR_RNDU);
+    ok = ok && rejected();
+    mpfr_mul(lower, a, b, MPFR_RNDD);
+    mpfr_mul(upper, a, b, MPFR_RNDD);
+    ok = ok && rejected();
 
     mpfr_set_ui(a, 1, MPFR_RNDN);
     mpfr_set_ui(b, 3, MPFR_RNDN);
-    mpfr_div(downward, a, b, MPFR_RNDD);
-    mpfr_div(upward, a, b, MPFR_RNDU);
-    ok = ok && distinct();
+    mpfr_div(reference, a, b, MPFR_RNDN);
+    mpfr_div(lower, a, b, MPFR_RNDU);
+    mpfr_div(upper, a, b, MPFR_RNDU);
+    ok = ok && rejected();
+    mpfr_div(lower, a, b, MPFR_RNDD);
+    mpfr_div(upper, a, b, MPFR_RNDD);
+    ok = ok && rejected();
     mpfr_set_ui(a, 2, MPFR_RNDN);
-    mpfr_sqrt(downward, a, MPFR_RNDD);
-    mpfr_sqrt(upward, a, MPFR_RNDU);
-    ok = ok && distinct();
+    mpfr_sqrt(reference, a, MPFR_RNDN);
+    mpfr_sqrt(lower, a, MPFR_RNDU);
+    mpfr_sqrt(upper, a, MPFR_RNDU);
+    ok = ok && rejected();
+    mpfr_sqrt(lower, a, MPFR_RNDD);
+    mpfr_sqrt(upper, a, MPFR_RNDD);
+    ok = ok && rejected();
     mpfr_set_ui(a, 1, MPFR_RNDN);
-    mpfr_cos(downward, a, MPFR_RNDD);
-    mpfr_cos(upward, a, MPFR_RNDU);
-    ok = ok && distinct();
+    mpfr_cos(reference, a, MPFR_RNDN);
+    mpfr_cos(lower, a, MPFR_RNDU);
+    mpfr_cos(upper, a, MPFR_RNDU);
+    ok = ok && rejected();
+    mpfr_cos(lower, a, MPFR_RNDD);
+    mpfr_cos(upper, a, MPFR_RNDD);
+    ok = ok && rejected();
+
+    // Matrix/dot-product containment: the products are exact and one final
+    // accumulator rounding direction is replaced at a time.
+    mpfr_set_ui(a, 1, MPFR_RNDN);
+    mpfr_set_ui_2exp(b, 1, -600, MPFR_RNDN);
+    mpfr_add(reference, a, b, MPFR_RNDN);
+    mpfr_add(lower, a, b, MPFR_RNDU);
+    mpfr_add(upper, a, b, MPFR_RNDU);
+    ok = ok && rejected();
+    mpfr_add(lower, a, b, MPFR_RNDD);
+    mpfr_add(upper, a, b, MPFR_RNDD);
+    ok = ok && rejected();
 
     mpfr_clear(a);
     mpfr_clear(b);
-    mpfr_clear(downward);
-    mpfr_clear(upward);
+    mpfr_clear(reference);
+    mpfr_clear(lower);
+    mpfr_clear(upper);
     return ok;
 }
 

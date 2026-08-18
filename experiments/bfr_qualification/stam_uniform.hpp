@@ -4,6 +4,7 @@
 
 #include <array>
 #include <cstddef>
+#include <set>
 #include <stdexcept>
 #include <vector>
 
@@ -288,7 +289,13 @@ inline Branch choose_child(std::array<MpfrInterval,2> const &point) {
     if (mpfr_lessequal_p(sum.hi(), half.lo())) return Branch::T0;
     if (mpfr_greaterequal_p(point[0].lo(), half.hi())) return Branch::T1;
     if (mpfr_greaterequal_p(point[1].lo(), half.hi())) return Branch::T2;
-    return Branch::Tc;
+    if (mpfr_lessequal_p(point[0].hi(), half.lo()) &&
+        mpfr_lessequal_p(point[1].hi(), half.lo()) &&
+        mpfr_greaterequal_p(sum.lo(), half.hi())) {
+        return Branch::Tc;
+    }
+    throw std::runtime_error(
+        "INTERVAL_BRANCH_ORDERING_UNCERTIFIED child partition");
 }
 
 inline Jacobian branch_jacobian(Branch branch) {
@@ -384,8 +391,32 @@ inline SixRows evaluate_regular(Stencils const &controls,
 
 struct DepthRows { unsigned depth; SixRows rows; };
 
-inline std::vector<DepthRows> regular_depth_rows(double xi,double eta){
-    Stencils controls=local_to_regular(identity(12));
+inline Stencils original_source_controls(
+        std::size_t source_count, std::vector<int> const &source_ids) {
+    if (source_count == 0 || source_ids.empty()) {
+        throw std::runtime_error("uniform original-source control inventory");
+    }
+    Stencils controls = zeros(source_ids.size(), source_count);
+    std::set<int> seen;
+    for (std::size_t local = 0; local < source_ids.size(); ++local) {
+        int const source = source_ids[local];
+        if (source < 0 || static_cast<std::size_t>(source) >= source_count ||
+            !seen.insert(source).second) {
+            throw std::runtime_error(
+                "uniform original-source control identity/order");
+        }
+        controls[local][static_cast<std::size_t>(source)] = MpfrInterval(1);
+    }
+    return controls;
+}
+
+inline std::vector<DepthRows> regular_depth_rows_from_controls(
+        Stencils controls,double xi,double eta){
+    if (controls.size() != 12 || controls.front().empty()) {
+        throw std::runtime_error(
+            "uniform regular original-source control cardinality");
+    }
+    controls=local_to_regular(controls);
     std::array<MpfrInterval,2> point={{MpfrInterval::exact_double(xi),
                                       MpfrInterval::exact_double(eta)}};
     Jacobian jac={{{MpfrInterval(1),MpfrInterval(0)},
@@ -406,9 +437,17 @@ inline std::vector<DepthRows> regular_depth_rows(double xi,double eta){
     return result;
 }
 
-inline std::vector<DepthRows> uniform_depth_rows(unsigned valence,
-                                                 double xi, double eta) {
-    Stencils controls=identity(valence+6);
+inline std::vector<DepthRows> regular_depth_rows(double xi,double eta){
+    return regular_depth_rows_from_controls(identity(12),xi,eta);
+}
+
+inline std::vector<DepthRows> uniform_depth_rows_from_controls(
+        unsigned valence,double xi,double eta,Stencils controls) {
+    if (controls.size() != valence + 6 || controls.empty() ||
+        controls.front().empty()) {
+        throw std::runtime_error(
+            "uniform extraordinary original-source control cardinality");
+    }
     std::array<MpfrInterval,2> point={{MpfrInterval::exact_double(xi),
                                       MpfrInterval::exact_double(eta)}};
     Jacobian jac={{{MpfrInterval(1),MpfrInterval(0)},
@@ -441,6 +480,12 @@ inline std::vector<DepthRows> uniform_depth_rows(unsigned valence,
         }
     }
     throw std::runtime_error("REGULAR_SUPPORT_NOT_REACHED_BY_DEPTH_30");
+}
+
+inline std::vector<DepthRows> uniform_depth_rows(unsigned valence,
+                                                 double xi, double eta) {
+    return uniform_depth_rows_from_controls(
+        valence,xi,eta,identity(valence+6));
 }
 
 }  // namespace b2uniform

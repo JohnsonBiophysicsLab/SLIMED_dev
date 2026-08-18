@@ -887,7 +887,11 @@ class AnchoredRowQualificationTests(unittest.TestCase):
                 if criterion_id in records:
                     commitment, artifact = (
                         MODULE.write_result_ledger_artifact(
-                            output, criterion_id, records[criterion_id]))
+                            output, criterion_id, records[criterion_id],
+                            oracle_certification_authority=(
+                                MODULE._ORACLE_CERTIFICATION_AUTHORITY
+                                if criterion_id ==
+                                "oracle_coverage_and_crosscheck" else None)))
                     criteria.append({
                         "criterion_id": criterion_id,
                         "result_ledger_artifact": artifact,
@@ -956,16 +960,31 @@ class AnchoredRowQualificationTests(unittest.TestCase):
                     "ledgers": [partition("covered", covered_keys),
                                 partition("uncovered", uncovered_keys)],
                     "unexpected_paths": unexpected_target}}
+            checkpoint = output / "checkpoint.json"
+            checkpoint.write_bytes(b"{}")
+            runtime_provenance = {"binaries": {"independent_oracle": {
+                "dynamic_dependencies": str(output / "dynamic.json")}}}
             with mock.patch.object(MODULE, "validate_report",
-                                   return_value=True):
+                                   return_value=True), \
+                    mock.patch.object(MODULE, "_validate_runtime_bindings",
+                                      return_value=True), \
+                    mock.patch.object(
+                        MODULE, "_iter_replayed_oracle_result_records",
+                        side_effect=lambda *_: iter(copy.deepcopy(
+                            oracle_records))):
                 self.assertTrue(MODULE.validate_result_sidecar_bundle(
-                    report, output))
+                    report, output, checkpoint, output,
+                    {"independent_oracle": str(pathlib.Path(__file__))},
+                    runtime_provenance))
                 drift = copy.deepcopy(report)
                 drift["matrix"]["ledgers"] = [
                     partition("covered", []),
                     partition("uncovered", covered_keys + uncovered_keys)]
                 with self.assertRaises(MODULE.QualificationError):
-                    MODULE.validate_result_sidecar_bundle(drift, output)
+                    MODULE.validate_result_sidecar_bundle(
+                        drift, output, checkpoint, output,
+                        {"independent_oracle": str(pathlib.Path(__file__))},
+                        runtime_provenance)
 
     def test_persistent_result_ledger_and_merkle_witness_are_exact(self):
         def key(index):
@@ -1592,8 +1611,10 @@ class AnchoredRowQualificationTests(unittest.TestCase):
                          "mesh_path": root / "mesh", "mutation": "none"}
                         for index in range(13))
 
-            def oracle_stream(_binary, _rows, identifiers, timeout=7200):
-                del timeout
+            def oracle_stream(_binary, _rows, identifiers, timeout=7200,
+                              runtime_library_root=None,
+                              runtime_library_bindings=None):
+                del timeout, runtime_library_root, runtime_library_bindings
                 raw = MODULE.jcs_bytes(oracle_observation)
                 for identifier in identifiers:
                     yield identifier, raw, oracle_observation
@@ -3331,6 +3352,13 @@ class AnchoredRowQualificationTests(unittest.TestCase):
         self.assertNotIn('#include "stam_box_spline.hpp"', uniform)
         self.assertIn('#include "stam_uniform_box_spline.hpp"', uniform)
         forged = MODULE._valid_oracle_covered_record()
+        with self.assertRaises(MODULE.QualificationError):
+            MODULE.canonical_result_ledger(
+                [forged], criterion_id="oracle_coverage_and_crosscheck")
+        self.assertEqual(MODULE.canonical_result_ledger(
+            [forged], criterion_id="oracle_coverage_and_crosscheck",
+            oracle_certification_authority=
+                MODULE._ORACLE_CERTIFICATION_AUTHORITY)["record_count"], 1)
         zero = {"kind": "interval_rational_v1",
                 "lower": {"kind": "rational_v1", "numerator": "0",
                           "denominator": "1"},
@@ -3413,6 +3441,11 @@ class AnchoredRowQualificationTests(unittest.TestCase):
                 self.assertEqual(MODULE.audit_oracle_independence(
                     binary, command_path, link_map, dynamic,
                     sealed_output_path=sealed), "PASS")
+                runtime_bindings = MODULE._snapshot_oracle_runtime_libraries(
+                    sealed, root / "runtime-snapshot")
+                self.assertEqual(
+                    [item[0].name for item in runtime_bindings],
+                    ["libgmp.10.dylib", "libmpfr.6.dylib"])
                 self.assertEqual(MODULE.audit_oracle_independence(
                     binary, command_path, link_map, sealed), "PASS")
                 mpfr_library.write_bytes(b"tampered mpfr library\n")

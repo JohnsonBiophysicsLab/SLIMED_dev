@@ -322,6 +322,14 @@ jobs:
               "$fixture" none 0 0 3fc0000000000000 3fd8000000000000 \
               > "$QUALIFICATION_ROOT/oracle-sample-$(basename "$fixture").json"
           done
+          "$QUALIFICATION_ROOT/stam_oracle" --evaluate-sample \
+            data/fixtures/candidates/b2_readiness_v1/regular_all6_torus \
+            none 0 -1 3fc0000000000000 3fd8000000000000 \
+            > "$QUALIFICATION_ROOT/oracle-sample-regular-all6.json"
+          "$QUALIFICATION_ROOT/stam_oracle" --evaluate-sample \
+            data/fixtures/candidates/b2p_valence789 \
+            none 4 1 3fc0000000000000 3fd8000000000000 \
+            > "$QUALIFICATION_ROOT/oracle-sample-nonzero-corner.json"
           python3 - "$QUALIFICATION_ROOT" <<'PY'
           import json
           import pathlib
@@ -329,15 +337,30 @@ jobs:
 
           proof = pathlib.Path(sys.argv[1]).resolve()
           samples = sorted(proof.glob("oracle-sample-*.json"))
-          assert len(samples) == 5
+          assert len(samples) == 7
           for sample in samples:
               value = json.loads(sample.read_text(encoding="utf-8"))
-              assert value["status"] == "ok", (sample, value)
-              assert [row["row_kind"] for row in value["rows"]] == [
-                  "position", "du", "dv", "duu", "duv", "dvv"]
-              assert all(set(row["certification"].values()) == {
-                  "oracle_certification_v1", "CERTIFIED"}
-                  for row in value["rows"])
+              assert value["status"] in {"ok", "uncovered"}, (sample, value)
+              if value["status"] == "ok":
+                  assert [row["row_kind"] for row in value["rows"]] == [
+                      "position", "du", "dv", "duu", "duv", "dvv"]
+                  assert all(set(row["certification"].values()) == {
+                      "oracle_certification_v1", "CERTIFIED"}
+                      for row in value["rows"])
+              else:
+                  assert value["reason_code"] in {
+                      "NO_ISOLATION_BY_DEPTH_12",
+                      "UNIFORM_CROSSCHECK_FAILED"}
+          regular = json.loads((proof / "oracle-sample-regular-all6.json").
+                               read_text(encoding="utf-8"))
+          assert regular["status"] == "ok", regular
+          nonzero = json.loads((proof / "oracle-sample-nonzero-corner.json").
+                               read_text(encoding="utf-8"))
+          assert nonzero == {
+              "schema_version": 1,
+              "kind": "stam_oracle_sample_v1",
+              "status": "uncovered",
+              "reason_code": "NO_ISOLATION_BY_DEPTH_12"}, nonzero
           PY
           test "$QUALIFICATION_HEAD" = "$(git rev-parse HEAD)"
           test -z "$(git status --porcelain=v1 --untracked-files=all)"

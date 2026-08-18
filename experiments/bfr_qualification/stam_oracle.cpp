@@ -138,6 +138,9 @@ RefinedState refine_selected(RefinedState const &state){
     }
     if(core_faces.empty())
         throw std::runtime_error("oracle sparse dependency patch empty");
+    if(!required_vertices.count(state.tracked_extraordinary))
+        throw std::runtime_error(
+            "NO_ISOLATION_BY_DEPTH_12 tracked extraordinary left dependency patch");
     std::map<std::pair<int,int>,int> edge_ids;
     std::map<int,int> vertex_ids;
     for(int vertex:required_vertices){
@@ -323,17 +326,6 @@ b2uniform::Row map_uniform_row_to_coarse(
     return result;
 }
 
-b2uniform::SixRows map_uniform_to_coarse(
-        b2uniform::SixRows const &local,
-        OracleStencils const &control_stencils) {
-    b2uniform::SixRows result;
-    for (std::size_t row = 0; row < result.size(); ++row) {
-        result[row] = map_uniform_row_to_coarse(
-            local[row], control_stencils);
-    }
-    return result;
-}
-
 MpfrInterval fixture_coordinate(b2stam_fixture::Mesh const &mesh,
                                 std::size_t source,std::size_t axis){
     std::string const &text=mesh.coordinate_text.at(source).at(axis);
@@ -466,11 +458,14 @@ struct OracleSample {
 
 void certify_frozen_valence(
         unsigned valence, b2stam_fixture::Mesh const &mesh,
-        OracleStencils const &control_stencils,
+        OracleStencils const &primary_control_stencils,
+        b2uniform::Stencils const &uniform_control_stencils,
         std::string const &cache_identity) {
-    if (control_stencils.size() != valence + 6 ||
-        control_stencils.empty() ||
-        control_stencils.front().size() != mesh.vertices.size()) {
+    if (primary_control_stencils.size() != valence + 6 ||
+        uniform_control_stencils.size() != valence + 6 ||
+        primary_control_stencils.empty() || uniform_control_stencils.empty() ||
+        primary_control_stencils.front().size() != mesh.vertices.size() ||
+        uniform_control_stencils.front().size() != mesh.vertices.size()) {
         throw std::runtime_error("EIGENBASIS_CERTIFICATION_FAILED");
     }
     // The spectral objects depend only on valence, but the frozen vertex and
@@ -495,9 +490,11 @@ void certify_frozen_valence(
         throw std::runtime_error("EIGENBASIS_CERTIFICATION_FAILED");
     }
     b2stam::Vector const primary_limit = map_row_to_coarse(
-        b2stam::extraordinary_vertex_limit_row(valence), control_stencils);
+        b2stam::extraordinary_vertex_limit_row(valence),
+        primary_control_stencils);
     b2uniform::Row const uniform_limit = map_uniform_row_to_coarse(
-        b2uniform::extraordinary_vertex_limit_row(valence), control_stencils);
+        b2uniform::extraordinary_vertex_limit_row(valence),
+        uniform_control_stencils);
     if (primary_limit.size() != uniform_limit.size()) {
         throw std::runtime_error("UNIFORM_CROSSCHECK_FAILED vertex-limit-shape");
     }
@@ -546,7 +543,8 @@ void certify_frozen_valence(
             std::vector<b2stam::PrimaryDepthRows> const primary =
                 b2stam::primary_depth_rows(valence, point[0], point[1]);
             std::vector<b2uniform::DepthRows> const uniform =
-                b2uniform::uniform_depth_rows(valence, point[0], point[1]);
+                b2uniform::uniform_depth_rows_from_controls(
+                    valence, point[0], point[1], uniform_control_stencils);
             if (primary.size() != 5 || uniform.size() != 5) {
                 throw std::runtime_error("dyadic depth count");
             }
@@ -554,9 +552,8 @@ void certify_frozen_valence(
             std::array<b2uniform::Row, 5> uniform_coarse;
             for (std::size_t depth = 0; depth < 5; ++depth) {
                 primary_coarse[depth] = map_row_to_coarse(
-                    primary[depth].rows[0], control_stencils);
-                uniform_coarse[depth] = map_uniform_row_to_coarse(
-                    uniform[depth].rows[0], control_stencils);
+                    primary[depth].rows[0], primary_control_stencils);
+                uniform_coarse[depth] = uniform[depth].rows[0];
             }
             std::vector<MpfrInterval> primary_intersection;
             std::vector<MpfrInterval> uniform_intersection;
@@ -605,20 +602,19 @@ void certify_frozen_valence(
 OracleSample assemble_sample(
     b2stam_fixture::Mesh const &mesh,unsigned isolated,unsigned start_depth,
     std::vector<std::string> const &prefix_branches,
-    OracleStencils const &local_stencils,b2stam::Jacobian const &corner_map,
+    OracleStencils const &primary_stencils,b2stam::Jacobian const &corner_map,
     std::vector<b2stam::PrimaryDepthRows> const &primary_local,
-    std::vector<b2uniform::DepthRows> const &uniform_local){
-    if(primary_local.size()!=5 || uniform_local.size()!=5)
+    std::vector<b2uniform::DepthRows> const &uniform_coarse){
+    if(primary_local.size()!=5 || uniform_coarse.size()!=5)
         throw std::runtime_error("oracle five-depth row cardinality");
     std::array<std::array<b2stam::SixRows,5>,2> coarse;
     for(std::size_t depth=0;depth<5;++depth){
-        if(uniform_local[depth].depth!=primary_local[depth].depth)
+        if(uniform_coarse[depth].depth!=start_depth+primary_local[depth].depth)
             throw std::runtime_error("UNIFORM_CROSSCHECK_FAILED");
         coarse[0][depth]=map_to_coarse(
-            transform_rows(primary_local[depth].rows,corner_map),local_stencils);
-        coarse[1][depth]=map_uniform_to_coarse(
-            transform_uniform_rows(
-                uniform_local[depth].rows,corner_map),local_stencils);
+            transform_rows(primary_local[depth].rows,corner_map),primary_stencils);
+        coarse[1][depth]=transform_uniform_rows(
+            uniform_coarse[depth].rows,corner_map);
     }
     OracleSample result;result.first_isolating_depth=isolated;
     result.first_regular_support_depth=start_depth+primary_local[0].depth;
@@ -692,6 +688,9 @@ OracleSample assemble_sample(
 
 OracleSample evaluate_sample(std::string const &directory,std::string const &mutation,
                              int face,int corner,double q0,double q1){
+    if(std::strcmp(MPFR_VERSION_STRING,"4.2.2")!=0 ||
+       std::strcmp(mpfr_get_version(),"4.2.2")!=0)
+        throw std::runtime_error("MPFR_VERSION_MISMATCH");
     if(std::fesetround(FE_TONEAREST)!=0 || std::fegetround()!=FE_TONEAREST)
         throw std::runtime_error("oracle requires FE_TONEAREST at binary64 boundary");
     RefinedState initial;initial.mesh=b2stam_fixture::read(directory);
@@ -708,14 +707,22 @@ OracleSample evaluate_sample(std::string const &directory,std::string const &mut
             throw std::runtime_error("REGULAR_SUPPORT_NOT_REACHED_BY_DEPTH_30");
         OracleStencils local_stencils;
         for(int id:local.source_ids)local_stencils.push_back(initial.stencils[id]);
+        auto const uniform_support=b2stam_fixture::local_support(
+            initial.mesh,face,0);
+        if(uniform_support.valence!=6)
+            throw std::runtime_error("UNIFORM_CROSSCHECK_FAILED support valence");
+        b2uniform::Stencils const uniform_stencils=
+            b2uniform::original_source_controls(
+                initial.mesh.vertices.size(),uniform_support.source_ids);
         certify_frozen_valence(
-            6, initial.mesh, local_stencils,
+            6, initial.mesh, local_stencils,uniform_stencils,
             directory + "\n" + mutation + "\n" + std::to_string(face) +
                 "\n-1");
         return assemble_sample(initial.mesh,0,0,{},local_stencils,
             b2stam::identity_jacobian(),
             b2stam::primary_regular_depth_rows(q0,q1),
-            b2uniform::regular_depth_rows(q0,q1));
+            b2uniform::regular_depth_rows_from_controls(
+                uniform_stencils,q0,q1));
     }
     int const extraordinary=initial.mesh.faces[static_cast<std::size_t>(face)][corner];
     initial.tracked_extraordinary=extraordinary;
@@ -725,7 +732,10 @@ OracleSample evaluate_sample(std::string const &directory,std::string const &mut
         RefinedState const &state=states.back();auto const &selected=state.mesh.faces[state.face];
         int const tracked=state.tracked_extraordinary;
         auto found=std::find(selected.begin(),selected.end(),tracked);
-        int support_corner=found==selected.end()?0:static_cast<int>(found-selected.begin());
+        if(found==selected.end())
+            throw std::runtime_error(
+                "NO_ISOLATION_BY_DEPTH_12 selected path left extraordinary frame");
+        int support_corner=static_cast<int>(found-selected.begin());
         auto support=b2stam_fixture::local_support(state.mesh,state.face,support_corner);
         std::size_t nonregular=0;bool contains_extraordinary=false;
         for(int id:support.source_ids){
@@ -736,6 +746,9 @@ OracleSample evaluate_sample(std::string const &directory,std::string const &mut
         if(depth<12)states.push_back(refine_selected(state));
     }
     if(isolated>12)throw std::runtime_error("NO_ISOLATION_BY_DEPTH_12");
+    if(isolated!=0)
+        throw std::runtime_error(
+            "UNIFORM_CROSSCHECK_FAILED refined-isolation sparse closure unavailable");
 
     // Isolating support and first regular support are distinct frozen depths.
     // Preserve an extraordinary N+6 control frame from the first isolation
@@ -744,33 +757,38 @@ OracleSample evaluate_sample(std::string const &directory,std::string const &mut
     // still contains multiple extraordinary vertices.
     RefinedState const &isolating_state=states[isolated];
     int const isolated_extraordinary=isolating_state.tracked_extraordinary;
+    auto const &certificate_face=isolating_state.mesh.faces[
+        static_cast<std::size_t>(isolating_state.face)];
+    auto certificate_found=std::find(
+        certificate_face.begin(),certificate_face.end(),isolated_extraordinary);
+    if(certificate_found==certificate_face.end())
+        throw std::runtime_error(
+            "NO_ISOLATION_BY_DEPTH_12 selected certificate frame lost extraordinary");
+    int const certificate_corner=static_cast<int>(
+        certificate_found-certificate_face.begin());
+    auto const certificate_support=b2stam_fixture::local_support(
+        isolating_state.mesh,isolating_state.face,certificate_corner);
+    std::size_t certificate_nonregular=0;
+    for(int id:certificate_support.source_ids)certificate_nonregular +=
+        isolating_state.mesh.neighbor_cycles[
+            static_cast<std::size_t>(id)].size()!=6;
+    if(certificate_nonregular!=1)
+        throw std::runtime_error(
+            "NO_ISOLATION_BY_DEPTH_12 selected certificate support is not isolated");
+    unsigned const isolated_valence=certificate_support.valence;
     OracleStencils certificate_stencils;
-    unsigned isolated_valence=0;
-    int certificate_corner=-1;
-    for(std::size_t fi=0;fi<isolating_state.mesh.faces.size() &&
-            certificate_stencils.empty();++fi){
-        auto const &candidate=isolating_state.mesh.faces[fi];
-        auto found=std::find(candidate.begin(),candidate.end(),
-                             isolated_extraordinary);
-        if(found==candidate.end())continue;
-        int candidate_corner=static_cast<int>(found-candidate.begin());
-        auto support=b2stam_fixture::local_support(
-            isolating_state.mesh,static_cast<int>(fi),candidate_corner);
-        std::size_t nonregular=0;
-        for(int id:support.source_ids)nonregular +=
-            isolating_state.mesh.neighbor_cycles[
-                static_cast<std::size_t>(id)].size()!=6;
-        if(nonregular!=1)continue;
-        isolated_valence=support.valence;
-        certificate_corner=candidate_corner;
-        for(int id:support.source_ids)
-            certificate_stencils.push_back(isolating_state.stencils[id]);
-    }
-    if(certificate_stencils.empty())
-        throw std::runtime_error("NO_ISOLATION_BY_DEPTH_12 certificate-frame");
+    for(int id:certificate_support.source_ids)
+        certificate_stencils.push_back(isolating_state.stencils[id]);
+    auto const uniform_support=b2stam_fixture::local_support(
+        initial.mesh,face,corner);
+    if(uniform_support.valence!=isolated_valence)
+        throw std::runtime_error("UNIFORM_CROSSCHECK_FAILED support valence");
+    b2uniform::Stencils const uniform_stencils=
+        b2uniform::original_source_controls(
+            initial.mesh.vertices.size(),uniform_support.source_ids);
 
     certify_frozen_valence(
-        isolated_valence, initial.mesh, certificate_stencils,
+        isolated_valence, initial.mesh, certificate_stencils,uniform_stencils,
         directory + "\n" + mutation + "\n" + std::to_string(face) + "\n" +
             std::to_string(corner));
     double canonical0=mpfr_get_d(isolating_state.point[0].lo(),MPFR_RNDN);
@@ -779,8 +797,8 @@ OracleSample evaluate_sample(std::string const &directory,std::string const &mut
         canonical0,canonical1,certificate_corner);
     auto primary_local=b2stam::primary_depth_rows(
         isolated_valence,local_point[0],local_point[1]);
-    auto uniform_local=b2uniform::uniform_depth_rows(
-        isolated_valence,local_point[0],local_point[1]);
+    auto uniform_coarse=b2uniform::uniform_depth_rows_from_controls(
+        isolated_valence,local_point[0],local_point[1],uniform_stencils);
     std::vector<std::string> prefix;
     for(b2uniform::Branch branch:isolating_state.branches)
         prefix.push_back(branch_name(branch));
@@ -788,11 +806,12 @@ OracleSample evaluate_sample(std::string const &directory,std::string const &mut
         initial.mesh,isolated,isolating_state.depth,prefix,
         certificate_stencils,b2stam::multiply(
             corner_jacobian(certificate_corner),isolating_state.jacobian),
-        primary_local,uniform_local);
+        primary_local,uniform_coarse);
 }
 
 std::string uncovered_reason(std::runtime_error const &error){
     static std::set<std::string> const reasons={
+        "MPFR_VERSION_MISMATCH",
         "DIRECTED_INTERVAL_PRIMITIVE_FAILED",
         "INTERVAL_BRANCH_ORDERING_UNCERTIFIED",
         "NO_ISOLATION_BY_DEPTH_12","EIGENBASIS_CERTIFICATION_FAILED",

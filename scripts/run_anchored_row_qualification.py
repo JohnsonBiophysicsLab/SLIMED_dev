@@ -2066,7 +2066,8 @@ class BasisRelabelValidator:
         return True
 
 
-def canonical_result_ledger(records, witness_index=None, criterion_id=None):
+def canonical_result_ledger(records, witness_index=None, criterion_id=None,
+                            oracle_certification_authority=None):
     """Build complete canonical result bytes and independent commitments."""
     require(isinstance(records, list), "result ledger records")
     encoded_records = []
@@ -2081,10 +2082,8 @@ def canonical_result_ledger(records, witness_index=None, criterion_id=None):
             else:
                 validate_contract_result_record(
                     criterion_id, record,
-                    oracle_certification_authority=(
-                        _ORACLE_CERTIFICATION_AUTHORITY
-                        if criterion_id ==
-                        "oracle_coverage_and_crosscheck" else None))
+                    oracle_certification_authority=
+                        oracle_certification_authority)
         require(isinstance(record, list) and len(record) == 5,
                 "result record shape")
         canonical, encoded = canonical_result_record(*record)
@@ -2120,10 +2119,12 @@ def result_ledger_relative_path(criterion_id):
 
 
 def write_result_ledger_artifact(output_root, criterion_id, records,
-                                 witness_index=None):
+                                 witness_index=None,
+                                 oracle_certification_authority=None):
     """Persist one canonical result sidecar without a trailing newline."""
     commitment = canonical_result_ledger(
-        records, witness_index=witness_index, criterion_id=criterion_id)
+        records, witness_index=witness_index, criterion_id=criterion_id,
+        oracle_certification_authority=oracle_certification_authority)
     relative_path = result_ledger_relative_path(criterion_id)
     destination = pathlib.Path(output_root) / relative_path
     destination.parent.mkdir(parents=True, exist_ok=True)
@@ -2141,7 +2142,8 @@ def write_result_ledger_artifact(output_root, criterion_id, records,
 class StreamingResultLedgerArtifact:
     """Write one canonical result sidecar with bounded resident memory."""
 
-    def __init__(self, output_root, criterion_id):
+    def __init__(self, output_root, criterion_id,
+                 oracle_certification_authority=None):
         self.criterion_id = criterion_id
         self.relative_path = result_ledger_relative_path(criterion_id)
         self.destination = pathlib.Path(output_root) / self.relative_path
@@ -2157,6 +2159,7 @@ class StreamingResultLedgerArtifact:
         self.previous_key = None
         self.basis_groups = (BasisRelabelValidator() if criterion_id ==
                              "binary64_basis_probe_diagnostic" else None)
+        self.oracle_certification_authority = oracle_certification_authority
         self.closed = False
 
     def add(self, record):
@@ -2168,10 +2171,8 @@ class StreamingResultLedgerArtifact:
         else:
             validate_contract_result_record(
                 self.criterion_id, record,
-                oracle_certification_authority=(
-                    _ORACLE_CERTIFICATION_AUTHORITY
-                    if self.criterion_id ==
-                    "oracle_coverage_and_crosscheck" else None))
+                oracle_certification_authority=
+                    self.oracle_certification_authority)
         canonical, encoded_record = canonical_result_record(*record)
         require(canonical == record, "result record canonical value")
         encoded_key = jcs_bytes(record[0])
@@ -9251,7 +9252,9 @@ def validate_oracle_sample_observation(
 
 
 def iter_oracle_batch_observations(oracle_binary, request_rows,
-                                   expected_request_ids, timeout=7200):
+                                   expected_request_ids, timeout=7200,
+                                   runtime_library_root=None,
+                                   runtime_library_bindings=None):
     """Stream strict, ordinal-bound oracle values without a second spool."""
     require(isinstance(request_rows, (list, tuple)) and
             isinstance(expected_request_ids, (list, tuple)) and
@@ -9259,11 +9262,28 @@ def iter_oracle_batch_observations(oracle_binary, request_rows,
             len(set(expected_request_ids)) == len(expected_request_ids),
             "oracle batch request inventory")
     stderr_file = tempfile.TemporaryFile()
+    environment = _d12_rebuild_environment()
+    if runtime_library_root is not None:
+        library_root = pathlib.Path(runtime_library_root).resolve()
+        require(library_root.is_dir(),
+                "oracle runtime library snapshot unavailable")
+        environment["DYLD_LIBRARY_PATH"] = str(library_root)
+    runtime_library_bindings = runtime_library_bindings or ()
+
+    def require_runtime_libraries():
+        require(all(pathlib.Path(path).resolve().is_file() and
+                    sha256_file(pathlib.Path(path).resolve()) == digest
+                    for path, digest in runtime_library_bindings),
+                "oracle runtime dependency identity changed at process "
+                "boundary")
+
+    require_runtime_libraries()
     process = subprocess.Popen(
         [str(pathlib.Path(oracle_binary).resolve()), "--batch"],
-        cwd=str(ROOT), env=_d12_rebuild_environment(),
+        cwd=str(ROOT), env=environment,
         stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=stderr_file,
         start_new_session=True)
+    require_runtime_libraries()
     require(process.stdin is not None and process.stdout is not None,
             "oracle batch pipes unavailable")
     feeder_errors = []
@@ -9341,7 +9361,10 @@ def iter_oracle_batch_observations(oracle_binary, request_rows,
             except OSError:
                 pass
         if process.stdin is not None and not process.stdin.closed:
-            process.stdin.close()
+            try:
+                process.stdin.close()
+            except OSError:
+                pass
         feeder.join(timeout=5)
         if process.poll() is None:
             try:
@@ -9355,6 +9378,7 @@ def iter_oracle_batch_observations(oracle_binary, request_rows,
                 "oracle batch process group did not terminate") from error
         process.stdout.close()
         stderr_file.close()
+        require_runtime_libraries()
 
 
 def oracle_dependent_key(criterion_id, oracle_key, axis=None):
@@ -9525,14 +9549,8 @@ def _iter_oracle_geometry_cells(cases, artifact_root, fixtures,
         connection.close()
 
 
-def execute_oracle_coverage(checkpoint, artifact_root, manifest,
-                            oracle_binary, candidate_binary, output_root):
-    """Run one independent oracle observation per unique frozen sample.
-
-    The complete result sidecar still repeats the observation at every frozen
-    case/anchor applicability key.  A temporary SQLite index avoids retaining
-    the potentially multi-gigabyte interval corpus in resident memory.
-    """
+def _oracle_execution_inventory(checkpoint, artifact_root, manifest):
+    """Derive the one-per-sample oracle batch and repeated result ordering."""
     jobs = {job["content_identity_key"]: job
             for job in B2.valid_content_jobs(manifest)}
     require(len(jobs) == 14, "oracle fixture job inventory")
@@ -9562,6 +9580,99 @@ def execute_oracle_coverage(checkpoint, artifact_root, manifest,
         request_ids[sample_key] = fields[0]
         expected_request_ids.append(fields[0])
         request_rows.append("\t".join(fields) + "\n")
+    return (cases, request_rows, expected_request_ids, request_ids)
+
+
+def _iter_replayed_oracle_result_records(
+        checkpoint, artifact_root, manifest, oracle_binary,
+        dynamic_dependencies_path):
+    """Re-execute the authenticated oracle and derive criterion-10 records.
+
+    Standalone result validation uses this path before granting covered-row
+    certification authority.  A self-consistent result sidecar therefore
+    cannot substitute literal CERTIFIED strings for executable evidence.
+    """
+    cases, request_rows, expected_ids, request_ids = \
+        _oracle_execution_inventory(checkpoint, artifact_root, manifest)
+    database_file = tempfile.NamedTemporaryFile(
+        prefix="anchored-oracle-replay-", suffix=".sqlite3", delete=False)
+    database_path = pathlib.Path(database_file.name)
+    database_file.close()
+    library_snapshot = tempfile.TemporaryDirectory(
+        prefix="anchored-oracle-replay-libraries-")
+    library_root = pathlib.Path(library_snapshot.name) / "lib"
+    connection = None
+    try:
+        runtime_bindings = _snapshot_oracle_runtime_libraries(
+            dynamic_dependencies_path, library_root)
+        connection = sqlite3.connect(str(database_path))
+        connection.execute("CREATE TABLE observations "
+                           "(request_id TEXT PRIMARY KEY, value BLOB NOT NULL)")
+        observed = 0
+        for request_id, raw_value, _ in iter_oracle_batch_observations(
+                oracle_binary, request_rows, expected_ids,
+                runtime_library_root=library_root,
+                runtime_library_bindings=[
+                    (destination, digest)
+                    for _, digest, destination in runtime_bindings]):
+            connection.execute("INSERT INTO observations VALUES (?, ?)",
+                               (request_id, raw_value))
+            observed += 1
+        connection.commit()
+        require(observed == len(expected_ids),
+                "oracle replay output cardinality")
+        suffixes = _frozen_scientific_suffixes()[
+            "oracle_coverage_and_crosscheck"]
+        cached_request_id = None
+        cached_value = None
+        for case in cases:
+            report = _artifact_report(artifact_root, case)
+            for row in ordered_case_rows(report):
+                sample_key = (case["content_identity_key"], row["face_row"],
+                              row["local_corner_or_none"], row["sample_id"],
+                              row["u_binary64_bits_hex"],
+                              row["v_binary64_bits_hex"])
+                request_id = request_ids[sample_key]
+                if request_id != cached_request_id:
+                    fetched = connection.execute(
+                        "SELECT value FROM observations WHERE request_id=?",
+                        (request_id,)).fetchone()
+                    require(fetched is not None,
+                            "oracle replay observation lookup")
+                    cached_value = strict_json_bytes(bytes(fetched[0]))
+                    cached_request_id = request_id
+                exact_value = (cached_value["rows"][
+                    ROW_ORDER.index(row["row_kind"])]
+                    if cached_value["status"] == "ok" else None)
+                outcome = "PASS" if exact_value is not None else "UNCOVERED"
+                reason = (None if exact_value is not None else
+                          cached_value["reason_code"])
+                prefix = scientific_base_prefix(case, row)
+                for suffix in suffixes:
+                    yield [strict_json_bytes(prefix + suffix), outcome,
+                           exact_value, None, reason]
+    finally:
+        if connection is not None:
+            connection.close()
+        try:
+            database_path.unlink()
+        except FileNotFoundError:
+            pass
+        library_snapshot.cleanup()
+
+
+def execute_oracle_coverage(checkpoint, artifact_root, manifest,
+                            oracle_binary, candidate_binary, output_root,
+                            oracle_runtime_library_root=None,
+                            oracle_runtime_library_bindings=None):
+    """Run one independent oracle observation per unique frozen sample.
+
+    The complete result sidecar still repeats the observation at every frozen
+    case/anchor applicability key.  A temporary SQLite index avoids retaining
+    the potentially multi-gigabyte interval corpus in resident memory.
+    """
+    cases, request_rows, expected_request_ids, request_ids = \
+        _oracle_execution_inventory(checkpoint, artifact_root, manifest)
     database_file = tempfile.NamedTemporaryFile(
         prefix="anchored-oracle-", suffix=".sqlite3", delete=False)
     database_path = pathlib.Path(database_file.name)
@@ -9573,16 +9684,21 @@ def execute_oracle_coverage(checkpoint, artifact_root, manifest,
                            "(request_id TEXT PRIMARY KEY, value BLOB NOT NULL)")
         observed_count = 0
         for request_id, raw_value, _ in iter_oracle_batch_observations(
-                oracle_binary, request_rows, expected_request_ids):
+                oracle_binary, request_rows, expected_request_ids,
+                runtime_library_root=oracle_runtime_library_root,
+                runtime_library_bindings=
+                    oracle_runtime_library_bindings):
             connection.execute("INSERT INTO observations VALUES (?, ?)",
                                (request_id, raw_value))
             observed_count += 1
         connection.commit()
-        require(observed_count == len(ordered_samples),
+        require(observed_count == len(expected_request_ids),
                 "oracle batch output cardinality")
 
         writer = StreamingResultLedgerArtifact(
-            output_root, "oracle_coverage_and_crosscheck")
+            output_root, "oracle_coverage_and_crosscheck",
+            oracle_certification_authority=
+                _ORACLE_CERTIFICATION_AUTHORITY)
         dependent = {
             criterion_id: _NumericResultAccumulator(
                 output_root, criterion_id)
@@ -9796,11 +9912,17 @@ def oracle_unavailable_partition_ledgers(blocker):
     ]
 
 
-def run_json(binary, argument, expected_kind):
+def run_json(binary, argument, expected_kind, runtime_library_root=None):
     path = pathlib.Path(binary).resolve()
     require(path.is_file(), "binary unavailable: {}".format(path))
+    environment = _d12_rebuild_environment()
+    if runtime_library_root is not None:
+        library_root = pathlib.Path(runtime_library_root).resolve()
+        require(library_root.is_dir(),
+                "JSON probe runtime library snapshot unavailable")
+        environment["DYLD_LIBRARY_PATH"] = str(library_root)
     completed = subprocess.run(
-        [str(path), argument], cwd=str(ROOT), env=_d12_rebuild_environment(),
+        [str(path), argument], cwd=str(ROOT), env=environment,
         stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=30)
     require(completed.returncode == 0,
             "binary failed: {}".format(completed.stderr.strip()))
@@ -10305,6 +10427,36 @@ def _oracle_dynamic_dependency_packet(actual_dynamic, library_root):
         "libraries": libraries}
 
 
+def _snapshot_oracle_runtime_libraries(dynamic_packet_path, destination_root):
+    """Copy the two audited proof dylibs and return immutable bindings."""
+    packet_path = pathlib.Path(dynamic_packet_path).resolve()
+    destination_root = pathlib.Path(destination_root).resolve()
+    packet = strict_json_bytes(packet_path.read_bytes())
+    require(packet.get("schema_id") ==
+                "oracle-runtime-dependency-audit-v1" and
+            [item.get("name") for item in packet.get("libraries", [])] ==
+                ["gmp", "mpfr"],
+            "oracle runtime dependency packet shape")
+    destination_root.mkdir(parents=True, exist_ok=False)
+    bindings = []
+    for item in packet["libraries"]:
+        source = pathlib.Path(item["path"]).resolve()
+        require(source.is_file() and sha256_file(source) == item["sha256"],
+                "oracle runtime dependency changed before snapshot: " +
+                item["name"])
+        destination = destination_root / source.name
+        require(not destination.exists(),
+                "oracle runtime dependency basename collision")
+        shutil.copyfile(str(source), str(destination))
+        destination.chmod(0o500)
+        require(sha256_file(source) == item["sha256"] ==
+                    sha256_file(destination),
+                "oracle runtime dependency changed while snapshotting: " +
+                item["name"])
+        bindings.append((source, item["sha256"], destination))
+    return bindings
+
+
 def _audit_oracle_mpfr_calls():
     """Reject an unrounded or unapproved MPFR arithmetic proof call."""
     directed_arithmetic = {
@@ -10351,6 +10503,12 @@ def _audit_oracle_mpfr_calls():
                     "mpfr_div_2ui(value,value,1,MPFR_RNDN)",
                     "mpfr_add(midpoint,value.lo(),value.hi(),MPFR_RNDN)",
                     "mpfr_div_2ui(midpoint,midpoint,1,MPFR_RNDN)",
+                    "mpfr_add(reference,a,b,MPFR_RNDN)",
+                    "mpfr_sub(reference,a,b,MPFR_RNDN)",
+                    "mpfr_mul(reference,a,b,MPFR_RNDN)",
+                    "mpfr_div(reference,a,b,MPFR_RNDN)",
+                    "mpfr_sqrt(reference,a,MPFR_RNDN)",
+                    "mpfr_cos(reference,a,MPFR_RNDN)",
                 }
                 require("MPFR_RNDD" in call or "MPFR_RNDU" in call or
                         normalized_call in diagnostic_midpoint_calls,
@@ -10361,7 +10519,8 @@ def _audit_oracle_mpfr_calls():
 
 def audit_oracle_independence(binary_path, command_path, link_map_path,
                               dynamic_dependencies_path,
-                              sealed_output_path=None):
+                              sealed_output_path=None,
+                              dependency_evidence_path=None):
     """Recompute the frozen primary-oracle independence proof."""
     B2.validate_source_separation()
     _audit_oracle_mpfr_calls()
@@ -10397,6 +10556,9 @@ def audit_oracle_independence(binary_path, command_path, link_map_path,
             pathlib.Path(tail[11]).resolve() == binary,
             "oracle command source/output/dependency grammar drift")
     dependency_path = pathlib.Path(tail[2]).resolve()
+    dependency_evidence = (dependency_path if dependency_evidence_path is None
+                           else pathlib.Path(
+                               dependency_evidence_path).resolve())
     include_root = pathlib.Path(tail[3][2:]).resolve()
     library_root = pathlib.Path(tail[5][2:]).resolve()
     rpath_root = pathlib.Path(tail[6][len("-Wl,-rpath,"):]).resolve()
@@ -10411,8 +10573,12 @@ def audit_oracle_independence(binary_path, command_path, link_map_path,
             str(command_map) == tail[9][len("-Wl,-map,"):] and
             str(binary) == tail[11],
             "oracle command artifact roots are not canonical/distinct")
+    require(dependency_evidence.is_file() and
+            (dependency_evidence_path is None or
+             dependency_evidence.read_bytes() == dependency_path.read_bytes()),
+            "oracle dependency evidence differs from compiler depfile")
     dependency_inputs = _d12_dependency_inputs(
-        dependency_path, binary, ROOT)
+        dependency_evidence, binary, ROOT)
     expected_dependencies = {
         str((ROOT / relative).resolve())
         for relative in RUNTIME_SOURCE_PATHS["independent_oracle"]}
@@ -13283,6 +13449,26 @@ def validate_result_sidecar_bundle(report, bundle_root, checkpoint_path=None,
     d12_cross_records = D12CrossRecordValidator()
     d12_serial_context = D12SerialContextVerifier()
     oracle_propagation = OracleUncoveredPropagationVerifier()
+    oracle_replay = None
+    oracle_slot = report["criteria"][CRITERION_IDS.index(
+        "oracle_coverage_and_crosscheck")]
+    if oracle_slot["result_ledger_artifact"]["availability"]["state"] == \
+            "PRESENT":
+        require(checkpoint_path is not None and artifact_root is not None and
+                runtime_binaries.get("independent_oracle"),
+                "complete oracle result validation lacks executable replay "
+                "inputs")
+        replay_checkpoint_path = pathlib.Path(checkpoint_path).resolve()
+        replay_artifact_root = pathlib.Path(artifact_root).resolve()
+        require(replay_checkpoint_path.is_file() and
+                replay_artifact_root.is_dir(),
+                "oracle executable replay corpus unavailable")
+        oracle_replay = iter(_iter_replayed_oracle_result_records(
+            strict_json_bytes(replay_checkpoint_path.read_bytes()),
+            replay_artifact_root, B2.load_manifest(),
+            runtime_binaries["independent_oracle"],
+            runtime_provenance["binaries"]["independent_oracle"][
+                "dynamic_dependencies"]))
     for criterion in report["criteria"]:
         descriptor = criterion["result_ledger_artifact"]
         if descriptor["availability"]["state"] != "PRESENT":
@@ -13315,12 +13501,23 @@ def validate_result_sidecar_bundle(report, bundle_root, checkpoint_path=None,
                 if basis_groups is not None:
                     basis_groups.add(record)
                 else:
+                    oracle_authority = None
+                    if criterion_id == "oracle_coverage_and_crosscheck":
+                        require(oracle_replay is not None,
+                                "oracle replay verifier unavailable")
+                        try:
+                            replayed_record = next(oracle_replay)
+                        except StopIteration as error:
+                            raise QualificationError(
+                                "oracle result ledger exceeds executable "
+                                "replay") from error
+                        require(record == replayed_record,
+                                "oracle result record differs from exact "
+                                "executable replay")
+                        oracle_authority = _ORACLE_CERTIFICATION_AUTHORITY
                     validate_contract_result_record(
                         criterion_id, record,
-                        oracle_certification_authority=(
-                            _ORACLE_CERTIFICATION_AUTHORITY
-                            if criterion_id ==
-                            "oracle_coverage_and_crosscheck" else None))
+                        oracle_certification_authority=oracle_authority)
                 if (criterion_id in ORACLE_CRITERIA or
                         criterion_id in ORACLE_DEPENDENT_CRITERIA):
                     oracle_propagation.add(criterion_id, record)
@@ -13372,6 +13569,15 @@ def validate_result_sidecar_bundle(report, bundle_root, checkpoint_path=None,
                 count += 1
             if basis_groups is not None:
                 basis_groups.finish()
+            if criterion_id == "oracle_coverage_and_crosscheck":
+                try:
+                    next(oracle_replay)
+                except StopIteration:
+                    pass
+                else:
+                    raise QualificationError(
+                        "oracle result ledger is shorter than executable "
+                        "replay")
             key_digest.update(b"]")
             require(path.stat().st_size == descriptor["byte_length"] and
                     result_digest.hexdigest() ==
@@ -14153,6 +14359,24 @@ def execute(args):
                 "oracle provenance changed while snapshotting: " + attribute)
         original_oracle_provenance[attribute] = (original, digest)
         setattr(args, attribute, str(destination))
+    oracle_command_lines = original_oracle_provenance[
+        "oracle_command_file"][0].read_text(encoding="utf-8").splitlines()
+    require(oracle_command_lines.count("-MF") == 1,
+            "oracle command lacks one dependency output")
+    oracle_dependency_original = pathlib.Path(oracle_command_lines[
+        oracle_command_lines.index("-MF") + 1]).resolve()
+    require(oracle_dependency_original.is_file(),
+            "oracle compiler depfile unavailable before snapshot")
+    oracle_dependency_digest = sha256_file(oracle_dependency_original)
+    oracle_dependency_snapshot = snapshot_root / "oracle_dependency_file"
+    shutil.copyfile(str(oracle_dependency_original),
+                    str(oracle_dependency_snapshot))
+    require(sha256_file(oracle_dependency_original) ==
+                oracle_dependency_digest ==
+                sha256_file(oracle_dependency_snapshot),
+            "oracle compiler depfile changed while snapshotting")
+    original_oracle_provenance["oracle_dependency_file"] = (
+        oracle_dependency_original, oracle_dependency_digest)
     sealed_oracle_dynamic = (snapshot_root /
                              "oracle_dynamic_audit.jcs.json")
     published_oracle_dynamic = (
@@ -14163,7 +14387,11 @@ def execute(args):
         original_oracle_provenance["oracle_command_file"][0],
         original_oracle_provenance["oracle_link_map"][0],
         original_oracle_provenance["oracle_dynamic_dependencies"][0],
-        sealed_output_path=sealed_oracle_dynamic)
+        sealed_output_path=sealed_oracle_dynamic,
+        dependency_evidence_path=oracle_dependency_snapshot)
+    oracle_runtime_library_root = snapshot_root / "oracle-runtime-libs"
+    oracle_runtime_libraries = _snapshot_oracle_runtime_libraries(
+        sealed_oracle_dynamic, oracle_runtime_library_root)
     args.oracle_dynamic_dependencies = str(sealed_oracle_dynamic)
     require(all(path.is_file() and sha256_file(path) == digest and
                 sha256_file(snapshot_runtime[attribute]) == digest
@@ -14229,7 +14457,10 @@ def execute(args):
         evidence_root))
     oracle_results, oracle_partitions = execute_oracle_coverage(
         checkpoint, artifact_root, manifest, args.independent_oracle_binary,
-        args.candidate_binary, evidence_root)
+        args.candidate_binary, evidence_root,
+        oracle_runtime_library_bindings=[
+            (source, digest) for source, digest, _ in
+            oracle_runtime_libraries])
     executed.update(oracle_results)
     executed.update(execute_observation_component_criteria(
         args.candidate_binary, checkpoint, artifact_root, manifest,
@@ -14277,6 +14508,10 @@ def execute(args):
             all(path.is_file() and sha256_file(path) == digest
                 for path, digest in artifact_originals),
             "scientific input/provenance identity changed during execution")
+    require(all(source.is_file() and destination.is_file() and
+                sha256_file(source) == digest == sha256_file(destination)
+                for source, digest, destination in oracle_runtime_libraries),
+            "oracle runtime dependency identity changed during execution")
     require_git_binding(git_start, git_end, worktree_start, worktree_end,
                         expected_head, checkpoint["binding"]["git_head"])
     require(not published_oracle_dynamic.exists(),
