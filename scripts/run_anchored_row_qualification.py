@@ -8128,7 +8128,7 @@ def execute_d12_worker_streams(provider_tsan_binary,
                 expired.append(True)
                 try:
                     os.killpg(process.pid, signal.SIGKILL)
-                except ProcessLookupError:
+                except OSError:
                     pass
 
             timer = threading.Timer(timeout_seconds, expire)
@@ -8140,7 +8140,7 @@ def execute_d12_worker_streams(provider_tsan_binary,
                 if process.poll() is None:
                     try:
                         os.killpg(process.pid, signal.SIGKILL)
-                    except ProcessLookupError:
+                    except OSError:
                         pass
                     process.wait()
                 if input_stream is not None:
@@ -10122,7 +10122,7 @@ def iter_candidate_observations(binary, criterion_id, request_lines,
         expired.append(True)
         try:
             os.killpg(process.pid, signal.SIGKILL)
-        except ProcessLookupError:
+        except OSError:
             pass
 
     timer = threading.Timer(timeout_seconds, expire)
@@ -10156,7 +10156,7 @@ def iter_candidate_observations(binary, criterion_id, request_lines,
         if feeder.is_alive() or process.poll() is None:
             try:
                 os.killpg(process.pid, signal.SIGKILL)
-            except ProcessLookupError:
+            except OSError:
                 pass
         if process.stdin is not None and not process.stdin.closed:
             process.stdin.close()
@@ -10164,7 +10164,7 @@ def iter_candidate_observations(binary, criterion_id, request_lines,
         if process.poll() is None:
             try:
                 os.killpg(process.pid, signal.SIGKILL)
-            except ProcessLookupError:
+            except OSError:
                 pass
         process.wait(timeout=5)
         if process.stdout is not None:
@@ -11363,6 +11363,7 @@ def _validate_d12_tsan_process_pair(records, expected_executables=None):
         "instrumentation_coverage"]
     finding, finding_provenance = records["tsan_finding_count"]
     require(instrumentation_provenance != finding_provenance and
+            instrumentation_provenance["pid"] != finding_provenance["pid"] and
             instrumentation_provenance["process_tuple_sha256"] ==
                 finding_provenance["process_tuple_sha256"],
             "D12 TSan summaries do not bind two fresh tuple processes")
