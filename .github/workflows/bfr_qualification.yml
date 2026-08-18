@@ -294,6 +294,53 @@ jobs:
           "$QUALIFICATION_ROOT/exact_dyadic_boundary" --self-test
           "$QUALIFICATION_ROOT/stam_oracle" --self-test
           "$QUALIFICATION_ROOT/stam_oracle" --capability
+          python3 - "$QUALIFICATION_ROOT" <<'PY'
+          import importlib.util
+          import pathlib
+          import sys
+
+          proof = pathlib.Path(sys.argv[1]).resolve()
+          runner_path = pathlib.Path(
+              "scripts/run_anchored_row_qualification.py").resolve()
+          spec = importlib.util.spec_from_file_location(
+              "anchored_row_qualification", runner_path)
+          runner = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(runner)
+          assert runner.audit_oracle_independence(
+              proof / "stam_oracle",
+              proof / "oracle.command",
+              proof / "oracle.map",
+              proof / "oracle.otool-L",
+              sealed_output_path=proof / "oracle.runtime-audit.json") == "PASS"
+          PY
+          for fixture in \
+            data/fixtures/candidates/closed_valence3_tetrahedron \
+            data/fixtures/candidates/closed_valence4_octahedron \
+            data/fixtures/closed_valence5 \
+            data/fixtures/candidates/closed_mixed_valence345 \
+            data/fixtures/candidates/b2_readiness_v1/closed_566_refined_icosahedron
+          do
+            "$QUALIFICATION_ROOT/stam_oracle" --evaluate-sample \
+              "$fixture" none 0 0 3fc0000000000000 3fd8000000000000 \
+              > "$QUALIFICATION_ROOT/oracle-sample-$(basename "$fixture").json"
+          done
+          python3 - "$QUALIFICATION_ROOT" <<'PY'
+          import json
+          import pathlib
+          import sys
+
+          proof = pathlib.Path(sys.argv[1]).resolve()
+          samples = sorted(proof.glob("oracle-sample-*.json"))
+          assert len(samples) == 5
+          for sample in samples:
+              value = json.loads(sample.read_text(encoding="utf-8"))
+              assert value["status"] == "ok", (sample, value)
+              assert [row["row_kind"] for row in value["rows"]] == [
+                  "position", "du", "dv", "duu", "duv", "dvv"]
+              assert all(set(row["certification"].values()) == {
+                  "oracle_certification_v1", "CERTIFIED"}
+                  for row in value["rows"])
+          PY
           test "$QUALIFICATION_HEAD" = "$(git rev-parse HEAD)"
           test -z "$(git status --porcelain=v1 --untracked-files=all)"
 

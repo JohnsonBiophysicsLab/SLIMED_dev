@@ -216,6 +216,7 @@ ORACLE_DEPENDENT_CRITERIA = frozenset((
     "exact_effective_d10_coeff", "exact_effective_d10_geometry",
     "emitted_direct_geometry_d10",
 ))
+_ORACLE_CERTIFICATION_AUTHORITY = object()
 D12_CRITERIA = frozenset(CRITERION_IDS[27:])
 CANDIDATE_SCIENTIFIC_CRITERIA = frozenset(CRITERION_IDS[3:27]) - ORACLE_CRITERIA
 CATEGORICAL_CRITERIA = frozenset((
@@ -1469,14 +1470,19 @@ def validate_result_record_envelope(criterion_id, record):
     return True
 
 
-def validate_contract_result_record(criterion_id, record,
-                                    defer_basis_group=False):
+def validate_contract_result_record(
+        criterion_id, record, defer_basis_group=False,
+        oracle_certification_authority=None):
     """Enforce the frozen per-criterion value/target/outcome/reason row."""
     validate_result_record_envelope(criterion_id, record)
     contract = RESULT_CONTRACT.CRITERION_BY_ID[criterion_id]
     key, outcome, exact_value, target, reason = record
     if criterion_id == "oracle_coverage_and_crosscheck":
         if outcome == "PASS":
+            require(oracle_certification_authority is
+                    _ORACLE_CERTIFICATION_AUTHORITY,
+                    "covered oracle result lacks authenticated certificate "
+                    "execution context")
             require(_contract_kind(exact_value) == "oracle_covered_value_v1",
                     "covered oracle result exact-value form")
             require(isinstance(key, list) and len(key) == 15 and
@@ -2073,7 +2079,12 @@ def canonical_result_ledger(records, witness_index=None, criterion_id=None):
             if basis_groups is not None:
                 basis_groups.add(record)
             else:
-                validate_contract_result_record(criterion_id, record)
+                validate_contract_result_record(
+                    criterion_id, record,
+                    oracle_certification_authority=(
+                        _ORACLE_CERTIFICATION_AUTHORITY
+                        if criterion_id ==
+                        "oracle_coverage_and_crosscheck" else None))
         require(isinstance(record, list) and len(record) == 5,
                 "result record shape")
         canonical, encoded = canonical_result_record(*record)
@@ -2155,7 +2166,12 @@ class StreamingResultLedgerArtifact:
         if self.basis_groups is not None:
             self.basis_groups.add(record)
         else:
-            validate_contract_result_record(self.criterion_id, record)
+            validate_contract_result_record(
+                self.criterion_id, record,
+                oracle_certification_authority=(
+                    _ORACLE_CERTIFICATION_AUTHORITY
+                    if self.criterion_id ==
+                    "oracle_coverage_and_crosscheck" else None))
         canonical, encoded_record = canonical_result_record(*record)
         require(canonical == record, "result record canonical value")
         encoded_key = jcs_bytes(record[0])
@@ -2424,7 +2440,8 @@ def _valid_oracle_covered_record(key=None):
         "certification": certification}
     record = [key, "PASS", value, None, None]
     validate_contract_result_record(
-        "oracle_coverage_and_crosscheck", record)
+        "oracle_coverage_and_crosscheck", record,
+        oracle_certification_authority=_ORACLE_CERTIFICATION_AUTHORITY)
     return record
 
 
@@ -7681,7 +7698,7 @@ class D12ProcessObservationArtifact:
     RELATIVE_PATH = (
         "anchored-row-d12-v1/process/process-observations.json")
 
-    def __init__(self, output_root):
+    def __init__(self, output_root, expected_tsan_executables=None):
         self.output_root = pathlib.Path(output_root).resolve()
         self.destination = self.output_root / self.RELATIVE_PATH
         self.destination.parent.mkdir(parents=True, exist_ok=True)
@@ -7701,6 +7718,14 @@ class D12ProcessObservationArtifact:
             "NOT NULL, payload BLOB NOT NULL, byte_offset INTEGER NOT NULL, "
             "byte_length INTEGER NOT NULL, sha256 TEXT NOT NULL)")
         self.tsan_processes = {}
+        self.expected_tsan_executables = (
+            None if expected_tsan_executables is None else
+            frozenset(expected_tsan_executables))
+        require(self.expected_tsan_executables is None or
+                len(self.expected_tsan_executables) == 2 and
+                all(SHA256_RE.fullmatch(value or "") is not None
+                    for value in self.expected_tsan_executables),
+                "D12 process artifact expected TSan executables")
         self.count = 0
         self.finished = False
 
@@ -7735,7 +7760,8 @@ class D12ProcessObservationArtifact:
         require(not self.finished and
                 (expected_count is None or self.count == expected_count),
                 "D12 process observation cardinality")
-        require(all(_validate_d12_tsan_process_pair(records)
+        require(all(_validate_d12_tsan_process_pair(
+                        records, self.expected_tsan_executables)
                     for records in self.tsan_processes.values()),
                 "D12 TSan process-pair validation")
         self.connection.commit()
@@ -8141,12 +8167,13 @@ def execute_d12_worker_streams(provider_tsan_binary,
             references[(content_id, level)]["request_path"])
         try:
             race = provider_run["race"] or representation_run["race"]
+            require(not (provider_run["race"] and
+                         representation_run["race"]),
+                    "D12 two-process tuple has multiple sanitizer reports")
             for run in (provider_run, representation_run):
                 if run["returncode"] == 0:
-                    lower_stderr = run["stderr"].lower()
-                    require(b"threadsanitizer" not in lower_stderr and
-                            b"data race" not in lower_stderr,
-                            "D12 successful TSan worker emitted sanitizer output")
+                    require(run["stderr"] == b"",
+                            "D12 successful TSan worker emitted stderr")
             if not race:
                 provider_stream = provider_run["stdout"]
                 representation_stream = representation_run["stdout"]
@@ -8259,36 +8286,49 @@ def execute_d12_worker_streams(provider_tsan_binary,
                             new_master_paths.items():
                         published_content_files[content_file_key] = \
                             pathlib.Path(output_root) / relative_path
-            selected_run = (provider_run if provider_run["race"] else
-                            representation_run)
-            returncode = selected_run["returncode"]
-            stderr = selected_run["stderr"]
-            command = selected_run["command"]
-            executable_sha256 = (provider_sha256 if provider_run["race"]
-                                 else representation_sha256)
-            exit_kind = "SIGNALED" if returncode < 0 else "EXITED"
-            process_base = {
-                "pid": selected_run["process"].pid,
-                "start_utc": selected_run["started"],
-                "end_utc": selected_run["ended"],
-                "exit_kind": exit_kind,
-                "exit_code": None if returncode < 0 else returncode,
-                "signal": -returncode if returncode < 0 else None,
-                "argv_sha256": sha256_bytes(jcs_bytes(command)),
-                "environment_sha256": sha256_bytes(jcs_bytes(environment)),
-                "stderr_sha256": sha256_bytes(stderr)}
+            # The frozen tuple has exactly two summary records.  Bind one to
+            # each fresh TSan process so successful zero-finding evidence
+            # cannot silently discard either executed translation unit.
+            if provider_run["race"]:
+                instrumentation_run = representation_run
+                instrumentation_sha256 = representation_sha256
+                finding_run = provider_run
+                finding_executable_sha256 = provider_sha256
+            else:
+                instrumentation_run = provider_run
+                instrumentation_sha256 = provider_sha256
+                finding_run = representation_run
+                finding_executable_sha256 = representation_sha256
+
+            def process_base(run):
+                returncode = run["returncode"]
+                return {
+                    "pid": run["process"].pid,
+                    "start_utc": run["started"],
+                    "end_utc": run["ended"],
+                    "exit_kind": ("SIGNALED" if returncode < 0 else
+                                  "EXITED"),
+                    "exit_code": None if returncode < 0 else returncode,
+                    "signal": -returncode if returncode < 0 else None,
+                    "argv_sha256": sha256_bytes(jcs_bytes(run["command"])),
+                    "environment_sha256": sha256_bytes(
+                        jcs_bytes(environment)),
+                    "stderr_sha256": sha256_bytes(run["stderr"])}
+
+            finding_process = process_base(finding_run)
+            instrumentation_process = process_base(instrumentation_run)
             finding_key = [
                 content_id, level, "tsan", cache_mode, worker_count,
                 None, None, None, None, None, None, None,
                 "sanitizer_summary", "tsan_finding_count"]
             if race:
-                report_digest = sha256_bytes(stderr)
+                report_digest = sha256_bytes(finding_run["stderr"])
                 report_path = pathlib.Path(output_root) / \
                     _d12_tsan_report_relative_path(finding_key)
-                require(stderr and not report_path.exists(),
+                require(finding_run["stderr"] and not report_path.exists(),
                         "D12 sanitizer abort report is empty or duplicated")
                 report_path.parent.mkdir(parents=True, exist_ok=True)
-                report_path.write_bytes(stderr)
+                report_path.write_bytes(finding_run["stderr"])
                 aborts[(content_id, level, cache_mode,
                         worker_count)] = report_digest
             else:
@@ -8300,24 +8340,26 @@ def execute_d12_worker_streams(provider_tsan_binary,
         finally:
             provider_run["stdout"].close()
             representation_run["stdout"].close()
-        for quantity, payload in (
+        for quantity, payload, provenance_process, executable_sha256 in (
                 ("instrumentation_coverage", {
                     "kind": "d12_tsan_instrumentation_raw_v1",
                     "state": "COMPLETE",
                     "instrumented_translation_units_sha256":
-                        instrumentation_digest}),
+                        instrumentation_digest}, instrumentation_process,
+                 instrumentation_sha256),
                 ("tsan_finding_count", {
                     "kind": "d12_tsan_finding_raw_v1",
                     "state": "SANITIZER_ABORT" if race else "COMPLETE",
                     "finding_count_token": None if race else "0",
-                    "sanitizer_report_sha256": report_digest})):
+                    "sanitizer_report_sha256": report_digest},
+                 finding_process, finding_executable_sha256)):
             key = [content_id, level, "tsan", cache_mode, worker_count,
                    None, None, None, None, None, None, None,
                    "sanitizer_summary", quantity]
             process_artifact.add(
                 "d12_instrumented_tsan",
                 [key, payload, _d12_process_provenance(
-                    key, process_base, executable_sha256)])
+                    key, provenance_process, executable_sha256)])
         tuple_count += 1
     missing_descriptors = sum(40 * tuple_key[3] for tuple_key in aborts)
     require(tuple_count == len(tuple_identities) and
@@ -8860,7 +8902,10 @@ def produce_d12_evidence(args):
     instrumentation_digest = _d12_instrumentation_digest(
         binaries, build_profiles, opensubdiv)
 
-    process_artifact = D12ProcessObservationArtifact(output_root)
+    process_artifact = D12ProcessObservationArtifact(
+        output_root, {
+            binaries["provider_tsan"]["sha256"],
+            binaries["representation_tsan"]["sha256"]})
     try:
         for criterion_id, record in iter_d12_numeric_observations(
                 checkpoint, artifact_root):
@@ -9174,13 +9219,18 @@ def make_complete_pre_result_ledgers(checkpoint, artifact_root, manifest,
     return records
 
 
-def validate_oracle_sample_observation(value):
+def validate_oracle_sample_observation(
+        value, oracle_certification_authority=None):
     """Validate one independent-oracle batch value before persistence."""
     require(isinstance(value, dict) and
             value.get("kind") == "stam_oracle_sample_v1" and
             value.get("status") in {"ok", "uncovered"},
             "oracle batch observation shape")
     if value["status"] == "ok":
+        require(oracle_certification_authority is
+                _ORACLE_CERTIFICATION_AUTHORITY,
+                "covered oracle observation lacks authenticated certificate "
+                "execution context")
         require(set(value) == {"schema_version", "kind", "status", "rows"} and
                 value["schema_version"] == 1 and
                 [item.get("row_kind") for item in value["rows"]] ==
@@ -9211,7 +9261,9 @@ def iter_oracle_batch_observations(oracle_binary, request_rows,
     stderr_file = tempfile.TemporaryFile()
     process = subprocess.Popen(
         [str(pathlib.Path(oracle_binary).resolve()), "--batch"],
-        stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=stderr_file)
+        cwd=str(ROOT), env=_d12_rebuild_environment(),
+        stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=stderr_file,
+        start_new_session=True)
     require(process.stdin is not None and process.stdout is not None,
             "oracle batch pipes unavailable")
     feeder_errors = []
@@ -9238,7 +9290,7 @@ def iter_oracle_batch_observations(oracle_binary, request_rows,
     def expire():
         timed_out.append(True)
         try:
-            process.kill()
+            os.killpg(process.pid, signal.SIGKILL)
         except OSError:
             pass
 
@@ -9262,15 +9314,17 @@ def iter_oracle_batch_observations(oracle_binary, request_rows,
             require(request_id == expected_request_id,
                     "oracle batch output ordinal/identity drift")
             value = validate_oracle_sample_observation(
-                strict_json_bytes(raw_value))
+                strict_json_bytes(raw_value),
+                _ORACLE_CERTIFICATION_AUTHORITY)
             # The oracle owns only observations, not authoritative result
             # bytes.  Canonicalize the already closed/validated value before
             # it enters the runner-owned persistence boundary.
             yield request_id, jcs_bytes(value), value
         require(process.stdout.read(1) == b"",
                 "oracle batch output trailing record")
-        feeder.join()
-        returncode = process.wait()
+        feeder.join(timeout=5)
+        require(not feeder.is_alive(), "oracle batch input timed out")
+        returncode = process.wait(timeout=5)
         stderr_file.seek(0)
         stderr = stderr_file.read().decode("utf-8", errors="replace")
         require(not timed_out, "oracle batch execution timed out")
@@ -9283,13 +9337,22 @@ def iter_oracle_batch_observations(oracle_binary, request_rows,
         timer.cancel()
         if feeder.is_alive() or process.poll() is None:
             try:
-                process.kill()
+                os.killpg(process.pid, signal.SIGKILL)
             except OSError:
                 pass
         if process.stdin is not None and not process.stdin.closed:
             process.stdin.close()
-        feeder.join()
-        process.wait()
+        feeder.join(timeout=5)
+        if process.poll() is None:
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except OSError:
+                pass
+        try:
+            process.wait(timeout=5)
+        except subprocess.TimeoutExpired as error:
+            raise QualificationError(
+                "oracle batch process group did not terminate") from error
         process.stdout.close()
         stderr_file.close()
 
@@ -9778,6 +9841,7 @@ def validate_independent_oracle_self_test(value):
         "mpfr_compile_version": "4.2.2",
         "mpfr_runtime_version": "4.2.2",
         "directed_rounding": True,
+        "single_rounding_direction_mutations_rejected": True,
         "zero_denominator_rejected": True,
         "candidate_dependency_free": True,
         "stock_loop_matrix_constructed_from_masks": True,
@@ -10207,10 +10271,100 @@ def binary_record(path, source_paths, capability, dependencies,
             "capability": capability}
 
 
+def _oracle_dynamic_dependency_packet(actual_dynamic, library_root):
+    """Bind the exact loaded MPFR/GMP dylib paths and bytes."""
+    try:
+        dynamic_text = actual_dynamic.decode("utf-8", errors="strict")
+    except UnicodeError as error:
+        raise QualificationError(
+            "oracle dynamic-dependency transcript is not UTF-8") from error
+    libraries = []
+    for name in ("gmp", "mpfr"):
+        matches = []
+        pattern = re.compile(r"^\s*(/[^\s]+/lib" + name +
+                             r"(?:\.[0-9]+)*\.dylib)\s+\(")
+        for line in dynamic_text.splitlines()[1:]:
+            matched = pattern.match(line)
+            if matched is not None:
+                matches.append(matched.group(1))
+        require(len(matches) == 1,
+                "oracle dynamic dependency lacks one exact lib" + name)
+        raw_path = matches[0]
+        path = pathlib.Path(raw_path).resolve()
+        require(raw_path == str(path) and path.is_file() and
+                path.is_relative_to(library_root) and
+                path.parent == library_root,
+                "oracle linked lib{} escapes the declared canonical root".
+                format(name))
+        libraries.append({"name": name, "path": str(path),
+                          "sha256": sha256_file(path)})
+    return {
+        "schema_id": "oracle-runtime-dependency-audit-v1",
+        "otool_L_sha256": sha256_bytes(actual_dynamic),
+        "otool_L_text": dynamic_text,
+        "libraries": libraries}
+
+
+def _audit_oracle_mpfr_calls():
+    """Reject an unrounded or unapproved MPFR arithmetic proof call."""
+    directed_arithmetic = {
+        "abs", "add", "const_pi", "cos", "div", "div_2ui", "div_ui",
+        "mul", "neg", "sqrt", "sub", "ui_div"}
+    explicit_rounding = directed_arithmetic | {
+        "get_d", "set", "set_d", "set_si", "set_str", "set_ui",
+        "set_ui_2exp"}
+    non_arithmetic = {
+        "clear", "clear_flags", "divby0_p", "equal_p", "erangeflag_p",
+        "get_version", "get_z_2exp", "greater_p", "greaterequal_p",
+        "init2", "less_p", "lessequal_p", "nanflag_p", "number_p",
+        "overflow_p", "set_zero", "sgn", "snprintf", "underflow_p",
+        "zero_p"}
+    for relative in RUNTIME_SOURCE_PATHS["independent_oracle"]:
+        path = ROOT / relative
+        text = path.read_text(encoding="utf-8", errors="strict")
+        require("mpfr_sin" not in text,
+                "oracle proof surface uses an unapproved transcendental")
+        for matched in re.finditer(r"\bmpfr_([A-Za-z0-9_]+)\s*\(", text):
+            name = matched.group(1)
+            require(name in explicit_rounding | non_arithmetic,
+                    "oracle source uses an unaudited MPFR call: " + name)
+            if name not in explicit_rounding:
+                continue
+            cursor = matched.end()
+            depth = 1
+            while cursor < len(text) and depth:
+                if text[cursor] == "(":
+                    depth += 1
+                elif text[cursor] == ")":
+                    depth -= 1
+                cursor += 1
+            require(depth == 0, "oracle MPFR call is not lexically closed")
+            call = text[matched.start():cursor]
+            require(any(rounding in call for rounding in (
+                        "MPFR_RNDD", "MPFR_RNDU", "MPFR_RNDN")),
+                    "oracle MPFR arithmetic call lacks literal rounding: " +
+                    name)
+            if name in directed_arithmetic:
+                normalized_call = re.sub(r"\s+", "", call)
+                diagnostic_midpoint_calls = {
+                    "mpfr_add(value,lo_,hi_,MPFR_RNDN)",
+                    "mpfr_div_2ui(value,value,1,MPFR_RNDN)",
+                    "mpfr_add(midpoint,value.lo(),value.hi(),MPFR_RNDN)",
+                    "mpfr_div_2ui(midpoint,midpoint,1,MPFR_RNDN)",
+                }
+                require("MPFR_RNDD" in call or "MPFR_RNDU" in call or
+                        normalized_call in diagnostic_midpoint_calls,
+                        "oracle interval arithmetic uses nearest rounding: " +
+                        name)
+    return True
+
+
 def audit_oracle_independence(binary_path, command_path, link_map_path,
-                              dynamic_dependencies_path):
+                              dynamic_dependencies_path,
+                              sealed_output_path=None):
     """Recompute the frozen primary-oracle independence proof."""
     B2.validate_source_separation()
+    _audit_oracle_mpfr_calls()
     binary = pathlib.Path(binary_path).resolve()
     command_file = pathlib.Path(command_path).resolve()
     link_map = pathlib.Path(link_map_path).resolve()
@@ -10262,6 +10416,14 @@ def audit_oracle_independence(binary_path, command_path, link_map_path,
     expected_dependencies = {
         str((ROOT / relative).resolve())
         for relative in RUNTIME_SOURCE_PATHS["independent_oracle"]}
+    expected_dependencies.update({
+        str((include_root / "mpfr.h").resolve()),
+        str((include_root / "gmp.h").resolve())})
+    require(all(pathlib.Path(path).is_file() and
+                (pathlib.Path(path).is_relative_to(ROOT) or
+                 pathlib.Path(path).parent == include_root)
+                for path in expected_dependencies),
+            "oracle frozen source/header dependency unavailable")
     require({item["path"] for item in dependency_inputs} ==
                 expected_dependencies and
             all(item["sha256"] == sha256_file(pathlib.Path(item["path"]))
@@ -10278,12 +10440,53 @@ def audit_oracle_independence(binary_path, command_path, link_map_path,
         return completed.stdout
 
     actual_dynamic = checked_output(["/usr/bin/otool", "-L", str(binary)])
-    require(actual_dynamic == dynamic_file.read_bytes(),
-            "oracle dynamic-dependency transcript differs from executable")
+    dynamic_packet = _oracle_dynamic_dependency_packet(
+        actual_dynamic, library_root)
+    supplied_dynamic = dynamic_file.read_bytes()
+    if supplied_dynamic == actual_dynamic:
+        require(sealed_output_path is not None,
+                "raw oracle dynamic transcript is not a sealed audit packet")
+    else:
+        supplied_packet = strict_json_bytes(supplied_dynamic)
+        require(supplied_packet == dynamic_packet and
+                supplied_dynamic == jcs_bytes(dynamic_packet),
+                "oracle dynamic-dependency audit packet drift")
+    if sealed_output_path is not None:
+        sealed_path = pathlib.Path(sealed_output_path).resolve()
+        require(not sealed_path.exists(),
+                "oracle dynamic-dependency sealed output already exists")
+        sealed_path.write_bytes(jcs_bytes(dynamic_packet))
     undefined_symbols = checked_output(["/usr/bin/nm", "-u", str(binary)])
     forbidden = B2.FORBIDDEN_ORACLE_TOKENS
     dynamic_text = actual_dynamic.decode("utf-8", errors="strict")
     symbol_text = undefined_symbols.decode("utf-8", errors="strict")
+    approved_mpfr_symbols = {
+        "add", "clear", "clear_flags", "const_pi", "cos", "div",
+        "div_2ui", "div_ui", "divby0_p", "equal_p", "erangeflag_p",
+        "get_d", "get_version", "get_z_2exp", "greater_p",
+        "greaterequal_p", "init2", "less_p", "lessequal_p", "mul",
+        "nanflag_p", "neg", "number_p", "overflow_p", "set4", "set_d",
+        "set_erangeflag", "set_si", "set_str", "set_ui", "set_ui_2exp",
+        "set_zero", "snprintf", "sqrt", "sub", "ui_div",
+        "underflow_p"}
+    approved_gmp_symbols = {
+        "get_memory_functions", "z_clear", "z_divexact_ui", "z_get_str",
+        "z_init", "z_init_set_ui", "z_mul_2exp"}
+    for line in symbol_text.splitlines():
+        symbol = line.split()[-1].lstrip("_") if line.split() else ""
+        if symbol.startswith("mpfr_"):
+            require(symbol[len("mpfr_"):] in approved_mpfr_symbols,
+                    "oracle binary imports an unaudited MPFR symbol: " +
+                    symbol)
+        elif symbol.startswith("gmp_"):
+            require(symbol[len("gmp_"):] in approved_gmp_symbols,
+                    "oracle binary imports an unaudited GMP symbol: " +
+                    symbol)
+        elif symbol.startswith("gmpz_"):
+            require(("z_" + symbol[len("gmpz_"):]) in
+                    approved_gmp_symbols,
+                    "oracle binary imports an unaudited GMP integer symbol: " +
+                    symbol)
     require(not any(token in dynamic_text for token in forbidden) and
             "osd" not in dynamic_text.lower() and
             not any(token in symbol_text for token in forbidden) and
@@ -11152,25 +11355,46 @@ def _d12_tsan_report_relative_path(key):
             tuple_digest + ".stderr")
 
 
-def _validate_d12_tsan_process_pair(records):
+def _validate_d12_tsan_process_pair(records, expected_executables=None):
     require(set(records) == {
                 "instrumentation_coverage", "tsan_finding_count"},
             "D12 TSan process lacks its exact two raw summaries")
     instrumentation, instrumentation_provenance = records[
         "instrumentation_coverage"]
     finding, finding_provenance = records["tsan_finding_count"]
-    require(instrumentation_provenance == finding_provenance,
-            "D12 TSan summaries do not bind the same fresh process")
-    failed = (finding_provenance["exit_kind"] == "SIGNALED" or
+    require(instrumentation_provenance != finding_provenance and
+            instrumentation_provenance["process_tuple_sha256"] ==
+                finding_provenance["process_tuple_sha256"],
+            "D12 TSan summaries do not bind two fresh tuple processes")
+    observed_executables = {
+        instrumentation_provenance["executable_sha256"],
+        finding_provenance["executable_sha256"]}
+    require(len(observed_executables) == 2 and
+            (expected_executables is None or
+             observed_executables == set(expected_executables)),
+            "D12 TSan summaries do not cover both authenticated executables")
+    empty_stderr = sha256_bytes(b"")
+    instrumentation_failed = (
+        instrumentation_provenance["exit_kind"] == "SIGNALED" or
+        (instrumentation_provenance["exit_kind"] == "EXITED" and
+         instrumentation_provenance["exit_code"] != 0))
+    finding_failed = (finding_provenance["exit_kind"] == "SIGNALED" or
               (finding_provenance["exit_kind"] == "EXITED" and
                finding_provenance["exit_code"] != 0))
-    if failed:
-        require(instrumentation["state"] == "COMPLETE" and
+    require(not instrumentation_failed and
+            instrumentation_provenance["exit_kind"] == "EXITED" and
+            instrumentation_provenance["exit_code"] == 0 and
+            instrumentation_provenance["stderr_sha256"] == empty_stderr and
+            instrumentation["state"] == "COMPLETE",
+            "D12 instrumentation summary lacks its successful process")
+    if finding_failed:
+        require(
                 finding["state"] == "SANITIZER_ABORT",
                 "D12 failed TSan process is not an exact sanitizer abort")
     else:
         require(finding_provenance["exit_kind"] == "EXITED" and
                 finding_provenance["exit_code"] == 0 and
+                finding_provenance["stderr_sha256"] == empty_stderr and
                 finding["state"] == "COMPLETE",
                 "D12 successful TSan process lacks a complete finding count")
     return True
@@ -11582,7 +11806,12 @@ class D12EvidenceVerifier:
                         representation_inputs == self.REPRESENTATION_INPUTS,
                         "D12 representation final row lacks eight inputs")
             else:
-                require(all(_validate_d12_tsan_process_pair(records)
+                expected_tsan_binaries = (None if self.envelope is None else {
+                    self.envelope["binaries"]["provider_tsan"]["sha256"],
+                    self.envelope["binaries"][
+                        "representation_tsan"]["sha256"]})
+                require(all(_validate_d12_tsan_process_pair(
+                                records, expected_tsan_binaries)
                             for records in tsan_processes.values()),
                         "D12 persisted TSan process-pair validation")
             require(count == descriptor["record_count"] and
@@ -13085,7 +13314,12 @@ def validate_result_sidecar_bundle(report, bundle_root, checkpoint_path=None,
                 if basis_groups is not None:
                     basis_groups.add(record)
                 else:
-                    validate_contract_result_record(criterion_id, record)
+                    validate_contract_result_record(
+                        criterion_id, record,
+                        oracle_certification_authority=(
+                            _ORACLE_CERTIFICATION_AUTHORITY
+                            if criterion_id ==
+                            "oracle_coverage_and_crosscheck" else None))
                 if (criterion_id in ORACLE_CRITERIA or
                         criterion_id in ORACLE_DEPENDENT_CRITERIA):
                     oracle_propagation.add(criterion_id, record)
@@ -13856,6 +14090,38 @@ def execute(args):
     args = copy.copy(args)
     snapshot_directory = tempfile.TemporaryDirectory(
         prefix="anchored-row-runtime-snapshot-")
+    snapshot_root = pathlib.Path(snapshot_directory.name)
+    original_checkpoint_digest = sha256_file(checkpoint_path)
+    snapshot_checkpoint = snapshot_root / "checkpoint.json"
+    shutil.copyfile(str(checkpoint_path), str(snapshot_checkpoint))
+    require(sha256_file(checkpoint_path) == original_checkpoint_digest ==
+                sha256_file(snapshot_checkpoint),
+            "checkpoint changed while snapshotting")
+    original_artifact_root = pathlib.Path(original_args.artifact_dir).resolve()
+    require(original_artifact_root.is_dir(),
+            "artifact root unavailable before snapshot")
+    snapshot_artifact_root = snapshot_root / "artifacts"
+    artifact_originals = []
+    artifact_relative_paths = sorted({
+        case["complete_json_artifact"] for case in checkpoint["numeric_cases"]},
+        key=jcs_bytes)
+    require(len(artifact_relative_paths) == 294,
+            "checkpoint artifact snapshot cardinality")
+    for relative_path in artifact_relative_paths:
+        source = (original_artifact_root / relative_path).resolve()
+        require(source.is_relative_to(original_artifact_root) and
+                source.is_file(),
+                "artifact unavailable before snapshot: " + relative_path)
+        digest = sha256_file(source)
+        destination = snapshot_artifact_root / relative_path
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(str(source), str(destination))
+        require(sha256_file(source) == digest == sha256_file(destination),
+                "artifact changed while snapshotting: " + relative_path)
+        artifact_originals.append((source, digest))
+    args.checkpoint = str(snapshot_checkpoint)
+    args.artifact_dir = str(snapshot_artifact_root)
+    checkpoint_path = snapshot_checkpoint
     original_runtime = {}
     snapshot_runtime = {}
     for attribute in (
@@ -13864,7 +14130,7 @@ def execute(args):
         original = pathlib.Path(getattr(original_args, attribute)).resolve()
         require(original.is_file(), "runtime executable unavailable: " + attribute)
         digest = sha256_file(original)
-        destination = pathlib.Path(snapshot_directory.name) / attribute
+        destination = snapshot_root / attribute
         shutil.copyfile(str(original), str(destination))
         destination.chmod(0o500)
         require(sha256_file(original) == digest and
@@ -13873,14 +14139,38 @@ def execute(args):
         original_runtime[attribute] = (original, digest)
         snapshot_runtime[attribute] = destination
         setattr(args, attribute, str(destination))
+    original_oracle_provenance = {}
+    for attribute in ("oracle_command_file", "oracle_link_map",
+                      "oracle_dynamic_dependencies"):
+        original = pathlib.Path(getattr(original_args, attribute)).resolve()
+        require(original.is_file(),
+                "oracle provenance unavailable: " + attribute)
+        digest = sha256_file(original)
+        destination = snapshot_root / attribute
+        shutil.copyfile(str(original), str(destination))
+        require(sha256_file(original) == digest == sha256_file(destination),
+                "oracle provenance changed while snapshotting: " + attribute)
+        original_oracle_provenance[attribute] = (original, digest)
+        setattr(args, attribute, str(destination))
+    sealed_oracle_dynamic = (snapshot_root /
+                             "oracle_dynamic_audit.jcs.json")
+    published_oracle_dynamic = (
+        pathlib.Path(args.output).resolve().parent /
+        "anchored-row-oracle-runtime-dependency-audit-v1.json")
     oracle_independence_audit = audit_oracle_independence(
         original_runtime["independent_oracle_binary"][0],
-        args.oracle_command_file, args.oracle_link_map,
-        args.oracle_dynamic_dependencies)
+        original_oracle_provenance["oracle_command_file"][0],
+        original_oracle_provenance["oracle_link_map"][0],
+        original_oracle_provenance["oracle_dynamic_dependencies"][0],
+        sealed_output_path=sealed_oracle_dynamic)
+    args.oracle_dynamic_dependencies = str(sealed_oracle_dynamic)
     require(all(path.is_file() and sha256_file(path) == digest and
                 sha256_file(snapshot_runtime[attribute]) == digest
                 for attribute, (path, digest) in original_runtime.items()),
             "runtime executable identity changed during pre-execution audit")
+    require(all(path.is_file() and sha256_file(path) == digest
+                for path, digest in original_oracle_provenance.values()),
+            "oracle provenance identity changed during pre-execution audit")
     candidate_self_test = run_json(args.candidate_binary, "--self-test",
                                    "anchored_row_candidate_self_test")
     require(candidate_self_test.get("status") == "ok" and
@@ -13977,8 +14267,25 @@ def execute(args):
                 sha256_file(snapshot_runtime[attribute]) == digest
                 for attribute, (path, digest) in original_runtime.items()),
             "runtime executable identity changed during scientific execution")
+    require(all(path.is_file() and sha256_file(path) == digest
+                for path, digest in original_oracle_provenance.values()) and
+            sealed_oracle_dynamic.is_file() and
+            pathlib.Path(original_args.checkpoint).resolve().is_file() and
+            sha256_file(pathlib.Path(original_args.checkpoint).resolve()) ==
+                original_checkpoint_digest and
+            all(path.is_file() and sha256_file(path) == digest
+                for path, digest in artifact_originals),
+            "scientific input/provenance identity changed during execution")
     require_git_binding(git_start, git_end, worktree_start, worktree_end,
                         expected_head, checkpoint["binding"]["git_head"])
+    require(not published_oracle_dynamic.exists(),
+            "oracle dynamic-dependency audit output already exists")
+    shutil.copyfile(str(sealed_oracle_dynamic),
+                    str(published_oracle_dynamic))
+    require(sha256_file(published_oracle_dynamic) ==
+                sha256_file(sealed_oracle_dynamic),
+            "oracle dynamic-dependency audit changed while publishing")
+    args.oracle_dynamic_dependencies = str(published_oracle_dynamic)
 
     candidate_source = ROOT / "experiments/anchored_row_qualification/candidate.cpp"
     boundary_source = ROOT / "experiments/anchored_row_qualification/exact_dyadic_boundary.cpp"

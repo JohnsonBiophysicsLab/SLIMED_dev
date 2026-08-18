@@ -13,6 +13,7 @@
 #include <algorithm>
 #include <array>
 #include <map>
+#include <limits>
 #include <set>
 #include <vector>
 #include <iomanip>
@@ -34,12 +35,82 @@ struct RefinedState {
     std::array<MpfrInterval,2> point = {{MpfrInterval(0),MpfrInterval(0)}};
     std::vector<b2uniform::Branch> branches;
     unsigned depth = 0;
+    int tracked_extraordinary = -1;
     b2stam::Jacobian jacobian = b2stam::identity_jacobian();
 };
 
 void add_scaled(b2uniform::Row &target,b2uniform::Row const &source,
                 MpfrInterval const &scale){
     b2uniform::add_scaled(target,source,scale);
+}
+
+void build_sparse_topology(b2stam_fixture::Mesh &mesh){
+    std::vector<std::map<int,std::set<int>>> links(mesh.vertices.size());
+    std::map<std::pair<int,int>,std::vector<std::array<int,3>>> incidents;
+    for(auto const &face:mesh.faces){
+        for(int c=0;c<3;++c){
+            int v=face[c],next=face[(c+1)%3],previous=face[(c+2)%3];
+            if(v<0 || static_cast<std::size_t>(v)>=mesh.vertices.size() ||
+               v==next || next==previous || previous==v)
+                throw std::runtime_error("oracle sparse topology incidence");
+            incidents[b2stam_fixture::edge(v,next)].push_back(
+                {{v,next,previous}});
+            links[v][next].insert(previous);links[v][previous].insert(next);
+        }
+    }
+    mesh.edge_opposites.clear();
+    mesh.neighbor_cycles.assign(mesh.vertices.size(),{});
+    for(auto const &item:incidents){
+        if(item.second.size()==2 &&
+           item.second[0][0]==item.second[1][1] &&
+           item.second[0][1]==item.second[1][0])
+            mesh.edge_opposites[item.first]={{item.second[0][2],
+                                               item.second[1][2]}};
+        else if(item.second.size()!=1)
+            throw std::runtime_error("oracle sparse topology edge incidence");
+    }
+    for(std::size_t v=0;v<links.size();++v){
+        if(links[v].size()<3 || std::any_of(
+                links[v].begin(),links[v].end(),
+                [](auto const &item){return item.second.size()!=2;}))continue;
+        int start=links[v].begin()->first,previous=-1,current=start;
+        std::vector<int> cycle;
+        do{
+            cycle.push_back(current);auto const &adjacent=links[v].at(current);
+            int next=*adjacent.begin();if(next==previous)next=*adjacent.rbegin();
+            previous=current;current=next;
+            if(cycle.size()>links[v].size())
+                throw std::runtime_error("oracle sparse vertex cycle overflow");
+        }while(current!=start);
+        if(cycle.size()==links[v].size())mesh.neighbor_cycles[v]=cycle;
+    }
+}
+
+std::vector<unsigned> selected_face_distances(RefinedState const &state){
+    std::map<std::pair<int,int>,std::vector<int>> incident_faces;
+    for(std::size_t fi=0;fi<state.mesh.faces.size();++fi){
+        auto const &face=state.mesh.faces[fi];
+        for(int edge=0;edge<3;++edge)
+            incident_faces[b2stam_fixture::edge(
+                face[edge],face[(edge+1)%3])].push_back(
+                    static_cast<int>(fi));
+    }
+    unsigned const unavailable=std::numeric_limits<unsigned>::max();
+    std::vector<unsigned> distance(state.mesh.faces.size(),unavailable);
+    std::queue<int> queue;distance[static_cast<std::size_t>(state.face)]=0;
+    queue.push(state.face);
+    while(!queue.empty()){
+        int face_id=queue.front();queue.pop();
+        auto const &face=state.mesh.faces[static_cast<std::size_t>(face_id)];
+        for(int edge=0;edge<3;++edge){
+            auto const &neighbors=incident_faces.at(b2stam_fixture::edge(
+                face[edge],face[(edge+1)%3]));
+            for(int neighbor:neighbors)if(distance[neighbor]==unavailable){
+                distance[neighbor]=distance[face_id]+1;queue.push(neighbor);
+            }
+        }
+    }
+    return distance;
 }
 
 RefinedState refine_selected(RefinedState const &state){
@@ -50,16 +121,41 @@ RefinedState refine_selected(RefinedState const &state){
     next.jacobian=b2stam::multiply(b2uniform::branch_jacobian(branch),
                                    state.jacobian);
     next.branches.push_back(branch);
-    std::size_t const old_count=state.mesh.vertices.size();
-    std::vector<std::pair<int,int>> edges;
-    for(auto const &item:state.mesh.edge_opposites) edges.push_back(item.first);
+    // A child-face ball of radius eight depends only on a bounded parent
+    // neighborhood.  Subdivide that exact dependency patch, not the full
+    // mesh (which would materialize 4^depth faces).
+    std::vector<unsigned> const distances=selected_face_distances(state);
+    std::vector<int> core_faces;
+    std::set<int> required_vertices;
+    std::set<std::pair<int,int>> required_edges;
+    for(std::size_t fi=0;fi<state.mesh.faces.size();++fi){
+        if(distances[fi]>8)continue;
+        core_faces.push_back(static_cast<int>(fi));
+        auto const &face=state.mesh.faces[fi];
+        for(int vertex:face)required_vertices.insert(vertex);
+        for(int edge=0;edge<3;++edge)required_edges.insert(
+            b2stam_fixture::edge(face[edge],face[(edge+1)%3]));
+    }
+    if(core_faces.empty())
+        throw std::runtime_error("oracle sparse dependency patch empty");
     std::map<std::pair<int,int>,int> edge_ids;
-    for(std::size_t i=0;i<edges.size();++i)
-        edge_ids[edges[i]]=static_cast<int>(old_count+i);
-    next.mesh.vertices.resize(old_count+edges.size(),{{0.0,0.0,0.0}});
-    next.stencils=b2uniform::zeros(next.mesh.vertices.size(),state.stencils.front().size());
-    for(std::size_t vertex=0;vertex<old_count;++vertex){
-        auto const &ring=state.mesh.neighbor_cycles[vertex];
+    std::map<int,int> vertex_ids;
+    for(int vertex:required_vertices){
+        vertex_ids[vertex]=static_cast<int>(vertex_ids.size());
+    }
+    for(auto const &edge:required_edges){
+        edge_ids[edge]=static_cast<int>(vertex_ids.size()+edge_ids.size());
+    }
+    next.mesh.vertices.resize(vertex_ids.size()+edge_ids.size(),
+                              {{0.0,0.0,0.0}});
+    next.stencils=b2uniform::zeros(next.mesh.vertices.size(),
+                                   state.stencils.front().size());
+    for(int vertex:required_vertices){
+        auto const &ring=state.mesh.neighbor_cycles.at(
+            static_cast<std::size_t>(vertex));
+        if(ring.empty())
+            throw std::runtime_error(
+                "oracle sparse dependency vertex ring incomplete");
         unsigned valence=static_cast<unsigned>(ring.size());
         MpfrInterval tangent=b2interval::add(MpfrInterval::rational(3,8),
             b2interval::multiply(MpfrInterval::rational(1,4),
@@ -68,37 +164,39 @@ RefinedState refine_selected(RefinedState const &state){
             b2interval::subtract(MpfrInterval::rational(5,8),
                                  b2interval::multiply(tangent,tangent)),
             MpfrInterval(static_cast<long>(valence)));
-        add_scaled(next.stencils[vertex],state.stencils[vertex],
+        auto &row=next.stencils[static_cast<std::size_t>(vertex_ids[vertex])];
+        add_scaled(row,state.stencils[vertex],
             b2interval::subtract(MpfrInterval(1),b2interval::multiply(
                 MpfrInterval(static_cast<long>(valence)),beta)));
-        for(int neighbor:ring) add_scaled(next.stencils[vertex],
-                                           state.stencils[neighbor],beta);
+        for(int neighbor:ring)add_scaled(row,state.stencils[neighbor],beta);
     }
-    for(std::size_t i=0;i<edges.size();++i){
-        int a=edges[i].first,b=edges[i].second;
-        auto const &opposites=state.mesh.edge_opposites.at(edges[i]);
-        auto &row=next.stencils[old_count+i];
+    for(auto const &edge:required_edges){
+        int a=edge.first,b=edge.second;
+        auto const &opposites=state.mesh.edge_opposites.at(edge);
+        auto &row=next.stencils[static_cast<std::size_t>(edge_ids[edge])];
         add_scaled(row,state.stencils[a],MpfrInterval::rational(3,8));
         add_scaled(row,state.stencils[b],MpfrInterval::rational(3,8));
         add_scaled(row,state.stencils[opposites[0]],MpfrInterval::rational(1,8));
         add_scaled(row,state.stencils[opposites[1]],MpfrInterval::rational(1,8));
     }
     std::array<int,4> selected={{0,0,0,0}};
-    for(std::size_t fi=0;fi<state.mesh.faces.size();++fi){
-        auto const &f=state.mesh.faces[fi];int a=f[0],b=f[1],c=f[2];
-        int ab=edge_ids.at(b2stam_fixture::edge(a,b));
-        int bc=edge_ids.at(b2stam_fixture::edge(b,c));
-        int ca=edge_ids.at(b2stam_fixture::edge(c,a));
+    for(int fi:core_faces){
+        auto const &f=state.mesh.faces[static_cast<std::size_t>(fi)];
+        int a=vertex_ids.at(f[0]),b=vertex_ids.at(f[1]),c=vertex_ids.at(f[2]);
+        int ab=edge_ids.at(b2stam_fixture::edge(f[0],f[1]));
+        int bc=edge_ids.at(b2stam_fixture::edge(f[1],f[2]));
+        int ca=edge_ids.at(b2stam_fixture::edge(f[2],f[0]));
         std::array<std::array<int,3>,4> children={{{{a,ab,ca}},{{ab,b,bc}},
                                                    {{ca,bc,c}},{{ab,bc,ca}}}};
         int first=static_cast<int>(next.mesh.faces.size());
         for(auto const &child:children) next.mesh.faces.push_back(child);
-        if(static_cast<int>(fi)==state.face) selected={{first,first+1,first+2,first+3}};
+        if(fi==state.face)selected={{first,first+1,first+2,first+3}};
     }
     next.face=selected[branch==b2uniform::Branch::T0?0:
                        branch==b2uniform::Branch::T1?1:
                        branch==b2uniform::Branch::T2?2:3];
-    b2stam_fixture::validate(next.mesh);
+    next.tracked_extraordinary=vertex_ids.at(state.tracked_extraordinary);
+    build_sparse_topology(next.mesh);
     return next;
 }
 
@@ -115,7 +213,7 @@ b2stam::Jacobian corner_jacobian(int corner){
                           {MpfrInterval(-1),MpfrInterval(-1)}}};
     if(corner==2)return {{{MpfrInterval(-1),MpfrInterval(-1)},
                           {MpfrInterval(1),MpfrInterval(0)}}};
-    throw std::runtime_error("oracle corner outside face");
+    throw std::runtime_error("oracle corner Jacobian outside triangle");
 }
 
 b2stam::SixRows transform_rows(b2stam::SixRows const &rows,
@@ -141,6 +239,32 @@ b2stam::SixRows transform_rows(b2stam::SixRows const &rows,
     };
     out[1]=linear(0);out[2]=linear(1);out[3]=second(0,0);
     out[4]=second(0,1);out[5]=second(1,1);return out;
+}
+
+b2uniform::SixRows transform_uniform_rows(
+        b2uniform::SixRows const &rows,b2uniform::Jacobian const &j){
+    b2uniform::SixRows out;out[0]=rows[0];
+    for(std::size_t source=0;source<rows[0].size();++source){
+        out[1].push_back(b2interval::add(
+            b2interval::multiply(rows[1][source],j[0][0]),
+            b2interval::multiply(rows[2][source],j[1][0])));
+        out[2].push_back(b2interval::add(
+            b2interval::multiply(rows[1][source],j[0][1]),
+            b2interval::multiply(rows[2][source],j[1][1])));
+        auto second=[&](int a,int b){
+            MpfrInterval value=b2interval::multiply(
+                b2interval::multiply(j[0][a],j[0][b]),rows[3][source]);
+            value=b2interval::add(value,b2interval::multiply(
+                b2interval::add(b2interval::multiply(j[0][a],j[1][b]),
+                                b2interval::multiply(j[1][a],j[0][b])),
+                rows[4][source]));
+            return b2interval::add(value,b2interval::multiply(
+                b2interval::multiply(j[1][a],j[1][b]),rows[5][source]));
+        };
+        out[3].push_back(second(0,0));out[4].push_back(second(0,1));
+        out[5].push_back(second(1,1));
+    }
+    return out;
 }
 
 b2stam::SixRows map_to_coarse(b2stam::SixRows const &local,
@@ -173,6 +297,39 @@ b2uniform::Row map_row_to_coarse(
                 result[source], b2interval::multiply(
                     local[local_id], control_stencils[local_id][source]));
         }
+    }
+    return result;
+}
+
+
+b2uniform::Row map_uniform_row_to_coarse(
+        b2uniform::Row const &local,
+        OracleStencils const &control_stencils) {
+    if (control_stencils.empty() || local.size() != control_stencils.size()) {
+        throw std::runtime_error("uniform local/coarse row cardinality");
+    }
+    b2uniform::Row result(control_stencils[0].size(), MpfrInterval(0));
+    for (std::size_t source = 0; source < result.size(); ++source) {
+        MpfrInterval sum(0);
+        for (std::size_t local_id = 0; local_id < local.size(); ++local_id) {
+            if (control_stencils[local_id].size() != result.size()) {
+                throw std::runtime_error("uniform coarse stencil cardinality");
+            }
+            sum = b2interval::add(sum, b2interval::multiply(
+                control_stencils[local_id][source], local[local_id]));
+        }
+        result[source] = sum;
+    }
+    return result;
+}
+
+b2uniform::SixRows map_uniform_to_coarse(
+        b2uniform::SixRows const &local,
+        OracleStencils const &control_stencils) {
+    b2uniform::SixRows result;
+    for (std::size_t row = 0; row < result.size(); ++row) {
+        result[row] = map_uniform_row_to_coarse(
+            local[row], control_stencils);
     }
     return result;
 }
@@ -337,27 +494,24 @@ void certify_frozen_valence(
     } catch (std::runtime_error const &) {
         throw std::runtime_error("EIGENBASIS_CERTIFICATION_FAILED");
     }
-    try {
-        b2stam::Vector const primary_limit = map_row_to_coarse(
-            b2stam::extraordinary_vertex_limit_row(valence),
-            control_stencils);
-        b2uniform::Row const uniform_limit = map_row_to_coarse(
-            b2uniform::extraordinary_vertex_limit_row(valence),
-            control_stencils);
-        if (primary_limit.size() != uniform_limit.size()) {
-            throw std::runtime_error("vertex-limit shape");
-        }
-        for (std::size_t source = 0; source < primary_limit.size(); ++source) {
-            if (!b2interval::overlaps(primary_limit[source],
-                                      uniform_limit[source])) {
-                throw std::runtime_error("vertex-limit mismatch");
-            }
-        }
-        certify_uncertainty(mesh, source_ids, primary_limit, length, "5e-7");
-        certify_uncertainty(mesh, source_ids, uniform_limit, length, "5e-7");
-    } catch (std::runtime_error const &) {
-        throw std::runtime_error("UNIFORM_CROSSCHECK_FAILED");
+    b2stam::Vector const primary_limit = map_row_to_coarse(
+        b2stam::extraordinary_vertex_limit_row(valence), control_stencils);
+    b2uniform::Row const uniform_limit = map_uniform_row_to_coarse(
+        b2uniform::extraordinary_vertex_limit_row(valence), control_stencils);
+    if (primary_limit.size() != uniform_limit.size()) {
+        throw std::runtime_error("UNIFORM_CROSSCHECK_FAILED vertex-limit-shape");
     }
+    for (std::size_t source = 0; source < primary_limit.size(); ++source) {
+        if (!b2interval::overlaps(primary_limit[source],
+                                  uniform_limit[source])) {
+            throw std::runtime_error(
+                "UNIFORM_CROSSCHECK_FAILED vertex-limit-mismatch");
+        }
+    }
+    // Preserve the exact frozen uncertainty reason rather than collapsing it
+    // into a route mismatch.
+    certify_uncertainty(mesh, source_ids, primary_limit, length, "5e-7");
+    certify_uncertainty(mesh, source_ids, uniform_limit, length, "5e-7");
     try {
         b2stam::Matrix const primary = b2stam::tangent_projector(valence);
         b2uniform::Matrix const uniform = b2uniform::tangent_projector(valence);
@@ -401,7 +555,7 @@ void certify_frozen_valence(
             for (std::size_t depth = 0; depth < 5; ++depth) {
                 primary_coarse[depth] = map_row_to_coarse(
                     primary[depth].rows[0], control_stencils);
-                uniform_coarse[depth] = map_row_to_coarse(
+                uniform_coarse[depth] = map_uniform_row_to_coarse(
                     uniform[depth].rows[0], control_stencils);
             }
             std::vector<MpfrInterval> primary_intersection;
@@ -435,8 +589,15 @@ void certify_frozen_valence(
             certify_uncertainty(mesh, source_ids, uniform_intersection,
                                 length, "5e-7");
         }
-    } catch (std::runtime_error const &) {
-        throw std::runtime_error("PARAMETRIC_MAP_CHECK_FAILED");
+    } catch (std::runtime_error const &error) {
+        std::string reason = error.what();
+        if (reason.find("ORACLE_UNCERTAINTY_BOUND_EXCEEDED") == 0 ||
+            reason.find("DIRECTED_INTERVAL_PRIMITIVE_FAILED") == 0 ||
+            reason.find("INTERVAL_BRANCH_ORDERING_UNCERTIFIED") == 0) {
+            throw;
+        }
+        throw std::runtime_error(
+            std::string("PARAMETRIC_MAP_CHECK_FAILED ") + reason);
     }
     certified.insert(cache_identity);
 }
@@ -455,8 +616,9 @@ OracleSample assemble_sample(
             throw std::runtime_error("UNIFORM_CROSSCHECK_FAILED");
         coarse[0][depth]=map_to_coarse(
             transform_rows(primary_local[depth].rows,corner_map),local_stencils);
-        coarse[1][depth]=map_to_coarse(
-            transform_rows(uniform_local[depth].rows,corner_map),local_stencils);
+        coarse[1][depth]=map_uniform_to_coarse(
+            transform_uniform_rows(
+                uniform_local[depth].rows,corner_map),local_stencils);
     }
     OracleSample result;result.first_isolating_depth=isolated;
     result.first_regular_support_depth=start_depth+primary_local[0].depth;
@@ -556,63 +718,83 @@ OracleSample evaluate_sample(std::string const &directory,std::string const &mut
             b2uniform::regular_depth_rows(q0,q1));
     }
     int const extraordinary=initial.mesh.faces[static_cast<std::size_t>(face)][corner];
+    initial.tracked_extraordinary=extraordinary;
     std::vector<RefinedState> states;states.push_back(initial);
     unsigned isolated=13;
     for(unsigned depth=0;depth<=12;++depth){
         RefinedState const &state=states.back();auto const &selected=state.mesh.faces[state.face];
-        auto found=std::find(selected.begin(),selected.end(),extraordinary);
+        int const tracked=state.tracked_extraordinary;
+        auto found=std::find(selected.begin(),selected.end(),tracked);
         int support_corner=found==selected.end()?0:static_cast<int>(found-selected.begin());
         auto support=b2stam_fixture::local_support(state.mesh,state.face,support_corner);
         std::size_t nonregular=0;bool contains_extraordinary=false;
         for(int id:support.source_ids){
-            contains_extraordinary=contains_extraordinary || id==extraordinary;
+            contains_extraordinary=contains_extraordinary || id==tracked;
             nonregular += state.mesh.neighbor_cycles[static_cast<std::size_t>(id)].size()!=6;
         }
         if(nonregular==1 && contains_extraordinary){isolated=depth;break;}
         if(depth<12)states.push_back(refine_selected(state));
     }
     if(isolated>12)throw std::runtime_error("NO_ISOLATION_BY_DEPTH_12");
-    RefinedState const *start=&states[isolated];
-    auto const &isolated_face=start->mesh.faces[start->face];
-    auto extraordinary_it=std::find(isolated_face.begin(),isolated_face.end(),extraordinary);
-    if(extraordinary_it==isolated_face.end()){
-        if(isolated==0)throw std::runtime_error("isolated regular patch lacks parent");
-        start=&states[isolated-1];
-        extraordinary_it=std::find(start->mesh.faces[start->face].begin(),
-                                   start->mesh.faces[start->face].end(),extraordinary);
+
+    // Isolating support and first regular support are distinct frozen depths.
+    // Preserve an extraordinary N+6 control frame from the first isolation
+    // for the valence-only/vertex-limit certificates, then evaluate the
+    // actual selected regular face at d0 without backing up to a parent that
+    // still contains multiple extraordinary vertices.
+    RefinedState const &isolating_state=states[isolated];
+    int const isolated_extraordinary=isolating_state.tracked_extraordinary;
+    OracleStencils certificate_stencils;
+    unsigned isolated_valence=0;
+    int certificate_corner=-1;
+    for(std::size_t fi=0;fi<isolating_state.mesh.faces.size() &&
+            certificate_stencils.empty();++fi){
+        auto const &candidate=isolating_state.mesh.faces[fi];
+        auto found=std::find(candidate.begin(),candidate.end(),
+                             isolated_extraordinary);
+        if(found==candidate.end())continue;
+        int candidate_corner=static_cast<int>(found-candidate.begin());
+        auto support=b2stam_fixture::local_support(
+            isolating_state.mesh,static_cast<int>(fi),candidate_corner);
+        std::size_t nonregular=0;
+        for(int id:support.source_ids)nonregular +=
+            isolating_state.mesh.neighbor_cycles[
+                static_cast<std::size_t>(id)].size()!=6;
+        if(nonregular!=1)continue;
+        isolated_valence=support.valence;
+        certificate_corner=candidate_corner;
+        for(int id:support.source_ids)
+            certificate_stencils.push_back(isolating_state.stencils[id]);
     }
-    if(extraordinary_it==start->mesh.faces[start->face].end())
-        throw std::runtime_error("oracle isolated parent lost extraordinary vertex");
-    int const start_corner=static_cast<int>(extraordinary_it-start->mesh.faces[start->face].begin());
-    auto local=b2stam_fixture::local_support(start->mesh,start->face,start_corner);
-    std::size_t local_nonregular=0;
-    for(int id:local.source_ids)
-        local_nonregular += start->mesh.neighbor_cycles[
-            static_cast<std::size_t>(id)].size()!=6;
-    if(local_nonregular!=1 ||
-       start->mesh.neighbor_cycles[static_cast<std::size_t>(extraordinary)].size()==6)
-        throw std::runtime_error("UNIFORM_CROSSCHECK_FAILED");
-    OracleStencils local_stencils;local_stencils.reserve(local.source_ids.size());
-    for(int id:local.source_ids)local_stencils.push_back(start->stencils[id]);
+    if(certificate_stencils.empty())
+        throw std::runtime_error("NO_ISOLATION_BY_DEPTH_12 certificate-frame");
+
     certify_frozen_valence(
-        local.valence, initial.mesh, local_stencils,
+        isolated_valence, initial.mesh, certificate_stencils,
         directory + "\n" + mutation + "\n" + std::to_string(face) + "\n" +
             std::to_string(corner));
-    double canonical0=mpfr_get_d(start->point[0].lo(),MPFR_RNDN);
-    double canonical1=mpfr_get_d(start->point[1].lo(),MPFR_RNDN);
-    auto local_point=b2stam_fixture::local_parameter(canonical0,canonical1,start_corner);
-    auto primary_local=b2stam::primary_depth_rows(local.valence,local_point[0],local_point[1]);
-    auto uniform_local=b2uniform::uniform_depth_rows(local.valence,
-                                                     local_point[0],local_point[1]);
-    b2stam::Jacobian const corner_map=corner_jacobian(start_corner);
+    double canonical0=mpfr_get_d(isolating_state.point[0].lo(),MPFR_RNDN);
+    double canonical1=mpfr_get_d(isolating_state.point[1].lo(),MPFR_RNDN);
+    auto local_point=b2stam_fixture::local_parameter(
+        canonical0,canonical1,certificate_corner);
+    auto primary_local=b2stam::primary_depth_rows(
+        isolated_valence,local_point[0],local_point[1]);
+    auto uniform_local=b2uniform::uniform_depth_rows(
+        isolated_valence,local_point[0],local_point[1]);
     std::vector<std::string> prefix;
-    for(b2uniform::Branch branch:start->branches)prefix.push_back(branch_name(branch));
-    return assemble_sample(initial.mesh,isolated,start->depth,prefix,
-                           local_stencils,corner_map,primary_local,uniform_local);
+    for(b2uniform::Branch branch:isolating_state.branches)
+        prefix.push_back(branch_name(branch));
+    return assemble_sample(
+        initial.mesh,isolated,isolating_state.depth,prefix,
+        certificate_stencils,b2stam::multiply(
+            corner_jacobian(certificate_corner),isolating_state.jacobian),
+        primary_local,uniform_local);
 }
 
 std::string uncovered_reason(std::runtime_error const &error){
     static std::set<std::string> const reasons={
+        "DIRECTED_INTERVAL_PRIMITIVE_FAILED",
+        "INTERVAL_BRANCH_ORDERING_UNCERTIFIED",
         "NO_ISOLATION_BY_DEPTH_12","EIGENBASIS_CERTIFICATION_FAILED",
         "PARAMETRIC_MAP_CHECK_FAILED","REGULAR_SUPPORT_NOT_REACHED_BY_DEPTH_30",
         "UNIFORM_CROSSCHECK_FAILED","TANGENT_PROJECTION_CHECK_FAILED",
@@ -700,6 +882,10 @@ int self_test() {
     if (std::strcmp(MPFR_VERSION_STRING, "4.2.2") != 0 ||
         std::strcmp(mpfr_get_version(), "4.2.2") != 0) {
         throw std::runtime_error("MPFR compile/runtime version must both be 4.2.2");
+    }
+    if (!b2interval::directed_rounding_mutation_self_test()) {
+        throw std::runtime_error(
+            "single directed-rounding mutation self-test failed");
     }
     MpfrInterval one_third = b2interval::divide(MpfrInterval(1), MpfrInterval(3));
     MpfrInterval two_thirds = b2interval::add(one_third, one_third);
@@ -868,7 +1054,9 @@ int self_test() {
                  "\"status\":\"ok\",\"finite\":true,\"precision_bits\":544,"
                  "\"mpfr_compile_version\":\"" << MPFR_VERSION_STRING << "\","
                  "\"mpfr_runtime_version\":\"" << mpfr_get_version() << "\","
-                 "\"directed_rounding\":true,\"zero_denominator_rejected\":true,"
+                 "\"directed_rounding\":true,"
+                 "\"single_rounding_direction_mutations_rejected\":true,"
+                 "\"zero_denominator_rejected\":true,"
                  "\"candidate_dependency_free\":true,"
                  "\"stock_loop_matrix_constructed_from_masks\":true,"
                  "\"quartic_box_spline_interval_rows\":true,"
