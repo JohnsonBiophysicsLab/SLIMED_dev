@@ -1636,9 +1636,13 @@ class AnchoredRowQualificationTests(unittest.TestCase):
                     mock.patch.object(MODULE,
                                       "iter_oracle_batch_observations",
                                       side_effect=oracle_stream), \
+                    mock.patch.object(MODULE,
+                                      "ORACLE_EXECUTION_REQUEST_COUNT", 1), \
                     mock.patch.dict(MODULE.EXPECTED_CELL_COUNTS, expected):
-                result, partitions = MODULE.execute_oracle_coverage(
-                    {}, root, {}, root / "oracle", candidate, root)
+                result, partitions, execution_audit = \
+                    MODULE.execute_oracle_coverage(
+                        {}, root, {}, root / "oracle", candidate, root)
+            self.assertEqual(execution_audit["record_count"], 1)
             self.assertEqual(set(result), set(expected))
             self.assertTrue(all(item["status"] == "PASS"
                                 for item in result.values()))
@@ -3349,8 +3353,22 @@ class AnchoredRowQualificationTests(unittest.TestCase):
         ).read_text(encoding="utf-8"))
         self.assertIn("selected_face_distances", oracle)
         self.assertNotIn("for(auto const &face:state.mesh.faces)", oracle)
+        self.assertIn("rethrow_exact_or_fallback", oracle)
+        self.assertIn("is_exact_interval_reason(error.what())", oracle)
         self.assertNotIn('#include "stam_box_spline.hpp"', uniform)
         self.assertIn('#include "stam_uniform_box_spline.hpp"', uniform)
+        self.assertNotIn("b2stam_fixture::local_support(", uniform)
+        self.assertIn("complete_mesh_backward_closure", uniform)
+        self.assertIn("backward_refine_selected", uniform)
+        self.assertIn("backward_dependency_self_test", uniform)
+        interval = (ROOT / "experiments/bfr_qualification/mpfr_interval.hpp").read_text(
+            encoding="utf-8")
+        for mutation in ("AddLower", "SubtractUpper", "MultiplyLower",
+                         "DivideUpper", "SquareRootLower", "CosineUpper",
+                         "MatrixAccumulatorLower"):
+            self.assertIn("ProductionRoundingMutation::" + mutation,
+                          interval)
+        self.assertTrue(MODULE._audit_oracle_mpfr_calls())
         forged = MODULE._valid_oracle_covered_record()
         with self.assertRaises(MODULE.QualificationError):
             MODULE.canonical_result_ledger(
@@ -3483,6 +3501,70 @@ class AnchoredRowQualificationTests(unittest.TestCase):
                     self.assertRaises(MODULE.QualificationError):
                 MODULE.audit_oracle_independence(
                     binary, command_path, link_map, dynamic)
+
+    def test_oracle_runtime_execution_packet_binds_snapshots_and_requests(self):
+        self.assertEqual(MODULE.ORACLE_EXECUTION_REQUEST_COUNT, 16500)
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary).resolve()
+            original_root = root / "original"
+            original_root.mkdir()
+            originals = []
+            libraries = []
+            for name, payload in (("gmp", b"gmp-proof-bytes\n"),
+                                  ("mpfr", b"mpfr-proof-bytes\n")):
+                path = original_root / ("lib" + name + ".dylib")
+                path.write_bytes(payload)
+                originals.append(path)
+                libraries.append({"name": name, "path": str(path),
+                                  "sha256": MODULE.sha256_file(path)})
+            transcript = "proof-oracle:\n"
+            sealed = root / "sealed.json"
+            sealed.write_bytes(MODULE.jcs_bytes({
+                "schema_id": "oracle-runtime-dependency-audit-v1",
+                "otool_L_text": transcript,
+                "otool_L_sha256": MODULE.sha256_bytes(
+                    transcript.encode("utf-8")),
+                "libraries": libraries}))
+            loaded = MODULE._snapshot_oracle_runtime_libraries(
+                sealed,
+                root / "anchored-row-oracle-runtime-libraries-v1")
+            raw_value = MODULE.jcs_bytes({
+                "schema_version": 1, "kind": "stam_oracle_sample_v1",
+                "status": "uncovered",
+                "reason_code": "NO_ISOLATION_BY_DEPTH_12"})
+            with mock.patch.object(MODULE,
+                                   "ORACLE_EXECUTION_REQUEST_COUNT", 1):
+                audit = MODULE.OracleExecutionAuditArtifact(root)
+                audit.add("request\n", "a" * 64, raw_value,
+                          MODULE.strict_json_bytes(raw_value))
+                descriptor = audit.finish()
+                packet = root / "anchored-row-oracle-runtime-execution-audit-v2.json"
+                MODULE._publish_oracle_runtime_execution_packet(
+                    sealed, loaded, descriptor, packet)
+                self.assertEqual(MODULE._bound_oracle_execution_audit(packet),
+                                 descriptor)
+                replay = root / "replay"
+                rebound = MODULE._snapshot_oracle_runtime_libraries(
+                    packet, replay)
+                self.assertEqual([item[1] for item in rebound],
+                                 [item["sha256"] for item in libraries])
+                originals[0].write_bytes(b"changed after execution\n")
+                self.assertEqual(MODULE._bound_oracle_execution_audit(packet),
+                                 descriptor)
+                loaded_path = pathlib.Path(loaded[0][2])
+                canonical_loaded = loaded_path.read_bytes()
+                loaded_path.chmod(0o600)
+                loaded_path.write_bytes(b"changed loaded snapshot\n")
+                with self.assertRaises(MODULE.QualificationError):
+                    MODULE._bound_oracle_execution_audit(packet)
+                loaded_path.write_bytes(canonical_loaded)
+                loaded_path.chmod(0o500)
+                audit_path = root / MODULE.ORACLE_EXECUTION_AUDIT_PATH
+                canonical_audit = audit_path.read_bytes()
+                audit_path.write_bytes(canonical_audit + b"\n")
+                with self.assertRaises(MODULE.QualificationError):
+                    MODULE._bound_oracle_execution_audit(packet)
+                audit_path.write_bytes(canonical_audit)
 
     def test_standalone_d12_uses_distinct_opensubdiv_library_argument(self):
         arguments = MODULE.parse_args([

@@ -28,6 +28,18 @@ using b2interval::MpfrInterval;
 
 using OracleStencils = b2uniform::Stencils;
 
+bool is_exact_interval_reason(std::string const &reason) {
+    return reason.find("DIRECTED_INTERVAL_PRIMITIVE_FAILED") == 0 ||
+           reason.find("INTERVAL_BRANCH_ORDERING_UNCERTIFIED") == 0 ||
+           reason.find("MPFR_VERSION_MISMATCH") == 0;
+}
+
+[[noreturn]] void rethrow_exact_or_fallback(
+        std::runtime_error const &error,char const *fallback) {
+    if (is_exact_interval_reason(error.what())) throw error;
+    throw std::runtime_error(fallback);
+}
+
 struct RefinedState {
     b2stam_fixture::Mesh mesh;
     OracleStencils stencils;
@@ -486,8 +498,8 @@ void certify_frozen_valence(
             !value.deterministic_mgs) {
             throw std::runtime_error("certificate bit false");
         }
-    } catch (std::runtime_error const &) {
-        throw std::runtime_error("EIGENBASIS_CERTIFICATION_FAILED");
+    } catch (std::runtime_error const &error) {
+        rethrow_exact_or_fallback(error,"EIGENBASIS_CERTIFICATION_FAILED");
     }
     b2stam::Vector const primary_limit = map_row_to_coarse(
         b2stam::extraordinary_vertex_limit_row(valence),
@@ -533,8 +545,8 @@ void certify_frozen_valence(
         if (!b2interval::upper_at_most(maximum_row_sum, "1e-20")) {
             throw std::runtime_error("tangent projector mismatch");
         }
-    } catch (std::runtime_error const &) {
-        throw std::runtime_error("TANGENT_PROJECTION_CHECK_FAILED");
+    } catch (std::runtime_error const &error) {
+        rethrow_exact_or_fallback(error,"TANGENT_PROJECTION_CHECK_FAILED");
     }
     try {
         static double const points[3][2] = {
@@ -707,13 +719,12 @@ OracleSample evaluate_sample(std::string const &directory,std::string const &mut
             throw std::runtime_error("REGULAR_SUPPORT_NOT_REACHED_BY_DEPTH_30");
         OracleStencils local_stencils;
         for(int id:local.source_ids)local_stencils.push_back(initial.stencils[id]);
-        auto const uniform_support=b2stam_fixture::local_support(
-            initial.mesh,face,0);
-        if(uniform_support.valence!=6)
+        b2uniform::CompleteMeshClosure const uniform_closure =
+            b2uniform::complete_mesh_backward_closure(
+                initial.mesh.vertices.size(),initial.mesh.faces,face,0);
+        if(uniform_closure.valence!=6)
             throw std::runtime_error("UNIFORM_CROSSCHECK_FAILED support valence");
-        b2uniform::Stencils const uniform_stencils=
-            b2uniform::original_source_controls(
-                initial.mesh.vertices.size(),uniform_support.source_ids);
+        b2uniform::Stencils const &uniform_stencils=uniform_closure.controls;
         certify_frozen_valence(
             6, initial.mesh, local_stencils,uniform_stencils,
             directory + "\n" + mutation + "\n" + std::to_string(face) +
@@ -779,13 +790,12 @@ OracleSample evaluate_sample(std::string const &directory,std::string const &mut
     OracleStencils certificate_stencils;
     for(int id:certificate_support.source_ids)
         certificate_stencils.push_back(isolating_state.stencils[id]);
-    auto const uniform_support=b2stam_fixture::local_support(
-        initial.mesh,face,corner);
-    if(uniform_support.valence!=isolated_valence)
+    b2uniform::CompleteMeshClosure const uniform_closure =
+        b2uniform::complete_mesh_backward_closure(
+            initial.mesh.vertices.size(),initial.mesh.faces,face,corner);
+    if(uniform_closure.valence!=isolated_valence)
         throw std::runtime_error("UNIFORM_CROSSCHECK_FAILED support valence");
-    b2uniform::Stencils const uniform_stencils=
-        b2uniform::original_source_controls(
-            initial.mesh.vertices.size(),uniform_support.source_ids);
+    b2uniform::Stencils const &uniform_stencils=uniform_closure.controls;
 
     certify_frozen_valence(
         isolated_valence, initial.mesh, certificate_stencils,uniform_stencils,
@@ -905,6 +915,10 @@ int self_test() {
     if (!b2interval::directed_rounding_mutation_self_test()) {
         throw std::runtime_error(
             "single directed-rounding mutation self-test failed");
+    }
+    if (!b2uniform::backward_dependency_self_test()) {
+        throw std::runtime_error(
+            "uniform sparse backward dependency self-test failed");
     }
     MpfrInterval one_third = b2interval::divide(MpfrInterval(1), MpfrInterval(3));
     MpfrInterval two_thirds = b2interval::add(one_third, one_third);

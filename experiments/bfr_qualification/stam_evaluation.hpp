@@ -36,7 +36,7 @@ inline Jacobian multiply(Jacobian const &left, Jacobian const &right) {
     for (std::size_t row = 0; row < 2; ++row) {
         for (std::size_t inner = 0; inner < 2; ++inner) {
             for (std::size_t column = 0; column < 2; ++column) {
-                result[row][column] = b2interval::add(
+                result[row][column] = b2interval::matrix_accumulate(
                     result[row][column],
                     b2interval::multiply(left[row][inner],
                                          right[inner][column]));

@@ -42,7 +42,7 @@ inline Matrix multiply(Matrix const &left, Matrix const &right) {
                 throw std::runtime_error("ragged right interval matrix");
             }
             for (std::size_t column = 0; column < right.front().size(); ++column) {
-                result[row][column] = b2interval::add(
+                result[row][column] = b2interval::matrix_accumulate(
                     result[row][column],
                     b2interval::multiply(left[row][inner], right[inner][column]));
             }
