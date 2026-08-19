@@ -9251,6 +9251,68 @@ def validate_oracle_sample_observation(
     return value
 
 
+ORACLE_EXECUTION_AUDIT_PATH = \
+    "anchored-row-oracle-execution-audit-v1.json"
+ORACLE_EXECUTION_REQUEST_COUNT = 16500
+
+
+def _oracle_execution_audit_record(request, request_id, raw_value, value):
+    encoded_request = (request.encode("utf-8")
+                       if isinstance(request, str) else request)
+    require(isinstance(encoded_request, bytes) and
+            encoded_request.endswith(b"\n"),
+            "oracle execution audit request framing")
+    return [request_id, sha256_bytes(encoded_request), value["status"],
+            None if value["status"] == "ok" else value["reason_code"],
+            sha256_bytes(raw_value)]
+
+
+class OracleExecutionAuditArtifact:
+    """Persist the exact unique-request framing/outcome stream."""
+
+    def __init__(self, output_root=None):
+        self.destination = (None if output_root is None else
+                            pathlib.Path(output_root) /
+                            ORACLE_EXECUTION_AUDIT_PATH)
+        self.stream = (None if self.destination is None else
+                       self.destination.open("wb"))
+        self.digest = hashlib.sha256()
+        self.byte_length = 0
+        self.count = 0
+        self._append(b"[")
+
+    def _append(self, value):
+        self.digest.update(value)
+        self.byte_length += len(value)
+        if self.stream is not None:
+            self.stream.write(value)
+
+    def add(self, request, request_id, raw_value, value):
+        require(self.count < ORACLE_EXECUTION_REQUEST_COUNT,
+                "oracle execution audit exceeds frozen request count")
+        encoded = jcs_bytes(_oracle_execution_audit_record(
+            request, request_id, raw_value, value))
+        if self.count:
+            self._append(b",")
+        self._append(encoded)
+        self.count += 1
+
+    def finish(self):
+        self._append(b"]")
+        require(self.count == ORACLE_EXECUTION_REQUEST_COUNT,
+                "oracle execution audit request count drift")
+        if self.stream is not None:
+            self.stream.close()
+            require(self.destination.is_file() and
+                    self.destination.stat().st_size == self.byte_length and
+                    sha256_file(self.destination) == self.digest.hexdigest(),
+                    "oracle execution audit persisted bytes drift")
+        return {"relative_path": ORACLE_EXECUTION_AUDIT_PATH,
+                "record_count": self.count,
+                "byte_length": self.byte_length,
+                "sha256": self.digest.hexdigest()}
+
+
 def iter_oracle_batch_observations(oracle_binary, request_rows,
                                    expected_request_ids, timeout=7200,
                                    runtime_library_root=None,
@@ -9566,6 +9628,8 @@ def _oracle_execution_inventory(checkpoint, artifact_root, manifest):
                           row["v_binary64_bits_hex"])
             samples.setdefault(sample_key, None)
     ordered_samples = sorted(samples, key=lambda item: jcs_bytes(list(item)))
+    require(len(ordered_samples) == ORACLE_EXECUTION_REQUEST_COUNT,
+            "oracle unique frozen request cardinality drift")
     request_rows = []
     expected_request_ids = []
     request_ids = {}
@@ -9602,6 +9666,9 @@ def _iter_replayed_oracle_result_records(
         prefix="anchored-oracle-replay-libraries-")
     library_root = pathlib.Path(library_snapshot.name) / "lib"
     connection = None
+    expected_execution_audit = _bound_oracle_execution_audit(
+        dynamic_dependencies_path)
+    replayed_execution_audit = OracleExecutionAuditArtifact()
     try:
         runtime_bindings = _snapshot_oracle_runtime_libraries(
             dynamic_dependencies_path, library_root)
@@ -9609,18 +9676,22 @@ def _iter_replayed_oracle_result_records(
         connection.execute("CREATE TABLE observations "
                            "(request_id TEXT PRIMARY KEY, value BLOB NOT NULL)")
         observed = 0
-        for request_id, raw_value, _ in iter_oracle_batch_observations(
+        for request_id, raw_value, value in iter_oracle_batch_observations(
                 oracle_binary, request_rows, expected_ids,
                 runtime_library_root=library_root,
                 runtime_library_bindings=[
                     (destination, digest)
                     for _, digest, destination in runtime_bindings]):
+            replayed_execution_audit.add(
+                request_rows[observed],request_id,raw_value,value)
             connection.execute("INSERT INTO observations VALUES (?, ?)",
                                (request_id, raw_value))
             observed += 1
         connection.commit()
         require(observed == len(expected_ids),
                 "oracle replay output cardinality")
+        require(replayed_execution_audit.finish() == expected_execution_audit,
+                "oracle executable replay differs from execution audit")
         suffixes = _frozen_scientific_suffixes()[
             "oracle_coverage_and_crosscheck"]
         cached_request_id = None
@@ -9678,6 +9749,7 @@ def execute_oracle_coverage(checkpoint, artifact_root, manifest,
     database_path = pathlib.Path(database_file.name)
     database_file.close()
     connection = None
+    execution_audit = OracleExecutionAuditArtifact(output_root)
     try:
         connection = sqlite3.connect(str(database_path))
         connection.execute("CREATE TABLE observations "
@@ -9688,12 +9760,16 @@ def execute_oracle_coverage(checkpoint, artifact_root, manifest,
                 runtime_library_root=oracle_runtime_library_root,
                 runtime_library_bindings=
                     oracle_runtime_library_bindings):
+            value = strict_json_bytes(raw_value)
+            execution_audit.add(
+                request_rows[observed_count],request_id,raw_value,value)
             connection.execute("INSERT INTO observations VALUES (?, ?)",
                                (request_id, raw_value))
             observed_count += 1
         connection.commit()
         require(observed_count == len(expected_request_ids),
                 "oracle batch output cardinality")
+        execution_audit_descriptor = execution_audit.finish()
 
         writer = StreamingResultLedgerArtifact(
             output_root, "oracle_coverage_and_crosscheck",
@@ -9882,8 +9958,10 @@ def execute_oracle_coverage(checkpoint, artifact_root, manifest,
             "emitted_direct_geometry_d10": dependent[
                 "emitted_direct_geometry_d10"].finish(),
         }
-        return result, partitions
+        return result, partitions, execution_audit_descriptor
     finally:
+        if execution_audit.stream is not None and not execution_audit.stream.closed:
+            execution_audit.stream.close()
         if connection is not None:
             connection.close()
         try:
@@ -10432,15 +10510,32 @@ def _snapshot_oracle_runtime_libraries(dynamic_packet_path, destination_root):
     packet_path = pathlib.Path(dynamic_packet_path).resolve()
     destination_root = pathlib.Path(destination_root).resolve()
     packet = strict_json_bytes(packet_path.read_bytes())
-    require(packet.get("schema_id") ==
-                "oracle-runtime-dependency-audit-v1" and
+    require(packet.get("schema_id") in {
+                "oracle-runtime-dependency-audit-v1",
+                "oracle-runtime-execution-audit-v2"} and
+            isinstance(packet.get("otool_L_text"), str) and
+            sha256_bytes(packet["otool_L_text"].encode("utf-8")) ==
+                packet.get("otool_L_sha256") and
             [item.get("name") for item in packet.get("libraries", [])] ==
                 ["gmp", "mpfr"],
             "oracle runtime dependency packet shape")
     destination_root.mkdir(parents=True, exist_ok=False)
     bindings = []
     for item in packet["libraries"]:
-        source = pathlib.Path(item["path"]).resolve()
+        expected_keys = ({"name", "path", "sha256"}
+                         if packet["schema_id"] ==
+                            "oracle-runtime-dependency-audit-v1" else
+                         {"name", "audited_path", "relative_path", "sha256"})
+        require(set(item) == expected_keys and
+                SHA256_RE.fullmatch(item.get("sha256") or "") is not None,
+                "oracle runtime dependency binding shape")
+        source_value = item.get("relative_path", item.get("path"))
+        require(isinstance(source_value, str) and source_value,
+                "oracle runtime dependency packet path")
+        source = pathlib.Path(source_value)
+        if not source.is_absolute():
+            source = packet_path.parent / source
+        source = source.resolve()
         require(source.is_file() and sha256_file(source) == item["sha256"],
                 "oracle runtime dependency changed before snapshot: " +
                 item["name"])
@@ -10457,11 +10552,122 @@ def _snapshot_oracle_runtime_libraries(dynamic_packet_path, destination_root):
     return bindings
 
 
+def _publish_oracle_runtime_execution_packet(
+        sealed_audit_path, runtime_bindings, execution_audit, destination):
+    """Bind the actually loaded immutable dylibs and unique-request audit."""
+    sealed_path = pathlib.Path(sealed_audit_path).resolve()
+    destination = pathlib.Path(destination).resolve()
+    packet = strict_json_bytes(sealed_path.read_bytes())
+    require(packet.get("schema_id") ==
+                "oracle-runtime-dependency-audit-v1" and
+            [item.get("name") for item in packet.get("libraries", [])] ==
+                ["gmp", "mpfr"] and
+            len(runtime_bindings) == 2,
+            "oracle sealed dependency packet shape")
+    require(set(execution_audit) == {
+                "relative_path", "record_count", "byte_length", "sha256"} and
+            execution_audit["relative_path"] ==
+                ORACLE_EXECUTION_AUDIT_PATH and
+            execution_audit["record_count"] ==
+                ORACLE_EXECUTION_REQUEST_COUNT and
+            SHA256_RE.fullmatch(execution_audit["sha256"] or "") is not None,
+            "oracle execution audit descriptor shape")
+    audit_artifact = (destination.parent /
+                      execution_audit["relative_path"]).resolve()
+    require(audit_artifact.parent == destination.parent and
+            audit_artifact.is_file() and
+            audit_artifact.stat().st_size == execution_audit["byte_length"] and
+            sha256_file(audit_artifact) == execution_audit["sha256"],
+            "oracle execution audit artifact binding")
+    libraries = []
+    for original_item, (original, digest, loaded) in zip(
+            packet["libraries"], runtime_bindings):
+        loaded = pathlib.Path(loaded).resolve()
+        require(pathlib.Path(original_item["path"]).resolve() ==
+                    pathlib.Path(original).resolve() and
+                original_item["sha256"] == digest == sha256_file(loaded) and
+                loaded.is_relative_to(destination.parent),
+                "oracle loaded runtime dependency differs from audit")
+        libraries.append({
+            "name": original_item["name"],
+            "audited_path": original_item["path"],
+            "relative_path": loaded.relative_to(destination.parent).as_posix(),
+            "sha256": digest})
+    final_packet = {
+        "schema_id": "oracle-runtime-execution-audit-v2",
+        "otool_L_text": packet["otool_L_text"],
+        "otool_L_sha256": packet["otool_L_sha256"],
+        "libraries": libraries,
+        "execution_audit": copy.deepcopy(execution_audit)}
+    require(not destination.exists(),
+            "oracle runtime execution packet already exists")
+    destination.write_bytes(jcs_bytes(final_packet))
+    return final_packet
+
+
+def _bound_oracle_execution_audit(dynamic_packet_path):
+    packet_path = pathlib.Path(dynamic_packet_path).resolve()
+    packet = strict_json_bytes(packet_path.read_bytes())
+    require(packet.get("schema_id") ==
+                "oracle-runtime-execution-audit-v2" and
+            set(packet) == {"schema_id", "otool_L_text", "otool_L_sha256",
+                            "libraries", "execution_audit"},
+            "oracle standalone replay lacks execution audit packet")
+    require(isinstance(packet["otool_L_text"], str) and
+            sha256_bytes(packet["otool_L_text"].encode("utf-8")) ==
+                packet["otool_L_sha256"] and
+            [item.get("name") for item in packet.get("libraries", [])] ==
+                ["gmp", "mpfr"],
+            "oracle runtime execution packet transcript drift")
+    bound_library_paths = []
+    bound_library_digests = []
+    for item in packet["libraries"]:
+        require(set(item) == {"name", "audited_path", "relative_path",
+                              "sha256"} and
+                pathlib.Path(item["audited_path"]).is_absolute() and
+                str(pathlib.Path(item["audited_path"]).resolve()) ==
+                    item["audited_path"] and
+                isinstance(item["relative_path"], str) and
+                bool(item["relative_path"]) and
+                not pathlib.PurePosixPath(item["relative_path"]).is_absolute() and
+                pathlib.PurePosixPath(item["relative_path"]).as_posix() ==
+                    item["relative_path"] and
+                pathlib.PurePosixPath(item["relative_path"]).parts[0] ==
+                    "anchored-row-oracle-runtime-libraries-v1" and
+                len(pathlib.PurePosixPath(item["relative_path"]).parts) == 2 and
+                SHA256_RE.fullmatch(item["sha256"] or "") is not None,
+                "oracle loaded runtime dependency binding drift")
+        loaded = (packet_path.parent / item["relative_path"]).resolve()
+        require(loaded.is_relative_to(packet_path.parent) and
+                loaded.is_file() and sha256_file(loaded) == item["sha256"],
+                "oracle loaded runtime dependency bytes drift")
+        bound_library_paths.append(loaded)
+        bound_library_digests.append(item["sha256"])
+    require(len(set(bound_library_paths)) == 2 and
+            len(set(bound_library_digests)) == 2,
+            "oracle loaded runtime dependency role collapse")
+    descriptor = packet["execution_audit"]
+    require(set(descriptor) == {
+                "relative_path", "record_count", "byte_length", "sha256"} and
+            descriptor["relative_path"] == ORACLE_EXECUTION_AUDIT_PATH and
+            descriptor["record_count"] == ORACLE_EXECUTION_REQUEST_COUNT and
+            type(descriptor["byte_length"]) is int and
+            descriptor["byte_length"] >= 2 and
+            SHA256_RE.fullmatch(descriptor["sha256"] or "") is not None,
+            "oracle execution audit descriptor drift")
+    artifact = (packet_path.parent / descriptor["relative_path"]).resolve()
+    require(artifact.parent == packet_path.parent and artifact.is_file() and
+            artifact.stat().st_size == descriptor["byte_length"] and
+            sha256_file(artifact) == descriptor["sha256"],
+            "oracle execution audit sidecar bytes drift")
+    return descriptor
+
+
 def _audit_oracle_mpfr_calls():
     """Reject an unrounded or unapproved MPFR arithmetic proof call."""
     directed_arithmetic = {
         "abs", "add", "const_pi", "cos", "div", "div_2ui", "div_ui",
-        "mul", "neg", "sqrt", "sub", "ui_div"}
+        "mul", "mul_ui", "neg", "sqrt", "sub", "ui_div"}
     explicit_rounding = directed_arithmetic | {
         "get_d", "set", "set_d", "set_si", "set_str", "set_ui",
         "set_ui_2exp"}
@@ -10476,6 +10682,26 @@ def _audit_oracle_mpfr_calls():
         text = path.read_text(encoding="utf-8", errors="strict")
         require("mpfr_sin" not in text,
                 "oracle proof surface uses an unapproved transcendental")
+        if relative.endswith("mpfr_interval.hpp"):
+            require(all(fragment in text for fragment in (
+                        "ProductionRoundingMutation::AddLower",
+                        "ProductionRoundingMutation::AddUpper",
+                        "ProductionRoundingMutation::SubtractLower",
+                        "ProductionRoundingMutation::SubtractUpper",
+                        "ProductionRoundingMutation::MultiplyLower",
+                        "ProductionRoundingMutation::MultiplyUpper",
+                        "ProductionRoundingMutation::DivideLower",
+                        "ProductionRoundingMutation::DivideUpper",
+                        "ProductionRoundingMutation::SquareRootLower",
+                        "ProductionRoundingMutation::SquareRootUpper",
+                        "ProductionRoundingMutation::CosineLower",
+                        "ProductionRoundingMutation::CosineUpper",
+                        "ProductionRoundingMutation::MatrixAccumulatorLower",
+                        "ProductionRoundingMutation::MatrixAccumulatorUpper",
+                        "proof_endpoint_rounding(",
+                        "directed_rounding_mutation_self_test()",
+                        "return matrix_accumulate(add_a,add_b)")),
+                    "oracle production rounding mutation wiring drift")
         for matched in re.finditer(r"\bmpfr_([A-Za-z0-9_]+)\s*\(", text):
             name = matched.group(1)
             require(name in explicit_rounding | non_arithmetic,
@@ -10492,7 +10718,10 @@ def _audit_oracle_mpfr_calls():
                 cursor += 1
             require(depth == 0, "oracle MPFR call is not lexically closed")
             call = text[matched.start():cursor]
-            require(any(rounding in call for rounding in (
+            variable_mode = (name == "mul" and
+                             ("downward_mode" in call or
+                              "upward_mode" in call))
+            require(variable_mode or any(rounding in call for rounding in (
                         "MPFR_RNDD", "MPFR_RNDU", "MPFR_RNDN")),
                     "oracle MPFR arithmetic call lacks literal rounding: " +
                     name)
@@ -10504,13 +10733,19 @@ def _audit_oracle_mpfr_calls():
                     "mpfr_add(midpoint,value.lo(),value.hi(),MPFR_RNDN)",
                     "mpfr_div_2ui(midpoint,midpoint,1,MPFR_RNDN)",
                     "mpfr_add(reference,a,b,MPFR_RNDN)",
+                    "mpfr_add(a,a,b,MPFR_RNDN)",
                     "mpfr_sub(reference,a,b,MPFR_RNDN)",
                     "mpfr_mul(reference,a,b,MPFR_RNDN)",
+                    "mpfr_mul(reference,a,a,MPFR_RNDN)",
                     "mpfr_div(reference,a,b,MPFR_RNDN)",
                     "mpfr_sqrt(reference,a,MPFR_RNDN)",
                     "mpfr_cos(reference,a,MPFR_RNDN)",
+                    "mpfr_const_pi(reference,MPFR_RNDN)",
+                    "mpfr_mul_ui(reference,reference,2,MPFR_RNDN)",
+                    "mpfr_div_ui(reference,reference,5,MPFR_RNDN)",
                 }
-                require("MPFR_RNDD" in call or "MPFR_RNDU" in call or
+                require(variable_mode or "MPFR_RNDD" in call or
+                        "MPFR_RNDU" in call or
                         normalized_call in diagnostic_midpoint_calls,
                         "oracle interval arithmetic uses nearest rounding: " +
                         name)
@@ -14295,6 +14530,9 @@ def execute(args):
             "worktree must be clean before execution")
     original_args = args
     args = copy.copy(args)
+    evidence_root = pathlib.Path(args.output).resolve().parent
+    require(evidence_root.is_dir(),
+            "qualification evidence output directory unavailable")
     snapshot_directory = tempfile.TemporaryDirectory(
         prefix="anchored-row-runtime-snapshot-")
     snapshot_root = pathlib.Path(snapshot_directory.name)
@@ -14381,7 +14619,7 @@ def execute(args):
                              "oracle_dynamic_audit.jcs.json")
     published_oracle_dynamic = (
         pathlib.Path(args.output).resolve().parent /
-        "anchored-row-oracle-runtime-dependency-audit-v1.json")
+        "anchored-row-oracle-runtime-execution-audit-v2.json")
     oracle_independence_audit = audit_oracle_independence(
         original_runtime["independent_oracle_binary"][0],
         original_oracle_provenance["oracle_command_file"][0],
@@ -14389,7 +14627,8 @@ def execute(args):
         original_oracle_provenance["oracle_dynamic_dependencies"][0],
         sealed_output_path=sealed_oracle_dynamic,
         dependency_evidence_path=oracle_dependency_snapshot)
-    oracle_runtime_library_root = snapshot_root / "oracle-runtime-libs"
+    oracle_runtime_library_root = (evidence_root /
+                                   "anchored-row-oracle-runtime-libraries-v1")
     oracle_runtime_libraries = _snapshot_oracle_runtime_libraries(
         sealed_oracle_dynamic, oracle_runtime_library_root)
     args.oracle_dynamic_dependencies = str(sealed_oracle_dynamic)
@@ -14415,10 +14654,10 @@ def execute(args):
             "exact dyadic boundary self-test incomplete")
     validate_independent_oracle_self_test(run_json(
         args.independent_oracle_binary, "--self-test",
-        "stam_oracle_self_test"))
+        "stam_oracle_self_test",oracle_runtime_library_root))
     validate_independent_oracle_capability(run_json(
         args.independent_oracle_binary, "--capability",
-        "independent_primary_capability"))
+        "independent_primary_capability",oracle_runtime_library_root))
 
     preflight = B2A.analyze(args.checkpoint, args.artifact_dir,
                             args.provider_binary, expected_head)
@@ -14437,7 +14676,6 @@ def execute(args):
     candidate_ledgers = make_candidate_pre_result_ledgers(
         checkpoint, pathlib.Path(args.artifact_dir).resolve())
     artifact_root = pathlib.Path(args.artifact_dir).resolve()
-    evidence_root = pathlib.Path(args.output).resolve().parent
     if args.d12_evidence:
         require(pathlib.Path(args.d12_evidence).resolve().parent ==
                 evidence_root,
@@ -14455,11 +14693,13 @@ def execute(args):
     executed.update(execute_observation_regular_integrand_criteria(
         args.candidate_binary, checkpoint, artifact_root, manifest,
         evidence_root))
-    oracle_results, oracle_partitions = execute_oracle_coverage(
+    (oracle_results, oracle_partitions,
+     oracle_execution_audit) = execute_oracle_coverage(
         checkpoint, artifact_root, manifest, args.independent_oracle_binary,
         args.candidate_binary, evidence_root,
+        oracle_runtime_library_root=oracle_runtime_library_root,
         oracle_runtime_library_bindings=[
-            (source, digest) for source, digest, _ in
+            (destination, digest) for _, digest, destination in
             oracle_runtime_libraries])
     executed.update(oracle_results)
     executed.update(execute_observation_component_criteria(
@@ -14514,13 +14754,9 @@ def execute(args):
             "oracle runtime dependency identity changed during execution")
     require_git_binding(git_start, git_end, worktree_start, worktree_end,
                         expected_head, checkpoint["binding"]["git_head"])
-    require(not published_oracle_dynamic.exists(),
-            "oracle dynamic-dependency audit output already exists")
-    shutil.copyfile(str(sealed_oracle_dynamic),
-                    str(published_oracle_dynamic))
-    require(sha256_file(published_oracle_dynamic) ==
-                sha256_file(sealed_oracle_dynamic),
-            "oracle dynamic-dependency audit changed while publishing")
+    _publish_oracle_runtime_execution_packet(
+        sealed_oracle_dynamic,oracle_runtime_libraries,
+        oracle_execution_audit,published_oracle_dynamic)
     args.oracle_dynamic_dependencies = str(published_oracle_dynamic)
 
     candidate_source = ROOT / "experiments/anchored_row_qualification/candidate.cpp"

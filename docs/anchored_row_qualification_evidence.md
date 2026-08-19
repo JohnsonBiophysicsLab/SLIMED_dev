@@ -53,13 +53,18 @@ projector checks, evaluates the quartic box-spline basis, follows a selected
 subdivision path, and emits all six interval rows. It also computes
 extraordinary vertex-limit, dyadic-interior, and tangent-projector checks.
 
-A separately coded uniform route propagates original-source basis rows through
-its own stock-mask and box-spline implementation and intersects five
-consecutive depths with the primary intervals. The current remediation grants
-coverage only where that independent sparse source closure is complete. A
-request whose selected path needs a refined-isolation closure that has not been
-independently established is emitted as `UNCOVERED/UNIFORM_CROSSCHECK_FAILED`;
-it is not evaluated through primary-owned stencils. Oracle cells are emitted
+A separately coded uniform route reconstructs the complete coarse topology
+directly from the frozen faces, starts from complete-mesh original-source basis
+columns, and derives the oriented patch without calling the primary fixture's
+support, neighbor-cycle, or edge-opposite implementation. At every selected
+child it memoizes only the requested controls and expands their exact stock
+mask dependencies back into those complete-mesh basis columns. The executable
+self-test compares that sparse backward closure against the complete one-step
+stock operator for every valence 3 through 9 and every child branch. No
+`4^depth` face set is materialized. The route then intersects five consecutive
+depths with the primary intervals. A request whose selected path cannot satisfy
+the frozen isolation contract is emitted as a per-cell `UNCOVERED`; it is not
+evaluated through primary-owned stencils. Oracle cells are emitted
 as either `COVERED` with the closed certified observation or `UNCOVERED` with a
 frozen per-cell reason. The runner propagates actual criterion-10 uncovered
 outcomes into criteria 11--13 and binds the result partitions to the matrix
@@ -69,10 +74,12 @@ The executable independence audit checks the reviewed source allowlist,
 compiler dependency closure, linked libraries and hashes, undefined symbols,
 link-map ownership, MPFR/GMP calls, and forbidden OpenSubdiv/Far/Bfr symbols.
 The remediation snapshots the compiler depfile and both audited MPFR/GMP
-dylibs before execution and rechecks both the live loaded paths and immutable
-snapshot bytes after scientific execution. The report continues to name the
-actual `otool -L` paths loaded by the proof binary. Process-tree timers begin
-before blocking pipe reads.
+dylibs before execution, launches self-test, capability, and all scientific
+requests with `DYLD_LIBRARY_PATH` fixed to those immutable copies, and rechecks
+the copies after execution. The final version-2 runtime packet retains the
+audited original paths but binds the relative paths and hashes of the copies
+that were actually selected for execution. Process-tree timers begin before
+blocking pipe reads.
 
 These are implemented mechanisms, not accepted scientific evidence. The exact
 SHA review below describes the prior failure. This remediation revision must
@@ -125,6 +132,16 @@ persisted record to equal that executable replay before accepting its
 certification fields. A coordinated sidecar containing only literal
 `CERTIFIED` strings is rejected.
 
+The unique oracle request inventory is exactly 16,500 entries. The writer
+asserts that cardinality before launching the oracle and persists a canonical
+execution-audit sidecar containing, in exact request order, the request ID,
+request-line hash, covered/uncovered state, exact uncovered reason, and
+canonical observation hash. Its count, byte length, and SHA-256 are owned by
+the version-2 runtime packet. Standalone validation re-executes all requests
+against fresh copies of the bound runtime dylibs and requires the regenerated
+execution-audit descriptor to equal the persisted descriptor before granting
+covered-record authority.
+
 ## Existing candidate-only development evidence
 
 The following bounded streaming ledgers were reproduced from the prior fully
@@ -151,78 +168,57 @@ These values must be regenerated and rebound at the eventual reviewed
 execution SHA. A checked-in digest is never accepted as a substitute for the
 persisted sidecar bytes.
 
-## Exact-SHA review at `c4ab2a0502db2fa470907dc1c647f45f8fe7899d`
+## Exact-SHA review at `b10797362d7fba06f548bef98855c7e8c51a8bcd`
 
-The technical/scientific/verification/gatekeeper review set did **not** admit
-this implementation. The tree and proof-only scope were clean, 96 focused
-tests passed, all 3,506 literal mutations were rejected, and current-source
-oracle probes reached six-row `COVERED` output on several extraordinary
-fixtures. Those positives did not close the following blockers:
+The four-review set did **not** admit this implementation. Verification found
+the bounded mechanisms and test gates green, but technical, scientific, and
+gatekeeper review identified five remaining authority defects:
 
-1. The primary and uniform routes consume shared refinement/coarse-mapping
-   stencils. The uniform route does not independently begin from the complete
-   coarse mesh and expand the exact backward stock-mask dependency closure.
-2. Isolation-frame selection can apply coordinates and the Jacobian from the
-   requested face to a different face containing the tracked extraordinary
-   vertex.
-3. Persisted ledger construction/validation can supply the private
-   certification authority to a self-consistent fabricated covered record;
-   literal `CERTIFIED` fields are therefore not yet replaced by an
-   independently replayable certificate transcript.
-4. The claimed directed-rounding mutation protocol compares correct RNDD and
-   RNDU evaluations but does not replace one production rounding mode at a
-   time and prove rejection.
-5. Some frozen per-cell `UNCOVERED` reasons are not reachable from their
-   actual failure sites.
-6. The full oracle dependency/runtime chain is not completely immutable
-   across execution: the compiler dependency transcript and loaded MPFR/GMP
-   dylib bytes are not all snapshotted and re-bound post-execution.
-7. Verification found a concrete frozen-corpus failure for nonzero local
-   corners. Valence-7/8 and adjacent-extraordinary requests terminate with
-   `map::at: key not found` instead of producing `COVERED` or an honest
-   per-cell `UNCOVERED` record.
+1. the main scientific call omitted the immutable runtime-library root even
+   though replay probes could use it, so the production run could still load
+   the audited live MPFR/GMP paths;
+2. the directed-rounding test performed a parallel raw-MPFR demonstration
+   rather than mutating the endpoint choices used by the production interval
+   primitives;
+3. the independent uniform route still seeded a local `N+6` forward operator
+   rather than owning the complete-topology, sparse backward dependency route
+   frozen by section 3.2;
+4. eigenbasis and tangent catch boundaries collapsed exact directed-interval
+   and branch-ordering failures into broader reasons; and
+5. the asserted 16,500-request development replay had neither an executable
+   exact-cardinality assertion nor a persisted audit artifact/digest bound to
+   standalone replay.
 
-The hosted smoke probes cover only face 0/corner 0 examples and therefore do
-not detect item 7. A green hosted job at this state would demonstrate build and
-provisioning health, not correctness of the complete frozen oracle ledger.
+No hosted or physical numeric run was started at that failed SHA.
 
-## Remediation after the `c4ab2a0` review
+## Remediation after the `b107973` review
 
 This remediation revision makes the following fail-closed changes and remains
 subject to exact-SHA review:
 
-1. selected-path isolation no longer searches for an unrelated face and then
-   reuses the requested point/Jacobian; loss of the tracked extraordinary
-   frame is a per-cell `NO_ISOLATION_BY_DEPTH_12` result;
-2. the uniform route owns independently constructed full original-source
-   controls, and refined-isolation cases are uncovered instead of borrowing
-   primary refinement stencils;
-3. generic and persisted ledgers cannot authorize covered oracle literals;
-   exact standalone validation re-executes the authenticated oracle and
-   compares the complete derived criterion-10 stream;
-4. the directed-rounding mutation self-test replaces each lower and upper
+1. every oracle execution path, including self-test and capability probes,
+   receives the persistent audited MPFR/GMP snapshot root; the final runtime
+   packet binds those loaded files rather than mutable originals;
+2. the uniform route reconstructs complete coarse topology independently and
+   recursively computes only demanded stock-mask controls as a memoized
+   backward source-basis closure;
+3. the directed-rounding mutation self-test now changes the endpoint selector
+   inside each production primitive. It replaces each lower and upper
    endpoint mode separately for add, subtract, multiply, divide, square root,
    cosine, and the matrix accumulator, and requires the mutated interval to
    exclude a higher-precision reference;
-5. MPFR flag/domain failures and uncertain child/cosine branches reach the
+4. MPFR flag/domain failures and uncertain child/cosine branches retain the
    frozen `DIRECTED_INTERVAL_PRIMITIVE_FAILED` and
-   `INTERVAL_BRANCH_ORDERING_UNCERTIFIED` reasons;
-6. the oracle compiler depfile plus the exact audited MPFR/GMP dylibs are
-   snapshotted before execution, while the live loaded paths and snapshot
-   copies are both byte-rechecked afterward; and
-7. the previously aborting `b2p_valence789` and
-   `b2p_adjacent_extraordinary` nonzero-corner probes now return canonical
-   per-cell `UNCOVERED` observations and keep the batch alive.
+   `INTERVAL_BRANCH_ORDERING_UNCERTIFIED` reasons across eigenbasis,
+   projector, and parametric-map catch boundaries; and
+5. the exact 16,500-request assertion and canonical execution sidecar are
+   generated by the production writer and independently regenerated by the
+   standalone executable replay.
 
-An exact-source framing audit then executed all 16,500 unique frozen oracle
-requests derived from the retained 294-artifact corpus. It completed with no
-process abort, malformed JSON, ordinal drift, or unmapped reason: 1,920
-requests emitted six-row `COVERED` observations; 2,340 emitted
-`REGULAR_SUPPORT_NOT_REACHED_BY_DEPTH_30`; 1,350 emitted
-`NO_ISOLATION_BY_DEPTH_12`; and 10,890 emitted
-`UNIFORM_CROSSCHECK_FAILED`. This audit intentionally establishes complete
-request framing and fail-closed disposition. It is not a qualification run and
-does not replace exact interval rescanning by the persisted-bundle validator.
+The earlier unbound development replay counts are not qualification evidence
+and are no longer presented as a substitute for this persisted audit. The new
+sidecar will be created only by an authorized exact-head qualification
+execution after the remediation itself passes review.
 
 The conservative refined-isolation disposition can reduce coverage and leave
 the eventual verdict `INCOMPLETE`. That is an allowed scientific result, not a
@@ -256,8 +252,7 @@ inadmissible SHA and conflict with the implementation plan.
 
 ## Required next work
 
-1. Commit the seven-blocker remediation together with the full
-   16,500-unique-request frozen-corpus framing-audit record.
+1. Commit and push the remediation implementation and its adversarial tests.
 2. Run four fresh independent exact-SHA reviews and obtain PASS verdicts.
 3. Rerun the hosted `macos-26` workflow at that reviewed exact head and retain
    its correctness, provisioning, and independence-audit artifacts.

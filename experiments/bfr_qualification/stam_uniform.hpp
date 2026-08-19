@@ -2,10 +2,13 @@
 
 #include "stam_uniform_box_spline.hpp"
 
+#include <algorithm>
 #include <array>
 #include <cstddef>
+#include <map>
 #include <set>
 #include <stdexcept>
+#include <utility>
 #include <vector>
 
 namespace b2uniform {
@@ -230,6 +233,152 @@ inline Stencils refine_local(Stencils const &input, unsigned valence) {
     return output;
 }
 
+// Return one requested child control by expanding only its exact stock-mask
+// dependencies into the current original-source basis rows.  Repeated calls
+// across the selected child sequence are the frozen sparse backward closure:
+// no unrelated child face or 4^depth mesh is materialized.
+inline Row backward_refined_control(
+        Stencils const &input,unsigned valence,std::size_t output_index) {
+    if (input.size() != valence + 6 || input.empty() ||
+        output_index >= valence + 12) {
+        throw std::runtime_error(
+            "uniform backward dependency request outside local operator");
+    }
+    Row output(input.front().size(),MpfrInterval(0));
+    auto term = [&](std::size_t source,long numerator,long denominator) {
+        if (source >= input.size()) {
+            throw std::runtime_error(
+                "uniform backward dependency source outside closure");
+        }
+        add_scaled(output,input[source],
+                   MpfrInterval::rational(numerator,denominator));
+    };
+    MpfrInterval const tangent = b2interval::add(
+        MpfrInterval::rational(3,8),
+        b2interval::multiply(MpfrInterval::rational(1,4),
+                             b2interval::loop_angle_cosine(valence,1)));
+    MpfrInterval const beta = b2interval::divide(
+        b2interval::subtract(MpfrInterval::rational(5,8),
+                             b2interval::multiply(tangent,tangent)),
+        MpfrInterval(static_cast<long>(valence)));
+    if (output_index == 0) {
+        add_scaled(output,input[0],b2interval::subtract(
+            MpfrInterval(1),b2interval::multiply(
+                MpfrInterval(static_cast<long>(valence)),beta)));
+        for (unsigned ring=0;ring<valence;++ring)
+            add_scaled(output,input[1+ring],beta);
+        return output;
+    }
+    if (output_index <= valence) {
+        std::size_t const ring=output_index-1;
+        term(0,3,8); term(1+ring,3,8);
+        term(1+((ring+valence-1)%valence),1,8);
+        term(1+((ring+1)%valence),1,8);
+        return output;
+    }
+    std::size_t const outer=valence+1;
+    if (output_index == outer) {
+        term(0,1,8); term(1,3,8); term(valence,3,8); term(outer,1,8);
+        return output;
+    }
+    if (output_index == outer+1) {
+        for (std::pair<std::size_t,long> const &item :
+             std::vector<std::pair<std::size_t,long>>{
+                 {0,1},{1,10},{2,1},{valence,1},{outer,1},
+                 {outer+1,1},{outer+2,1}}) term(item.first,item.second,16);
+        return output;
+    }
+    if (output_index == outer+2) {
+        term(0,1,8); term(1,3,8); term(2,3,8); term(outer+2,1,8);
+        return output;
+    }
+    if (output_index == outer+3) {
+        for (std::pair<std::size_t,long> const &item :
+             std::vector<std::pair<std::size_t,long>>{
+                 {0,1},{1,1},{valence-1,1},{valence,10},{outer,1},
+                 {outer+3,1},{outer+4,1}}) term(item.first,item.second,16);
+        return output;
+    }
+    if (output_index == outer+4) {
+        term(0,1,8); term(valence-1,3,8); term(valence,3,8);
+        term(outer+4,1,8);
+        return output;
+    }
+    std::size_t const row=output_index-(valence+6);
+    // The first pair is encoded explicitly because its source labels depend
+    // on which of the six regular child controls is requested.
+    if (row==0) { term(1,3,8); term(valence,1,8); }
+    if (row==1) { term(1,3,8); }
+    if (row==2) { term(1,3,8); term(2,1,8); }
+    if (row==3) { term(1,1,8); term(valence,3,8); }
+    if (row==4) { term(valence,3,8); }
+    if (row==5) { term(valence-1,1,8); term(valence,3,8); }
+    long const outer_weights[6][5] = {
+        {3,1,0,0,0},{1,3,1,0,0},{0,1,3,0,0},
+        {3,0,0,1,0},{1,0,0,3,1},{0,0,0,1,3}};
+    for (std::size_t column=0;column<5;++column)
+        if (outer_weights[row][column])
+            term(outer+column,outer_weights[row][column],8);
+    return output;
+}
+
+inline Stencils backward_refine_selected(
+        Stencils const &input,unsigned valence,
+        std::vector<std::size_t> const &requested_outputs) {
+    Stencils result;
+    result.reserve(requested_outputs.size());
+    std::map<std::size_t,Row> memoized;
+    for (std::size_t output : requested_outputs) {
+        auto found=memoized.find(output);
+        if(found==memoized.end())
+            found=memoized.emplace(
+                output,backward_refined_control(input,valence,output)).first;
+        result.push_back(found->second);
+    }
+    return result;
+}
+
+inline std::array<std::size_t,12> picked_labels(
+        unsigned valence,Branch branch);
+
+inline std::vector<std::size_t> selected_child_controls(
+        unsigned valence,Branch branch) {
+    if(branch==Branch::T0){
+        std::vector<std::size_t> result(valence+6);
+        for(std::size_t index=0;index<result.size();++index) result[index]=index;
+        return result;
+    }
+    std::array<std::size_t,12> const labels=picked_labels(valence,branch);
+    std::vector<std::size_t> result;
+    result.reserve(labels.size());
+    for(std::size_t label:labels) result.push_back(label-1);
+    return result;
+}
+
+inline bool backward_dependency_self_test() {
+    for(unsigned valence=3;valence<=9;++valence){
+        Stencils const input=identity(valence+6);
+        Stencils const forward=refine_local(input,valence);
+        for(Branch branch:{Branch::T0,Branch::T1,Branch::T2,Branch::Tc}){
+            std::vector<std::size_t> const requested=
+                selected_child_controls(valence,branch);
+            Stencils const backward=
+                backward_refine_selected(input,valence,requested);
+            if(backward.size()!=requested.size()) return false;
+            for(std::size_t row=0;row<backward.size();++row){
+                if(backward[row].size()!=input.front().size()) return false;
+                for(std::size_t column=0;column<backward[row].size();++column){
+                    MpfrInterval const &expected=forward.at(requested[row]).at(column);
+                    if(!mpfr_equal_p(backward[row][column].lo(),expected.lo()) ||
+                       !mpfr_equal_p(backward[row][column].hi(),expected.hi()))
+                        return false;
+                }
+            }
+        }
+    }
+    return true;
+}
+
 inline std::array<std::size_t, 12> picked_labels(unsigned valence,
                                                  Branch branch) {
     if (branch == Branch::T1) {
@@ -340,7 +489,7 @@ inline Jacobian multiply_jacobian(Jacobian const &left,
                         {MpfrInterval(0),MpfrInterval(0)}}};
     for (std::size_t i=0;i<2;++i) for (std::size_t k=0;k<2;++k)
         for (std::size_t j=0;j<2;++j)
-            result[i][j]=b2interval::add(result[i][j],
+            result[i][j]=b2interval::matrix_accumulate(result[i][j],
                 b2interval::multiply(left[i][k],right[k][j]));
     return result;
 }
@@ -349,7 +498,7 @@ inline Row combine_box(b2uniform_box::BoxSplineRow const &basis,
                        Stencils const &controls) {
     Row result(controls.front().size(), MpfrInterval(0));
     for (std::size_t i=0;i<12;++i) for (std::size_t j=0;j<result.size();++j)
-        result[j]=b2interval::add(result[j],
+        result[j]=b2interval::matrix_accumulate(result[j],
             b2interval::multiply(basis[i],controls[i][j]));
     return result;
 }
@@ -391,21 +540,179 @@ inline SixRows evaluate_regular(Stencils const &controls,
 
 struct DepthRows { unsigned depth; SixRows rows; };
 
-inline Stencils original_source_controls(
+struct CompleteMeshClosure {
+    unsigned valence;
+    std::vector<int> source_ids;
+    Stencils controls;
+};
+
+inline Stencils sparse_complete_mesh_basis(
+        std::size_t source_count,std::vector<int> const &source_ids);
+
+inline std::pair<int,int> coarse_edge(int a,int b) {
+    return a < b ? std::make_pair(a,b) : std::make_pair(b,a);
+}
+
+// Independently reconstruct the complete coarse topology and then walk the
+// exact backward dependency closure of the requested extraordinary patch.
+// This intentionally does not consume b2stam_fixture::local_support, its
+// neighbor cycles, its edge-opposite table, or any primary extraction data.
+inline CompleteMeshClosure complete_mesh_backward_closure(
+        std::size_t source_count,
+        std::vector<std::array<int,3>> const &faces,
+        int face_index,int corner) {
+    if (source_count == 0 || faces.empty() || face_index < 0 ||
+        static_cast<std::size_t>(face_index) >= faces.size() ||
+        corner < 0 || corner > 2) {
+        throw std::runtime_error(
+            "uniform complete-mesh request outside frozen corpus");
+    }
+    std::vector<std::map<int,std::set<int>>> links(source_count);
+    std::map<std::pair<int,int>,std::vector<std::array<int,3>>> incidents;
+    std::vector<bool> referenced(source_count,false);
+    for (std::array<int,3> const &face : faces) {
+        for (int local = 0; local < 3; ++local) {
+            int const vertex = face[local];
+            int const next = face[(local + 1) % 3];
+            int const previous = face[(local + 2) % 3];
+            if (vertex < 0 || next < 0 || previous < 0 ||
+                static_cast<std::size_t>(vertex) >= source_count ||
+                static_cast<std::size_t>(next) >= source_count ||
+                static_cast<std::size_t>(previous) >= source_count ||
+                vertex == next || next == previous || previous == vertex) {
+                throw std::runtime_error(
+                    "uniform complete-mesh triangular incidence");
+            }
+            referenced[static_cast<std::size_t>(vertex)] = true;
+            incidents[coarse_edge(vertex,next)].push_back(
+                {{vertex,next,previous}});
+            links[static_cast<std::size_t>(vertex)][next].insert(previous);
+            links[static_cast<std::size_t>(vertex)][previous].insert(next);
+        }
+    }
+    for (bool present : referenced) {
+        if (!present) {
+            throw std::runtime_error(
+                "uniform complete-mesh unreferenced source");
+        }
+    }
+    std::map<std::pair<int,int>,std::array<int,2>> opposites;
+    for (auto const &item : incidents) {
+        if (item.second.size() != 2 ||
+            item.second[0][0] != item.second[1][1] ||
+            item.second[0][1] != item.second[1][0]) {
+            throw std::runtime_error(
+                "uniform complete-mesh edge orientation");
+        }
+        opposites[item.first] = {{item.second[0][2],item.second[1][2]}};
+    }
+    std::vector<std::vector<int>> cycles(source_count);
+    for (std::size_t vertex = 0; vertex < source_count; ++vertex) {
+        if (links[vertex].size() < 3) {
+            throw std::runtime_error(
+                "uniform complete-mesh vertex valence");
+        }
+        for (auto const &item : links[vertex]) {
+            if (item.second.size() != 2) {
+                throw std::runtime_error(
+                    "uniform complete-mesh vertex link degree");
+            }
+        }
+        int const start = links[vertex].begin()->first;
+        int previous = -1;
+        int current = start;
+        do {
+            cycles[vertex].push_back(current);
+            std::set<int> const &adjacent = links[vertex].at(current);
+            int next = *adjacent.begin();
+            if (next == previous) next = *adjacent.rbegin();
+            previous = current;
+            current = next;
+            if (cycles[vertex].size() > links[vertex].size()) {
+                throw std::runtime_error(
+                    "uniform complete-mesh vertex cycle overflow");
+            }
+        } while (current != start);
+        if (cycles[vertex].size() != links[vertex].size()) {
+            throw std::runtime_error(
+                "uniform complete-mesh disconnected vertex link");
+        }
+    }
+    auto opposite = [&](int a,int b,int excluded) {
+        std::array<int,2> const &values = opposites.at(coarse_edge(a,b));
+        if (values[0] == excluded) return values[1];
+        if (values[1] == excluded) return values[0];
+        throw std::runtime_error(
+            "uniform complete-mesh edge exclusion");
+    };
+    std::array<int,3> const &face = faces[static_cast<std::size_t>(face_index)];
+    int const extraordinary = face[corner];
+    int const a = face[(corner + 1) % 3];
+    int const b = face[(corner + 2) % 3];
+    std::vector<int> const &cycle = cycles[static_cast<std::size_t>(extraordinary)];
+    auto a_iterator = std::find(cycle.begin(),cycle.end(),a);
+    if (a_iterator == cycle.end()) {
+        throw std::runtime_error(
+            "uniform complete-mesh oriented neighbor absent");
+    }
+    std::size_t const a_index = static_cast<std::size_t>(a_iterator-cycle.begin());
+    std::vector<int> forward,reverse;
+    for (int direction : {1,-1}) {
+        std::vector<int> ring;
+        std::size_t index = a_index;
+        for (std::size_t count = 0; count < cycle.size(); ++count) {
+            ring.push_back(cycle[index]);
+            if (cycle[index] == b) break;
+            index = (index + cycle.size() + direction) % cycle.size();
+        }
+        if (direction == 1) forward = ring; else reverse = ring;
+    }
+    std::vector<int> ring;
+    if (forward.size() == cycle.size()) ring = forward;
+    else if (reverse.size() == cycle.size()) ring = reverse;
+    else {
+        throw std::runtime_error(
+            "uniform complete-mesh oriented ring closure");
+    }
+    unsigned const valence = static_cast<unsigned>(ring.size());
+    int const n2 = opposite(a,b,extraordinary);
+    int const n3 = opposite(a,ring[1],extraordinary);
+    int const n4 = opposite(a,n3,ring[1]);
+    int const n5 = opposite(b,ring[valence-2],extraordinary);
+    int const n6 = opposite(b,n5,ring[valence-2]);
+    std::vector<int> source_ids;
+    source_ids.reserve(valence + 6);
+    source_ids.push_back(extraordinary);
+    source_ids.insert(source_ids.end(),ring.begin(),ring.end());
+    source_ids.insert(source_ids.end(),{n2,n3,n4,n5,n6});
+    if (source_ids.size() != valence + 6) {
+        throw std::runtime_error(
+            "uniform complete-mesh backward closure cardinality");
+    }
+    Stencils controls = sparse_complete_mesh_basis(source_count,source_ids);
+    return {valence,source_ids,controls};
+}
+
+// The complete coarse basis is implicit: basis row i is the one-hot vector
+// over all coarse source IDs.  Materialize only rows reached by the exact
+// backward closure so memory is O(|closure| * |coarse vertices|), not O(V^2).
+inline Stencils sparse_complete_mesh_basis(
         std::size_t source_count, std::vector<int> const &source_ids) {
     if (source_count == 0 || source_ids.empty()) {
         throw std::runtime_error("uniform original-source control inventory");
     }
-    Stencils controls = zeros(source_ids.size(), source_count);
+    Stencils controls;
+    controls.reserve(source_ids.size());
     std::set<int> seen;
-    for (std::size_t local = 0; local < source_ids.size(); ++local) {
-        int const source = source_ids[local];
+    for (int source : source_ids) {
         if (source < 0 || static_cast<std::size_t>(source) >= source_count ||
             !seen.insert(source).second) {
             throw std::runtime_error(
                 "uniform original-source control identity/order");
         }
-        controls[local][static_cast<std::size_t>(source)] = MpfrInterval(1);
+        Row basis(source_count,MpfrInterval(0));
+        basis[static_cast<std::size_t>(source)] = MpfrInterval(1);
+        controls.push_back(std::move(basis));
     }
     return controls;
 }
@@ -428,11 +735,10 @@ inline std::vector<DepthRows> regular_depth_rows_from_controls(
         Branch branch=choose_child(point);point=map_child(branch,point);
         jac=multiply_jacobian(branch_jacobian(branch),jac);
         Stencils local=regular_to_local(controls);
-        Stencils refined=refine_local(local,6);
-        if(branch==Branch::T0){
-            Stencils next_local(refined.begin(),refined.begin()+12);
-            controls=local_to_regular(next_local);
-        }else controls=pick_regular(refined,6,branch);
+        Stencils selected=backward_refine_selected(
+            local,6,selected_child_controls(6,branch));
+        if(branch==Branch::T0) controls=local_to_regular(selected);
+        else controls=selected;
     }
     return result;
 }
@@ -458,21 +764,18 @@ inline std::vector<DepthRows> uniform_depth_rows_from_controls(
         point=map_child(branch,point);
         jac=multiply_jacobian(branch_jacobian(branch),jac);
         if(!regular){
-            Stencils refined=refine_local(controls,valence);
-            if(branch==Branch::T0){
-                controls.assign(refined.begin(),refined.begin()+valence+6);
-            }else{
-                controls=pick_regular(refined,valence,branch);
+            controls=backward_refine_selected(
+                controls,valence,selected_child_controls(valence,branch));
+            if(branch!=Branch::T0){
                 regular=true;first=depth;
                 if(first>12) throw std::runtime_error("NO_ISOLATION_BY_DEPTH_12");
             }
         }else{
             Stencils local=regular_to_local(controls);
-            Stencils refined=refine_local(local,6);
-            if(branch==Branch::T0){
-                Stencils next_local(refined.begin(),refined.begin()+12);
-                controls=local_to_regular(next_local);
-            }else controls=pick_regular(refined,6,branch);
+            Stencils selected=backward_refine_selected(
+                local,6,selected_child_controls(6,branch));
+            if(branch==Branch::T0) controls=local_to_regular(selected);
+            else controls=selected;
         }
         if(regular && depth>=first){
             out.push_back({depth,evaluate_regular(controls,point,jac)});

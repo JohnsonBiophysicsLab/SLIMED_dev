@@ -13,6 +13,31 @@ namespace b2interval {
 
 constexpr mpfr_prec_t kPrecision = 544;
 
+enum class ProductionRoundingMutation {
+    None,
+    AddLower, AddUpper, SubtractLower, SubtractUpper,
+    MultiplyLower, MultiplyUpper, DivideLower, DivideUpper,
+    SquareRootLower, SquareRootUpper, CosineLower, CosineUpper,
+    MatrixAccumulatorLower, MatrixAccumulatorUpper,
+};
+
+inline ProductionRoundingMutation &production_rounding_mutation() {
+    static thread_local ProductionRoundingMutation value =
+        ProductionRoundingMutation::None;
+    return value;
+}
+
+inline mpfr_rnd_t proof_endpoint_rounding(
+        ProductionRoundingMutation endpoint,
+        mpfr_rnd_t correct,mpfr_rnd_t mutated,
+        ProductionRoundingMutation alternate =
+            ProductionRoundingMutation::None) {
+    ProductionRoundingMutation const active = production_rounding_mutation();
+    return (active == endpoint ||
+            (alternate != ProductionRoundingMutation::None &&
+             active == alternate)) ? mutated : correct;
+}
+
 inline void reject_bad_flags(char const *operation) {
     if (mpfr_nanflag_p() || mpfr_divby0_p() || mpfr_overflow_p() ||
         mpfr_underflow_p() || mpfr_erangeflag_p()) {
@@ -194,18 +219,29 @@ private:
 inline MpfrInterval add(MpfrInterval const &a, MpfrInterval const &b) {
     MpfrInterval out;
     mpfr_clear_flags();
-    mpfr_add(out.mutable_lo(), a.lo(), b.lo(), MPFR_RNDD);
-    mpfr_add(out.mutable_hi(), a.hi(), b.hi(), MPFR_RNDU);
+    mpfr_add(out.mutable_lo(), a.lo(), b.lo(), proof_endpoint_rounding(
+        ProductionRoundingMutation::AddLower,MPFR_RNDD,MPFR_RNDU,
+        ProductionRoundingMutation::MatrixAccumulatorLower));
+    mpfr_add(out.mutable_hi(), a.hi(), b.hi(), proof_endpoint_rounding(
+        ProductionRoundingMutation::AddUpper,MPFR_RNDU,MPFR_RNDD,
+        ProductionRoundingMutation::MatrixAccumulatorUpper));
     reject_bad_flags("add");
     out.validate();
     return out;
 }
 
+inline MpfrInterval matrix_accumulate(
+        MpfrInterval const &accumulator,MpfrInterval const &term) {
+    return add(accumulator,term);
+}
+
 inline MpfrInterval subtract(MpfrInterval const &a, MpfrInterval const &b) {
     MpfrInterval out;
     mpfr_clear_flags();
-    mpfr_sub(out.mutable_lo(), a.lo(), b.hi(), MPFR_RNDD);
-    mpfr_sub(out.mutable_hi(), a.hi(), b.lo(), MPFR_RNDU);
+    mpfr_sub(out.mutable_lo(), a.lo(), b.hi(), proof_endpoint_rounding(
+        ProductionRoundingMutation::SubtractLower,MPFR_RNDD,MPFR_RNDU));
+    mpfr_sub(out.mutable_hi(), a.hi(), b.lo(), proof_endpoint_rounding(
+        ProductionRoundingMutation::SubtractUpper,MPFR_RNDU,MPFR_RNDD));
     reject_bad_flags("subtract");
     out.validate();
     return out;
@@ -229,14 +265,18 @@ inline MpfrInterval multiply(MpfrInterval const &a, MpfrInterval const &b) {
         mpfr_init2(upward[index], kPrecision);
     }
     mpfr_clear_flags();
-    mpfr_mul(downward[0], a.lo(), b.lo(), MPFR_RNDD);
-    mpfr_mul(downward[1], a.lo(), b.hi(), MPFR_RNDD);
-    mpfr_mul(downward[2], a.hi(), b.lo(), MPFR_RNDD);
-    mpfr_mul(downward[3], a.hi(), b.hi(), MPFR_RNDD);
-    mpfr_mul(upward[0], a.lo(), b.lo(), MPFR_RNDU);
-    mpfr_mul(upward[1], a.lo(), b.hi(), MPFR_RNDU);
-    mpfr_mul(upward[2], a.hi(), b.lo(), MPFR_RNDU);
-    mpfr_mul(upward[3], a.hi(), b.hi(), MPFR_RNDU);
+    mpfr_rnd_t const downward_mode = proof_endpoint_rounding(
+        ProductionRoundingMutation::MultiplyLower,MPFR_RNDD,MPFR_RNDU);
+    mpfr_rnd_t const upward_mode = proof_endpoint_rounding(
+        ProductionRoundingMutation::MultiplyUpper,MPFR_RNDU,MPFR_RNDD);
+    mpfr_mul(downward[0], a.lo(), b.lo(), downward_mode);
+    mpfr_mul(downward[1], a.lo(), b.hi(), downward_mode);
+    mpfr_mul(downward[2], a.hi(), b.lo(), downward_mode);
+    mpfr_mul(downward[3], a.hi(), b.hi(), downward_mode);
+    mpfr_mul(upward[0], a.lo(), b.lo(), upward_mode);
+    mpfr_mul(upward[1], a.lo(), b.hi(), upward_mode);
+    mpfr_mul(upward[2], a.hi(), b.lo(), upward_mode);
+    mpfr_mul(upward[3], a.hi(), b.hi(), upward_mode);
     reject_bad_flags("multiply");
     MpfrInterval out;
     mpfr_set(out.mutable_lo(), downward[0], MPFR_RNDD);
@@ -264,8 +304,10 @@ inline MpfrInterval reciprocal(MpfrInterval const &value) {
     }
     MpfrInterval out;
     mpfr_clear_flags();
-    mpfr_ui_div(out.mutable_lo(), 1, value.hi(), MPFR_RNDD);
-    mpfr_ui_div(out.mutable_hi(), 1, value.lo(), MPFR_RNDU);
+    mpfr_ui_div(out.mutable_lo(), 1, value.hi(), proof_endpoint_rounding(
+        ProductionRoundingMutation::DivideLower,MPFR_RNDD,MPFR_RNDU));
+    mpfr_ui_div(out.mutable_hi(), 1, value.lo(), proof_endpoint_rounding(
+        ProductionRoundingMutation::DivideUpper,MPFR_RNDU,MPFR_RNDD));
     reject_bad_flags("reciprocal");
     out.validate();
     return out;
@@ -282,8 +324,10 @@ inline MpfrInterval square_root(MpfrInterval const &value) {
     }
     MpfrInterval out;
     mpfr_clear_flags();
-    mpfr_sqrt(out.mutable_lo(), value.lo(), MPFR_RNDD);
-    mpfr_sqrt(out.mutable_hi(), value.hi(), MPFR_RNDU);
+    mpfr_sqrt(out.mutable_lo(), value.lo(), proof_endpoint_rounding(
+        ProductionRoundingMutation::SquareRootLower,MPFR_RNDD,MPFR_RNDU));
+    mpfr_sqrt(out.mutable_hi(), value.hi(), proof_endpoint_rounding(
+        ProductionRoundingMutation::SquareRootUpper,MPFR_RNDU,MPFR_RNDD));
     reject_bad_flags("square root");
     out.validate();
     return out;
@@ -355,6 +399,18 @@ inline bool upper_at_most(MpfrInterval const &value, char const *decimal) {
     return mpfr_lessequal_p(value.hi(), target.lo());
 }
 
+inline MpfrInterval decreasing_cosine(MpfrInterval const &angle) {
+    MpfrInterval out;
+    mpfr_clear_flags();
+    mpfr_cos(out.mutable_lo(), angle.hi(), proof_endpoint_rounding(
+        ProductionRoundingMutation::CosineLower,MPFR_RNDD,MPFR_RNDU));
+    mpfr_cos(out.mutable_hi(), angle.lo(), proof_endpoint_rounding(
+        ProductionRoundingMutation::CosineUpper,MPFR_RNDU,MPFR_RNDD));
+    reject_bad_flags("cosine");
+    out.validate();
+    return out;
+}
+
 inline MpfrInterval loop_cosine(unsigned long valence) {
     if (valence < 3) {
         throw std::runtime_error(
@@ -370,13 +426,7 @@ inline MpfrInterval loop_cosine(unsigned long valence) {
         throw std::runtime_error(
             "INTERVAL_BRANCH_ORDERING_UNCERTIFIED cosine monotonic domain");
     }
-    MpfrInterval out;
-    mpfr_clear_flags();
-    mpfr_cos(out.mutable_lo(), angle.hi(), MPFR_RNDD);
-    mpfr_cos(out.mutable_hi(), angle.lo(), MPFR_RNDU);
-    reject_bad_flags("cosine");
-    out.validate();
-    return out;
+    return decreasing_cosine(angle);
 }
 
 inline MpfrInterval loop_angle_cosine(unsigned long valence,
@@ -399,21 +449,14 @@ inline MpfrInterval loop_angle_cosine(unsigned long valence,
         throw std::runtime_error(
             "INTERVAL_BRANCH_ORDERING_UNCERTIFIED cosine branch domain");
     }
-    MpfrInterval out;
-    mpfr_clear_flags();
     // The frozen valence range needs only angles in [0,pi].  Reflect higher
     // frequencies to their exact 2*pi complement before using monotonicity.
     if (2 * frequency <= valence) {
-        mpfr_cos(out.mutable_lo(), angle.hi(), MPFR_RNDD);
-        mpfr_cos(out.mutable_hi(), angle.lo(), MPFR_RNDU);
+        return decreasing_cosine(angle);
     } else {
         MpfrInterval reflected = subtract(two_pi, angle);
-        mpfr_cos(out.mutable_lo(), reflected.hi(), MPFR_RNDD);
-        mpfr_cos(out.mutable_hi(), reflected.lo(), MPFR_RNDU);
+        return decreasing_cosine(reflected);
     }
-    reject_bad_flags("frequency cosine");
-    out.validate();
-    return out;
 }
 
 inline MpfrInterval loop_angle_sine(unsigned long valence,
@@ -452,92 +495,93 @@ inline bool contains(MpfrInterval const &interval, char const *decimal) {
 }
 
 inline bool directed_rounding_mutation_self_test() {
-    mpfr_t a, b, reference, lower, upper;
+    mpfr_t a, b, reference;
     mpfr_init2(a, kPrecision);
     mpfr_init2(b, kPrecision);
     mpfr_init2(reference, 2 * kPrecision);
-    mpfr_init2(lower, kPrecision);
-    mpfr_init2(upper, kPrecision);
-    auto rejected = [&]() {
-        return mpfr_greater_p(lower, reference) != 0 ||
-               mpfr_less_p(upper, reference) != 0;
+    auto rejects = [&](ProductionRoundingMutation mutation,auto operation) {
+        production_rounding_mutation() = mutation;
+        try {
+            MpfrInterval const observed = operation();
+            production_rounding_mutation() =
+                ProductionRoundingMutation::None;
+            return mpfr_greater_p(observed.lo(),reference) != 0 ||
+                   mpfr_less_p(observed.hi(),reference) != 0;
+        } catch (std::runtime_error const &) {
+            production_rounding_mutation() =
+                ProductionRoundingMutation::None;
+            return true;
+        }
     };
     bool ok = true;
 
-    // Each pair mutates exactly one production endpoint direction.  The
-    // high-precision reference must fall outside the resulting false bound.
+    // Each probe sets one mutation hook inside the actual production
+    // primitive.  A separate 1088-bit reference must then fall outside the
+    // malformed enclosure (or the production invariant must reject it).
     mpfr_set_ui(a, 1, MPFR_RNDN);
     mpfr_set_ui_2exp(b, 1, -600, MPFR_RNDN);
     mpfr_add(reference, a, b, MPFR_RNDN);
-    mpfr_add(lower, a, b, MPFR_RNDU);  // mutated lower RNDD -> RNDU
-    mpfr_add(upper, a, b, MPFR_RNDU);
-    ok = ok && rejected();
-    mpfr_add(lower, a, b, MPFR_RNDD);
-    mpfr_add(upper, a, b, MPFR_RNDD);  // mutated upper RNDU -> RNDD
-    ok = ok && rejected();
+    MpfrInterval add_a = MpfrInterval::point(a);
+    MpfrInterval add_b = MpfrInterval::point(b);
+    ok = ok && rejects(ProductionRoundingMutation::AddLower,
+                       [&](){return matrix_accumulate(add_a,add_b);});
+    ok = ok && rejects(ProductionRoundingMutation::AddUpper,
+                       [&](){return matrix_accumulate(add_a,add_b);});
     mpfr_sub(reference, a, b, MPFR_RNDN);
-    mpfr_sub(lower, a, b, MPFR_RNDU);
-    mpfr_sub(upper, a, b, MPFR_RNDU);
-    ok = ok && rejected();
-    mpfr_sub(lower, a, b, MPFR_RNDD);
-    mpfr_sub(upper, a, b, MPFR_RNDD);
-    ok = ok && rejected();
+    ok = ok && rejects(ProductionRoundingMutation::SubtractLower,
+                       [&](){return subtract(add_a,add_b);});
+    ok = ok && rejects(ProductionRoundingMutation::SubtractUpper,
+                       [&](){return subtract(add_a,add_b);});
 
-    if (mpfr_set_str(a, "1.1", 10, MPFR_RNDN) != 0 ||
-        mpfr_set_str(b, "1.3", 10, MPFR_RNDN) != 0) {
-        ok = false;
-    }
-    mpfr_mul(reference, a, b, MPFR_RNDN);
-    mpfr_mul(lower, a, b, MPFR_RNDU);
-    mpfr_mul(upper, a, b, MPFR_RNDU);
-    ok = ok && rejected();
-    mpfr_mul(lower, a, b, MPFR_RNDD);
-    mpfr_mul(upper, a, b, MPFR_RNDD);
-    ok = ok && rejected();
+    mpfr_set_ui(a, 1, MPFR_RNDN);
+    mpfr_set_ui_2exp(b, 1, -300, MPFR_RNDN);
+    mpfr_add(a, a, b, MPFR_RNDN);
+    MpfrInterval multiply_a = MpfrInterval::point(a);
+    MpfrInterval multiply_b = MpfrInterval::point(a);
+    mpfr_mul(reference, a, a, MPFR_RNDN);
+    ok = ok && rejects(ProductionRoundingMutation::MultiplyLower,
+                       [&](){return multiply(multiply_a,multiply_b);});
+    ok = ok && rejects(ProductionRoundingMutation::MultiplyUpper,
+                       [&](){return multiply(multiply_a,multiply_b);});
 
     mpfr_set_ui(a, 1, MPFR_RNDN);
     mpfr_set_ui(b, 3, MPFR_RNDN);
     mpfr_div(reference, a, b, MPFR_RNDN);
-    mpfr_div(lower, a, b, MPFR_RNDU);
-    mpfr_div(upper, a, b, MPFR_RNDU);
-    ok = ok && rejected();
-    mpfr_div(lower, a, b, MPFR_RNDD);
-    mpfr_div(upper, a, b, MPFR_RNDD);
-    ok = ok && rejected();
+    MpfrInterval divide_a = MpfrInterval::point(a);
+    MpfrInterval divide_b = MpfrInterval::point(b);
+    ok = ok && rejects(ProductionRoundingMutation::DivideLower,
+                       [&](){return divide(divide_a,divide_b);});
+    ok = ok && rejects(ProductionRoundingMutation::DivideUpper,
+                       [&](){return divide(divide_a,divide_b);});
     mpfr_set_ui(a, 2, MPFR_RNDN);
     mpfr_sqrt(reference, a, MPFR_RNDN);
-    mpfr_sqrt(lower, a, MPFR_RNDU);
-    mpfr_sqrt(upper, a, MPFR_RNDU);
-    ok = ok && rejected();
-    mpfr_sqrt(lower, a, MPFR_RNDD);
-    mpfr_sqrt(upper, a, MPFR_RNDD);
-    ok = ok && rejected();
+    MpfrInterval square_a = MpfrInterval::point(a);
+    ok = ok && rejects(ProductionRoundingMutation::SquareRootLower,
+                       [&](){return square_root(square_a);});
+    ok = ok && rejects(ProductionRoundingMutation::SquareRootUpper,
+                       [&](){return square_root(square_a);});
     mpfr_set_ui(a, 1, MPFR_RNDN);
     mpfr_cos(reference, a, MPFR_RNDN);
-    mpfr_cos(lower, a, MPFR_RNDU);
-    mpfr_cos(upper, a, MPFR_RNDU);
-    ok = ok && rejected();
-    mpfr_cos(lower, a, MPFR_RNDD);
-    mpfr_cos(upper, a, MPFR_RNDD);
-    ok = ok && rejected();
+    MpfrInterval cosine_a = MpfrInterval::point(a);
+    ok = ok && rejects(ProductionRoundingMutation::CosineLower,
+                       [&](){return decreasing_cosine(cosine_a);});
+    ok = ok && rejects(ProductionRoundingMutation::CosineUpper,
+                       [&](){return decreasing_cosine(cosine_a);});
 
-    // Matrix/dot-product containment: the products are exact and one final
-    // accumulator rounding direction is replaced at a time.
+    // Matrix/dot-product accumulation uses the same production add primitive,
+    // with a distinct mutation identity so both matrix endpoints are tested.
     mpfr_set_ui(a, 1, MPFR_RNDN);
     mpfr_set_ui_2exp(b, 1, -600, MPFR_RNDN);
     mpfr_add(reference, a, b, MPFR_RNDN);
-    mpfr_add(lower, a, b, MPFR_RNDU);
-    mpfr_add(upper, a, b, MPFR_RNDU);
-    ok = ok && rejected();
-    mpfr_add(lower, a, b, MPFR_RNDD);
-    mpfr_add(upper, a, b, MPFR_RNDD);
-    ok = ok && rejected();
+    ok = ok && rejects(ProductionRoundingMutation::MatrixAccumulatorLower,
+                       [&](){return add(add_a,add_b);});
+    ok = ok && rejects(ProductionRoundingMutation::MatrixAccumulatorUpper,
+                       [&](){return add(add_a,add_b);});
 
+    production_rounding_mutation() = ProductionRoundingMutation::None;
     mpfr_clear(a);
     mpfr_clear(b);
     mpfr_clear(reference);
-    mpfr_clear(lower);
-    mpfr_clear(upper);
     return ok;
 }
 
