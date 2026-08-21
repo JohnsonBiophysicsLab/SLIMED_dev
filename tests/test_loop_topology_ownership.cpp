@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <cmath>
 #include <fstream>
 #include <iostream>
 #include <iterator>
@@ -13,7 +14,9 @@
 #include <utility>
 #include <vector>
 
+#include "mesh/Loop_limit_surface_backend.hpp"
 #include "mesh/Loop_topology_ownership.hpp"
+#include "mesh/Mesh.hpp"
 
 using namespace slimed::loop_topology;
 
@@ -25,6 +28,85 @@ struct Fixture
     std::vector<std::vector<double>> coordinates;
     std::vector<Face> faces;
 };
+
+slimed::loop_limit::LoopTopologyKey existing_loop_key_for_mesh(
+    const Mesh& mesh)
+{
+    using namespace slimed::loop_limit;
+
+    LoopTopologyKey key;
+    key.topologyEpoch = mesh.topology_generation();
+    key.evaluatorApi = "bfr-surface";
+    key.bfrApproxLevelSmooth = 2;
+    key.bfrApproxLevelSharp = 6;
+    key.bfrCacheMode = BfrCacheMode::Serial;
+    key.opensubdivVersion = 30700;
+    key.sourceVertexCount = static_cast<int>(mesh.vertices.size());
+    key.orientedTriangles.reserve(mesh.faces.size());
+    for (const Face& face : mesh.faces)
+    {
+        if (face.adjacentVertices.size() != 3u)
+        {
+            throw std::logic_error(
+                "test fixture must contain only oriented triangles");
+        }
+        key.orientedTriangles.push_back({{
+            face.adjacentVertices[0],
+            face.adjacentVertices[1],
+            face.adjacentVertices[2],
+        }});
+    }
+    key.topologyPolicy.boundary = LoopBoundaryPolicy::Reject;
+    key.topologyPolicy.ghosts = LoopGhostPolicy::Reject;
+    key.topologyPolicy.holes = LoopHolePolicy::Reject;
+    key.quadraturePolicy = "proof-fixed-triangle-samples";
+    return key;
+}
+
+void expect_diagnostics_exactly_equal(
+    const LoopTopologyDiagnostics& expected,
+    const LoopTopologyDiagnostics& actual)
+{
+    EXPECT_EQ(actual.vertex_count, expected.vertex_count);
+    EXPECT_EQ(actual.face_count, expected.face_count);
+    EXPECT_EQ(actual.edge_count, expected.edge_count);
+    EXPECT_EQ(actual.connected_component_count,
+              expected.connected_component_count);
+    EXPECT_EQ(actual.boundary_loop_count, expected.boundary_loop_count);
+    EXPECT_EQ(actual.euler_characteristic, expected.euler_characteristic);
+    EXPECT_EQ(actual.vertex_valences, expected.vertex_valences);
+    EXPECT_EQ(actual.edge_incidence_counts, expected.edge_incidence_counts);
+    EXPECT_EQ(actual.non_triangular_faces, expected.non_triangular_faces);
+    EXPECT_EQ(actual.vertex_id_out_of_range_faces,
+              expected.vertex_id_out_of_range_faces);
+    EXPECT_EQ(actual.repeated_vertex_faces, expected.repeated_vertex_faces);
+    EXPECT_EQ(actual.duplicate_faces, expected.duplicate_faces);
+    EXPECT_EQ(actual.inconsistently_oriented_edges,
+              expected.inconsistently_oriented_edges);
+    EXPECT_EQ(actual.vertex_link_degree_failures,
+              expected.vertex_link_degree_failures);
+    EXPECT_EQ(actual.disconnected_vertex_links,
+              expected.disconnected_vertex_links);
+    EXPECT_EQ(actual.unused_vertices, expected.unused_vertices);
+}
+
+void initialize_nullable_mesh_matrices_for_copy(Mesh& mesh)
+{
+    // Matrix's legacy copy constructor requires a populated source matrix.
+    // Mesh setup intentionally leaves these later-stage geometry values null,
+    // so initialize only that coordinate/geometry storage before isolating the
+    // topology-generation copy behavior.
+    for (Vertex& vertex : mesh.vertices)
+    {
+        vertex.coordPrev = mat_calloc(3, 1);
+        vertex.coordRef = mat_calloc(3, 1);
+        vertex.normVector = mat_calloc(3, 1);
+    }
+    for (Face& face : mesh.faces)
+    {
+        face.normVector = mat_calloc(3, 1);
+    }
+}
 
 void append_face(std::vector<Face>& faces,
                  std::initializer_list<int> vertices)
@@ -285,6 +367,191 @@ std::vector<Face> disconnected_faces()
     return faces;
 }
 } // namespace
+
+static_assert(std::is_copy_constructible<Mesh>::value,
+              "Mesh copy construction must remain available");
+static_assert(!std::is_copy_assignable<Mesh>::value,
+              "Mesh copy assignment remains unavailable because Param is a reference");
+
+TEST(LoopTopologyGeneration,
+     StartsAtZeroAndCopyConstructionPreservesTheCurrentGeneration)
+{
+    Param param;
+    param.VERBOSE_MODE = false;
+    Mesh mesh(param);
+    EXPECT_EQ(mesh.topology_generation(), 0u);
+
+    Mesh initial_copy(mesh);
+    EXPECT_EQ(initial_copy.topology_generation(), 0u);
+
+    const Fixture fixture = read_fixture(
+        "./data/fixtures/closed_valence5");
+    param.boundaryCondition = BoundaryType::Fixed;
+    mesh.setup_from_vertices_faces(
+        fixture.coordinates, face_vertices(fixture.faces));
+    ASSERT_EQ(mesh.topology_generation(), 1u);
+
+    initialize_nullable_mesh_matrices_for_copy(mesh);
+    Mesh rebuilt_copy(mesh);
+    EXPECT_EQ(rebuilt_copy.topology_generation(),
+              mesh.topology_generation());
+}
+
+TEST(LoopTopologyGeneration,
+     SetupFromVerticesFacesAdvancesOnceAndCoordinatesDoNotAdvance)
+{
+    const Fixture fixture = read_fixture(
+        "./data/fixtures/closed_valence5");
+    const auto expected = LoopTopologyOwnershipIndex::build(
+        fixture.vertex_count, fixture.faces);
+    ASSERT_TRUE(expected.accepted());
+
+    Param param;
+    param.VERBOSE_MODE = false;
+    param.boundaryCondition = BoundaryType::Fixed;
+    Mesh mesh(param);
+    const std::uint64_t initial_generation = mesh.topology_generation();
+    mesh.setup_from_vertices_faces(
+        fixture.coordinates, face_vertices(fixture.faces));
+    const std::uint64_t first_generation = mesh.topology_generation();
+    EXPECT_EQ(first_generation, initial_generation + 1u);
+    EXPECT_GT(first_generation, initial_generation);
+
+    const auto installed = LoopTopologyOwnershipIndex::build(
+        mesh.vertices.size(), mesh.faces);
+    ASSERT_TRUE(installed.accepted());
+    EXPECT_EQ(installed.reason, expected.reason);
+    EXPECT_EQ(installed.ownership, expected.ownership);
+    expect_diagnostics_exactly_equal(
+        expected.diagnostics, installed.diagnostics);
+    ASSERT_EQ(mesh.vertices.size(), fixture.coordinates.size());
+    for (std::size_t vertex = 0; vertex < mesh.vertices.size(); ++vertex)
+    {
+        for (int axis = 0; axis < 3; ++axis)
+        {
+            EXPECT_DOUBLE_EQ(
+                mesh.vertices[vertex].coord.get(axis, 0),
+                fixture.coordinates[vertex][static_cast<std::size_t>(axis)]);
+        }
+    }
+    EXPECT_EQ(face_vertices(mesh.faces), face_vertices(fixture.faces));
+
+    const auto key_before_coordinate_change =
+        existing_loop_key_for_mesh(mesh);
+    mesh.vertices.front().coord.set(
+        0, 0, mesh.vertices.front().coord.get(0, 0) + 0.125);
+    EXPECT_EQ(mesh.topology_generation(), first_generation);
+    EXPECT_EQ(existing_loop_key_for_mesh(mesh),
+              key_before_coordinate_change);
+
+    auto changed_coordinates = fixture.coordinates;
+    changed_coordinates.front().front() += 0.125;
+    mesh.setup_from_vertices_faces(
+        changed_coordinates, face_vertices(fixture.faces));
+    const std::uint64_t second_generation = mesh.topology_generation();
+    EXPECT_EQ(second_generation, first_generation + 1u);
+    EXPECT_GT(second_generation, first_generation);
+
+    const auto key_after_rebuild = existing_loop_key_for_mesh(mesh);
+    EXPECT_NE(key_after_rebuild, key_before_coordinate_change);
+    auto key_without_epoch_advance = key_after_rebuild;
+    key_without_epoch_advance.topologyEpoch =
+        key_before_coordinate_change.topologyEpoch;
+    EXPECT_EQ(key_without_epoch_advance, key_before_coordinate_change)
+        << "The epoch must be the sole identity change for an equal-topology rebuild";
+}
+
+TEST(LoopTopologyGeneration, SetupFlatAdvancesExactlyOncePerRebuild)
+{
+    Param param;
+    param.VERBOSE_MODE = false;
+    param.boundaryCondition = BoundaryType::Periodic;
+    param.sideX = 40.0;
+    param.sideY = 10.0 * std::sqrt(3.0) / 2.0 * param.lFace;
+    Mesh mesh(param);
+
+    ::testing::internal::CaptureStdout();
+    mesh.setup_flat();
+    const std::string first_output =
+        ::testing::internal::GetCapturedStdout();
+    const std::uint64_t first_generation = mesh.topology_generation();
+    EXPECT_EQ(first_generation, 1u);
+
+    ::testing::internal::CaptureStdout();
+    mesh.setup_flat();
+    const std::string second_output =
+        ::testing::internal::GetCapturedStdout();
+    const std::uint64_t second_generation = mesh.topology_generation();
+    EXPECT_EQ(second_generation, first_generation + 1u);
+    EXPECT_GT(second_generation, first_generation);
+    EXPECT_EQ(second_output, first_output);
+}
+
+TEST(LoopTopologyGeneration,
+     ExistingLoopTopologyKeyContainsEveryRepresentableIdentityField)
+{
+    const Fixture fixture = read_fixture(
+        "./data/fixtures/closed_valence5");
+    Param param;
+    param.VERBOSE_MODE = false;
+    param.boundaryCondition = BoundaryType::Fixed;
+    Mesh mesh(param);
+    mesh.setup_from_vertices_faces(
+        fixture.coordinates, face_vertices(fixture.faces));
+
+    const slimed::loop_limit::LoopTopologyKey key =
+        existing_loop_key_for_mesh(mesh);
+    EXPECT_EQ(key.topologyEpoch, mesh.topology_generation());
+    const auto expect_identity_change = [&key](const auto& mutation) {
+        auto changed = key;
+        mutation(changed);
+        EXPECT_NE(changed, key);
+    };
+
+    expect_identity_change([](auto& changed) { ++changed.topologyEpoch; });
+    expect_identity_change([](auto& changed) {
+        changed.orientedTriangles.pop_back();
+    });
+    expect_identity_change([](auto& changed) {
+        std::swap(changed.orientedTriangles.front()[1],
+                  changed.orientedTriangles.front()[2]);
+    });
+    expect_identity_change([](auto& changed) { ++changed.sourceVertexCount; });
+    expect_identity_change([](auto& changed) {
+        changed.evaluatorApi = "different-evaluator";
+    });
+    expect_identity_change([](auto& changed) {
+        ++changed.bfrApproxLevelSmooth;
+    });
+    expect_identity_change([](auto& changed) {
+        ++changed.bfrApproxLevelSharp;
+    });
+    expect_identity_change([](auto& changed) {
+        changed.bfrCacheMode = slimed::loop_limit::BfrCacheMode::Threaded;
+    });
+    expect_identity_change([](auto& changed) { ++changed.opensubdivVersion; });
+    expect_identity_change([](auto& changed) {
+        changed.topologyPolicy.boundary =
+            slimed::loop_limit::LoopBoundaryPolicy::Unset;
+    });
+    expect_identity_change([](auto& changed) {
+        changed.topologyPolicy.ghosts =
+            slimed::loop_limit::LoopGhostPolicy::Unset;
+    });
+    expect_identity_change([](auto& changed) {
+        changed.topologyPolicy.holes =
+            slimed::loop_limit::LoopHolePolicy::Unset;
+    });
+    expect_identity_change([](auto& changed) {
+        changed.quadraturePolicy = "different-fixed-samples";
+    });
+
+    const std::uint64_t generation = mesh.topology_generation();
+    mesh.vertices.front().coord.set(
+        1, 0, mesh.vertices.front().coord.get(1, 0) - 0.25);
+    EXPECT_EQ(mesh.topology_generation(), generation);
+    EXPECT_EQ(existing_loop_key_for_mesh(mesh), key);
+}
 
 TEST(LoopTopologyOwnership, AcceptsDeclaredClosedFixtureFamilies)
 {

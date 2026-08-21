@@ -2,7 +2,7 @@
 
 void Mesh::setup_flat()
 {
-    regularLimitSurfaceRowCache_.invalidate();
+    invalidate_topology_derived_state();
     if (param.VERBOSE_MODE)
     {
         std::cout << "[Mesh::setup_flat] Setting up flat membrane." << std::endl;

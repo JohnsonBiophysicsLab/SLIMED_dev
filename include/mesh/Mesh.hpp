@@ -27,6 +27,8 @@
 #include <string>
 #include <stdexcept>
 #include <array>
+#include <cstdint>
+#include <limits>
 #include <unordered_map>
 #include <omp.h>
 #include <algorithm>
@@ -194,6 +196,16 @@ public:
      */
     void setup_from_vertices_faces(const std::vector<std::vector<double>>& verticesData, 
                                    const std::vector<std::vector<int>>& facesData);
+
+    /**
+     * @brief Return the generation of the currently installed topology.
+     *
+     * Coordinate-only changes do not advance this value.
+     */
+    std::uint64_t topology_generation() const noexcept
+    {
+        return topologyGeneration_;
+    }
 
     /**
      * @brief Divide x,y axis to nx*dx (number of faces times length of
@@ -816,5 +828,25 @@ protected:
     double get_squared_distance_sp_and_v(const Matrix &scaffoldingPoint, const Vertex &vertex);
 
 private:
+    /**
+     * @brief Invalidate topology-derived state and advance its generation.
+     *
+     * This is the single internal invalidation seam for a topology rebuild.
+     * It is private so callers cannot advance the identity or clear
+     * derived state independently of Mesh topology setup.
+     */
+    void invalidate_topology_derived_state()
+    {
+        if (topologyGeneration_ ==
+            std::numeric_limits<std::uint64_t>::max())
+        {
+            throw std::overflow_error(
+                "Mesh topology generation cannot advance past uint64_t max");
+        }
+        regularLimitSurfaceRowCache_.invalidate();
+        ++topologyGeneration_;
+    }
+
+    std::uint64_t topologyGeneration_ = 0;
     mutable RegularLimitSurfaceRowCache regularLimitSurfaceRowCache_;
 };

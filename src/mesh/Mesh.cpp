@@ -135,7 +135,7 @@ Mesh::Mesh(const std::vector<Vertex> &srcVertices,
 void Mesh::setup_from_vertices_faces(const std::vector<std::vector<double>>& verticesData, 
                                    const std::vector<std::vector<int>>& facesData)
 {
-    regularLimitSurfaceRowCache_.invalidate();
+    invalidate_topology_derived_state();
     if (param.VERBOSE_MODE)
     {
         std::cout << "[Mesh::setup_from_vertices_faces] Setting up membrane from vertices and faces data." << std::endl;
