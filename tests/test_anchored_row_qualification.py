@@ -3444,6 +3444,13 @@ class AnchoredRowQualificationTests(unittest.TestCase):
             dependencies.extend({"path": str(path),
                                  "sha256": MODULE.sha256_file(path)}
                                 for path in (mpfr_header, gmp_header))
+            installed_root = root / "authenticated-install"
+            installed_root.mkdir()
+            installed_libraries = {
+                "gmp": installed_root / "libgmp.10.dylib",
+                "mpfr": installed_root / "libmpfr.6.dylib"}
+            installed_libraries["gmp"].write_bytes(gmp_library.read_bytes())
+            installed_libraries["mpfr"].write_bytes(mpfr_library.read_bytes())
 
             def completed(argv, **unused):
                 output = (dynamic.read_bytes() if argv[1] == "-L" else
@@ -3482,10 +3489,22 @@ class AnchoredRowQualificationTests(unittest.TestCase):
                         "anchored-row-oracle-runtime-execution-audit-v2.json")
                     MODULE._publish_oracle_runtime_execution_packet(
                         sealed, runtime_bindings, descriptor,
-                        execution_packet)
+                        execution_packet, installed_libraries)
                     self.assertEqual(MODULE.audit_oracle_independence(
                         binary, command_path, link_map,
-                        execution_packet), "PASS")
+                        execution_packet,
+                        installed_library_paths=installed_libraries), "PASS")
+                    with self.assertRaises(MODULE.QualificationError):
+                        MODULE.audit_oracle_independence(
+                            binary, command_path, link_map,
+                            execution_packet)
+                    with self.assertRaises(MODULE.QualificationError):
+                        MODULE.audit_oracle_independence(
+                            binary, command_path, link_map,
+                            execution_packet,
+                            installed_library_paths={
+                                "gmp": runtime_bindings[0][2],
+                                "mpfr": runtime_bindings[1][2]})
                     projected = MODULE.strict_json_bytes(
                         execution_packet.read_bytes())
                     projected["libraries"][0]["audited_path"] = str(
@@ -3494,9 +3513,28 @@ class AnchoredRowQualificationTests(unittest.TestCase):
                     with self.assertRaises(MODULE.QualificationError):
                         MODULE.audit_oracle_independence(
                             binary, command_path, link_map,
-                            execution_packet)
+                            execution_packet,
+                            installed_library_paths=installed_libraries)
                     projected["libraries"][0]["audited_path"] = str(
                         gmp_library)
+                    execution_packet.write_bytes(MODULE.jcs_bytes(projected))
+                    loaded_gmp = pathlib.Path(runtime_bindings[0][2])
+                    canonical_loaded_gmp = loaded_gmp.read_bytes()
+                    coordinated = MODULE.strict_json_bytes(
+                        execution_packet.read_bytes())
+                    loaded_gmp.chmod(0o600)
+                    loaded_gmp.write_bytes(b"coordinated substitute gmp\n")
+                    coordinated["libraries"][0]["sha256"] = \
+                        MODULE.sha256_file(loaded_gmp)
+                    execution_packet.write_bytes(
+                        MODULE.jcs_bytes(coordinated))
+                    with self.assertRaises(MODULE.QualificationError):
+                        MODULE.audit_oracle_independence(
+                            binary, command_path, link_map,
+                            execution_packet,
+                            installed_library_paths=installed_libraries)
+                    loaded_gmp.write_bytes(canonical_loaded_gmp)
+                    loaded_gmp.chmod(0o500)
                     execution_packet.write_bytes(MODULE.jcs_bytes(projected))
                 mpfr_library.write_bytes(b"tampered mpfr library\n")
                 with self.assertRaises(MODULE.QualificationError):
@@ -3506,7 +3544,8 @@ class AnchoredRowQualificationTests(unittest.TestCase):
                         MODULE, "ORACLE_EXECUTION_REQUEST_COUNT", 1):
                     self.assertEqual(MODULE.audit_oracle_independence(
                         binary, command_path, link_map,
-                        execution_packet), "PASS")
+                        execution_packet,
+                        installed_library_paths=installed_libraries), "PASS")
                 mpfr_library.write_bytes(b"mpfr library\n")
 
             for injected in ("@/private/tmp/oracle-extra.rsp", "-include"):
@@ -3576,8 +3615,12 @@ class AnchoredRowQualificationTests(unittest.TestCase):
                           MODULE.strict_json_bytes(raw_value))
                 descriptor = audit.finish()
                 packet = root / "anchored-row-oracle-runtime-execution-audit-v2.json"
+                installed_libraries = {
+                    item["name"]: pathlib.Path(item["path"])
+                    for item in libraries}
                 MODULE._publish_oracle_runtime_execution_packet(
-                    sealed, loaded, descriptor, packet)
+                    sealed, loaded, descriptor, packet,
+                    installed_libraries)
                 self.assertEqual(MODULE._bound_oracle_execution_audit(packet),
                                  descriptor)
                 replay = root / "replay"
