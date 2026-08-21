@@ -41,6 +41,11 @@ def expected_bytes():
     authority_values = runner.frozen_authority_record()
     schema = runner.RESULT_CONTRACT.install_report_schema_contract(
         raw_schema, authority_values)
+    schema["$defs"]["identity"]["properties"][
+        "approved_b2b_merge_git_commit"] = {
+            "const": runner.APPROVED_RESULT_EVIDENCE_AMENDMENT_MERGE}
+    schema["$defs"]["identity"]["properties"]["implementation_state"] = {
+        "const": "PACKAGE2_EXECUTED_PROOF_ONLY_NO_QUALIFICATION_DECISION"}
     return (json.dumps(schema, indent=2, sort_keys=True,
                        ensure_ascii=False) + "\n").encode("utf-8")
 

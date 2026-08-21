@@ -1,24 +1,39 @@
 // Proof-only anchored-difference evaluator.  This file has no production caller.
 
+#include "anchored_row_evaluator.hpp"
+
 #pragma STDC FENV_ACCESS ON
 
 #include <cfenv>
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <condition_variable>
 #include <cstdint>
 #include <cstring>
+#include <exception>
 #include <iomanip>
 #include <iostream>
 #include <limits>
 #include <map>
+#include <mutex>
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <thread>
 #include <utility>
 #include <vector>
 
+#ifdef ANCHORED_ROW_GMP_INTEGRAND
+#include <gmp.h>
+#endif
+
 namespace {
+
+using anchoredrow::rounded_add;
+using anchoredrow::rounded_mul;
+using anchoredrow::rounded_sqrt;
+using anchoredrow::rounded_sub;
 
 class Sha256 {
 public:
@@ -693,50 +708,10 @@ std::vector<std::string> split(std::string const &value, char delimiter) {
     return result;
 }
 
-double rounded_sub(double left, double right) {
-    volatile double result = left - right;
-    return result;
-}
-
-double rounded_mul(double left, double right) {
-    volatile double result = left * right;
-    return result;
-}
-
-double rounded_add(double left, double right) {
-    volatile double result = left + right;
-    return result;
-}
-
-double rounded_sqrt(double value) {
-    volatile double result = std::sqrt(value);
-    return result;
-}
-
 double evaluate(bool position, std::size_t anchor,
                 std::vector<double> const &coefficients,
                 std::vector<double> const &sources) {
-    if (coefficients.empty() || coefficients.size() != sources.size() ||
-        anchor >= sources.size()) {
-        throw std::runtime_error("row cardinality or anchor index");
-    }
-    if (std::fegetround() != FE_TONEAREST) throw std::runtime_error("rounding mode before row");
-    volatile double accumulator = 0.0;
-    double const anchor_value = sources[anchor];
-    for (std::size_t index = 0; index < sources.size(); ++index) {
-        double const delta = rounded_sub(sources[index], anchor_value);
-        double const term = rounded_mul(coefficients[index], delta);
-        accumulator = rounded_add(accumulator, term);
-        if (!std::isfinite(delta) || !std::isfinite(term) ||
-            !std::isfinite(static_cast<double>(accumulator))) {
-            throw std::runtime_error("nonfinite intermediate");
-        }
-    }
-    double result = static_cast<double>(accumulator);
-    if (position) result = rounded_add(anchor_value, result);
-    if (std::fegetround() != FE_TONEAREST) throw std::runtime_error("rounding mode after row");
-    if (!std::isfinite(result)) throw std::runtime_error("nonfinite result");
-    return result;
+    return anchoredrow::evaluate(position, anchor, coefficients, sources);
 }
 
 bool is_position(std::string const &kind) {
@@ -1042,6 +1017,18 @@ std::string candidate_binary64_payload(std::uint64_t observed_bits) {
         "\"}";
 }
 
+std::string candidate_emitted_geometry_payload(
+    std::string const &axis, std::uint64_t observed_bits) {
+    if (axis != "x" && axis != "y" && axis != "z") {
+        throw std::runtime_error("candidate emitted geometry axis");
+    }
+    // Closed candidate_emitted_geometry_observation_v1 in RFC 8785 order.
+    return std::string("{\"axis\":\"") + axis +
+        "\",\"kind\":\"candidate_emitted_geometry_observation_v1\"" +
+        ",\"observed_bits\":\"" + canonical_binary64_label(observed_bits) +
+        "\"}";
+}
+
 std::string candidate_dyadic_vector_payload(
     std::vector<int> const &source_ids,
     std::vector<BigSigned> const &values) {
@@ -1054,10 +1041,63 @@ std::string candidate_dyadic_vector_payload(
         ",\"values\":" + dyadic_array_json(values) + "}";
 }
 
+std::string candidate_exact_geometry_payload(
+    std::string const &axis, BigSigned const &observed) {
+    if (axis != "x" && axis != "y" && axis != "z") {
+        throw std::runtime_error("candidate exact geometry axis");
+    }
+    return std::string("{\"axis\":\"") + axis +
+        "\",\"kind\":\"candidate_exact_geometry_observation_v1\"" +
+        ",\"observed\":" + signed_dyadic_json(observed, 2148U) + "}";
+}
+
+std::string candidate_basis_payload(std::uint64_t emitted_bits) {
+    return std::string("{\"emitted_basis_bits\":\"") +
+        canonical_binary64_label(emitted_bits) +
+        "\",\"kind\":\"candidate_basis_observation_v1\"}";
+}
+
+std::string candidate_row_signature_entries(
+    std::vector<int> const &source_ids,
+    std::vector<std::string> const &coefficient_bits,
+    std::vector<BigSigned> const &effective) {
+    if (source_ids.empty() || source_ids.size() != coefficient_bits.size() ||
+        source_ids.size() != effective.size()) {
+        throw std::runtime_error("candidate row signature cardinality");
+    }
+    std::ostringstream output;
+    output << '[';
+    for (std::size_t index = 0; index < source_ids.size(); ++index) {
+        if (index != 0) output << ',';
+        output << '[' << source_ids[index] << ",\""
+               << coefficient_bits[index] << "\","
+               << signed_dyadic_json(effective[index]) << ']';
+    }
+    output << ']';
+    return output.str();
+}
+
+std::string candidate_row_signature_payload(
+    std::vector<int> const &disabled_ids,
+    std::vector<std::string> const &disabled_bits,
+    std::vector<BigSigned> const &disabled_effective,
+    std::vector<int> const &serial_ids,
+    std::vector<std::string> const &serial_bits,
+    std::vector<BigSigned> const &serial_effective) {
+    return std::string("{\"cache_disabled_entries\":") +
+        candidate_row_signature_entries(
+            disabled_ids, disabled_bits, disabled_effective) +
+        ",\"kind\":\"candidate_row_signature_observation_v1\"" +
+        ",\"serial_cache_entries\":" + candidate_row_signature_entries(
+            serial_ids, serial_bits, serial_effective) + "}";
+}
+
 enum class PreoracleObservationSelection {
     Structure,
     ConstantField,
     RelabelExact,
+    RegularExactRows,
+    EmittedGeometry,
 };
 
 int preoracle_observation_stream(std::istream &input, std::ostream &output,
@@ -1083,6 +1123,37 @@ int preoracle_observation_stream(std::istream &input, std::ostream &output,
     while (std::getline(input, line)) {
         if (line.empty()) throw std::runtime_error("empty observation request");
         std::vector<std::string> const fields = split(line, ' ');
+        if (selection == PreoracleObservationSelection::EmittedGeometry) {
+            if (fields.size() != 5) {
+                throw std::runtime_error(
+                    "emitted geometry observation request field count");
+            }
+            std::string const &axis = fields[0];
+            bool const position = is_position(fields[1]);
+            std::size_t const anchor =
+                parse_size(fields[2], "anchor index syntax");
+            std::vector<double> coefficients;
+            for (std::string const &label : split(fields[3], ',')) {
+                coefficients.push_back(from_bits(label));
+            }
+            std::vector<double> sources;
+            for (std::string const &label : split(fields[4], ',')) {
+                sources.push_back(from_bits(label));
+            }
+            if ((axis != "x" && axis != "y" && axis != "z") ||
+                coefficients.empty() || coefficients.size() != sources.size() ||
+                anchor >= sources.size()) {
+                throw std::runtime_error(
+                    "emitted geometry observation request shape");
+            }
+            double const observed = evaluate(
+                position, anchor, coefficients, sources);
+            observations.add(
+                observation_ordinal++,
+                candidate_emitted_geometry_payload(
+                    axis, bits_from_label(to_bits(observed))));
+            continue;
+        }
         if (fields.size() != 5) {
             throw std::runtime_error("observation request field count");
         }
@@ -1142,6 +1213,12 @@ int preoracle_observation_stream(std::istream &input, std::ostream &output,
                     observation_ordinal++,
                     candidate_structure_payload(source_ids, coefficient_labels,
                                                 effective));
+                continue;
+            }
+            if (selection == PreoracleObservationSelection::RegularExactRows) {
+                observations.add(
+                    observation_ordinal++,
+                    candidate_dyadic_vector_payload(source_ids, effective));
                 continue;
             }
 
@@ -1232,6 +1309,75 @@ int preoracle_observation_stream(std::istream &input, std::ostream &output,
     return 0;
 }
 
+int cache_observation_stream() {
+    CandidateValueStream observations(std::cout);
+    std::uint64_t ordinal = 0;
+    std::string line;
+    while (std::getline(std::cin, line)) {
+        std::vector<std::string> const fields = split(line, ' ');
+        if (fields.size() != 7U) {
+            throw std::runtime_error("cache observation request field count");
+        }
+        bool const position = is_position(fields[0]);
+        std::size_t const vertex_count = parse_size(
+            fields[1], "cache observation vertex count");
+        std::vector<int> const anchors = parse_ids(fields[2]);
+        std::vector<int> const disabled_ids = parse_ids(fields[3]);
+        std::vector<std::string> const disabled_bits = split(fields[4], ',');
+        std::vector<int> const serial_ids = parse_ids(fields[5]);
+        std::vector<std::string> const serial_bits = split(fields[6], ',');
+        if (vertex_count == 0U || anchors.size() != 3U ||
+            disabled_ids.empty() || serial_ids.empty() ||
+            disabled_ids.size() != disabled_bits.size() ||
+            serial_ids.size() != serial_bits.size() ||
+            !std::is_sorted(disabled_ids.begin(), disabled_ids.end()) ||
+            !std::is_sorted(serial_ids.begin(), serial_ids.end())) {
+            throw std::runtime_error("cache observation request shape");
+        }
+        std::vector<BigSigned> disabled_exact;
+        std::vector<BigSigned> serial_exact;
+        for (std::string const &label : disabled_bits) {
+            disabled_exact.push_back(exact_binary64_big(
+                bits_from_label(label)));
+        }
+        for (std::string const &label : serial_bits) {
+            serial_exact.push_back(exact_binary64_big(bits_from_label(label)));
+        }
+        BigSigned disabled_sum;
+        BigSigned serial_sum;
+        for (BigSigned const &value : disabled_exact) disabled_sum += value;
+        for (BigSigned const &value : serial_exact) serial_sum += value;
+        BigSigned const target = position ?
+            BigSigned::from_parts(false, BigUnsigned::power_of_two(1074U)) :
+            BigSigned();
+        for (int anchor_source : anchors) {
+            std::vector<int>::const_iterator const disabled_anchor =
+                std::lower_bound(disabled_ids.begin(), disabled_ids.end(),
+                                 anchor_source);
+            std::vector<int>::const_iterator const serial_anchor =
+                std::lower_bound(serial_ids.begin(), serial_ids.end(),
+                                 anchor_source);
+            if (disabled_anchor == disabled_ids.end() ||
+                *disabled_anchor != anchor_source ||
+                serial_anchor == serial_ids.end() ||
+                *serial_anchor != anchor_source) {
+                throw std::runtime_error("cache observation anchor absent");
+            }
+            std::vector<BigSigned> disabled_effective = disabled_exact;
+            std::vector<BigSigned> serial_effective = serial_exact;
+            disabled_effective[static_cast<std::size_t>(
+                disabled_anchor - disabled_ids.begin())] +=
+                    target - disabled_sum;
+            serial_effective[static_cast<std::size_t>(
+                serial_anchor - serial_ids.begin())] += target - serial_sum;
+            observations.add(ordinal++, candidate_row_signature_payload(
+                disabled_ids, disabled_bits, disabled_effective,
+                serial_ids, serial_bits, serial_effective));
+        }
+    }
+    return 0;
+}
+
 int evaluate_line(std::string const &line) {
     std::vector<std::string> fields = split(line, ' ');
     if (fields.size() != 4) throw std::runtime_error("request field count");
@@ -1289,6 +1435,236 @@ int integrand_stream() {
             throw std::runtime_error("integrand rounding environment or result");
         }
         std::cout << to_bits(area) << ' ' << to_bits(volume) << '\n';
+    }
+    return 0;
+}
+
+std::array<double, 3> emitted_geometry_from_request(
+    std::vector<std::string> const &fields, std::size_t offset) {
+    bool const position = is_position(fields[offset]);
+    std::size_t const anchor = parse_size(
+        fields[offset + 1U], "integrand anchor syntax");
+    std::vector<double> coefficients;
+    for (std::string const &label : split(fields[offset + 2U], ',')) {
+        coefficients.push_back(from_bits(label));
+    }
+    std::array<std::vector<double>, 3> coordinates;
+    for (std::size_t axis = 0; axis < coordinates.size(); ++axis) {
+        for (std::string const &label : split(fields[offset + 3U + axis], ',')) {
+            coordinates[axis].push_back(from_bits(label));
+        }
+        if (coordinates[axis].size() != coefficients.size()) {
+            throw std::runtime_error("integrand emitted request cardinality");
+        }
+    }
+    if (coefficients.empty() || anchor >= coefficients.size()) {
+        throw std::runtime_error("integrand emitted anchor");
+    }
+    return {{evaluate(position, anchor, coefficients, coordinates[0]),
+             evaluate(position, anchor, coefficients, coordinates[1]),
+             evaluate(position, anchor, coefficients, coordinates[2])}};
+}
+
+#ifdef ANCHORED_ROW_GMP_INTEGRAND
+class MpzValue {
+public:
+    MpzValue() { mpz_init(value); }
+    MpzValue(MpzValue const &other) { mpz_init_set(value, other.value); }
+    MpzValue &operator=(MpzValue const &other) {
+        if (this != &other) mpz_set(value, other.value);
+        return *this;
+    }
+    ~MpzValue() { mpz_clear(value); }
+    mpz_t value;
+};
+
+std::string mpz_decimal(mpz_srcptr value) {
+    std::vector<char> text(mpz_sizeinbase(value, 10) + 3U, '\0');
+    if (mpz_get_str(text.data(), 10, value) == nullptr) {
+        throw std::runtime_error("GMP decimal serialization");
+    }
+    return std::string(text.data());
+}
+
+void set_mpz_exact_binary64(mpz_t output, std::string const &label) {
+    BigSigned const value = exact_binary64_big(bits_from_label(label));
+    if (mpz_set_str(output, value.magnitude.to_hex().c_str(), 16) != 0) {
+        throw std::runtime_error("GMP exact binary64 import");
+    }
+    if (value.negative) mpz_neg(output, output);
+}
+
+std::string rational_json(mpz_srcptr input, unsigned denominator_power) {
+    MpzValue numerator;
+    mpz_set(numerator.value, input);
+    if (mpz_sgn(numerator.value) == 0) denominator_power = 0;
+    while (denominator_power != 0U && mpz_even_p(numerator.value) != 0) {
+        mpz_tdiv_q_2exp(numerator.value, numerator.value, 1U);
+        --denominator_power;
+    }
+    MpzValue denominator;
+    mpz_set_ui(denominator.value, 1U);
+    mpz_mul_2exp(denominator.value, denominator.value, denominator_power);
+    return std::string("{\"denominator\":\"") +
+        mpz_decimal(denominator.value) +
+        "\",\"kind\":\"rational_v1\",\"numerator\":\"" +
+        mpz_decimal(numerator.value) + "\"}";
+}
+
+std::string interval_json(mpz_srcptr lower, mpz_srcptr upper,
+                          unsigned denominator_power) {
+    if (mpz_cmp(lower, upper) > 0) {
+        throw std::runtime_error("integrand interval order");
+    }
+    return std::string("{\"kind\":\"interval_rational_v1\",\"lower\":") +
+        rational_json(lower, denominator_power) + ",\"upper\":" +
+        rational_json(upper, denominator_power) + "}";
+}
+
+std::array<MpzValue, 3> exact_geometry_from_request(
+    std::vector<std::string> const &fields, std::size_t offset) {
+    bool const position = is_position(fields[offset]);
+    std::size_t const anchor = parse_size(
+        fields[offset + 1U], "integrand anchor syntax");
+    std::vector<std::string> const coefficients = split(
+        fields[offset + 2U], ',');
+    std::array<std::vector<std::string>, 3> coordinates{{
+        split(fields[offset + 3U], ','), split(fields[offset + 4U], ','),
+        split(fields[offset + 5U], ',')}};
+    if (coefficients.empty() || anchor >= coefficients.size() ||
+        coordinates[0].size() != coefficients.size() ||
+        coordinates[1].size() != coefficients.size() ||
+        coordinates[2].size() != coefficients.size()) {
+        throw std::runtime_error("integrand exact request cardinality");
+    }
+    std::vector<MpzValue> effective(coefficients.size());
+    MpzValue sum;
+    for (std::size_t index = 0; index < coefficients.size(); ++index) {
+        set_mpz_exact_binary64(effective[index].value, coefficients[index]);
+        mpz_add(sum.value, sum.value, effective[index].value);
+    }
+    MpzValue target;
+    if (position) {
+        mpz_set_ui(target.value, 1U);
+        mpz_mul_2exp(target.value, target.value, 1074U);
+    }
+    mpz_sub(target.value, target.value, sum.value);
+    mpz_add(effective[anchor].value, effective[anchor].value, target.value);
+    std::array<MpzValue, 3> result;
+    MpzValue coordinate;
+    for (std::size_t axis = 0; axis < result.size(); ++axis) {
+        for (std::size_t index = 0; index < effective.size(); ++index) {
+            set_mpz_exact_binary64(
+                coordinate.value, coordinates[axis][index]);
+            mpz_addmul(result[axis].value, effective[index].value,
+                       coordinate.value);
+        }
+    }
+    return result;
+}
+
+std::string exact_integrand_payload(
+    std::vector<std::string> const &fields, bool area) {
+    std::array<MpzValue, 3> const p = exact_geometry_from_request(fields, 1U);
+    std::array<MpzValue, 3> const du = exact_geometry_from_request(fields, 7U);
+    std::array<MpzValue, 3> const dv = exact_geometry_from_request(fields, 13U);
+    std::array<MpzValue, 3> cross;
+    MpzValue product;
+    mpz_mul(cross[0].value, du[1].value, dv[2].value);
+    mpz_mul(product.value, du[2].value, dv[1].value);
+    mpz_sub(cross[0].value, cross[0].value, product.value);
+    mpz_mul(cross[1].value, du[2].value, dv[0].value);
+    mpz_mul(product.value, du[0].value, dv[2].value);
+    mpz_sub(cross[1].value, cross[1].value, product.value);
+    mpz_mul(cross[2].value, du[0].value, dv[1].value);
+    mpz_mul(product.value, du[1].value, dv[0].value);
+    mpz_sub(cross[2].value, cross[2].value, product.value);
+    std::string interval;
+    if (area) {
+        MpzValue radicand;
+        for (MpzValue const &component : cross) {
+            mpz_addmul(radicand.value, component.value, component.value);
+        }
+        MpzValue scaled;
+        mpz_mul_2exp(scaled.value, radicand.value, 1088U);
+        MpzValue lower;
+        MpzValue remainder;
+        mpz_sqrtrem(lower.value, remainder.value, scaled.value);
+        MpzValue upper;
+        mpz_set(upper.value, lower.value);
+        if (mpz_sgn(remainder.value) != 0) mpz_add_ui(upper.value, upper.value, 1U);
+        interval = interval_json(lower.value, upper.value, 4840U);
+    } else {
+        MpzValue volume;
+        mpz_mul(volume.value, p[0].value, cross[0].value);
+        interval = interval_json(volume.value, volume.value, 6444U);
+    }
+    return std::string("{\"kind\":") +
+        "\"candidate_exact_integrand_observation_v1\",\"observed_interval\":" +
+        interval + ",\"view\":\"exact_effective\"}";
+}
+#endif
+
+std::string emitted_integrand_payload(
+    std::vector<std::string> const &fields, bool area) {
+    std::array<double, 3> const p = emitted_geometry_from_request(fields, 1U);
+    std::array<double, 3> const du = emitted_geometry_from_request(fields, 7U);
+    std::array<double, 3> const dv = emitted_geometry_from_request(fields, 13U);
+    double const cx = rounded_sub(rounded_mul(du[1], dv[2]),
+                                  rounded_mul(du[2], dv[1]));
+    double const cy = rounded_sub(rounded_mul(du[2], dv[0]),
+                                  rounded_mul(du[0], dv[2]));
+    double const cz = rounded_sub(rounded_mul(du[0], dv[1]),
+                                  rounded_mul(du[1], dv[0]));
+    double observed = 0.0;
+    if (area) {
+        double const radicand = rounded_add(
+            rounded_add(rounded_mul(cx, cx), rounded_mul(cy, cy)),
+            rounded_mul(cz, cz));
+        if (radicand < 0.0 || !std::isfinite(radicand)) {
+            throw std::runtime_error("invalid emitted integrand radicand");
+        }
+        observed = rounded_sqrt(radicand);
+    } else {
+        observed = rounded_mul(p[0], cx);
+    }
+    if (std::fegetround() != FE_TONEAREST || !std::isfinite(observed)) {
+        throw std::runtime_error("emitted integrand observation nonfinite");
+    }
+    return std::string("{\"kind\":") +
+        "\"candidate_emitted_integrand_observation_v1\",\"observed_bits\":\"" +
+        to_bits(observed) + "\",\"view\":\"emitted_binary64\"}";
+}
+
+int integrand_observation_stream(std::string const &criterion) {
+    bool const area = criterion == "regular_analytic_area_integrand";
+    if (!area && criterion != "regular_analytic_legacy_volume_integrand") {
+        throw std::runtime_error("unknown integrand observation criterion");
+    }
+    if (std::fesetround(FE_TONEAREST) != 0 ||
+        std::fegetround() != FE_TONEAREST) {
+        throw std::runtime_error("FE_TONEAREST unavailable");
+    }
+    CandidateValueStream observations(std::cout);
+    std::uint64_t ordinal = 0;
+    std::string line;
+    while (std::getline(std::cin, line)) {
+        std::vector<std::string> const fields = split(line, ' ');
+        if (fields.size() != 19U ||
+            (fields[0] != "E" && fields[0] != "B")) {
+            throw std::runtime_error("integrand observation request shape");
+        }
+        if (fields[0] == "E") {
+#ifdef ANCHORED_ROW_GMP_INTEGRAND
+            observations.add(ordinal++, exact_integrand_payload(fields, area));
+#else
+            throw std::runtime_error(
+                "exact integrand observation support unavailable");
+#endif
+        } else {
+            observations.add(
+                ordinal++, emitted_integrand_payload(fields, area));
+        }
     }
     return 0;
 }
@@ -1588,6 +1964,37 @@ BigUnsigned coefficient_l1(
         }
     }
     return result;
+}
+
+std::pair<std::vector<int>, std::vector<BigSigned> > coefficient_difference(
+        ComponentRow const &left_row, std::vector<BigSigned> const &left,
+        ComponentRow const &right_row, std::vector<BigSigned> const &right) {
+    std::vector<int> source_ids;
+    std::vector<BigSigned> values;
+    std::size_t left_index = 0;
+    std::size_t right_index = 0;
+    while (left_index < left.size() || right_index < right.size()) {
+        if (right_index == right.size() ||
+            (left_index < left.size() &&
+             left_row.source_ids[left_index] <
+                 right_row.source_ids[right_index])) {
+            source_ids.push_back(left_row.source_ids[left_index]);
+            values.push_back(left[left_index]);
+            ++left_index;
+        } else if (left_index == left.size() ||
+                   right_row.source_ids[right_index] <
+                       left_row.source_ids[left_index]) {
+            source_ids.push_back(right_row.source_ids[right_index]);
+            values.push_back(-right[right_index]);
+            ++right_index;
+        } else {
+            source_ids.push_back(left_row.source_ids[left_index]);
+            values.push_back(left[left_index] - right[right_index]);
+            ++left_index;
+            ++right_index;
+        }
+    }
+    return std::make_pair(source_ids, values);
 }
 
 std::uint64_t component_target_numerator(bool position,
@@ -2101,6 +2508,449 @@ int component_audit_stream() {
     return 0;
 }
 
+int component_observation_stream(std::string const &criterion) {
+    if (std::find(kComponentCriteria.begin(), kComponentCriteria.end(),
+                  criterion) == kComponentCriteria.end()) {
+        throw std::runtime_error("unknown component observation criterion");
+    }
+    if (std::fesetround(FE_TONEAREST) != 0 ||
+        std::fegetround() != FE_TONEAREST) {
+        throw std::runtime_error("FE_TONEAREST unavailable");
+    }
+    CandidateValueStream observations(std::cout);
+    std::uint64_t ordinal = 0;
+    std::string line;
+    while (std::getline(std::cin, line)) {
+        if (line.empty()) throw std::runtime_error("empty component request");
+        std::vector<std::string> const fields = split(line, ' ');
+        if (fields.size() != 15U) {
+            throw std::runtime_error("component request field count");
+        }
+        bool const transition67 = fields[0] == "6_7";
+        if (!transition67 && fields[0] != "7_8") {
+            throw std::runtime_error("component transition");
+        }
+        std::string const &row_kind = fields[1];
+        std::size_t const vertex_count = parse_size(
+            fields[2], "component vertex count");
+        std::vector<int> const parsed_anchors = parse_ids(fields[3]);
+        if (parsed_anchors.size() != 3U || vertex_count == 0U) {
+            throw std::runtime_error("component anchor count");
+        }
+        std::array<int, 3> const anchors = {{
+            parsed_anchors[0], parsed_anchors[1], parsed_anchors[2]}};
+        std::vector<int> const union_ids = parse_ids(fields[8]);
+        if (union_ids.empty() ||
+            !std::is_sorted(union_ids.begin(), union_ids.end()) ||
+            std::adjacent_find(union_ids.begin(), union_ids.end()) !=
+                union_ids.end() ||
+            union_ids.back() >= static_cast<int>(vertex_count)) {
+            throw std::runtime_error("component coordinate union order");
+        }
+        std::array<std::vector<std::string>, 3> const coordinate_labels = {{
+            split(fields[9], ','), split(fields[10], ','),
+            split(fields[11], ',')}};
+        ComponentRow const low = parse_component_row(
+            row_kind, fields[4], fields[5], union_ids, coordinate_labels);
+        ComponentRow const high = parse_component_row(
+            row_kind, fields[6], fields[7], union_ids, coordinate_labels);
+        std::array<std::vector<BigSigned>, 3> high_effective;
+        std::array<std::vector<BigSigned>, 3> low_effective;
+        std::array<std::array<BigSigned, 3>, 3> high_exact_geometry;
+        std::array<std::array<BigSigned, 3>, 3> low_exact_geometry;
+        for (int anchor = 0; anchor < 3; ++anchor) {
+            high_effective[static_cast<std::size_t>(anchor)] =
+                effective_coefficients(
+                    high, anchors[static_cast<std::size_t>(anchor)]);
+            low_effective[static_cast<std::size_t>(anchor)] =
+                effective_coefficients(
+                    low, anchors[static_cast<std::size_t>(anchor)]);
+            high_exact_geometry[static_cast<std::size_t>(anchor)] =
+                exact_geometry(
+                    high, high_effective[static_cast<std::size_t>(anchor)]);
+            low_exact_geometry[static_cast<std::size_t>(anchor)] =
+                exact_geometry(
+                    low, low_effective[static_cast<std::size_t>(anchor)]);
+        }
+        EmittedGeometry const high_emitted = emitted_geometry(
+            high, vertex_count, anchors, true);
+        EmittedGeometry const low_emitted = emitted_geometry(
+            low, vertex_count, anchors, false);
+        static std::array<std::array<int, 2>, 3> const pairs = {{
+            {{0, 1}}, {{0, 2}}, {{1, 2}}}};
+        static std::array<std::string, 3> const axes = {{"x", "y", "z"}};
+
+        if (criterion == "anchor_sensitivity_exact_coeff") {
+            for (std::array<int, 2> const &pair : pairs) {
+                std::pair<std::vector<int>, std::vector<BigSigned> > diff =
+                    coefficient_difference(
+                        high, high_effective[static_cast<std::size_t>(pair[0])],
+                        high, high_effective[static_cast<std::size_t>(pair[1])]);
+                observations.add(ordinal++, candidate_dyadic_vector_payload(
+                    diff.first, diff.second));
+            }
+        } else if (criterion == "anchor_sensitivity_exact_geometry" ||
+                   criterion == "anchor_sensitivity_emitted_geometry") {
+            for (std::size_t axis = 0; axis < axes.size(); ++axis) {
+                for (std::array<int, 2> const &pair : pairs) {
+                    if (criterion == "anchor_sensitivity_exact_geometry") {
+                        observations.add(ordinal++,
+                            candidate_exact_geometry_payload(
+                                axes[axis],
+                                high_exact_geometry[
+                                    static_cast<std::size_t>(pair[0])][axis] -
+                                high_exact_geometry[
+                                    static_cast<std::size_t>(pair[1])][axis]));
+                    } else {
+                        double const difference = rounded_sub(
+                            high_emitted[0][static_cast<std::size_t>(pair[0])]
+                                             [axis],
+                            high_emitted[0][static_cast<std::size_t>(pair[1])]
+                                             [axis]);
+                        observations.add(ordinal++,
+                            candidate_emitted_geometry_payload(
+                                axes[axis], bits_from_label(
+                                    to_bits(difference))));
+                    }
+                }
+            }
+        } else if (criterion == "binary64_basis_probe_diagnostic") {
+            for (int anchor = 0; anchor < 3; ++anchor) {
+                for (int relabel = 0; relabel < 3; ++relabel) {
+                    std::vector<std::pair<int, std::size_t> > permutation;
+                    for (std::size_t source = 0;
+                         source < high.source_ids.size(); ++source) {
+                        int mapped = high.source_ids[source];
+                        if (relabel == 1) {
+                            mapped = static_cast<int>(vertex_count) - 1 - mapped;
+                        }
+                        if (relabel == 2) {
+                            mapped = (mapped + 1) %
+                                static_cast<int>(vertex_count);
+                        }
+                        permutation.push_back(std::make_pair(mapped, source));
+                    }
+                    std::sort(permutation.begin(), permutation.end());
+                    std::vector<int> mapped_ids;
+                    std::vector<double> mapped_coefficients;
+                    std::vector<std::size_t> canonical_to_mapped(
+                        high.source_ids.size(), 0U);
+                    for (std::size_t mapped_index = 0;
+                         mapped_index < permutation.size(); ++mapped_index) {
+                        mapped_ids.push_back(permutation[mapped_index].first);
+                        mapped_coefficients.push_back(
+                            high.coefficients[permutation[mapped_index].second]);
+                        canonical_to_mapped[permutation[mapped_index].second] =
+                            mapped_index;
+                    }
+                    int mapped_anchor = anchors[static_cast<std::size_t>(anchor)];
+                    if (relabel == 1) {
+                        mapped_anchor = static_cast<int>(vertex_count) - 1 -
+                            mapped_anchor;
+                    }
+                    if (relabel == 2) {
+                        mapped_anchor = (mapped_anchor + 1) %
+                            static_cast<int>(vertex_count);
+                    }
+                    std::vector<int>::const_iterator const anchor_iterator =
+                        std::lower_bound(mapped_ids.begin(), mapped_ids.end(),
+                                         mapped_anchor);
+                    if (anchor_iterator == mapped_ids.end() ||
+                        *anchor_iterator != mapped_anchor) {
+                        throw std::runtime_error(
+                            "component mapped basis anchor absent");
+                    }
+                    std::size_t const mapped_anchor_index =
+                        static_cast<std::size_t>(anchor_iterator -
+                                                 mapped_ids.begin());
+                    std::vector<std::size_t> source_order(
+                        high.source_ids.size());
+                    for (std::size_t source = 0;
+                         source < source_order.size(); ++source) {
+                        source_order[source] = source;
+                    }
+                    std::sort(source_order.begin(), source_order.end(),
+                        [&high](std::size_t left, std::size_t right) {
+                            return std::to_string(high.source_ids[left]) <
+                                std::to_string(high.source_ids[right]);
+                        });
+                    std::vector<double> source_basis(mapped_ids.size(), 0.0);
+                    for (std::size_t source : source_order) {
+                        std::size_t const mapped_source =
+                            canonical_to_mapped[source];
+                        source_basis[mapped_source] = 1.0;
+                        double const emitted = evaluate(
+                            high.position, mapped_anchor_index,
+                            mapped_coefficients, source_basis);
+                        source_basis[mapped_source] = 0.0;
+                        observations.add(ordinal++, candidate_basis_payload(
+                            bits_from_label(to_bits(emitted))));
+                    }
+                }
+            }
+        } else if (criterion == "binary64_direct_geometry_fidelity" ||
+                   criterion == "relabel_emitted_geometry_fidelity") {
+            for (int anchor = 0; anchor < 3; ++anchor) {
+                int const relabel_start = criterion ==
+                    "binary64_direct_geometry_fidelity" ? 0 : 1;
+                for (int relabel = relabel_start; relabel < 3; ++relabel) {
+                    for (std::size_t axis = 0; axis < axes.size(); ++axis) {
+                        double observed = high_emitted[
+                            static_cast<std::size_t>(relabel)]
+                            [static_cast<std::size_t>(anchor)][axis];
+                        if (criterion ==
+                                "relabel_emitted_geometry_fidelity") {
+                            observed = rounded_sub(
+                                observed,
+                                high_emitted[0][static_cast<std::size_t>(anchor)]
+                                                 [axis]);
+                        }
+                        observations.add(ordinal++,
+                            candidate_emitted_geometry_payload(
+                                axes[axis], bits_from_label(to_bits(observed))));
+                    }
+                }
+            }
+        } else {
+            bool const expected67 = criterion.find("stabilization_6_7_") == 0;
+            bool const expected78 = criterion.find("stabilization_7_8_") == 0;
+            if ((!expected67 && !expected78) || expected67 != transition67) {
+                throw std::runtime_error(
+                    "component stabilization criterion/transition");
+            }
+            bool const coefficient = criterion.find("_exact_coeff") !=
+                std::string::npos;
+            bool const exact_geometry_criterion =
+                criterion.find("_exact_geometry") != std::string::npos;
+            for (int anchor = 0; anchor < 3; ++anchor) {
+                if (coefficient) {
+                    std::pair<std::vector<int>, std::vector<BigSigned> > diff =
+                        coefficient_difference(
+                            high,
+                            high_effective[static_cast<std::size_t>(anchor)],
+                            low,
+                            low_effective[static_cast<std::size_t>(anchor)]);
+                    observations.add(ordinal++,
+                        candidate_dyadic_vector_payload(
+                            diff.first, diff.second));
+                    continue;
+                }
+                for (std::size_t axis = 0; axis < axes.size(); ++axis) {
+                    if (exact_geometry_criterion) {
+                        observations.add(ordinal++,
+                            candidate_exact_geometry_payload(
+                                axes[axis],
+                                high_exact_geometry[
+                                    static_cast<std::size_t>(anchor)][axis] -
+                                low_exact_geometry[
+                                    static_cast<std::size_t>(anchor)][axis]));
+                    } else {
+                        double const difference = rounded_sub(
+                            high_emitted[0][static_cast<std::size_t>(anchor)]
+                                             [axis],
+                            low_emitted[0][static_cast<std::size_t>(anchor)]
+                                            [axis]);
+                        observations.add(ordinal++,
+                            candidate_emitted_geometry_payload(
+                                axes[axis], bits_from_label(
+                                    to_bits(difference))));
+                    }
+                }
+            }
+        }
+    }
+    return 0;
+}
+
+struct D12RepresentationRequest {
+    std::string content_id;
+    std::size_t level;
+    std::size_t face;
+    int local_corner;
+    std::string sample_id;
+    std::string row_kind;
+    std::size_t anchor;
+    std::vector<double> coefficients;
+    std::array<std::vector<double>, 3> fixture_sources;
+};
+
+std::string json_quote(std::string const &value) {
+    std::ostringstream output;
+    output << '"';
+    for (unsigned char byte : value) {
+        if (byte == '"' || byte == '\\') output << '\\' << byte;
+        else if (byte == '\b') output << "\\b";
+        else if (byte == '\f') output << "\\f";
+        else if (byte == '\n') output << "\\n";
+        else if (byte == '\r') output << "\\r";
+        else if (byte == '\t') output << "\\t";
+        else if (byte < 0x20U) {
+            output << "\\u00" << std::hex << std::setfill('0')
+                   << std::setw(2) << static_cast<unsigned>(byte) << std::dec;
+        } else {
+            output << byte;
+        }
+    }
+    output << '"';
+    return output.str();
+}
+
+D12RepresentationRequest parse_d12_representation_request(
+        std::string const &line) {
+    std::vector<std::string> const fields = split(line, '\t');
+    if (fields.size() != 11U) {
+        throw std::runtime_error("D12 representation request field count");
+    }
+    D12RepresentationRequest request;
+    request.content_id = fields[0];
+    request.level = parse_size(fields[1], "D12 level syntax");
+    request.face = parse_size(fields[2], "D12 face syntax");
+    request.local_corner = std::stoi(fields[3]);
+    request.sample_id = fields[4];
+    request.row_kind = fields[5];
+    (void)is_position(request.row_kind);
+    request.anchor = parse_size(fields[6], "D12 anchor syntax");
+    for (std::string const &label : split(fields[7], ',')) {
+        request.coefficients.push_back(from_bits(label));
+    }
+    for (std::size_t axis = 0; axis < 3U; ++axis) {
+        for (std::string const &label : split(fields[8U + axis], ',')) {
+            request.fixture_sources[axis].push_back(from_bits(label));
+        }
+    }
+    if (request.content_id.empty() || request.sample_id.empty() ||
+        request.level < 2U || request.level > 8U ||
+        request.local_corner < -1 || request.local_corner > 2 ||
+        request.coefficients.empty() || request.anchor >= request.coefficients.size() ||
+        request.fixture_sources[0].size() != request.coefficients.size() ||
+        request.fixture_sources[1].size() != request.coefficients.size() ||
+        request.fixture_sources[2].size() != request.coefficients.size()) {
+        throw std::runtime_error("D12 representation request shape");
+    }
+    return request;
+}
+
+std::vector<unsigned char> d12_representation_bytes(
+        std::vector<D12RepresentationRequest> const &requests) {
+    struct Input { char const *id; int axis; double constant; };
+    // Execution order is frozen independently of RFC-8785 output ordering.
+    static Input const execution_inputs[] = {
+        {"fixture_x", 0, 0.0}, {"fixture_y", 1, 0.0},
+        {"fixture_z", 2, 0.0}, {"positive_zero", -1, 0.0},
+        {"positive_one", -1, 1.0}, {"negative_one", -1, -1.0},
+        {"positive_2p20", -1, 1048576.0},
+        {"negative_2p20", -1, -1048576.0},
+    };
+    static char const *output_order[] = {
+        "fixture_x", "fixture_y", "fixture_z", "negative_2p20",
+        "negative_one", "positive_2p20", "positive_one", "positive_zero"};
+    std::ostringstream output;
+    output << '[';
+    bool first = true;
+    for (D12RepresentationRequest const &request : requests) {
+        std::map<std::string, std::string> results;
+        for (Input const &input : execution_inputs) {
+            std::vector<double> sources = input.axis >= 0 ?
+                request.fixture_sources[static_cast<std::size_t>(input.axis)] :
+                std::vector<double>(request.coefficients.size(), input.constant);
+            double const observed = anchoredrow::evaluate(
+                request.row_kind == "position", request.anchor,
+                request.coefficients, sources);
+            results.emplace(input.id, to_bits(observed));
+        }
+        if (results.size() != 8U) {
+            throw std::runtime_error("D12 representation input coverage");
+        }
+        for (char const *input_id : output_order) {
+            if (!first) output << ',';
+            first = false;
+            output << '[' << json_quote(request.content_id) << ','
+                   << request.level << ',' << request.face << ',';
+            if (request.local_corner < 0) output << "null";
+            else output << request.local_corner;
+            output << ',' << json_quote(request.sample_id) << ','
+                   << json_quote(request.row_kind) << ','
+                   << json_quote(input_id) << ','
+                   << json_quote(results.at(input_id)) << ']';
+        }
+    }
+    output << ']';
+    std::string const bytes = output.str();
+    return std::vector<unsigned char>(bytes.begin(), bytes.end());
+}
+
+class D12StartBarrier {
+public:
+    explicit D12StartBarrier(std::size_t participants)
+        : participants_(participants) {}
+    void wait() {
+        std::unique_lock<std::mutex> lock(mutex_);
+        std::size_t const generation = generation_;
+        if (++waiting_ == participants_) {
+            waiting_ = 0;
+            ++generation_;
+            condition_.notify_all();
+        } else {
+            condition_.wait(lock, [&]() { return generation_ != generation; });
+        }
+    }
+private:
+    std::size_t participants_;
+    std::size_t waiting_ = 0;
+    std::size_t generation_ = 0;
+    std::mutex mutex_;
+    std::condition_variable condition_;
+};
+
+int d12_representation_stream(std::size_t worker_count) {
+    if (worker_count != 1U && worker_count != 2U && worker_count != 4U) {
+        throw std::runtime_error("D12 representation worker count");
+    }
+    if (std::fesetround(FE_TONEAREST) != 0 ||
+        std::fegetround() != FE_TONEAREST) {
+        throw std::runtime_error("D12 representation FE_TONEAREST");
+    }
+    std::vector<D12RepresentationRequest> requests;
+    std::string line;
+    while (std::getline(std::cin, line)) {
+        if (line.empty()) throw std::runtime_error("empty D12 request");
+        requests.push_back(parse_d12_representation_request(line));
+    }
+    if (requests.empty()) throw std::runtime_error("empty D12 workload");
+    std::cout.write("D12REPR1", 8);
+    std::vector<unsigned char> reference;
+    for (std::size_t round = 0; round < 20U; ++round) {
+        D12StartBarrier barrier(worker_count);
+        std::vector<std::vector<unsigned char>> results(worker_count);
+        std::vector<std::exception_ptr> errors(worker_count);
+        std::vector<std::thread> workers;
+        for (std::size_t worker = 0; worker < worker_count; ++worker) {
+            workers.emplace_back([&, worker]() {
+                try {
+                    barrier.wait();
+                    results[worker] = d12_representation_bytes(requests);
+                } catch (...) {
+                    errors[worker] = std::current_exception();
+                }
+            });
+        }
+        for (std::thread &worker : workers) worker.join();
+        for (std::exception_ptr const &error : errors) if (error) std::rethrow_exception(error);
+        for (std::size_t worker = 0; worker < worker_count; ++worker) {
+            if (round == 0U && worker == 0U) reference = results[worker];
+            if (results[worker] != reference) {
+                throw std::runtime_error("D12 representation worker/round drift");
+            }
+            write_uint64_be(std::cout, round);
+            write_uint64_be(std::cout, worker);
+            write_uint64_be(std::cout, results[worker].size());
+            std::cout.write(reinterpret_cast<char const *>(results[worker].data()),
+                            static_cast<std::streamsize>(results[worker].size()));
+        }
+    }
+    return 0;
+}
+
 int self_test() {
     if (std::fesetround(FE_TONEAREST) != 0 || std::fegetround() != FE_TONEAREST) {
         throw std::runtime_error("FE_TONEAREST unavailable");
@@ -2136,22 +2986,32 @@ int self_test() {
         "\"aggregate\"", "\"digest\"", "\"error\"", "\"outcome\"",
         "\"reason\"", "\"reference\"", "\"target\"",
     }};
-    static std::array<PreoracleObservationSelection, 3> const selections = {{
+    static std::array<PreoracleObservationSelection, 5> const selections = {{
         PreoracleObservationSelection::Structure,
         PreoracleObservationSelection::ConstantField,
         PreoracleObservationSelection::RelabelExact,
+        PreoracleObservationSelection::RegularExactRows,
+        PreoracleObservationSelection::EmittedGeometry,
     }};
-    static std::array<char const *, 3> const observation_kinds = {{
+    static std::array<char const *, 5> const observation_kinds = {{
         "candidate_structure_observation_v1",
         "candidate_binary64_observation_v1",
         "candidate_dyadic_vector_observation_v1",
+        "candidate_dyadic_vector_observation_v1",
+        "candidate_emitted_geometry_observation_v1",
     }};
-    static std::array<std::uint64_t, 3> const expected_counts = {{3U, 45U, 6U}};
+    static std::array<std::uint64_t, 5> const expected_counts = {{
+        3U, 45U, 6U, 3U, 1U,
+    }};
     for (std::size_t selection_index = 0;
          selection_index < selections.size(); ++selection_index) {
         std::istringstream observation_input(
-            "position 3 0,1,2 0,1,2 "
-            "3fd0000000000000,3fe0000000000000,3fd0000000000000\n");
+            selection_index == 4U
+                ? "x position 1 "
+                  "3fd0000000000000,3fe0000000000000,3fd0000000000000 "
+                  "0000000000000000,3ff0000000000000,0000000000000000\n"
+                : "position 3 0,1,2 0,1,2 "
+                  "3fd0000000000000,3fe0000000000000,3fd0000000000000\n");
         std::ostringstream observation_output(std::ios::out | std::ios::binary);
         if (preoracle_observation_stream(
                 observation_input, observation_output,
@@ -2218,14 +3078,57 @@ int self_test() {
                 throw std::runtime_error(
                     "candidate dyadic observation self-test");
             }
+            if (selection_index == 3U &&
+                payload.find(",\"source_ids\":[0,1,2],\"values\":[") ==
+                    std::string::npos) {
+                throw std::runtime_error(
+                    "candidate regular exact observation self-test");
+            }
+            if (selection_index == 4U && payload !=
+                "{\"axis\":\"x\",\"kind\":"
+                "\"candidate_emitted_geometry_observation_v1\","
+                "\"observed_bits\":\"3fe0000000000000\"}") {
+                throw std::runtime_error(
+                    "candidate emitted geometry observation self-test");
+            }
         }
         if (offset != framed.size() || seen != expected_counts[selection_index]) {
             throw std::runtime_error("candidate observation coverage self-test");
         }
     }
+#ifdef ANCHORED_ROW_GMP_INTEGRAND
+    std::vector<std::string> const integrand_fields = split(
+        "E position 0 3ff0000000000000,0000000000000000,0000000000000000 "
+        "0000000000000000,3ff0000000000000,0000000000000000 "
+        "0000000000000000,0000000000000000,3ff0000000000000 "
+        "0000000000000000,0000000000000000,0000000000000000 "
+        "du 0 0000000000000000,3ff0000000000000,0000000000000000 "
+        "0000000000000000,3ff0000000000000,0000000000000000 "
+        "0000000000000000,0000000000000000,3ff0000000000000 "
+        "0000000000000000,0000000000000000,0000000000000000 "
+        "dv 0 0000000000000000,0000000000000000,3ff0000000000000 "
+        "0000000000000000,3ff0000000000000,0000000000000000 "
+        "0000000000000000,0000000000000000,3ff0000000000000 "
+        "0000000000000000,0000000000000000,0000000000000000", ' ');
+    std::string const integrand_payload = exact_integrand_payload(
+        integrand_fields, true);
+    if (integrand_payload.find(
+            "\"observed_interval\":{\"kind\":\"interval_rational_v1\","
+            "\"lower\":{\"denominator\":\"1\",\"kind\":"
+            "\"rational_v1\",\"numerator\":\"1\"}") ==
+        std::string::npos) {
+        throw std::runtime_error("candidate exact integrand self-test");
+    }
+#endif
     std::cout << "{\"candidate\":\"anchored_difference_rows_v1\","
                  "\"compiler_round_points\":\"volatile_binary64\","
                  "\"fma_contraction_permitted\":false,\"finite\":true,"
+                 "\"integrand_exact_observation\":"
+#ifdef ANCHORED_ROW_GMP_INTEGRAND
+                 "true,"
+#else
+                 "false,"
+#endif
                  "\"kind\":\"anchored_row_candidate_self_test\","
                  "\"rounding_mode\":\"FE_TONEAREST\",\"status\":\"ok\"}\n";
     return 0;
@@ -2249,11 +3152,28 @@ int main(int argc, char **argv) {
         if (argc == 2 && std::string(argv[1]) == "--integrand-stream") {
             return integrand_stream();
         }
+        if (argc == 3 &&
+            std::string(argv[1]) == "--integrand-observation-stream") {
+            return integrand_observation_stream(argv[2]);
+        }
         if (argc == 2 && std::string(argv[1]) == "--fidelity-stream") {
             return fidelity_stream();
         }
         if (argc == 2 && std::string(argv[1]) == "--component-audit-stream") {
             return component_audit_stream();
+        }
+        if (argc == 3 &&
+            std::string(argv[1]) == "--component-observation-stream") {
+            return component_observation_stream(argv[2]);
+        }
+        if (argc == 2 &&
+            std::string(argv[1]) == "--cache-observation-stream") {
+            return cache_observation_stream();
+        }
+        if (argc == 3 &&
+            std::string(argv[1]) == "--d12-representation-stream") {
+            return d12_representation_stream(
+                parse_size(argv[2], "D12 representation worker count"));
         }
         if (argc == 3 &&
             std::string(argv[1]) == "--preoracle-observation-stream") {
@@ -2273,6 +3193,17 @@ int main(int argc, char **argv) {
                     std::cin, std::cout,
                     PreoracleObservationSelection::RelabelExact);
             }
+            if (criterion == "regular_analytic_exact_rows") {
+                return preoracle_observation_stream(
+                    std::cin, std::cout,
+                    PreoracleObservationSelection::RegularExactRows);
+            }
+            if (criterion == "regular_analytic_emitted_geometry" ||
+                criterion == "emitted_direct_geometry_d10") {
+                return preoracle_observation_stream(
+                    std::cin, std::cout,
+                    PreoracleObservationSelection::EmittedGeometry);
+            }
             throw std::runtime_error(
                 "unknown preoracle observation criterion");
         }
@@ -2285,7 +3216,7 @@ int main(int argc, char **argv) {
                          "compatibility output\n";
             return audit_stream();
         }
-        std::cerr << "usage: anchored_row_candidate --self-test | --evaluate-line REQUEST | --stream | --integrand-stream | --fidelity-stream | --component-audit-stream | --preoracle-observation-stream CRITERION | --audit-stream (legacy non-authoritative)\n";
+        std::cerr << "usage: anchored_row_candidate --self-test | --evaluate-line REQUEST | --stream | --integrand-stream | --integrand-observation-stream CRITERION | --fidelity-stream | --component-audit-stream | --component-observation-stream CRITERION | --cache-observation-stream | --d12-representation-stream WORKERS | --preoracle-observation-stream CRITERION | --audit-stream (legacy non-authoritative)\n";
         return 2;
     } catch (std::exception const &error) {
         std::cerr << error.what() << '\n';

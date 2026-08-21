@@ -9,7 +9,9 @@ import struct
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
+from types import SimpleNamespace
 from unittest import mock
 
 
@@ -80,7 +82,7 @@ class AnchoredRowQualificationTests(unittest.TestCase):
         self.assertEqual(completed.returncode, 0, completed.stderr)
         value = json.loads(completed.stdout)
         self.assertEqual(value["criterion_count"], 32)
-        self.assertFalse(value["independent_primary_oracle_available"])
+        self.assertTrue(value["independent_primary_oracle_available"])
         self.assertFalse(value["qualification_pass_permitted_without_oracle"])
 
     def test_documentation_owned_schema_path_anchor_is_immutable(self):
@@ -101,7 +103,11 @@ class AnchoredRowQualificationTests(unittest.TestCase):
         })
         self.assertEqual(
             MODULE.APPROVED_RESULT_EVIDENCE_AMENDMENT_MERGE,
-            "029816125619f58f99464e8055170ffa12e957e3")
+            "67e5c2c84c907fe79bab257d992fbcbdf0480d48")
+        self.assertEqual(
+            MODULE.load_schema()["$defs"]["identity"]["properties"][
+                "approved_b2b_merge_git_commit"]["const"],
+            MODULE.APPROVED_RESULT_EVIDENCE_AMENDMENT_MERGE)
 
     def test_executable_schema_rederives_anchor_and_full_mutation_manifest(self):
         schema = MODULE.load_schema()
@@ -881,7 +887,11 @@ class AnchoredRowQualificationTests(unittest.TestCase):
                 if criterion_id in records:
                     commitment, artifact = (
                         MODULE.write_result_ledger_artifact(
-                            output, criterion_id, records[criterion_id]))
+                            output, criterion_id, records[criterion_id],
+                            oracle_certification_authority=(
+                                MODULE._ORACLE_CERTIFICATION_AUTHORITY
+                                if criterion_id ==
+                                "oracle_coverage_and_crosscheck" else None)))
                     criteria.append({
                         "criterion_id": criterion_id,
                         "result_ledger_artifact": artifact,
@@ -950,16 +960,31 @@ class AnchoredRowQualificationTests(unittest.TestCase):
                     "ledgers": [partition("covered", covered_keys),
                                 partition("uncovered", uncovered_keys)],
                     "unexpected_paths": unexpected_target}}
+            checkpoint = output / "checkpoint.json"
+            checkpoint.write_bytes(b"{}")
+            runtime_provenance = {"binaries": {"independent_oracle": {
+                "dynamic_dependencies": str(output / "dynamic.json")}}}
             with mock.patch.object(MODULE, "validate_report",
-                                   return_value=True):
+                                   return_value=True), \
+                    mock.patch.object(MODULE, "_validate_runtime_bindings",
+                                      return_value=True), \
+                    mock.patch.object(
+                        MODULE, "_iter_replayed_oracle_result_records",
+                        side_effect=lambda *_: iter(copy.deepcopy(
+                            oracle_records))):
                 self.assertTrue(MODULE.validate_result_sidecar_bundle(
-                    report, output))
+                    report, output, checkpoint, output,
+                    {"independent_oracle": str(pathlib.Path(__file__))},
+                    runtime_provenance))
                 drift = copy.deepcopy(report)
                 drift["matrix"]["ledgers"] = [
                     partition("covered", []),
                     partition("uncovered", covered_keys + uncovered_keys)]
                 with self.assertRaises(MODULE.QualificationError):
-                    MODULE.validate_result_sidecar_bundle(drift, output)
+                    MODULE.validate_result_sidecar_bundle(
+                        drift, output, checkpoint, output,
+                        {"independent_oracle": str(pathlib.Path(__file__))},
+                        runtime_provenance)
 
     def test_persistent_result_ledger_and_merkle_witness_are_exact(self):
         def key(index):
@@ -1294,6 +1319,704 @@ class AnchoredRowQualificationTests(unittest.TestCase):
             "reason_code"] = "EXECUTION_UNAVAILABLE"
         with self.assertRaises(MODULE.QualificationError):
             MODULE.validate_criteria(criteria)
+
+    def test_oracle_batch_stream_is_ordinal_bound_and_canonical(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary)
+
+            def make_oracle(name, reverse=False):
+                path = root / name
+                path.write_text(
+                    "#!/usr/bin/env python3\n"
+                    "import json, sys\n"
+                    "rows = [line.rstrip('\\n').split('\\t') "
+                    "for line in sys.stdin]\n"
+                    + ("rows.reverse()\n" if reverse else "") +
+                    "value = {'schema_version': 1, "
+                    "'kind': 'stam_oracle_sample_v1', "
+                    "'status': 'uncovered', "
+                    "'reason_code': 'NO_ISOLATION_BY_DEPTH_12'}\n"
+                    "encoded = json.dumps(value, sort_keys=True, "
+                    "separators=(',', ':'))\n"
+                    "for row in rows:\n"
+                    "    print(row[0] + '\\t' + encoded)\n",
+                    encoding="utf-8")
+                path.chmod(0o755)
+                return path
+
+            identifiers = ["a" * 64, "b" * 64]
+            requests = [
+                "{}\t/mesh\tnone\t0\t-1\t{}\t{}\n".format(
+                    identifier, "0" * 16, "0" * 16)
+                for identifier in identifiers]
+            observations = list(MODULE.iter_oracle_batch_observations(
+                make_oracle("oracle"), requests, identifiers, timeout=10))
+            self.assertEqual([item[0] for item in observations], identifiers)
+            self.assertTrue(all(item[2]["status"] == "uncovered"
+                                for item in observations))
+
+            with self.assertRaises(MODULE.QualificationError):
+                list(MODULE.iter_oracle_batch_observations(
+                    make_oracle("oracle-reordered", reverse=True),
+                    requests, identifiers, timeout=10))
+
+    def test_oracle_batch_timeout_kills_descendant_pipe_holders(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            oracle = pathlib.Path(temporary) / "stalling-oracle"
+            oracle.write_text(
+                "#!/bin/sh\n"
+                "(sleep 30) &\n"
+                "sleep 30\n", encoding="utf-8")
+            oracle.chmod(0o755)
+            identifier = "a" * 64
+            request = "{}\t/mesh\tnone\t0\t-1\t{}\t{}\n".format(
+                identifier, "0" * 16, "0" * 16)
+            started = time.monotonic()
+            with self.assertRaises(MODULE.QualificationError):
+                list(MODULE.iter_oracle_batch_observations(
+                    oracle, [request], [identifier], timeout=0.2))
+            self.assertLess(time.monotonic() - started, 6.0)
+
+    def test_independent_oracle_capability_and_self_test_are_closed(self):
+        capability = {
+            "schema_version": 1,
+            "kind": "independent_primary_capability",
+            "status": "implemented",
+            "coverage": "AVAILABLE",
+            "implementation_state": "PRIMARY_STAM_AND_UNIFORM_AVAILABLE",
+            "precision_bits": 544,
+            "mpfr_version": "4.2.2",
+            "stock_mask_interval_matrix_construction": True,
+            "interval_eigenpair_krawczyk_certification": True,
+            "repeated_eigenspace_spectral_projector_certification": True,
+            "quartic_box_spline_interval_evaluation": True,
+            "certified_parametric_branch_mapping": True,
+            "independent_uniform_five_depth_intersection": True,
+            "uniform_success_substituted_for_primary": False,
+        }
+        self.assertTrue(MODULE.validate_independent_oracle_capability(
+            capability))
+        mutated_capability = copy.deepcopy(capability)
+        mutated_capability["precision_bits"] = 543
+        with self.assertRaises(MODULE.QualificationError):
+            MODULE.validate_independent_oracle_capability(mutated_capability)
+
+        scalar = {
+            "schema_version": 1,
+            "kind": "stam_oracle_self_test",
+            "status": "ok",
+            "finite": True,
+            "precision_bits": 544,
+            "mpfr_compile_version": "4.2.2",
+            "mpfr_runtime_version": "4.2.2",
+            "directed_rounding": True,
+            "single_rounding_direction_mutations_rejected": True,
+            "zero_denominator_rejected": True,
+            "candidate_dependency_free": True,
+            "stock_loop_matrix_constructed_from_masks": True,
+            "quartic_box_spline_interval_rows": True,
+            "certified_parametric_branch_mapping": True,
+            "primary_five_depth_intersection": True,
+            "independent_uniform_five_depth_crosscheck": True,
+            "primary_eigensystem_certified_valence_min": 3,
+            "primary_eigensystem_certified_valence_max": 9,
+        }
+        boolean_fields = (
+            "stock_matrix", "analytic_eigen_residual",
+            "interval_krawczyk_inclusion", "verified_inverse_residual",
+            "condition_number_bound", "jordan_power_certified",
+            "spectral_projectors_certified",
+            "source_id_ordered_mgs_certified",
+            "tangent_projector_certified")
+        scalar["valence_certificates"] = [dict(
+            {"valence": valence, "dimension": valence + 6},
+            **{field: True for field in boolean_fields})
+            for valence in range(3, 10)]
+        self.assertTrue(MODULE.validate_independent_oracle_self_test(scalar))
+        mutated_self_test = copy.deepcopy(scalar)
+        mutated_self_test["valence_certificates"][3][
+            "spectral_projectors_certified"] = False
+        with self.assertRaises(MODULE.QualificationError):
+            MODULE.validate_independent_oracle_self_test(mutated_self_test)
+
+    def test_oracle_dependent_exact_values_derive_from_bound_intervals(self):
+        oracle_value = MODULE._valid_oracle_covered_record()[2]
+        one = {"kind": "rational_v1", "numerator": "1",
+               "denominator": "1"}
+        one_interval = {"kind": "interval_rational_v1",
+                        "lower": copy.deepcopy(one),
+                        "upper": copy.deepcopy(one)}
+        oracle_value["primary_depth_intervals"] = [[
+            copy.deepcopy(one_interval) for _ in range(5)]]
+        oracle_value["uniform_depth_intervals"] = [[
+            copy.deepcopy(one_interval) for _ in range(5)]]
+        oracle_value["intersected_primary_intervals"] = [
+            copy.deepcopy(one_interval)]
+        MODULE.validate_contract_value("oracle_covered_value_v1",
+                                       oracle_value)
+        row = {"row_kind": "position", "source_ids": [0],
+               "coefficients": [1.0]}
+        coefficient = MODULE.oracle_coefficient_l1_value(
+            row, 0, oracle_value)
+        self.assertEqual(coefficient["l1"], {
+            "kind": "absolute_rational_v1", "numerator": "0",
+            "denominator": "1"})
+        coefficient_key = MODULE._criterion_mutation_key(
+            "exact_effective_d10_coeff")
+        MODULE.validate_contract_result_record(
+            "exact_effective_d10_coeff",
+            [coefficient_key, "PASS", coefficient,
+             MODULE.absolute_rational_target("200000"), None])
+
+        fixture = {"vertices": [(0.0, 0.0, 0.0),
+                                (1.0, 0.0, 0.0),
+                                (0.0, 1.0, 0.0)],
+                   "faces": [(0, 1, 2)]}
+        for criterion_id, emitted_bits in (
+                ("exact_effective_d10_geometry", None),
+                ("emitted_direct_geometry_d10", "0000000000000000")):
+            geometry = MODULE.oracle_geometry_axis_value(
+                row, 0, oracle_value, fixture, 0, emitted_bits=emitted_bits)
+            self.assertEqual(geometry["normalized_bound"][
+                "normalized_upper"]["numerator"], "0")
+            key = MODULE._criterion_mutation_key(criterion_id)
+            MODULE.validate_contract_result_record(
+                criterion_id, [key, "PASS", geometry,
+                               MODULE.absolute_rational_target("200000"),
+                               None])
+
+    def test_oracle_numeric_accumulator_persists_exact_maximum_witness(self):
+        row = {"row_kind": "position", "source_ids": [0],
+               "coefficients": [1.0]}
+        covered = MODULE._valid_oracle_covered_record()[2]
+        target = MODULE.absolute_rational_target("200000")
+        records = []
+        for sample_id, point in (("sample-a", 1), ("sample-b", 0)):
+            rational = {"kind": "rational_v1", "numerator": str(point),
+                        "denominator": "1"}
+            interval = {"kind": "interval_rational_v1",
+                        "lower": copy.deepcopy(rational),
+                        "upper": copy.deepcopy(rational)}
+            value = copy.deepcopy(covered)
+            value["primary_depth_intervals"] = [[
+                copy.deepcopy(interval) for _ in range(5)]]
+            value["uniform_depth_intervals"] = [[
+                copy.deepcopy(interval) for _ in range(5)]]
+            value["intersected_primary_intervals"] = [
+                copy.deepcopy(interval)]
+            exact = MODULE.oracle_coefficient_l1_value(row, 0, value)
+            key = MODULE._criterion_mutation_key(
+                "exact_effective_d10_coeff")
+            key[5] = sample_id
+            passed = point == 1
+            records.append([key, "PASS" if passed else "FAIL", exact,
+                            target, None if passed else
+                            "D10_COEFFICIENT_TARGET_EXCEEDED"])
+
+        with tempfile.TemporaryDirectory() as temporary, mock.patch.dict(
+                MODULE.EXPECTED_CELL_COUNTS,
+                {"exact_effective_d10_coeff": 2}):
+            accumulator = MODULE._OracleNumericResultAccumulator(
+                temporary, "exact_effective_d10_coeff")
+            for record in records:
+                accumulator.add(record)
+            result = accumulator.finish()
+            self.assertEqual(result["status"], "FAIL")
+            self.assertEqual(result["failure_count"], 1)
+            self.assertEqual(result["maximum"], records[1][2]["l1"])
+            self.assertEqual(result["witness"]["result_record"], records[1])
+            self.assertEqual(result["witness"]["leaf_index"], 1)
+            MODULE.validate_result_merkle_witness(
+                MODULE.jcs_bytes(records[1]), 1,
+                result["witness"]["merkle_siblings"],
+                result["result_merkle_root"], observed_count=2)
+
+    def test_oracle_coverage_executes_emitted_geometry_observations(self):
+        case = {"content_identity_key": "content", "candidate": "bfr",
+                "approximation_level": 7,
+                "applicable_mode": "cache_disabled"}
+        row = {"face_row": 0, "local_corner_or_none": -1,
+               "sample_id": "sample", "u_binary64_bits_hex": "0" * 16,
+               "v_binary64_bits_hex": "0" * 16,
+               "row_kind": "position", "source_ids": [0, 1, 2],
+               "coefficients": [1.0, 0.0, 0.0]}
+        fixture = {"vertices": [(0.0, 0.0, 0.0),
+                                (1.0, 0.0, 0.0),
+                                (0.0, 1.0, 0.0)],
+                   "faces": [(0, 1, 2)], "patches": {}}
+        oracle_value = MODULE._valid_oracle_covered_record()[2]
+        zero = {"kind": "rational_v1", "numerator": "0",
+                "denominator": "1"}
+        one = {"kind": "rational_v1", "numerator": "1",
+               "denominator": "1"}
+
+        def interval(value):
+            return {"kind": "interval_rational_v1",
+                    "lower": copy.deepcopy(value),
+                    "upper": copy.deepcopy(value)}
+
+        intervals = [interval(one), interval(zero), interval(zero)]
+        oracle_value["source_ids"] = [0, 1, 2]
+        oracle_value["primary_depth_intervals"] = [
+            [copy.deepcopy(item) for _ in range(5)]
+            for item in intervals]
+        oracle_value["uniform_depth_intervals"] = copy.deepcopy(
+            oracle_value["primary_depth_intervals"])
+        oracle_value["intersected_primary_intervals"] = copy.deepcopy(
+            intervals)
+        MODULE.validate_contract_value("oracle_covered_value_v1",
+                                       oracle_value)
+        oracle_observation = {
+            "schema_version": 1, "kind": "stam_oracle_sample_v1",
+            "status": "ok",
+            "rows": [copy.deepcopy(oracle_value) for _ in MODULE.ROW_ORDER],
+        }
+        for kind, value in zip(MODULE.ROW_ORDER,
+                               oracle_observation["rows"]):
+            value["row_kind"] = kind
+            if kind != "position":
+                derivative_intervals = [interval(zero) for _ in range(3)]
+                value["primary_depth_intervals"] = [
+                    [copy.deepcopy(item) for _ in range(5)]
+                    for item in derivative_intervals]
+                value["uniform_depth_intervals"] = copy.deepcopy(
+                    value["primary_depth_intervals"])
+                value["intersected_primary_intervals"] = copy.deepcopy(
+                    derivative_intervals)
+        with self.assertRaises(MODULE.QualificationError):
+            MODULE.validate_oracle_sample_observation(oracle_observation)
+        MODULE.validate_oracle_sample_observation(
+            oracle_observation, MODULE._ORACLE_CERTIFICATION_AUTHORITY)
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary)
+            candidate = root / "candidate.py"
+            candidate.write_text(
+                "#!/usr/bin/python3\n"
+                "import json,struct,sys\n"
+                "out=sys.stdout.buffer\n"
+                "out.write(b'anchored-row-candidate-values-v1\\x00')\n"
+                "for ordinal,line in enumerate(sys.stdin):\n"
+                " axis=line.split()[0]\n"
+                " value={'axis':axis,'kind':"
+                "'candidate_emitted_geometry_observation_v1',"
+                "'observed_bits':'0000000000000000'}\n"
+                " raw=json.dumps(value,sort_keys=True,separators=(',',':')).encode()\n"
+                " out.write(struct.pack('>QQ',ordinal,len(raw))+raw)\n",
+                encoding="utf-8")
+            candidate.chmod(0o755)
+            jobs = [{"content_identity_key": "content",
+                     "mesh_path": root / "mesh", "mutation": "none"}]
+            jobs.extend({"content_identity_key": "unused-{}".format(index),
+                         "mesh_path": root / "mesh", "mutation": "none"}
+                        for index in range(13))
+
+            def oracle_stream(_binary, _rows, identifiers, timeout=7200,
+                              runtime_library_root=None,
+                              runtime_library_bindings=None):
+                del timeout, runtime_library_root, runtime_library_bindings
+                raw = MODULE.jcs_bytes(oracle_observation)
+                for identifier in identifiers:
+                    yield identifier, raw, oracle_observation
+
+            expected = {
+                "oracle_coverage_and_crosscheck": 3,
+                "exact_effective_d10_coeff": 3,
+                "exact_effective_d10_geometry": 9,
+                "emitted_direct_geometry_d10": 9,
+            }
+            with mock.patch.object(MODULE.B2, "valid_content_jobs",
+                                   return_value=jobs), \
+                    mock.patch.object(MODULE, "ordered_bfr_cases",
+                                      return_value=[case]), \
+                    mock.patch.object(MODULE, "_artifact_report",
+                                      return_value={"rows": [row]}), \
+                    mock.patch.object(MODULE, "regular_patch_inventory",
+                                      return_value={"content": fixture}), \
+                    mock.patch.object(MODULE,
+                                      "iter_oracle_batch_observations",
+                                      side_effect=oracle_stream), \
+                    mock.patch.object(MODULE,
+                                      "ORACLE_EXECUTION_REQUEST_COUNT", 1), \
+                    mock.patch.dict(MODULE.EXPECTED_CELL_COUNTS, expected):
+                result, partitions, execution_audit = \
+                    MODULE.execute_oracle_coverage(
+                        {}, root, {}, root / "oracle", candidate, root)
+            self.assertEqual(execution_audit["record_count"], 1)
+            self.assertEqual(set(result), set(expected))
+            self.assertTrue(all(item["status"] == "PASS"
+                                for item in result.values()))
+            self.assertEqual(result["emitted_direct_geometry_d10"][
+                "observed_count"], 9)
+            self.assertIsNotNone(result["emitted_direct_geometry_d10"][
+                "witness"])
+            self.assertEqual([item["observed_count"] for item in partitions],
+                             [3, 0])
+
+    def test_preoracle_observations_derive_persisted_categorical_results(self):
+        job = MODULE.B2.valid_content_jobs(MODULE.B2.load_manifest())[0]
+        vertices, faces, _ = MODULE.B2.independent_mesh(job)
+        face = faces[0]
+        source_ids = sorted(set(face))
+        coefficients = [1.0 if source_id == face[0] else 0.0
+                        for source_id in source_ids]
+        row = {"face_row": 0, "local_corner_or_none": -1,
+               "sample_id": "sample", "row_kind": "position",
+               "source_ids": source_ids, "coefficients": coefficients}
+        case = {"content_identity_key": job["content_identity_key"],
+                "candidate": "bfr", "approximation_level": 7,
+                "applicable_mode": "cache_disabled"}
+        effective = MODULE.effective_numerators(row, face[0])
+        effective_values = [MODULE._signed_dyadic_descriptor(
+            effective[source_id]) for source_id in source_ids]
+        structure = {
+            "kind": "candidate_structure_observation_v1",
+            "canonical_source_ids": source_ids,
+            "provider_coefficient_bits": [
+                MODULE.binary64_bits_hex(value) for value in coefficients],
+            "effective_coefficients": effective_values,
+        }
+        relabel = {
+            "kind": "candidate_dyadic_vector_observation_v1",
+            "source_ids": source_ids, "values": effective_values,
+        }
+        challenge_bits = {
+            "negative_2p20": MODULE.binary64_bits_hex(-(2.0 ** 20)),
+            "negative_one": MODULE.binary64_bits_hex(-1.0),
+            "positive_2p20": MODULE.binary64_bits_hex(2.0 ** 20),
+            "positive_one": MODULE.binary64_bits_hex(1.0),
+            "positive_zero": "0000000000000000",
+        }
+        constant = [{"kind": "candidate_binary64_observation_v1",
+                     "observed_bits": challenge_bits[challenge]}
+                    for _anchor in MODULE.ANCHORS
+                    for _relabel in MODULE.RELABELS
+                    for challenge in MODULE.CHALLENGES]
+
+        def observations(_binary, criterion_id, request_lines,
+                         expected_count):
+            self.assertEqual(len(list(request_lines)), 1)
+            values = {
+                "representation_structure": [structure] * 3,
+                "constant_field_bits": constant,
+                "relabel_exact_effective_coefficients": [relabel] * 6,
+            }[criterion_id]
+            self.assertEqual(len(values), expected_count)
+            return iter(copy.deepcopy(values))
+
+        expected = {"representation_structure": 3,
+                    "constant_field_bits": 45,
+                    "relabel_exact_effective_coefficients": 6}
+        topology = {job["content_identity_key"]: (len(vertices), faces)}
+        with tempfile.TemporaryDirectory() as temporary, \
+                mock.patch.object(MODULE, "ordered_bfr_cases",
+                                  return_value=[case]), \
+                mock.patch.object(MODULE, "_artifact_report",
+                                  return_value={"rows": [row]}), \
+                mock.patch.object(MODULE, "fixture_topology",
+                                  return_value=topology), \
+                mock.patch.object(MODULE, "iter_candidate_observations",
+                                  side_effect=observations), \
+                mock.patch.dict(MODULE.EXPECTED_CELL_COUNTS, expected):
+            result = MODULE.execute_observation_preoracle_criteria(
+                "/candidate", {}, pathlib.Path(temporary), {}, temporary)
+        self.assertEqual(set(result), set(expected))
+        self.assertTrue(all(item["status"] == "PASS"
+                            for item in result.values()))
+        self.assertTrue(all(item["result_artifact"]["availability"][
+            "state"] == "PRESENT" for item in result.values()))
+
+        self.assertEqual(
+            MODULE.provider_row_sha256(row),
+            MODULE.sha256_bytes(
+                MODULE.D12WorkerInventoryVerifier._provider_record_bytes(row)))
+        mutated = copy.deepcopy(structure)
+        mutated["effective_coefficients"][0] = \
+            MODULE._signed_dyadic_descriptor(0)
+        _, matches = MODULE.structure_result_value(
+            row, "v0", face[0], mutated)
+        self.assertFalse(matches)
+
+    def test_regular_observations_derive_persisted_numeric_results(self):
+        case = {"content_identity_key": "content", "candidate": "bfr",
+                "approximation_level": 7,
+                "applicable_mode": "cache_disabled"}
+        row = {"face_row": 0, "local_corner_or_none": -1,
+               "sample_id": "sample", "row_kind": "position",
+               "source_ids": [0, 1, 2],
+               "coefficients": [1.0, 0.0, 0.0]}
+        fixture = {"vertices": [[0.0, 0.0, 0.0],
+                                [1.0, 0.0, 0.0],
+                                [0.0, 1.0, 0.0]],
+                   "faces": [[0, 1, 2]], "patches": {0: [0, 1, 2]}}
+        analytic = [MODULE.Fraction(1), MODULE.Fraction(0),
+                    MODULE.Fraction(0)]
+        exact = {"kind": "candidate_dyadic_vector_observation_v1",
+                 "source_ids": [0, 1, 2],
+                 "values": [MODULE._signed_dyadic_descriptor(1 << 1074),
+                            MODULE._signed_dyadic_descriptor(0),
+                            MODULE._signed_dyadic_descriptor(0)]}
+        emitted = [
+            {"axis": axis,
+             "kind": "candidate_emitted_geometry_observation_v1",
+             "observed_bits": "0000000000000000"}
+            for _anchor in MODULE.ANCHORS for axis in ("x", "y", "z")]
+
+        def rows(*_args):
+            return iter([(case, row, fixture, [0, 1, 2], analytic)])
+
+        def observations(_binary, criterion_id, request_lines,
+                         expected_count):
+            lines = list(request_lines)
+            if criterion_id == "regular_analytic_exact_rows":
+                self.assertEqual(len(lines), 1)
+                values = [exact] * 3
+            else:
+                self.assertEqual(len(lines), 9)
+                values = emitted
+            self.assertEqual(len(values), expected_count)
+            return iter(copy.deepcopy(values))
+
+        expected = {"regular_analytic_exact_rows": 3,
+                    "regular_analytic_emitted_geometry": 9}
+        with tempfile.TemporaryDirectory() as temporary, \
+                mock.patch.object(MODULE, "_iter_regular_observation_rows",
+                                  side_effect=rows), \
+                mock.patch.object(MODULE, "iter_candidate_observations",
+                                  side_effect=observations), \
+                mock.patch.dict(MODULE.EXPECTED_CELL_COUNTS, expected):
+            result = MODULE.execute_observation_regular_criteria(
+                "/candidate", {}, pathlib.Path(temporary), {}, temporary)
+        self.assertEqual(set(result), set(expected))
+        for criterion in result.values():
+            self.assertEqual(criterion["status"], "PASS")
+            self.assertEqual(criterion["failure_count"], 0)
+            self.assertEqual(criterion["maximum"],
+                             MODULE._absolute_rational_descriptor(
+                                 MODULE.Fraction(0)))
+            self.assertIsNotNone(criterion["witness"])
+            self.assertEqual(criterion["result_artifact"]["availability"][
+                "state"], "PRESENT")
+        with mock.patch.dict(MODULE.EXPECTED_CELL_COUNTS, expected):
+            report_slot = MODULE.executed_criterion_record(
+                "regular_analytic_exact_rows",
+                result["regular_analytic_exact_rows"])
+        self.assertEqual(report_slot["result_ledger_sha256"],
+                         result["regular_analytic_exact_rows"][
+                             "result_digest"])
+        self.assertEqual(report_slot["result_merkle_root_sha256"],
+                         result["regular_analytic_exact_rows"][
+                             "result_merkle_root"])
+
+    def test_regular_integrand_observations_derive_persisted_results(self):
+        zero_interval = MODULE._interval_descriptor(
+            MODULE.Fraction(0), MODULE.Fraction(0))
+        exact_observation = {
+            "kind": "candidate_exact_integrand_observation_v1",
+            "observed_interval": zero_interval,
+            "view": "exact_effective"}
+        emitted_observation = {
+            "kind": "candidate_emitted_integrand_observation_v1",
+            "observed_bits": "0000000000000000",
+            "view": "emitted_binary64"}
+
+        def cells(_checkpoint, _artifact_root, _manifest, criterion_id):
+            quantity = ("area_integrand" if criterion_id ==
+                        "regular_analytic_area_integrand" else
+                        "legacy_volume_integrand")
+            result = []
+            for view in ("emitted_binary64", "exact_effective"):
+                key = ["content", "cache_disabled", 7, 0, None, "sample",
+                       quantity, view, "v0", "identity", None, None, None,
+                       None, None]
+                MODULE.validate_scientific_cell_key(key, criterion_id)
+                result.append((key, "B request\n" if view.startswith(
+                    "emitted") else "E request\n", zero_interval,
+                    zero_interval))
+            return iter(result)
+
+        def observations(_binary, _criterion_id, request_lines,
+                         expected_count):
+            self.assertEqual(len(list(request_lines)), 1)
+            self.assertEqual(expected_count, 1)
+            return iter(copy.deepcopy([emitted_observation]))
+
+        expected = {"regular_analytic_area_integrand": 2,
+                    "regular_analytic_legacy_volume_integrand": 2}
+        with tempfile.TemporaryDirectory() as temporary, \
+                mock.patch.object(
+                    MODULE, "_iter_regular_integrand_observation_cells",
+                    side_effect=cells), \
+                mock.patch.object(MODULE, "iter_candidate_observations",
+                                  side_effect=observations), \
+                mock.patch.dict(MODULE.EXPECTED_CELL_COUNTS, expected):
+            result = MODULE.execute_observation_regular_integrand_criteria(
+                "/candidate", {}, pathlib.Path(temporary), {}, temporary)
+        self.assertEqual(set(result), set(expected))
+        for criterion in result.values():
+            self.assertEqual(criterion["status"], "PASS")
+            self.assertEqual(criterion["failure_count"], 0)
+            self.assertEqual(criterion["maximum"],
+                             MODULE._absolute_rational_descriptor(
+                                 MODULE.Fraction(0)))
+            self.assertIsNotNone(criterion["witness"])
+            self.assertEqual(criterion["result_artifact"]["availability"][
+                "state"], "PRESENT")
+
+        exact = MODULE._exact_regular_integrands([
+            MODULE.Fraction(0), MODULE.Fraction(0), MODULE.Fraction(0),
+            MODULE.Fraction(1), MODULE.Fraction(0), MODULE.Fraction(0),
+            MODULE.Fraction(0), MODULE.Fraction(1), MODULE.Fraction(0)])
+        self.assertEqual(MODULE._interval_fractions(exact[
+            "regular_analytic_area_integrand"]),
+            (MODULE.Fraction(1), MODULE.Fraction(1)))
+        self.assertEqual(MODULE._interval_fractions(exact[
+            "regular_analytic_legacy_volume_integrand"]),
+            (MODULE.Fraction(0), MODULE.Fraction(0)))
+
+    def test_component_observations_derive_persisted_results(self):
+        fixture = {"vertices": [[0.0, 0.0, 0.0],
+                                [1.0, 0.0, 0.0],
+                                [0.0, 1.0, 0.0]],
+                   "faces": [[0, 1, 2]], "patches": {}}
+
+        def row(sample):
+            return {"face_row": 0, "local_corner_or_none": -1,
+                    "sample_id": sample, "row_kind": "position",
+                    "source_ids": [0, 1, 2],
+                    "coefficients": [1.0, 0.0, 0.0]}
+
+        low67, high67 = row("sample-67"), row("sample-67")
+        low78, high78 = row("sample-78"), row("sample-78")
+        case67 = {"content_identity_key": "content", "candidate": "bfr",
+                  "approximation_level": 7,
+                  "applicable_mode": "cache_disabled"}
+        case78 = copy.deepcopy(case67)
+        case78["approximation_level"] = 8
+        pairs = [
+            (case67, low67, case67, high67, fixture, "6_7"),
+            (case78, low78, case78, high78, fixture, "7_8")]
+
+        def paired_rows(*_args):
+            return iter(pairs)
+
+        expected = {
+            "anchor_sensitivity_exact_coeff": 6,
+            "anchor_sensitivity_exact_geometry": 18,
+            "anchor_sensitivity_emitted_geometry": 18,
+            "binary64_basis_probe_diagnostic": 54,
+            "binary64_direct_geometry_fidelity": 54,
+            "relabel_emitted_geometry_fidelity": 36,
+            "stabilization_6_7_exact_coeff": 3,
+            "stabilization_6_7_exact_geometry": 9,
+            "stabilization_6_7_emitted_geometry": 9,
+            "stabilization_7_8_exact_coeff": 3,
+            "stabilization_7_8_exact_geometry": 9,
+            "stabilization_7_8_emitted_geometry": 9,
+        }
+        zero = MODULE._signed_dyadic_descriptor(0)
+
+        def requests(_checkpoint, _artifact_root, _manifest, criterion_id):
+            return iter(["request\n"] * (1 if criterion_id.startswith(
+                "stabilization_") else 2))
+
+        def observations(_binary, criterion_id, request_lines,
+                         expected_count):
+            list(request_lines)
+            cells = list(MODULE._iter_component_observation_cells(
+                {}, pathlib.Path("/unused"), {}, criterion_id))
+            self.assertEqual(len(cells), expected_count)
+            values = []
+            for key, _context in cells:
+                if criterion_id.endswith("_exact_coeff"):
+                    values.append({
+                        "kind": "candidate_dyadic_vector_observation_v1",
+                        "source_ids": [0, 1, 2],
+                        "values": [zero, zero, zero]})
+                elif criterion_id in {
+                        "anchor_sensitivity_exact_geometry",
+                        "stabilization_6_7_exact_geometry",
+                        "stabilization_7_8_exact_geometry"}:
+                    exact_zero = MODULE._signed_dyadic_descriptor(0, 2148)
+                    values.append({
+                        "axis": key[11],
+                        "kind":
+                            "candidate_exact_geometry_observation_v1",
+                        "observed": exact_zero})
+                elif criterion_id == "binary64_basis_probe_diagnostic":
+                    values.append({
+                        "emitted_basis_bits": MODULE.binary64_bits_hex(
+                            1.0 if key[10] == 0 else 0.0),
+                        "kind": "candidate_basis_observation_v1"})
+                else:
+                    values.append({
+                        "axis": key[11],
+                        "kind":
+                            "candidate_emitted_geometry_observation_v1",
+                        "observed_bits": "0000000000000000"})
+            return iter(values)
+
+        with tempfile.TemporaryDirectory() as temporary, \
+                mock.patch.object(MODULE, "iter_component_row_pairs",
+                                  side_effect=paired_rows), \
+                mock.patch.object(
+                    MODULE, "_component_observation_request_lines",
+                    side_effect=requests), \
+                mock.patch.object(MODULE, "iter_candidate_observations",
+                                  side_effect=observations), \
+                mock.patch.dict(MODULE.EXPECTED_CELL_COUNTS, expected):
+            result = MODULE.execute_observation_component_criteria(
+                "/candidate", {}, pathlib.Path("/unused"), {}, temporary)
+        self.assertEqual(set(result), set(expected))
+        self.assertTrue(all(item["status"] == "PASS"
+                            for item in result.values()))
+        self.assertTrue(all(item["result_artifact"]["availability"][
+            "state"] == "PRESENT" for item in result.values()))
+
+    def test_cache_observations_derive_persisted_result(self):
+        case = {"content_identity_key": "content", "candidate": "bfr",
+                "approximation_level": 7,
+                "applicable_mode": "cache_disabled"}
+        row = {"face_row": 0, "local_corner_or_none": -1,
+               "sample_id": "sample", "row_kind": "position",
+               "source_ids": [0, 1, 2],
+               "coefficients": [1.0, 0.0, 0.0]}
+        face = [0, 1, 2]
+
+        def rows(*_args):
+            return iter([(case, row, copy.deepcopy(row), face)])
+
+        def observations(_binary, criterion_id, request_lines,
+                         expected_count):
+            self.assertEqual(criterion_id, "cache_mode_bit_identity")
+            self.assertEqual(len(list(request_lines)), 1)
+            self.assertEqual(expected_count, 3)
+            values = []
+            for anchor_source in face:
+                entries = MODULE._expected_row_signature_entries(
+                    row, anchor_source)
+                values.append({
+                    "cache_disabled_entries": entries,
+                    "kind": "candidate_row_signature_observation_v1",
+                    "serial_cache_entries": entries})
+            return iter(values)
+
+        expected = {"cache_mode_bit_identity": 3}
+        with tempfile.TemporaryDirectory() as temporary, \
+                mock.patch.object(MODULE, "_iter_cache_observation_rows",
+                                  side_effect=rows), \
+                mock.patch.object(MODULE, "_cache_observation_request_lines",
+                                  return_value=iter(["request\n"])), \
+                mock.patch.object(MODULE, "iter_candidate_observations",
+                                  side_effect=observations), \
+                mock.patch.dict(MODULE.EXPECTED_CELL_COUNTS, expected):
+            result = MODULE.execute_observation_cache_criterion(
+                "/candidate", {}, pathlib.Path("/unused"), {}, temporary)
+        criterion = result["cache_mode_bit_identity"]
+        self.assertEqual(criterion["status"], "PASS")
+        self.assertEqual(criterion["failure_count"], 0)
+        self.assertEqual(criterion["result_artifact"]["availability"][
+            "state"], "PRESENT")
 
     def test_numeric_maximum_witness_mutations_fail_closed(self):
         key = ["content", "cache_disabled", 7, 0, None, "sample", "du",
@@ -2587,13 +3310,357 @@ class AnchoredRowQualificationTests(unittest.TestCase):
     def test_runtime_source_sets_include_local_transitive_headers(self):
         self.assertEqual(MODULE.RUNTIME_SOURCE_PATHS["row_provider"], (
             "experiments/bfr_qualification/candidate.cpp",
-            "experiments/bfr_qualification/fixture_mesh.hpp"))
+            "experiments/bfr_qualification/fixture_mesh.hpp",
+            "experiments/anchored_row_qualification/anchored_row_evaluator.hpp"))
+        self.assertEqual(MODULE.RUNTIME_SOURCE_PATHS[
+            "representation_candidate"], (
+                "experiments/anchored_row_qualification/candidate.cpp",
+                "experiments/anchored_row_qualification/anchored_row_evaluator.hpp"))
         self.assertEqual(MODULE.RUNTIME_SOURCE_PATHS["independent_oracle"], (
             "experiments/bfr_qualification/stam_oracle.cpp",
-            "experiments/bfr_qualification/mpfr_interval.hpp"))
+            "experiments/bfr_qualification/stam_box_spline.hpp",
+            "experiments/bfr_qualification/mpfr_interval.hpp",
+            "experiments/bfr_qualification/stam_evaluation.hpp",
+            "experiments/bfr_qualification/stam_primary.hpp",
+            "experiments/bfr_qualification/stam_fixture.hpp",
+            "experiments/bfr_qualification/stam_uniform.hpp",
+            "experiments/bfr_qualification/stam_uniform_box_spline.hpp",
+            ))
         for name, entrypoints in MODULE.RUNTIME_SOURCE_ENTRYPOINTS.items():
             self.assertEqual(MODULE.RUNTIME_SOURCE_PATHS[name],
                              MODULE._repository_source_closure(entrypoints))
+
+    def test_oracle_certificates_are_computed_and_uniform_route_is_separate(self):
+        oracle = (ROOT / "experiments/bfr_qualification/stam_oracle.cpp").read_text(
+            encoding="utf-8")
+        primary = (ROOT / "experiments/bfr_qualification/stam_primary.hpp").read_text(
+            encoding="utf-8")
+        uniform = (ROOT / "experiments/bfr_qualification/stam_uniform.hpp").read_text(
+            encoding="utf-8")
+        self.assertNotIn("bool projector_ok = true", primary)
+        self.assertIn("certify_frozen_valence", oracle)
+        for point in ("{0.25, 0.25}", "{0.5, 0.25}", "{0.25, 0.5}"):
+            self.assertIn(point, oracle)
+        self.assertIn('"1e-20"', oracle)
+        self.assertIn("EIGENBASIS_CERTIFICATION_FAILED", oracle)
+        self.assertIn("PARAMETRIC_MAP_CHECK_FAILED", oracle)
+        self.assertIn("TANGENT_PROJECTION_CHECK_FAILED", oracle)
+        self.assertIn('"DIRECTED_INTERVAL_PRIMITIVE_FAILED"', oracle)
+        self.assertIn('"INTERVAL_BRANCH_ORDERING_UNCERTIFIED"', oracle)
+        self.assertIn("directed_rounding_mutation_self_test", oracle)
+        self.assertNotIn("mpfr_sin", (
+            ROOT / "experiments/bfr_qualification/mpfr_interval.hpp"
+        ).read_text(encoding="utf-8"))
+        self.assertIn("selected_face_distances", oracle)
+        self.assertNotIn("for(auto const &face:state.mesh.faces)", oracle)
+        self.assertIn("rethrow_exact_or_fallback", oracle)
+        self.assertIn("is_exact_interval_reason(error.what())", oracle)
+        self.assertNotIn('#include "stam_box_spline.hpp"', uniform)
+        self.assertIn('#include "stam_uniform_box_spline.hpp"', uniform)
+        self.assertNotIn("b2stam_fixture::local_support(", uniform)
+        self.assertIn("complete_mesh_backward_closure", uniform)
+        self.assertIn("backward_refine_selected", uniform)
+        self.assertIn("backward_dependency_self_test", uniform)
+        interval = (ROOT / "experiments/bfr_qualification/mpfr_interval.hpp").read_text(
+            encoding="utf-8")
+        for mutation in ("AddLower", "SubtractUpper", "MultiplyLower",
+                         "DivideUpper", "SquareRootLower", "CosineUpper",
+                         "MatrixAccumulatorLower"):
+            self.assertIn("ProductionRoundingMutation::" + mutation,
+                          interval)
+        self.assertTrue(MODULE._audit_oracle_mpfr_calls())
+        forged = MODULE._valid_oracle_covered_record()
+        with self.assertRaises(MODULE.QualificationError):
+            MODULE.canonical_result_ledger(
+                [forged], criterion_id="oracle_coverage_and_crosscheck")
+        self.assertEqual(MODULE.canonical_result_ledger(
+            [forged], criterion_id="oracle_coverage_and_crosscheck",
+            oracle_certification_authority=
+                MODULE._ORACLE_CERTIFICATION_AUTHORITY)["record_count"], 1)
+        zero = {"kind": "interval_rational_v1",
+                "lower": {"kind": "rational_v1", "numerator": "0",
+                          "denominator": "1"},
+                "upper": {"kind": "rational_v1", "numerator": "0",
+                          "denominator": "1"}}
+        forged[2]["primary_depth_intervals"] = [[
+            copy.deepcopy(zero) for _ in range(5)]]
+        forged[2]["uniform_depth_intervals"] = [[
+            copy.deepcopy(zero) for _ in range(5)]]
+        forged[2]["intersected_primary_intervals"] = [copy.deepcopy(zero)]
+        with self.assertRaises(MODULE.QualificationError):
+            MODULE.validate_contract_result_record(
+                "oracle_coverage_and_crosscheck", forged)
+
+    def test_oracle_independence_audit_is_executable_and_fail_closed(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary).resolve()
+            binary = root / "stam_oracle"
+            dependency = root / "oracle.d"
+            link_map = root / "oracle.map"
+            dynamic = root / "oracle.otool-L"
+            dependency_root = root / "mpfr"
+            include_root = dependency_root / "include"
+            library_root = dependency_root / "lib"
+            include_root.mkdir(parents=True)
+            library_root.mkdir(parents=True)
+            mpfr_header = include_root / "mpfr.h"
+            gmp_header = include_root / "gmp.h"
+            mpfr_library = library_root / "libmpfr.6.dylib"
+            gmp_library = library_root / "libgmp.10.dylib"
+            for path, data in ((mpfr_header, b"mpfr header\n"),
+                               (gmp_header, b"gmp header\n"),
+                               (mpfr_library, b"mpfr library\n"),
+                               (gmp_library, b"gmp library\n")):
+                path.write_bytes(data)
+            dynamic_bytes = (
+                (str(binary) + ":\n\t" + str(mpfr_library) +
+                 " (compatibility version 7.0.0, current version 7.2.2)\n" +
+                 "\t" + str(gmp_library) +
+                 " (compatibility version 11.0.0, current version 11.0.0)\n")
+                .encode("utf-8"))
+            for path, data in ((binary, b"binary"),
+                               (dependency, b"dependency\n"),
+                               (link_map, b"# Path: stam_oracle\n"),
+                               (dynamic, dynamic_bytes)):
+                path.write_bytes(data)
+            command = [
+                MODULE.B2.EXPECTED_COMPILER_PATH,
+                "-std=c++17", "-O3", "-DNDEBUG", "-fno-fast-math",
+                "-ffp-contract=off", "-fno-omit-frame-pointer", "-Wall",
+                "-Wextra", "-Wpedantic", "-Werror", "-isysroot",
+                "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk",
+                "-mmacosx-version-min=26.0", "-MMD", "-MF", str(dependency),
+                "-I" + str(include_root),
+                "experiments/bfr_qualification/stam_oracle.cpp",
+                "-L" + str(library_root),
+                "-Wl,-rpath," + str(library_root), "-lmpfr", "-lgmp",
+                "-Wl,-map," + str(link_map), "-o", str(binary)]
+            command_path = root / "oracle.command"
+            command_path.write_text("\n".join(command) + "\n", encoding="utf-8")
+            dependencies = [{"path": str((ROOT / relative).resolve()),
+                             "sha256": MODULE.sha256_file(ROOT / relative)}
+                            for relative in MODULE.RUNTIME_SOURCE_PATHS[
+                                "independent_oracle"]]
+            dependencies.extend({"path": str(path),
+                                 "sha256": MODULE.sha256_file(path)}
+                                for path in (mpfr_header, gmp_header))
+            installed_root = root / "authenticated-install"
+            installed_root.mkdir()
+            installed_libraries = {
+                "gmp": installed_root / "libgmp.10.dylib",
+                "mpfr": installed_root / "libmpfr.6.dylib"}
+            installed_libraries["gmp"].write_bytes(gmp_library.read_bytes())
+            installed_libraries["mpfr"].write_bytes(mpfr_library.read_bytes())
+
+            def completed(argv, **unused):
+                output = (dynamic.read_bytes() if argv[1] == "-L" else
+                          b"                 U _mpfr_add\n")
+                return SimpleNamespace(returncode=0, stdout=output, stderr=b"")
+
+            with mock.patch.object(MODULE.B2, "validate_source_separation"), \
+                    mock.patch.object(MODULE, "_d12_dependency_inputs",
+                                      return_value=dependencies), \
+                    mock.patch.object(MODULE.subprocess, "run",
+                                      side_effect=completed):
+                sealed = root / "oracle.dynamic-audit.json"
+                self.assertEqual(MODULE.audit_oracle_independence(
+                    binary, command_path, link_map, dynamic,
+                    sealed_output_path=sealed), "PASS")
+                runtime_bindings = MODULE._snapshot_oracle_runtime_libraries(
+                    sealed, root /
+                    "anchored-row-oracle-runtime-libraries-v1")
+                self.assertEqual(
+                    [item[0].name for item in runtime_bindings],
+                    ["libgmp.10.dylib", "libmpfr.6.dylib"])
+                self.assertEqual(MODULE.audit_oracle_independence(
+                    binary, command_path, link_map, sealed), "PASS")
+                with mock.patch.object(
+                        MODULE, "ORACLE_EXECUTION_REQUEST_COUNT", 1):
+                    raw_value = MODULE.jcs_bytes({
+                        "schema_version": 1,
+                        "kind": "stam_oracle_sample_v1",
+                        "status": "uncovered",
+                        "reason_code": "NO_ISOLATION_BY_DEPTH_12"})
+                    audit = MODULE.OracleExecutionAuditArtifact(root)
+                    audit.add("request\n", "a" * 64, raw_value,
+                              MODULE.strict_json_bytes(raw_value))
+                    descriptor = audit.finish()
+                    execution_packet = root / (
+                        "anchored-row-oracle-runtime-execution-audit-v2.json")
+                    MODULE._publish_oracle_runtime_execution_packet(
+                        sealed, runtime_bindings, descriptor,
+                        execution_packet, installed_libraries)
+                    self.assertEqual(MODULE.audit_oracle_independence(
+                        binary, command_path, link_map,
+                        execution_packet,
+                        installed_library_paths=installed_libraries), "PASS")
+                    with self.assertRaises(MODULE.QualificationError):
+                        MODULE.audit_oracle_independence(
+                            binary, command_path, link_map,
+                            execution_packet)
+                    with self.assertRaises(MODULE.QualificationError):
+                        MODULE.audit_oracle_independence(
+                            binary, command_path, link_map,
+                            execution_packet,
+                            installed_library_paths={
+                                "gmp": runtime_bindings[0][2],
+                                "mpfr": runtime_bindings[1][2]})
+                    projected = MODULE.strict_json_bytes(
+                        execution_packet.read_bytes())
+                    projected["libraries"][0]["audited_path"] = str(
+                        library_root / "invented-libgmp.10.dylib")
+                    execution_packet.write_bytes(MODULE.jcs_bytes(projected))
+                    with self.assertRaises(MODULE.QualificationError):
+                        MODULE.audit_oracle_independence(
+                            binary, command_path, link_map,
+                            execution_packet,
+                            installed_library_paths=installed_libraries)
+                    projected["libraries"][0]["audited_path"] = str(
+                        gmp_library)
+                    execution_packet.write_bytes(MODULE.jcs_bytes(projected))
+                    loaded_gmp = pathlib.Path(runtime_bindings[0][2])
+                    canonical_loaded_gmp = loaded_gmp.read_bytes()
+                    coordinated = MODULE.strict_json_bytes(
+                        execution_packet.read_bytes())
+                    loaded_gmp.chmod(0o600)
+                    loaded_gmp.write_bytes(b"coordinated substitute gmp\n")
+                    coordinated["libraries"][0]["sha256"] = \
+                        MODULE.sha256_file(loaded_gmp)
+                    execution_packet.write_bytes(
+                        MODULE.jcs_bytes(coordinated))
+                    with self.assertRaises(MODULE.QualificationError):
+                        MODULE.audit_oracle_independence(
+                            binary, command_path, link_map,
+                            execution_packet,
+                            installed_library_paths=installed_libraries)
+                    loaded_gmp.write_bytes(canonical_loaded_gmp)
+                    loaded_gmp.chmod(0o500)
+                    execution_packet.write_bytes(MODULE.jcs_bytes(projected))
+                mpfr_library.write_bytes(b"tampered mpfr library\n")
+                with self.assertRaises(MODULE.QualificationError):
+                    MODULE.audit_oracle_independence(
+                        binary, command_path, link_map, sealed)
+                with mock.patch.object(
+                        MODULE, "ORACLE_EXECUTION_REQUEST_COUNT", 1):
+                    self.assertEqual(MODULE.audit_oracle_independence(
+                        binary, command_path, link_map,
+                        execution_packet,
+                        installed_library_paths=installed_libraries), "PASS")
+                mpfr_library.write_bytes(b"mpfr library\n")
+
+            for injected in ("@/private/tmp/oracle-extra.rsp", "-include"):
+                command_path.write_text(
+                    "\n".join(command + [injected]) + "\n", encoding="utf-8")
+                with mock.patch.object(MODULE.B2,
+                                       "validate_source_separation"), \
+                        mock.patch.object(MODULE,
+                                          "_d12_dependency_inputs",
+                                          return_value=dependencies), \
+                        mock.patch.object(MODULE.subprocess, "run",
+                                          side_effect=completed), \
+                        self.assertRaises(MODULE.QualificationError):
+                    MODULE.audit_oracle_independence(
+                        binary, command_path, link_map, dynamic)
+            command_path.write_text(
+                "\n".join(command) + "\n", encoding="utf-8")
+
+            def forbidden(argv, **unused):
+                output = (dynamic.read_bytes() if argv[1] == "-L" else
+                          b"                 U _Far_poison\n                 U _mpfr_add\n")
+                return SimpleNamespace(returncode=0, stdout=output, stderr=b"")
+
+            with mock.patch.object(MODULE.B2, "validate_source_separation"), \
+                    mock.patch.object(MODULE, "_d12_dependency_inputs",
+                                      return_value=dependencies), \
+                    mock.patch.object(MODULE.subprocess, "run",
+                                      side_effect=forbidden), \
+                    self.assertRaises(MODULE.QualificationError):
+                MODULE.audit_oracle_independence(
+                    binary, command_path, link_map, dynamic)
+
+    def test_oracle_runtime_execution_packet_binds_snapshots_and_requests(self):
+        self.assertEqual(MODULE.ORACLE_EXECUTION_REQUEST_COUNT, 16500)
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary).resolve()
+            original_root = root / "original"
+            original_root.mkdir()
+            originals = []
+            libraries = []
+            for name, payload in (("gmp", b"gmp-proof-bytes\n"),
+                                  ("mpfr", b"mpfr-proof-bytes\n")):
+                path = original_root / ("lib" + name + ".dylib")
+                path.write_bytes(payload)
+                originals.append(path)
+                libraries.append({"name": name, "path": str(path),
+                                  "sha256": MODULE.sha256_file(path)})
+            transcript = "proof-oracle:\n"
+            sealed = root / "sealed.json"
+            sealed.write_bytes(MODULE.jcs_bytes({
+                "schema_id": "oracle-runtime-dependency-audit-v1",
+                "otool_L_text": transcript,
+                "otool_L_sha256": MODULE.sha256_bytes(
+                    transcript.encode("utf-8")),
+                "libraries": libraries}))
+            loaded = MODULE._snapshot_oracle_runtime_libraries(
+                sealed,
+                root / "anchored-row-oracle-runtime-libraries-v1")
+            raw_value = MODULE.jcs_bytes({
+                "schema_version": 1, "kind": "stam_oracle_sample_v1",
+                "status": "uncovered",
+                "reason_code": "NO_ISOLATION_BY_DEPTH_12"})
+            with mock.patch.object(MODULE,
+                                   "ORACLE_EXECUTION_REQUEST_COUNT", 1):
+                audit = MODULE.OracleExecutionAuditArtifact(root)
+                audit.add("request\n", "a" * 64, raw_value,
+                          MODULE.strict_json_bytes(raw_value))
+                descriptor = audit.finish()
+                packet = root / "anchored-row-oracle-runtime-execution-audit-v2.json"
+                installed_libraries = {
+                    item["name"]: pathlib.Path(item["path"])
+                    for item in libraries}
+                MODULE._publish_oracle_runtime_execution_packet(
+                    sealed, loaded, descriptor, packet,
+                    installed_libraries)
+                self.assertEqual(MODULE._bound_oracle_execution_audit(packet),
+                                 descriptor)
+                replay = root / "replay"
+                rebound = MODULE._snapshot_oracle_runtime_libraries(
+                    packet, replay)
+                self.assertEqual([item[1] for item in rebound],
+                                 [item["sha256"] for item in libraries])
+                originals[0].write_bytes(b"changed after execution\n")
+                self.assertEqual(MODULE._bound_oracle_execution_audit(packet),
+                                 descriptor)
+                loaded_path = pathlib.Path(loaded[0][2])
+                canonical_loaded = loaded_path.read_bytes()
+                loaded_path.chmod(0o600)
+                loaded_path.write_bytes(b"changed loaded snapshot\n")
+                with self.assertRaises(MODULE.QualificationError):
+                    MODULE._bound_oracle_execution_audit(packet)
+                loaded_path.write_bytes(canonical_loaded)
+                loaded_path.chmod(0o500)
+                audit_path = root / MODULE.ORACLE_EXECUTION_AUDIT_PATH
+                canonical_audit = audit_path.read_bytes()
+                audit_path.write_bytes(canonical_audit + b"\n")
+                with self.assertRaises(MODULE.QualificationError):
+                    MODULE._bound_oracle_execution_audit(packet)
+                audit_path.write_bytes(canonical_audit)
+
+    def test_standalone_d12_uses_distinct_opensubdiv_library_argument(self):
+        arguments = MODULE.parse_args([
+            "--opensubdiv-dynamic-dependency", "/proof/opensubdiv.otool-L",
+            "--opensubdiv-installed-library", "/proof/libosdCPU.a"])
+        self.assertEqual(arguments.opensubdiv_dynamic_dependency,
+                         "/proof/opensubdiv.otool-L")
+        self.assertEqual(arguments.opensubdiv_installed_library,
+                         "/proof/libosdCPU.a")
+        runner = RUNNER.read_text(encoding="utf-8")
+        self.assertIn('"installed_library":\n'
+                      '                                args.opensubdiv_installed_library',
+                      runner)
+        self.assertNotIn('"installed_library":\n'
+                         '                                args.opensubdiv_dynamic_dependency',
+                         runner)
 
     def test_d12_provider_reference_preserves_frozen_row_order(self):
         rows = []
@@ -2831,6 +3898,475 @@ class AnchoredRowQualificationTests(unittest.TestCase):
                 "byte_length": len(row), "record_count": 6,
                 "sha256": row_digest}))
 
+    def test_d12_sanitizer_abort_binds_two_processes_and_report_bytes(self):
+        content_id = "content"
+        base_key = [content_id, 2, "tsan", "threaded_cache", 1,
+                    None, None, None, None, None, None, None,
+                    "sanitizer_summary", None]
+        instrumentation_key = copy.deepcopy(base_key)
+        instrumentation_key[13] = "instrumentation_coverage"
+        finding_key = copy.deepcopy(base_key)
+        finding_key[13] = "tsan_finding_count"
+        instrumentation_digest = "a" * 64
+        report = b"WARNING: ThreadSanitizer: data race\nexact report\n"
+        report_digest = MODULE.sha256_bytes(report)
+        finding_provenance = {
+            "kind": "d12_process_provenance_v1",
+            "process_tuple_sha256": MODULE.sha256_bytes(
+                MODULE.jcs_bytes(base_key[:5])),
+            "executable_sha256": "b" * 64,
+            "argv_sha256": "c" * 64,
+            "environment_sha256": "d" * 64,
+            "pid": 123, "start_utc": "2026-08-16T00:00:00Z",
+            "end_utc": "2026-08-16T00:00:01Z",
+            "exit_kind": "EXITED", "exit_code": 66, "signal": None,
+            "stderr_sha256": report_digest}
+        instrumentation_provenance = copy.deepcopy(finding_provenance)
+        instrumentation_provenance.update({
+            "executable_sha256": "f" * 64,
+            "argv_sha256": "e" * 64,
+            "pid": 122,
+            "exit_code": 0,
+            "stderr_sha256": MODULE.sha256_bytes(b"")})
+        instrumentation_payload = {
+            "kind": "d12_tsan_instrumentation_raw_v1",
+            "state": "COMPLETE",
+            "instrumented_translation_units_sha256":
+                instrumentation_digest}
+        finding_payload = {
+            "kind": "d12_tsan_finding_raw_v1",
+            "state": "SANITIZER_ABORT", "finding_count_token": None,
+            "sanitizer_report_sha256": report_digest}
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary)
+            report_path = root / MODULE._d12_tsan_report_relative_path(
+                finding_key)
+            report_path.parent.mkdir(parents=True)
+            report_path.write_bytes(report)
+            artifact = MODULE.D12ProcessObservationArtifact(
+                root, {instrumentation_provenance["executable_sha256"],
+                       finding_provenance["executable_sha256"]})
+            try:
+                artifact.add("d12_instrumented_tsan", [
+                    instrumentation_key, instrumentation_payload,
+                    copy.deepcopy(instrumentation_provenance)])
+                artifact.add("d12_instrumented_tsan", [
+                    finding_key, finding_payload,
+                    copy.deepcopy(finding_provenance)])
+                descriptor = artifact.finish(2)
+                verifier = MODULE.D12EvidenceVerifier(
+                    root, expected_instrumented_translation_units=
+                    instrumentation_digest)
+                verifier.sidecar(descriptor)
+                bindings = {
+                    key[13]: (key, payload, binding)
+                    for key, payload, binding in artifact.iter_bindings(
+                        "d12_instrumented_tsan")}
+                key, payload, binding = bindings[
+                    "instrumentation_coverage"]
+                instrumentation_value = {
+                    "kind": "d12_tsan_instrumentation_summary_v1",
+                    "instrumentation_complete": True,
+                    "instrumented_translation_units_sha256":
+                        instrumentation_digest,
+                    "expected_translation_units_sha256":
+                        instrumentation_digest,
+                    "platform_state": "QUALIFIED_PLATFORM",
+                    "raw_observation": binding}
+                instrumentation_target = {
+                    "kind": "d12_tsan_instrumentation_target_v1",
+                    "instrumentation_complete": True,
+                    "expected_translation_units_sha256":
+                        instrumentation_digest}
+                MODULE.validate_contract_result_record(
+                    "d12_instrumented_tsan",
+                    [key, "PASS", instrumentation_value,
+                     instrumentation_target, None])
+                verifier.result_record(
+                    key, instrumentation_value, instrumentation_target)
+                key, payload, binding = bindings["tsan_finding_count"]
+                finding_value = {
+                    "kind": "d12_tsan_finding_summary_v1",
+                    "finding_count": None, "sanitizer_abort": True,
+                    "sanitizer_report_sha256": report_digest,
+                    "platform_state": "QUALIFIED_PLATFORM",
+                    "raw_observation": binding}
+                finding_target = {
+                    "kind": "d12_tsan_finding_target_v1",
+                    "finding_count": 0}
+                MODULE.validate_contract_result_record(
+                    "d12_instrumented_tsan",
+                    [key, "FAIL", finding_value, finding_target,
+                     "THREADED_CACHE_RACE"])
+                verifier.result_record(key, finding_value, finding_target)
+                report_path.write_bytes(report + b"tampered")
+                with self.assertRaises(MODULE.QualificationError):
+                    verifier.result_record(key, finding_value, finding_target)
+            finally:
+                artifact.close()
+
+        with tempfile.TemporaryDirectory() as temporary:
+            artifact = MODULE.D12ProcessObservationArtifact(
+                temporary, {
+                    instrumentation_provenance["executable_sha256"],
+                    "9" * 64})
+            try:
+                artifact.add("d12_instrumented_tsan", [
+                    instrumentation_key, instrumentation_payload,
+                    copy.deepcopy(instrumentation_provenance)])
+                artifact.add("d12_instrumented_tsan", [
+                    finding_key, finding_payload,
+                    copy.deepcopy(finding_provenance)])
+                with self.assertRaises(MODULE.QualificationError):
+                    artifact.finish(2)
+            finally:
+                artifact.close()
+
+        with tempfile.TemporaryDirectory() as temporary:
+            artifact = MODULE.D12ProcessObservationArtifact(temporary)
+            try:
+                artifact.add("d12_instrumented_tsan", [
+                    instrumentation_key, instrumentation_payload,
+                    copy.deepcopy(instrumentation_provenance)])
+                changed = copy.deepcopy(finding_provenance)
+                changed["executable_sha256"] = \
+                    instrumentation_provenance["executable_sha256"]
+                artifact.add("d12_instrumented_tsan", [
+                    finding_key, finding_payload, changed])
+                with self.assertRaises(MODULE.QualificationError):
+                    artifact.finish(2)
+            finally:
+                artifact.close()
+
+        with tempfile.TemporaryDirectory() as temporary:
+            artifact = MODULE.D12ProcessObservationArtifact(
+                temporary, {
+                    instrumentation_provenance["executable_sha256"],
+                    finding_provenance["executable_sha256"]})
+            try:
+                artifact.add("d12_instrumented_tsan", [
+                    instrumentation_key, instrumentation_payload,
+                    copy.deepcopy(instrumentation_provenance)])
+                changed = copy.deepcopy(finding_provenance)
+                changed["pid"] = instrumentation_provenance["pid"]
+                artifact.add("d12_instrumented_tsan", [
+                    finding_key, finding_payload, changed])
+                with self.assertRaises(MODULE.QualificationError):
+                    artifact.finish(2)
+            finally:
+                artifact.close()
+
+    def test_d12_race_results_preserve_full_keys_and_omit_only_tuple_bytes(self):
+        identities = [
+            ("content", 2, "cache_disabled", 1),
+            ("content", 2, "SurfaceFactoryCacheThreaded", 1)]
+        provider_digest = "a" * 64
+        representation_digest = "b" * 64
+        instrumentation_digest = "c" * 64
+        references = {
+            ("content", 2): {
+                "provider": provider_digest,
+                "representation": representation_digest}}
+
+        def descriptor(relative_path, digest, count):
+            return {
+                "availability": MODULE.availability("PRESENT", digest),
+                "relative_path": relative_path, "byte_length": 1,
+                "record_count": count, "sha256": digest}
+
+        def sidecars(abort_mode):
+            result = []
+            for _, _, mode, workers in identities:
+                normalized = ("threaded_cache" if mode ==
+                              "SurfaceFactoryCacheThreaded" else mode)
+                if normalized == abort_mode:
+                    continue
+                for round_index in range(20):
+                    prefix = (
+                        "anchored-row-d12-v1/workers/{}/content/level-2/"
+                        "workers-{}/round-{:02d}/worker-0".format(
+                            normalized, workers, round_index))
+                    result.extend([
+                        descriptor(prefix + "-provider.b2rowv1",
+                                   provider_digest, 6),
+                        descriptor(prefix + "-representation.json",
+                                   representation_digest, 48)])
+            return sorted(result, key=lambda item: MODULE.jcs_bytes(
+                item["relative_path"]))
+
+        def binding(index):
+            digest = "{:064x}".format(index + 1)
+            return {
+                "kind": "d12_raw_observation_binding_v1",
+                "availability": MODULE.availability("PRESENT", digest),
+                "relative_path":
+                    MODULE.D12EvidenceVerifier.PROCESS_OBSERVATION_PATH,
+                "byte_offset": index + 1, "byte_length": 1,
+                "sha256": digest}
+
+        class RawArtifact:
+            def __init__(self, abort_mode):
+                self.records = []
+                index = 0
+                for _, _, mode, workers in identities:
+                    normalized = ("threaded_cache" if mode ==
+                                  "SurfaceFactoryCacheThreaded" else mode)
+                    for quantity in ("instrumentation_coverage",
+                                     "tsan_finding_count"):
+                        key = [
+                            "content", 2, "tsan", normalized, workers,
+                            None, None, None, None, None, None, None,
+                            "sanitizer_summary", quantity]
+                        if quantity == "instrumentation_coverage":
+                            payload = {
+                                "kind": "d12_tsan_instrumentation_raw_v1",
+                                "state": "COMPLETE",
+                                "instrumented_translation_units_sha256":
+                                    instrumentation_digest}
+                        elif normalized == abort_mode:
+                            payload = {
+                                "kind": "d12_tsan_finding_raw_v1",
+                                "state": "SANITIZER_ABORT",
+                                "finding_count_token": None,
+                                "sanitizer_report_sha256": "d" * 64}
+                        else:
+                            payload = {
+                                "kind": "d12_tsan_finding_raw_v1",
+                                "state": "COMPLETE",
+                                "finding_count_token": "0",
+                                "sanitizer_report_sha256": None}
+                        self.records.append((key, payload, binding(index)))
+                        index += 1
+
+            def iter_bindings(self, criterion_id):
+                self.assert_criterion = criterion_id
+                return iter(self.records)
+
+        for abort_mode in ("cache_disabled", "threaded_cache"):
+            descriptors = sidecars(abort_mode)
+            aborts = {("content", 2, abort_mode, 1): "d" * 64}
+            with tempfile.TemporaryDirectory() as temporary, \
+                    mock.patch.object(
+                        MODULE.B2, "expected_threading_identities",
+                        return_value=identities), \
+                    mock.patch.dict(
+                        MODULE.EXPECTED_CELL_COUNTS,
+                        {"d12_cache_disabled_concurrency": 20,
+                         "d12_instrumented_tsan": 24}):
+                result, context = MODULE.execute_d12_threading_criteria(
+                    descriptors, references, RawArtifact(abort_mode),
+                    temporary, "QUALIFIED_PLATFORM",
+                    instrumentation_digest, aborts)
+                self.assertEqual(result[
+                    "d12_cache_disabled_concurrency"]["observed_count"], 20)
+                self.assertEqual(result[
+                    "d12_instrumented_tsan"]["observed_count"], 24)
+                self.assertEqual(result[
+                    "d12_instrumented_tsan"]["status"], "FAIL")
+                threaded_path = pathlib.Path(temporary) / result[
+                    "d12_instrumented_tsan"]["result_artifact"][
+                        "relative_path"]
+                records = json.loads(threaded_path.read_text(
+                    encoding="utf-8"))
+                aborted_rows = [record for record in records
+                                if record[0][3] == abort_mode and
+                                record[0][13] == "row_digest"]
+                if abort_mode == "threaded_cache":
+                    self.assertEqual(len(aborted_rows), 20)
+                    self.assertTrue(all(record[2] is None and
+                                        record[4] == "THREADED_CACHE_RACE"
+                                        for record in aborted_rows))
+                else:
+                    concurrency_path = pathlib.Path(temporary) / result[
+                        "d12_cache_disabled_concurrency"]["result_artifact"][
+                            "relative_path"]
+                    concurrency = json.loads(concurrency_path.read_text(
+                        encoding="utf-8"))
+                    self.assertEqual(len(concurrency), 20)
+                    self.assertTrue(all(record[2]["kind"] ==
+                                        "d12_concurrency_abort_v1" and
+                                        record[4] == "CACHE_DISABLED_RACE"
+                                        for record in concurrency))
+                self.assertFalse(context["threaded_tsan_row_digest_sha256"]
+                                 is None)
+
+            expected = {}
+            for mode in ("cache_disabled", "threaded_cache"):
+                for round_index in range(20):
+                    prefix = (
+                        "anchored-row-d12-v1/workers/{}/content/level-2/"
+                        "workers-1/round-{:02d}/worker-0".format(
+                            mode, round_index))
+                    expected[prefix + "-provider.b2rowv1"] = (
+                        6, provider_digest)
+                    expected[prefix + "-representation.json"] = (
+                        48, representation_digest)
+            inventory = MODULE.D12WorkerInventoryVerifier.__new__(
+                MODULE.D12WorkerInventoryVerifier)
+            inventory.expected_paths = frozenset(expected)
+            inventory.descriptors = MODULE.D12WorkerInventoryVerifier.\
+                _bind_descriptor_inventory(expected, descriptors)
+            abort_key = ["content", 2, "tsan", abort_mode, 1, 0, 0]
+            self.assertTrue(inventory.require_absent_sidecars(abort_key))
+
+    def test_d12_worker_race_discards_partial_tuple_and_continues_contract(self):
+        instrumentation_digest = "a" * 64
+        identities = [("content", 2, "cache_disabled", 1)]
+        jobs = [{"content_identity_key": "content",
+                 "mesh_path": "unused", "mutation": "none"}]
+        references = {
+            ("content", 2): {
+                "provider": "b" * 64, "representation": "c" * 64,
+                "provider_count": 1, "representation_count": 1}}
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary)
+            binary = root / "race-worker"
+            binary.write_text(
+                "#!/bin/sh\n"
+                "printf 'D12WORK1partial-output'\n"
+                "printf 'WARNING: ThreadSanitizer: data race\\n' >&2\n"
+                "exit 66\n", encoding="utf-8")
+            os.chmod(binary, 0o755)
+            representation_binary = root / "representation-worker"
+            representation_binary.write_text(
+                "#!/bin/sh\ncat >/dev/null\nexit 0\n", encoding="utf-8")
+            os.chmod(representation_binary, 0o755)
+            request = root / "request.tsv"
+            request.write_text("request\n", encoding="utf-8")
+            references[("content", 2)]["request_path"] = str(request)
+            output_root = root / "output"
+            output_root.mkdir()
+            expected_executables = {
+                MODULE.sha256_file(binary),
+                MODULE.sha256_file(representation_binary)}
+            artifact = MODULE.D12ProcessObservationArtifact(
+                output_root, expected_executables)
+            try:
+                with mock.patch.object(
+                        MODULE.B2, "expected_threading_identities",
+                        return_value=identities), mock.patch.object(
+                            MODULE.B2, "valid_content_jobs",
+                            return_value=jobs), mock.patch.object(
+                            MODULE, "_d12_rebuild_environment",
+                            return_value={
+                                "LANG": "C", "LC_ALL": "C",
+                                "SOURCE_DATE_EPOCH": "0", "TZ": "UTC",
+                                "ZERO_AR_DATE": "1", "TMPDIR": "/tmp"}):
+                    sidecars, aborts = MODULE.execute_d12_worker_streams(
+                        binary, representation_binary, {}, output_root,
+                        references, artifact,
+                        instrumentation_digest, timeout_seconds=10)
+                self.assertEqual(sidecars, [])
+                self.assertEqual(aborts, {
+                    ("content", 2, "cache_disabled", 1):
+                        MODULE.sha256_bytes(
+                            b"WARNING: ThreadSanitizer: data race\n")})
+                self.assertFalse((output_root /
+                                  "anchored-row-d12-v1/workers").exists())
+                descriptor = artifact.finish(2)
+                self.assertEqual(descriptor["record_count"], 2)
+                finding_key = [
+                    "content", 2, "tsan", "cache_disabled", 1,
+                    None, None, None, None, None, None, None,
+                    "sanitizer_summary", "tsan_finding_count"]
+                report_path = output_root / \
+                    MODULE._d12_tsan_report_relative_path(finding_key)
+                self.assertEqual(
+                    report_path.read_bytes(),
+                    b"WARNING: ThreadSanitizer: data race\n")
+            finally:
+                artifact.close()
+
+    def test_d12_worker_success_hashes_every_stream_and_hardlinks_equal_bytes(self):
+        provider = b"provider-bytes"
+        representation = b"[\"representation\"]"
+        instrumentation_digest = "a" * 64
+        identities = [("content", 2, "cache_disabled", 1)]
+        jobs = [{"content_identity_key": "content",
+                 "mesh_path": "unused", "mutation": "none"}]
+        references = {
+            ("content", 2): {
+                "provider": MODULE.sha256_bytes(provider),
+                "representation": MODULE.sha256_bytes(representation),
+                "provider_count": 1, "representation_count": 1}}
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary)
+            provider_binary = root / "successful-provider-worker"
+            provider_binary.write_text(
+                "#!/usr/bin/python3\n"
+                "import struct,sys\n"
+                "p=b'provider-bytes'\n"
+                "o=sys.stdout.buffer\n"
+                "o.write(b'D12PROV1')\n"
+                "for i in range(20):\n"
+                " o.write(struct.pack('<IIQ',i,0,len(p)))\n"
+                " o.write(p)\n",
+                encoding="utf-8")
+            os.chmod(provider_binary, 0o755)
+            representation_binary = root / "successful-representation-worker"
+            representation_binary.write_text(
+                "#!/usr/bin/python3\n"
+                "import struct,sys\n"
+                "sys.stdin.buffer.read()\n"
+                "r=b'[\\\"representation\\\"]'\n"
+                "o=sys.stdout.buffer\n"
+                "o.write(b'D12REPR1')\n"
+                "for i in range(20):\n"
+                " o.write(struct.pack('>QQQ',i,0,len(r)))\n"
+                " o.write(r)\n",
+                encoding="utf-8")
+            os.chmod(representation_binary, 0o755)
+            request = root / "request.tsv"
+            request.write_text("request\n", encoding="utf-8")
+            references[("content", 2)]["request_path"] = str(request)
+            output_root = root / "output"
+            output_root.mkdir()
+            expected_executables = {
+                MODULE.sha256_file(provider_binary),
+                MODULE.sha256_file(representation_binary)}
+            artifact = MODULE.D12ProcessObservationArtifact(
+                output_root, expected_executables)
+            try:
+                with mock.patch.object(
+                        MODULE.B2, "expected_threading_identities",
+                        return_value=identities), mock.patch.object(
+                            MODULE.B2, "valid_content_jobs",
+                            return_value=jobs), mock.patch.object(
+                            MODULE, "_d12_rebuild_environment",
+                            return_value={
+                                "LANG": "C", "LC_ALL": "C",
+                                "SOURCE_DATE_EPOCH": "0", "TZ": "UTC",
+                                "ZERO_AR_DATE": "1", "TMPDIR": "/tmp"}):
+                    sidecars, aborts = MODULE.execute_d12_worker_streams(
+                        provider_binary, representation_binary, {},
+                        output_root, references, artifact,
+                        instrumentation_digest, timeout_seconds=10)
+                self.assertEqual(aborts, {})
+                self.assertEqual(len(sidecars), 40)
+                provider_inodes = set()
+                representation_inodes = set()
+                for descriptor in sidecars:
+                    path = output_root / descriptor["relative_path"]
+                    self.assertEqual(
+                        MODULE.sha256_file(path), descriptor["sha256"])
+                    if path.suffix == ".b2rowv1":
+                        provider_inodes.add(path.stat().st_ino)
+                    else:
+                        representation_inodes.add(path.stat().st_ino)
+                self.assertEqual(len(provider_inodes), 1)
+                self.assertEqual(len(representation_inodes), 1)
+                descriptor = artifact.finish(2)
+                process_records = json.loads(
+                    (output_root / descriptor["relative_path"]).read_text(
+                        encoding="utf-8"))
+                self.assertEqual(
+                    {record[2]["executable_sha256"]
+                     for record in process_records},
+                    {MODULE.sha256_file(provider_binary),
+                     MODULE.sha256_file(representation_binary)})
+            finally:
+                artifact.close()
+
     def test_d12_cross_record_statistics_are_recomputed(self):
         validator = MODULE.D12CrossRecordValidator()
         for repeat in range(15):
@@ -2940,6 +4476,46 @@ class AnchoredRowQualificationTests(unittest.TestCase):
                             encoding="utf-8")
             record, _ = MODULE.inspect_d12_evidence(path, head)
             self.assertEqual(record["availability"]["state"], "INVALID")
+
+    def test_closed_d12_envelope_is_imported_without_relabeling_platform(self):
+        envelope = MODULE._d12_envelope_contract_fixture()
+        head = envelope["git"]["head"]
+        with tempfile.TemporaryDirectory() as temporary:
+            path = pathlib.Path(temporary) / "anchored-row-d12.json"
+            raw = MODULE.jcs_bytes(envelope)
+            path.write_bytes(raw)
+            record, expectation = MODULE.inspect_d12_evidence(path, head)
+            self.assertEqual(record, {
+                "availability": MODULE.availability(
+                    "PRESENT", MODULE.sha256_bytes(raw)),
+                "execution_state": "UNQUALIFIED_PLATFORM",
+                "exact_head": head,
+                "physical_fingerprint_sha256": MODULE.sha256_bytes(
+                    MODULE.jcs_bytes(envelope["platform"][
+                        "observed_fingerprint"])),
+                "representation_work": "INCLUDED",
+                "omission_blocker": None})
+            self.assertIn("representation workload included", expectation)
+            executed, context = MODULE.load_d12_execution_evidence(
+                path, head)
+            self.assertEqual(set(executed), set(MODULE.D12_CRITERIA))
+            self.assertEqual(context, envelope["serial_only_context"])
+            for criterion in envelope["criteria"]:
+                evidence = executed[criterion["criterion_id"]]
+                imported = MODULE.executed_criterion_record(
+                    criterion["criterion_id"], evidence)
+                self.assertEqual(imported, criterion)
+
+            mutated = copy.deepcopy(envelope)
+            mutated["git"]["head"] = "b" * 40
+            mutated["content_sha256"] = MODULE.ZERO_SHA256
+            mutated["content_sha256"] = MODULE.sha256_bytes(
+                MODULE.jcs_bytes(mutated))
+            path.write_bytes(MODULE.jcs_bytes(mutated))
+            record, _ = MODULE.inspect_d12_evidence(path, head)
+            self.assertEqual(record["availability"]["state"], "INVALID")
+            self.assertEqual(
+                MODULE.load_d12_execution_evidence(path, head), ({}, None))
             qualified = {
                 "release_checkpoint": {"binding": {"git_head": head}},
                 "platform_qualification": {
@@ -2954,6 +4530,62 @@ class AnchoredRowQualificationTests(unittest.TestCase):
                                    return_value=True):
                 record, _ = MODULE.inspect_d12_evidence(path, head)
             self.assertEqual(record["availability"]["state"], "INVALID")
+
+    def test_d12_numeric_raw_artifact_owns_exact_result_slices(self):
+        case = {
+            "candidate": "bfr", "content_identity_key": "content",
+            "approximation_level": 2,
+            "applicable_mode": "cache_disabled",
+            "d12_primary_process_provenance": {
+                "pid": 123, "start_utc": "2026-08-16T00:00:00Z",
+                "end_utc": "2026-08-16T00:00:01Z",
+                "exit_kind": "EXITED", "exit_code": 0, "signal": None,
+                "argv_sha256": "a" * 64,
+                "environment_sha256": "b" * 64,
+                "stderr_sha256": "c" * 64}}
+        report = {
+            "d12_representation_workload_included": True,
+            "preparation_ns": list(range(15)),
+            "preparation_median_ns": 7,
+            "d12_retained_payload_bytes_by_face": [100],
+            "d12_rss_baseline_bytes": 1000,
+            "rss_expected_named_sample_count": 1,
+            "d12_rss_observations": [{
+                "repeat_phase": "warmup", "repeat_index": 0,
+                "face_id": None, "local_corner_or_none": None,
+                "sample_id": None, "stage": "after_refiner",
+                "rss_bytes": 1100}]}
+        records = MODULE._d12_numeric_observations_for_case(
+            case, report, "d" * 64)
+        self.assertEqual(len(records), 19)
+        with tempfile.TemporaryDirectory() as temporary:
+            artifact = MODULE.D12ProcessObservationArtifact(temporary)
+            try:
+                for criterion_id, record in reversed(records):
+                    artifact.add(criterion_id, record)
+                descriptor = artifact.finish(expected_count=19)
+                self.assertEqual(descriptor["record_count"], 19)
+                raw_path = pathlib.Path(temporary) / descriptor[
+                    "relative_path"]
+                raw = raw_path.read_bytes()
+                for criterion_id in (
+                        "d12_preparation_cost", "d12_retained_payload",
+                        "d12_peak_rss"):
+                    for key, payload, binding in artifact.iter_bindings(
+                            criterion_id):
+                        observed = raw[binding["byte_offset"]:
+                                       binding["byte_offset"] +
+                                       binding["byte_length"]]
+                        self.assertEqual(
+                            MODULE.sha256_bytes(observed), binding["sha256"])
+                        record = MODULE._d12_numeric_result_record(
+                            criterion_id, key, payload, binding,
+                            "UNQUALIFIED_PLATFORM")
+                        self.assertEqual(record[1:2] + record[4:],
+                                         ["INCOMPLETE",
+                                          "D12_PLATFORM_UNQUALIFIED"])
+            finally:
+                artifact.close()
 
     def test_pre_result_ledger_partition_is_never_empty(self):
         cases = []
@@ -2991,12 +4623,28 @@ class AnchoredRowQualificationTests(unittest.TestCase):
         with self.assertRaises(MODULE.QualificationError):
             MODULE.validate_schema_instance(reordered, ledger_schema, schema)
 
+    def test_candidate_observation_timeout_precedes_blocking_reads(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            binary = pathlib.Path(temporary) / "stalled-candidate"
+            binary.write_text(
+                "#!/bin/sh\n/bin/sleep 5\n", encoding="utf-8")
+            os.chmod(binary, 0o755)
+            started = time.monotonic()
+            with self.assertRaises(MODULE.QualificationError):
+                list(MODULE.iter_candidate_observations(
+                    binary, "representation_structure",
+                    ["position 1 0 0 3ff0000000000000\n"], 1,
+                    timeout_seconds=0.1))
+            self.assertLess(time.monotonic() - started, 2.0)
+
     def test_candidate_cpp_has_observable_round_points_and_executes(self):
         source = ROOT / "experiments/anchored_row_qualification/candidate.cpp"
         text = source.read_text(encoding="utf-8")
+        evaluator = (ROOT / "experiments/anchored_row_qualification/"
+                     "anchored_row_evaluator.hpp").read_text(encoding="utf-8")
         self.assertIn("#pragma STDC FENV_ACCESS ON", text)
-        self.assertIn("volatile double", text)
-        self.assertNotIn("std::fma", text)
+        self.assertIn("volatile double", evaluator)
+        self.assertNotIn("std::fma", text + evaluator)
         with tempfile.TemporaryDirectory() as temporary:
             binary = pathlib.Path(temporary) / "candidate"
             compile_result = subprocess.run(
@@ -3008,6 +4656,36 @@ class AnchoredRowQualificationTests(unittest.TestCase):
                                        stdout=subprocess.PIPE,
                                        stderr=subprocess.PIPE, text=True)
             self.assertEqual(self_test.returncode, 0, self_test.stderr)
+            d12_request = (
+                "content\t2\t0\t-1\tsample\tposition\t0\t"
+                "3ff0000000000000\t3ff0000000000000\t"
+                "4000000000000000\t4008000000000000\n")
+            d12 = subprocess.run(
+                [str(binary), "--d12-representation-stream", "1"],
+                input=d12_request.encode("ascii"), stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE)
+            self.assertEqual(d12.returncode, 0,
+                             d12.stderr.decode("utf-8", errors="replace"))
+            self.assertEqual(d12.stdout[:8], b"D12REPR1")
+            offset = 8
+            reference = None
+            for round_index in range(20):
+                observed_round, worker, length = struct.unpack(
+                    ">QQQ", d12.stdout[offset:offset + 24])
+                offset += 24
+                payload = d12.stdout[offset:offset + length]
+                offset += length
+                self.assertEqual((observed_round, worker), (round_index, 0))
+                self.assertEqual(payload, reference if reference is not None
+                                 else payload)
+                reference = payload
+            self.assertEqual(offset, len(d12.stdout))
+            records = json.loads(reference)
+            self.assertEqual(len(records), 8)
+            self.assertEqual([record[6] for record in records], [
+                "fixture_x", "fixture_y", "fixture_z", "negative_2p20",
+                "negative_one", "positive_2p20", "positive_one",
+                "positive_zero"])
             request = "position 1 3fe0000000000000,3fd0000000000000,3fd0000000000000 " \
                       "3ff0000000000000,4000000000000000,4008000000000000"
             result = subprocess.run([str(binary), "--evaluate-line", request],
@@ -3051,6 +4729,8 @@ class AnchoredRowQualificationTests(unittest.TestCase):
                     ("constant_field_bits", 45,
                      "candidate_binary64_observation_v1"),
                     ("relabel_exact_effective_coefficients", 6,
+                     "candidate_dyadic_vector_observation_v1"),
+                    ("regular_analytic_exact_rows", 3,
                      "candidate_dyadic_vector_observation_v1")):
                 observations = list(MODULE.iter_candidate_observations(
                     binary, criterion_id, [one_row], expected_count))
@@ -3060,6 +4740,53 @@ class AnchoredRowQualificationTests(unittest.TestCase):
                 self.assertTrue(all(not ({"outcome", "target", "reason",
                                          "maximum", "digest"} & set(item))
                                     for item in observations))
+            emitted_request = (
+                "x position 1 "
+                "3fd0000000000000,3fe0000000000000,3fd0000000000000 "
+                "0000000000000000,3ff0000000000000,"
+                "0000000000000000\n")
+            emitted = list(MODULE.iter_candidate_observations(
+                binary, "emitted_direct_geometry_d10",
+                [emitted_request], 1))
+            self.assertEqual(emitted, [{
+                "axis": "x",
+                "kind": "candidate_emitted_geometry_observation_v1",
+                "observed_bits": "3fe0000000000000",
+            }])
+            regular_emitted = list(MODULE.iter_candidate_observations(
+                binary, "regular_analytic_emitted_geometry",
+                [emitted_request], 1))
+            self.assertEqual(regular_emitted, emitted)
+            integrand_fixture = {
+                "vertices": [(0.0, 0.0, 0.0), (1.0, 0.0, 0.0),
+                             (0.0, 1.0, 0.0)]}
+            integrand_group = {
+                "position": {"row_kind": "position",
+                             "source_ids": [0, 1, 2],
+                             "coefficients": [1.0, 0.0, 0.0]},
+                "du": {"row_kind": "du", "source_ids": [0, 1, 2],
+                       "coefficients": [0.0, 1.0, 0.0]},
+                "dv": {"row_kind": "dv", "source_ids": [0, 1, 2],
+                       "coefficients": [0.0, 0.0, 1.0]},
+            }
+            integrand_request = MODULE._candidate_integrand_request(
+                integrand_group, integrand_fixture, 0,
+                "emitted_binary64")
+            integrand = list(MODULE.iter_candidate_observations(
+                binary, "regular_analytic_area_integrand",
+                [integrand_request], 1))
+            self.assertEqual(integrand, [{
+                "kind": "candidate_emitted_integrand_observation_v1",
+                "observed_bits": "3ff0000000000000",
+                "view": "emitted_binary64",
+            }])
+            generated_request = MODULE.candidate_emitted_geometry_line(
+                {"row_kind": "position", "source_ids": [0, 1, 2],
+                 "coefficients": [0.25, 0.5, 0.25]}, 1,
+                {"vertices": [(0.0, 0.0, 0.0),
+                              (1.0, 0.0, 0.0),
+                              (0.0, 1.0, 0.0)]}, "x")
+            self.assertEqual(generated_request, emitted_request)
             mutation = subprocess.run(
                 [str(binary), "--audit-stream"],
                 input="du 3 0,1,2 0,0,2 "
@@ -3100,6 +4827,35 @@ class AnchoredRowQualificationTests(unittest.TestCase):
                 "binary64_basis_probe_diagnostic"]["cell_count"], 27)
             self.assertEqual(component_value["criteria"][
                 "binary64_direct_geometry_fidelity"]["cell_count"], 27)
+            component_observation_counts = {
+                "anchor_sensitivity_exact_coeff": 3,
+                "anchor_sensitivity_exact_geometry": 9,
+                "anchor_sensitivity_emitted_geometry": 9,
+                "binary64_basis_probe_diagnostic": 27,
+                "binary64_direct_geometry_fidelity": 27,
+                "relabel_emitted_geometry_fidelity": 18,
+                "stabilization_6_7_exact_coeff": 3,
+                "stabilization_6_7_exact_geometry": 9,
+                "stabilization_6_7_emitted_geometry": 9,
+            }
+            for criterion_id, count in component_observation_counts.items():
+                values = list(MODULE.iter_candidate_observations(
+                    binary, criterion_id, [component_input], count))
+                self.assertEqual(len(values), count)
+                self.assertTrue(all(not ({
+                    "outcome", "target", "reason", "maximum", "digest"} &
+                    set(value)) for value in values))
+            cache_request = (
+                "position 3 0,1,2 0,1,2 "
+                "3fd0000000000000,3fe0000000000000,3fd0000000000000 "
+                "0,1,2 "
+                "3fd0000000000000,3fe0000000000000,3fd0000000000000\n")
+            cache_values = list(MODULE.iter_candidate_observations(
+                binary, "cache_mode_bit_identity", [cache_request], 3))
+            self.assertEqual(len(cache_values), 3)
+            self.assertTrue(all(value["cache_disabled_entries"] ==
+                                value["serial_cache_entries"]
+                                for value in cache_values))
             bad_coefficients = ",".join(MODULE.binary64_bits_hex(value)
                                         for value in (0.25001, 0.5, 0.25))
             bad_component = subprocess.run(

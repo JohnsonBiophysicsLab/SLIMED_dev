@@ -406,6 +406,32 @@ class BfrQualificationContractTests(unittest.TestCase):
             "after_factory_or_cache_destruction": 18,
             "after_refiner_destruction": 18,
         }
+        retained_payloads = [
+            12 + 4 + 72 * count + 12 * 6 * count
+            for count in face_sample_counts]
+        rss_observations = []
+        for repeat in range(18):
+            phase = "warmup" if repeat < 3 else "measured"
+            repeat_index = repeat if repeat < 3 else repeat - 3
+            stages = [
+                ("after_refiner", None, None, None),
+                ("after_factory_cache", None, None, None)]
+            stages.extend((
+                "after_face_insert", sample["face_row"],
+                (None if sample["local_corner_or_none"] < 0 else
+                 sample["local_corner_or_none"]), sample["sample_id"])
+                for sample in samples)
+            stages.extend([
+                ("after_package_publication", None, None, None),
+                ("after_package_destruction", None, None, None),
+                ("after_factory_cache_destruction", None, None, None),
+                ("after_refiner_destruction", None, None, None)])
+            rss_observations.extend({
+                "repeat_phase": phase, "repeat_index": repeat_index,
+                "face_id": face_id, "local_corner_or_none": local_corner,
+                "sample_id": sample_id, "stage": stage,
+                "rss_bytes": 1100}
+                for stage, face_id, local_corner, sample_id in stages)
         report = {
             "schema_version": 1, "kind": "bfr_candidate_case", "status": "ok",
             "finite": True, "content_identity_key": identity,
@@ -414,9 +440,11 @@ class BfrQualificationContractTests(unittest.TestCase):
             "row_group_count": group_count,
             "row_kind_counts": {kind: group_count for kind in MODULE.ROW_ORDER},
             "source_reconstruction_complete": True, "max_row_sum_error": 0.0,
-            "retained_payload_bytes_per_face": max(
-                12 + 4 + 72 * count + 12 * 6 * count
-                for count in face_sample_counts),
+            "retained_payload_bytes_per_face": max(retained_payloads),
+            "d12_representation_workload_included": True,
+            "d12_retained_payload_bytes_by_face": retained_payloads,
+            "d12_rss_baseline_bytes": 1000,
+            "d12_rss_observations": rss_observations,
             "warmup_count": 3, "preparation_ns": list(range(15)),
             "preparation_median_ns": 7, "peak_rss_delta_bytes": 100,
             "rss_baseline_sample_count": 1,
@@ -506,6 +534,10 @@ class BfrQualificationContractTests(unittest.TestCase):
         validated = MODULE.validate_candidate_case(
             report, *identity_tuple, manifest, job)
         self.assertEqual(validated["row_group_count"], report["row_group_count"])
+        self.assertTrue(any(
+            item["stage"] == "after_face_insert" and
+            item["local_corner_or_none"] is None
+            for item in report["d12_rss_observations"]))
         self.assertTrue(MODULE.validate_candidate_case(
             json.loads(json.dumps(report, sort_keys=True, allow_nan=False)),
             *identity_tuple, manifest, job))

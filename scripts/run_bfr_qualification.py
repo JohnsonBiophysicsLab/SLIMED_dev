@@ -9,6 +9,7 @@ compiled proof programs.  It never downloads or discovers dependencies.
 from __future__ import print_function
 
 import argparse
+import datetime
 import gzip
 import hashlib
 import json
@@ -75,6 +76,16 @@ EXPECTED_POWER_VALUE = "kIOPSACPowerValue"
 EXPECTED_THERMAL_API = "NSProcessInfo.thermalState"
 EXPECTED_THERMAL_VALUE = "NSProcessInfoThermalStateNominal"
 FORBIDDEN_ORACLE_TOKENS = ("opensubdiv", "OpenSubdiv", "Far", "Bfr", "Osd", "Sdc", "Vtr")
+ORACLE_SOURCE_PATHS = (
+    "experiments/bfr_qualification/stam_oracle.cpp",
+    "experiments/bfr_qualification/stam_box_spline.hpp",
+    "experiments/bfr_qualification/mpfr_interval.hpp",
+    "experiments/bfr_qualification/stam_evaluation.hpp",
+    "experiments/bfr_qualification/stam_primary.hpp",
+    "experiments/bfr_qualification/stam_fixture.hpp",
+    "experiments/bfr_qualification/stam_uniform.hpp",
+    "experiments/bfr_qualification/stam_uniform_box_spline.hpp",
+)
 CANONICAL_CASE_ORDER = [
     "u8_01_regular_closed", "u8_02_tetrahedron", "u8_03_octahedron",
     "u8_04_icosahedron", "u8_05_symmetric_344", "u8_06_asymmetric_344",
@@ -122,6 +133,12 @@ def canonical_digest(value):
     return sha256_bytes(encoded)
 
 
+def canonical_bytes(value):
+    return json.dumps(
+        value, sort_keys=True, separators=(",", ":"),
+        ensure_ascii=True).encode("utf-8")
+
+
 def run(command, cwd=REPO, env=None, check=True, timeout=None):
     try:
         completed = subprocess.run(
@@ -136,6 +153,44 @@ def run(command, cwd=REPO, env=None, check=True, timeout=None):
             completed.returncode, " ".join(str(x) for x in command),
             completed.stdout, completed.stderr))
     return completed
+
+
+def run_observed(command, cwd=REPO, env=None, timeout=None):
+    """Run one proof process and retain its closed success provenance."""
+    normalized_command = [str(item) for item in command]
+    runtime_environment = (dict(env) if env is not None else {
+        "LANG": "C", "LC_ALL": "C", "SOURCE_DATE_EPOCH": "0",
+        "TZ": "UTC", "ZERO_AR_DATE": "1"})
+    started = datetime.datetime.now(datetime.timezone.utc).replace(
+        microsecond=0).isoformat().replace("+00:00", "Z")
+    process = subprocess.Popen(
+        normalized_command, cwd=str(cwd), env=runtime_environment,
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        universal_newlines=True)
+    try:
+        stdout, stderr = process.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        stdout, stderr = process.communicate()
+        raise QualificationError(
+            "command timed out after {} seconds: {}".format(
+                timeout, " ".join(normalized_command)))
+    ended = datetime.datetime.now(datetime.timezone.utc).replace(
+        microsecond=0).isoformat().replace("+00:00", "Z")
+    completed = subprocess.CompletedProcess(
+        normalized_command, process.returncode, stdout, stderr)
+    if completed.returncode != 0:
+        raise QualificationError("command failed ({}): {}\n{}\n{}".format(
+            completed.returncode, " ".join(normalized_command),
+            stdout, stderr))
+    provenance = {
+        "pid": process.pid, "start_utc": started, "end_utc": ended,
+        "exit_kind": "EXITED", "exit_code": 0, "signal": None,
+        "argv_sha256": canonical_digest(normalized_command),
+        "environment_sha256": canonical_digest(runtime_environment),
+        "stderr_sha256": sha256_bytes(stderr.encode("utf-8")),
+    }
+    return completed, provenance
 
 
 def require(condition, message):
@@ -466,15 +521,21 @@ def validate_frozen_approval_anchors():
 def validate_source_separation():
     proof_dir = REPO / "experiments/bfr_qualification"
     candidate = proof_dir / "candidate.cpp"
-    oracle = proof_dir / "stam_oracle.cpp"
-    interval = proof_dir / "mpfr_interval.hpp"
-    for path in (candidate, oracle, interval):
+    oracle_sources = tuple(REPO / path for path in ORACLE_SOURCE_PATHS)
+    for path in (candidate,) + oracle_sources:
         require(path.is_file(), "missing proof source {}".format(path.relative_to(REPO)))
-    oracle_text = oracle.read_text(encoding="utf-8") + interval.read_text(encoding="utf-8")
+    oracle_text = "".join(path.read_text(encoding="utf-8")
+                          for path in oracle_sources)
     for token in FORBIDDEN_ORACLE_TOKENS:
         require(token not in oracle_text, "oracle source contains forbidden dependency token {}".format(token))
     require("MPFR_RNDD" in oracle_text and "MPFR_RNDU" in oracle_text, "directed interval rounding is absent")
     require("mpfr_init2" in oracle_text and "544" in oracle_text, "544-bit MPFR endpoints are absent")
+    uniform_text = (proof_dir / "stam_uniform.hpp").read_text(
+        encoding="utf-8") + (proof_dir / "stam_uniform_box_spline.hpp").read_text(
+            encoding="utf-8")
+    require("stam_box_spline.hpp" not in uniform_text and
+            "b2stam::" not in uniform_text,
+            "uniform oracle route depends on primary Stam implementation")
     candidate_text = candidate.read_text(encoding="utf-8")
     require("OPENSUBDIV_VERSION_NUMBER != 30700" in candidate_text, "candidate exact OpenSubdiv version pin missing")
     require("validation-only sentinel" in candidate_text, "candidate sentinel exclusion anchor missing")
@@ -864,23 +925,120 @@ def audit_build_tools(manifest):
     }
 
 
-def compile_proofs(build_dir, mpfr_root, opensubdiv_root, tsan_root):
-    compiler = pathlib.Path("/Library/Developer/CommandLineTools/usr/bin/clang++")
+def compile_proofs(build_dir, mpfr_root, opensubdiv_root, tsan_root,
+                   release_build_root, tsan_build_root):
+    build = load_manifest()["qualification_platform"]["build"]
+    compiler = pathlib.Path(build["compiler_path"])
     require(compiler.is_file(), "pinned Apple clang++ is unavailable")
-    common = [str(compiler), "-std=c++17", "-O3", "-DNDEBUG", "-fno-fast-math", "-ffp-contract=off", "-fno-omit-frame-pointer", "-isysroot", "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk", "-mmacosx-version-min=26.0", "-Wall", "-Wextra", "-Wpedantic", "-Werror"]
-    candidate = build_dir / "bfr_candidate"
-    candidate_tsan = build_dir / "bfr_candidate_tsan"
+    build_dir = pathlib.Path(build_dir).resolve()
+    release_root = pathlib.Path(release_build_root).resolve()
+    tsan_proof_root = pathlib.Path(tsan_build_root).resolve()
+    release_root.mkdir(parents=True, exist_ok=True)
+    tsan_proof_root.mkdir(parents=True, exist_ok=True)
+    source_provider = REPO / "experiments/bfr_qualification/candidate.cpp"
+    source_representation = (
+        REPO / "experiments/anchored_row_qualification/candidate.cpp")
+    environment = {
+        "LANG": "C", "LC_ALL": "C", "SOURCE_DATE_EPOCH": "0",
+        "TZ": "UTC", "ZERO_AR_DATE": "1"}
+
+    def profile_commands(root, install_root, flags):
+        prefix = [str(compiler)] + list(flags)
+        provider_object = root / "provider.o"
+        representation_object = root / "representation.o"
+        compile_commands = [
+            prefix + ["-MMD", "-MF", str(root / "provider.d"),
+                      "-I" + str(install_root / "include"),
+                      str(source_provider), "-c", "-o",
+                      str(provider_object)],
+            prefix + ["-MMD", "-MF", str(root / "representation.d"),
+                      str(source_representation), "-c", "-o",
+                      str(representation_object)],
+        ]
+        link_commands = [
+            prefix + [str(provider_object),
+                      str(install_root / "lib/libosdCPU.a"),
+                      "-framework", "IOKit", "-framework", "Foundation",
+                      "-Wl,-map," + str(root / "provider.map"),
+                      "-o", str(root / "provider")],
+            prefix + [str(representation_object),
+                      "-Wl,-map," + str(root / "representation.map"),
+                      "-o", str(root / "representation")],
+        ]
+        for command in compile_commands + link_commands:
+            run(command, env=environment)
+        compile_path = root / "compile-commands.json"
+        link_path = root / "link-commands.json"
+        compile_path.write_bytes(canonical_bytes(compile_commands))
+        link_path.write_bytes(canonical_bytes(link_commands))
+        manifest = {
+            "schema_id": "d12-command-profile-manifest-v1",
+            "working_directory": str(REPO),
+            "environment": environment,
+            "compile_commands": {
+                "relative_path": compile_path.name,
+                "sha256": sha256_file(compile_path)},
+            "link_commands": {
+                "relative_path": link_path.name,
+                "sha256": sha256_file(link_path)},
+        }
+        manifest_path = root / "command-profile.json"
+        manifest_path.write_bytes(canonical_bytes(manifest))
+        return {
+            "root": root, "provider": root / "provider",
+            "representation": root / "representation",
+            "provider_dependency": root / "provider.d",
+            "representation_dependency": root / "representation.d",
+            "provider_map": root / "provider.map",
+            "representation_map": root / "representation.map",
+            "compile_commands": compile_commands,
+            "link_commands": link_commands,
+            "command_manifest": manifest_path,
+        }
+
+    release = profile_commands(
+        release_root, pathlib.Path(opensubdiv_root).resolve(),
+        build["common_release_compile_flags"])
+    tsan = profile_commands(
+        tsan_proof_root, pathlib.Path(tsan_root).resolve(),
+        build["thread_sanitizer_compile_flags"])
+    candidate = release["provider"]
+    candidate_tsan = tsan["provider"]
     oracle = build_dir / "stam_oracle"
-    candidate_cmd = common + ["-MMD", "-MF", str(build_dir / "candidate.d"), "-I" + str(opensubdiv_root / "include"), str(REPO / "experiments/bfr_qualification/candidate.cpp"), str(opensubdiv_root / "lib/libosdCPU.a"), "-framework", "IOKit", "-framework", "Foundation", "-Wl,-map," + str(build_dir / "candidate.map"), "-o", str(candidate)]
-    oracle_cmd = common + ["-MMD", "-MF", str(build_dir / "oracle.d"), "-I" + str(mpfr_root / "include"), str(REPO / "experiments/bfr_qualification/stam_oracle.cpp"), "-L" + str(mpfr_root / "lib"), "-Wl,-rpath," + str(mpfr_root / "lib"), "-lmpfr", "-lgmp", "-Wl,-map," + str(build_dir / "oracle.map"), "-o", str(oracle)]
-    tsan_common = [str(compiler), "-std=c++17", "-O1", "-g", "-DNDEBUG", "-fno-fast-math", "-ffp-contract=off", "-fno-omit-frame-pointer", "-isysroot", "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk", "-mmacosx-version-min=26.0", "-fsanitize=thread", "-Wall", "-Wextra", "-Wpedantic", "-Werror"]
-    candidate_tsan_cmd = tsan_common + ["-MMD", "-MF", str(build_dir / "candidate_tsan.d"), "-I" + str(tsan_root / "include"), str(REPO / "experiments/bfr_qualification/candidate.cpp"), "-fsanitize=thread", str(tsan_root / "lib/libosdCPU.a"), "-framework", "IOKit", "-framework", "Foundation", "-Wl,-map," + str(build_dir / "candidate_tsan.map"), "-o", str(candidate_tsan)]
-    run(candidate_cmd)
+    common = [str(compiler)] + list(build["common_release_compile_flags"])
+    oracle_cmd = common + ["-MMD", "-MF", str(build_dir / "oracle.d"),
+                           "-I" + str(mpfr_root / "include"),
+                           "experiments/bfr_qualification/stam_oracle.cpp",
+                           "-L" + str(mpfr_root / "lib"),
+                           "-Wl,-rpath," + str(mpfr_root / "lib"),
+                           "-lmpfr", "-lgmp",
+                           "-Wl,-map," + str(build_dir / "oracle.map"),
+                           "-o", str(oracle)]
     run(oracle_cmd)
-    run(candidate_tsan_cmd)
-    for artifact in (build_dir / "candidate.d", build_dir / "candidate.map",
-                     build_dir / "candidate_tsan.d", build_dir / "candidate_tsan.map",
-                     build_dir / "oracle.d", build_dir / "oracle.map"):
+    compatibility = {
+        build_dir / "bfr_candidate": candidate,
+        build_dir / "bfr_candidate_tsan": candidate_tsan,
+        build_dir / "candidate.d": release["provider_dependency"],
+        build_dir / "candidate.map": release["provider_map"],
+        build_dir / "candidate_tsan.d": tsan["provider_dependency"],
+        build_dir / "candidate_tsan.map": tsan["provider_map"],
+    }
+    for destination, source in compatibility.items():
+        shutil.copyfile(source, destination)
+        if os.access(source, os.X_OK):
+            destination.chmod(source.stat().st_mode)
+    artifacts = {
+        "release/provider.d": release["provider_dependency"],
+        "release/provider.map": release["provider_map"],
+        "release/representation.d": release["representation_dependency"],
+        "release/representation.map": release["representation_map"],
+        "tsan/provider.d": tsan["provider_dependency"],
+        "tsan/provider.map": tsan["provider_map"],
+        "tsan/representation.d": tsan["representation_dependency"],
+        "tsan/representation.map": tsan["representation_map"],
+        "oracle.d": build_dir / "oracle.d",
+        "oracle.map": build_dir / "oracle.map"}
+    for artifact in artifacts.values():
         require(artifact.is_file() and artifact.stat().st_size > 0,
                 "missing proof compiler/link audit artifact {}".format(artifact.name))
     oracle_dependencies = (build_dir / "oracle.d").read_text(encoding="utf-8", errors="replace")
@@ -888,10 +1046,15 @@ def compile_proofs(build_dir, mpfr_root, opensubdiv_root, tsan_root):
         require(token not in oracle_dependencies,
                 "oracle dependency file contains forbidden token {}".format(token))
     binary_audit = {}
-    for binary in (candidate, candidate_tsan, oracle):
+    for role, binary in (
+            ("provider_release", candidate),
+            ("provider_tsan", candidate_tsan),
+            ("representation_release", release["representation"]),
+            ("representation_tsan", tsan["representation"]),
+            ("stam_oracle", oracle)):
         otool = run(["/usr/bin/otool", "-L", binary]).stdout
         undefined_symbols = run(["/usr/bin/nm", "-u", binary]).stdout
-        binary_audit[binary.name] = {
+        binary_audit[role] = {
             "path": str(binary), "sha256": sha256_file(binary),
             "size": binary.stat().st_size, "otool_L": otool.splitlines(),
             "undefined_symbols_sha256": sha256_bytes(
@@ -903,14 +1066,17 @@ def compile_proofs(build_dir, mpfr_root, opensubdiv_root, tsan_root):
     oracle_links = run(["/usr/bin/otool", "-L", oracle]).stdout
     require("osd" not in oracle_links.lower(), "oracle linked OpenSubdiv")
     return {"candidate": candidate, "candidate_tsan": candidate_tsan,
-            "oracle": oracle, "candidate_command": candidate_cmd,
-            "candidate_tsan_command": candidate_tsan_cmd,
+            "representation": release["representation"],
+            "representation_tsan": tsan["representation"],
+            "oracle": oracle,
+            "candidate_command": release["link_commands"][0],
+            "candidate_tsan_command": tsan["link_commands"][0],
+            "release_profile": release, "tsan_profile": tsan,
             "oracle_command": oracle_cmd,
             "binary_audit": binary_audit,
-            "audit_artifacts": {artifact.name: sha256_file(artifact) for artifact in (
-                build_dir / "candidate.d", build_dir / "candidate.map",
-                build_dir / "candidate_tsan.d", build_dir / "candidate_tsan.map",
-                build_dir / "oracle.d", build_dir / "oracle.map")}}
+            "audit_artifacts": {
+                name: sha256_file(artifact)
+                for name, artifact in artifacts.items()}}
 
 
 def validate_compiled_report(value, expected_kind):
@@ -1252,6 +1418,60 @@ def validate_candidate_case(case_report, identity, candidate, level, mode,
     peak_rss = case_report.get("peak_rss_delta_bytes")
     require(type(peak_rss) is int and peak_rss >= 0,
             "candidate peak RSS observation is invalid")
+    if candidate == "bfr":
+        baseline = case_report.get("d12_rss_baseline_bytes")
+        payload_observations = case_report.get(
+            "d12_retained_payload_bytes_by_face")
+        rss_observations = case_report.get("d12_rss_observations")
+        require(case_report.get(
+                    "d12_representation_workload_included") is True and
+                type(baseline) is int and baseline >= 0 and
+                payload_observations == payloads and
+                isinstance(rss_observations, list) and
+                len(rss_observations) == expected_rss_sample_count,
+                "B2c D12 representation/RSS observations are incomplete")
+        cursor = 0
+        for repeat in range(18):
+            phase = "warmup" if repeat < 3 else "measured"
+            repeat_index = repeat if repeat < 3 else repeat - 3
+            expected_observations = [
+                ("after_refiner", None, None, None),
+                ("after_factory_cache", None, None, None)]
+            expected_observations.extend(
+                ("after_face_insert", sample["face_row"],
+                 (None if sample["local_corner_or_none"] < 0 else
+                  sample["local_corner_or_none"]), sample["sample_id"])
+                for sample in expected_samples)
+            expected_observations.extend([
+                ("after_package_publication", None, None, None),
+                ("after_package_destruction", None, None, None),
+                ("after_factory_cache_destruction", None, None, None),
+                ("after_refiner_destruction", None, None, None)])
+            for stage, face_id, local_corner, sample_id in \
+                    expected_observations:
+                observation = rss_observations[cursor]
+                require(isinstance(observation, dict) and
+                        set(observation) == {
+                            "repeat_phase", "repeat_index", "face_id",
+                            "local_corner_or_none", "sample_id", "stage",
+                            "rss_bytes"} and
+                        (observation["repeat_phase"],
+                         observation["repeat_index"],
+                         observation["stage"], observation["face_id"],
+                         observation["local_corner_or_none"],
+                         observation["sample_id"]) ==
+                        (phase, repeat_index, stage, face_id,
+                         local_corner, sample_id) and
+                        type(observation["rss_bytes"]) is int and
+                        observation["rss_bytes"] >= 0,
+                        "B2c D12 RSS observation identity/order drift")
+                cursor += 1
+        derived_peak = max(
+            [0] + [max(0, item["rss_bytes"] - baseline)
+                   for item in rss_observations])
+        require(cursor == len(rss_observations) and
+                peak_rss == derived_peak,
+                "B2c D12 RSS maximum differs from raw observations")
     d12_pass = (case_report["preparation_median_ns"] <= 1000000000 and
                 max(timings) <= 10000000000 and maximum_payload <= 131072 and
                 peak_rss <= 64 * 1048576)
@@ -1418,13 +1638,15 @@ def execute_release_matrix(candidate_binary, manifest, artifact_dir=None,
         command = [candidate_binary, "--execute-case", job["mesh_path"], job["mutation"],
                    candidate, str(level), mode, identity]
         primary_before = candidate_platform_probe(candidate_binary)
-        first = run(command, timeout=30)
+        first, primary_process_provenance = run_observed(
+            command, timeout=30)
         primary_after = candidate_platform_probe(candidate_binary)
         first_report = json.loads(first.stdout)
         first_validated = validate_candidate_case(
             first_report, identity, candidate, level, mode, manifest, job)
         determinism_before = candidate_platform_probe(candidate_binary)
-        second = run(command, timeout=30)
+        second, determinism_process_provenance = run_observed(
+            command, timeout=30)
         determinism_after = candidate_platform_probe(candidate_binary)
         second_report = json.loads(second.stdout)
         second_validated = validate_candidate_case(
@@ -1480,6 +1702,9 @@ def execute_release_matrix(candidate_binary, manifest, artifact_dir=None,
                 {"boundary": "determinism_before", "probe": determinism_before},
                 {"boundary": "determinism_after", "probe": determinism_after},
             ],
+            "d12_primary_process_provenance": primary_process_provenance,
+            "d12_determinism_process_provenance":
+                determinism_process_provenance,
         }
         validate_case_artifact(
             artifact_path, summary, manifest, job,
@@ -2162,15 +2387,22 @@ def validate_dependency_provenance(value, manifest, checkpoint_binding):
             "candidate/checkpoint binary identity drift")
     proof_artifacts = value.get("proof_audit_artifacts")
     require(isinstance(proof_artifacts, dict) and set(proof_artifacts) == {
-        "candidate.d", "candidate.map", "candidate_tsan.d",
-        "candidate_tsan.map", "oracle.d", "oracle.map"} and
+        "release/provider.d", "release/provider.map",
+        "release/representation.d", "release/representation.map",
+        "tsan/provider.d", "tsan/provider.map",
+        "tsan/representation.d", "tsan/representation.map",
+        "oracle.d", "oracle.map"} and
         all(re.fullmatch(r"[0-9a-f]{64}", digest) is not None
             for digest in proof_artifacts.values()),
             "proof dependency/map artifact provenance drift")
     binary_audit = value.get("proof_binary_audit")
     expected_binary_hashes = {
-        "bfr_candidate": value.get("candidate_binary_sha256"),
-        "bfr_candidate_tsan": value.get("candidate_tsan_binary_sha256"),
+        "provider_release": value.get("candidate_binary_sha256"),
+        "provider_tsan": value.get("candidate_tsan_binary_sha256"),
+        "representation_release": value.get(
+            "representation_binary_sha256"),
+        "representation_tsan": value.get(
+            "representation_tsan_binary_sha256"),
         "stam_oracle": value.get("oracle_binary_sha256"),
     }
     require(isinstance(binary_audit, dict) and
@@ -2182,10 +2414,22 @@ def validate_dependency_provenance(value, manifest, checkpoint_binding):
             "proof binary/link provenance drift")
     commands = value.get("proof_compile_commands")
     require(isinstance(commands, dict) and set(commands) == {
-        "release_candidate", "thread_sanitizer_candidate", "oracle"} and
+        "release_compile", "release_link", "thread_sanitizer_compile",
+        "thread_sanitizer_link", "oracle"} and
             all(isinstance(command, list) and command and
-                command[0] == EXPECTED_COMPILER_PATH for command in commands.values()),
+                (command[0] == EXPECTED_COMPILER_PATH
+                 if key == "oracle" else
+                 len(command) == 2 and
+                 all(isinstance(argv, list) and argv and
+                     argv[0] == EXPECTED_COMPILER_PATH for argv in command))
+                for key, command in commands.items()),
             "proof compile/link command provenance drift")
+    command_manifests = value.get("proof_command_manifests")
+    require(isinstance(command_manifests, dict) and
+            set(command_manifests) == {"release", "thread_sanitizer"} and
+            all(pathlib.Path(path).is_file() for path in
+                command_manifests.values()),
+            "proof command-manifest provenance drift")
     return True
 
 
@@ -2675,7 +2919,9 @@ def full_dependency_audit(args):
             "--proof-artifact-dir is required for persistent proof provenance")
     proof_artifact_root = pathlib.Path(args.proof_artifact_dir).resolve()
     proof_artifact_root.mkdir(parents=True, exist_ok=True)
-    compiled = compile_proofs(proof_artifact_root, mpfr_root, osd_root, tsan_root)
+    compiled = compile_proofs(
+        proof_artifact_root, mpfr_root, osd_root, tsan_root,
+        release_build_root, tsan_build_root)
     candidate_report = json.loads(run([compiled["candidate"], "--self-test"]).stdout)
     tsan_env = dict(os.environ)
     tsan_env["TSAN_OPTIONS"] = "halt_on_error=1"
@@ -2689,14 +2935,26 @@ def full_dependency_audit(args):
     provenance["fixture_preflights"] = preflights
     provenance["candidate_binary_sha256"] = sha256_file(compiled["candidate"])
     provenance["candidate_tsan_binary_sha256"] = sha256_file(compiled["candidate_tsan"])
+    provenance["representation_binary_sha256"] = sha256_file(
+        compiled["representation"])
+    provenance["representation_tsan_binary_sha256"] = sha256_file(
+        compiled["representation_tsan"])
     provenance["oracle_binary_sha256"] = sha256_file(compiled["oracle"])
     provenance["candidate_self_test"] = candidate_report
     provenance["candidate_tsan_self_test"] = candidate_tsan_report
     provenance["oracle_self_test"] = oracle_report
     provenance["proof_compile_commands"] = {
-        "release_candidate": compiled["candidate_command"],
-        "thread_sanitizer_candidate": compiled["candidate_tsan_command"],
+        "release_compile": compiled["release_profile"]["compile_commands"],
+        "release_link": compiled["release_profile"]["link_commands"],
+        "thread_sanitizer_compile":
+            compiled["tsan_profile"]["compile_commands"],
+        "thread_sanitizer_link": compiled["tsan_profile"]["link_commands"],
         "oracle": compiled["oracle_command"],
+    }
+    provenance["proof_command_manifests"] = {
+        "release": str(compiled["release_profile"]["command_manifest"]),
+        "thread_sanitizer":
+            str(compiled["tsan_profile"]["command_manifest"]),
     }
     provenance["proof_audit_artifacts"] = compiled["audit_artifacts"]
     provenance["proof_binary_audit"] = compiled["binary_audit"]
