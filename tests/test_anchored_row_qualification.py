@@ -3460,16 +3460,53 @@ class AnchoredRowQualificationTests(unittest.TestCase):
                     binary, command_path, link_map, dynamic,
                     sealed_output_path=sealed), "PASS")
                 runtime_bindings = MODULE._snapshot_oracle_runtime_libraries(
-                    sealed, root / "runtime-snapshot")
+                    sealed, root /
+                    "anchored-row-oracle-runtime-libraries-v1")
                 self.assertEqual(
                     [item[0].name for item in runtime_bindings],
                     ["libgmp.10.dylib", "libmpfr.6.dylib"])
                 self.assertEqual(MODULE.audit_oracle_independence(
                     binary, command_path, link_map, sealed), "PASS")
+                with mock.patch.object(
+                        MODULE, "ORACLE_EXECUTION_REQUEST_COUNT", 1):
+                    raw_value = MODULE.jcs_bytes({
+                        "schema_version": 1,
+                        "kind": "stam_oracle_sample_v1",
+                        "status": "uncovered",
+                        "reason_code": "NO_ISOLATION_BY_DEPTH_12"})
+                    audit = MODULE.OracleExecutionAuditArtifact(root)
+                    audit.add("request\n", "a" * 64, raw_value,
+                              MODULE.strict_json_bytes(raw_value))
+                    descriptor = audit.finish()
+                    execution_packet = root / (
+                        "anchored-row-oracle-runtime-execution-audit-v2.json")
+                    MODULE._publish_oracle_runtime_execution_packet(
+                        sealed, runtime_bindings, descriptor,
+                        execution_packet)
+                    self.assertEqual(MODULE.audit_oracle_independence(
+                        binary, command_path, link_map,
+                        execution_packet), "PASS")
+                    projected = MODULE.strict_json_bytes(
+                        execution_packet.read_bytes())
+                    projected["libraries"][0]["audited_path"] = str(
+                        library_root / "invented-libgmp.10.dylib")
+                    execution_packet.write_bytes(MODULE.jcs_bytes(projected))
+                    with self.assertRaises(MODULE.QualificationError):
+                        MODULE.audit_oracle_independence(
+                            binary, command_path, link_map,
+                            execution_packet)
+                    projected["libraries"][0]["audited_path"] = str(
+                        gmp_library)
+                    execution_packet.write_bytes(MODULE.jcs_bytes(projected))
                 mpfr_library.write_bytes(b"tampered mpfr library\n")
                 with self.assertRaises(MODULE.QualificationError):
                     MODULE.audit_oracle_independence(
                         binary, command_path, link_map, sealed)
+                with mock.patch.object(
+                        MODULE, "ORACLE_EXECUTION_REQUEST_COUNT", 1):
+                    self.assertEqual(MODULE.audit_oracle_independence(
+                        binary, command_path, link_map,
+                        execution_packet), "PASS")
                 mpfr_library.write_bytes(b"mpfr library\n")
 
             for injected in ("@/private/tmp/oracle-extra.rsp", "-include"):
