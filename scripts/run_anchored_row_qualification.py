@@ -1257,7 +1257,8 @@ def _validate_binding_against_report(value, report):
 
 
 def _validate_runtime_bindings(report, runtime_binaries,
-                               runtime_provenance=None):
+                               runtime_provenance=None,
+                               oracle_installed_libraries=None):
     actual_git, actual_worktree = git_observations()
     actual_head = actual_git.get("git_commit")
     require(actual_git == {"state": "PRESENT", "git_commit": actual_head,
@@ -1344,7 +1345,9 @@ def _validate_runtime_bindings(report, runtime_binaries,
                             runtime_binaries["independent_oracle"],
                             oracle_files["compiler_command"],
                             oracle_files["link_map"],
-                            oracle_files["dynamic_dependencies"]),
+                            oracle_files["dynamic_dependencies"],
+                            installed_library_paths=
+                                oracle_installed_libraries),
                     "oracle independence audit differs from runtime evidence")
     return True
 
@@ -10563,8 +10566,29 @@ def _snapshot_oracle_runtime_libraries(dynamic_packet_path, destination_root):
     return bindings
 
 
+def _oracle_installed_library_digests(installed_library_paths):
+    """Hash the independently retained GMP/MPFR install artifacts."""
+    require(isinstance(installed_library_paths, dict) and
+            set(installed_library_paths) == {"gmp", "mpfr"},
+            "oracle installed-library authority is incomplete")
+    result = {}
+    resolved = []
+    for name in ("gmp", "mpfr"):
+        path = pathlib.Path(installed_library_paths[name]).resolve()
+        require(path.is_file() and
+                re.fullmatch(r"lib" + name + r"(?:\.[0-9]+)*\.dylib",
+                             path.name) is not None,
+                "oracle installed-library authority path: " + name)
+        result[name] = sha256_file(path)
+        resolved.append(path)
+    require(len(set(resolved)) == 2 and len(set(result.values())) == 2,
+            "oracle installed-library authority role collapse")
+    return result
+
+
 def _publish_oracle_runtime_execution_packet(
-        sealed_audit_path, runtime_bindings, execution_audit, destination):
+        sealed_audit_path, runtime_bindings, execution_audit, destination,
+        installed_library_paths):
     """Bind the actually loaded immutable dylibs and unique-request audit."""
     sealed_path = pathlib.Path(sealed_audit_path).resolve()
     destination = pathlib.Path(destination).resolve()
@@ -10610,6 +10634,16 @@ def _publish_oracle_runtime_execution_packet(
         "otool_L_sha256": packet["otool_L_sha256"],
         "libraries": libraries,
         "execution_audit": copy.deepcopy(execution_audit)}
+    installed_digests = _oracle_installed_library_digests(
+        installed_library_paths)
+    require(all(
+                item["sha256"] == installed_digests[item["name"]] and
+                not os.path.samefile(
+                    pathlib.Path(installed_library_paths[
+                        item["name"]]).resolve(),
+                    (destination.parent / item["relative_path"]).resolve())
+                for item in final_packet["libraries"]),
+            "oracle loaded runtime dependency differs from authenticated install")
     require(not destination.exists(),
             "oracle runtime execution packet already exists")
     destination.write_bytes(jcs_bytes(final_packet))
@@ -10771,7 +10805,8 @@ def _audit_oracle_mpfr_calls():
 def audit_oracle_independence(binary_path, command_path, link_map_path,
                               dynamic_dependencies_path,
                               sealed_output_path=None,
-                              dependency_evidence_path=None):
+                              dependency_evidence_path=None,
+                              installed_library_paths=None):
     """Recompute the frozen primary-oracle independence proof."""
     B2.validate_source_separation()
     _audit_oracle_mpfr_calls()
@@ -10858,11 +10893,14 @@ def audit_oracle_independence(binary_path, command_path, link_map_path,
 
     actual_dynamic = checked_output(["/usr/bin/otool", "-L", str(binary)])
     supplied_dynamic = dynamic_file.read_bytes()
+    supplied_libraries = None
+    loaded_library_paths = None
     if supplied_dynamic == actual_dynamic:
         require(sealed_output_path is not None,
                 "raw oracle dynamic transcript is not a sealed audit packet")
         dynamic_packet = _oracle_dynamic_dependency_packet(
             actual_dynamic, library_root)
+        supplied_libraries = dynamic_packet["libraries"]
     else:
         supplied_packet = strict_json_bytes(supplied_dynamic)
         require(supplied_dynamic == jcs_bytes(supplied_packet),
@@ -10873,6 +10911,7 @@ def audit_oracle_independence(binary_path, command_path, link_map_path,
                 actual_dynamic, library_root)
             require(supplied_packet == dynamic_packet,
                     "oracle dynamic-dependency audit packet drift")
+            supplied_libraries = supplied_packet["libraries"]
         elif supplied_packet.get("schema_id") == \
                 "oracle-runtime-execution-audit-v2":
             require(sealed_output_path is None,
@@ -10890,10 +10929,30 @@ def audit_oracle_independence(binary_path, command_path, link_map_path,
                         for item, (name, path) in zip(
                             supplied_packet["libraries"], dynamic_layout)),
                     "oracle runtime execution packet audit projection drift")
+            require(installed_library_paths is not None,
+                    "oracle runtime execution packet lacks installed-library "
+                    "authority")
+            supplied_libraries = supplied_packet["libraries"]
+            loaded_library_paths = {
+                item["name"]: (dynamic_file.parent /
+                    item["relative_path"]).resolve()
+                for item in supplied_libraries}
             dynamic_packet = None
         else:
             raise QualificationError(
                 "oracle dynamic-dependency audit packet schema")
+    if installed_library_paths is not None:
+        installed_digests = _oracle_installed_library_digests(
+            installed_library_paths)
+        require(supplied_libraries is not None and
+                all(item["sha256"] == installed_digests[item["name"]] and
+                    (loaded_library_paths is None or
+                     not os.path.samefile(
+                         pathlib.Path(installed_library_paths[
+                             item["name"]]).resolve(),
+                         loaded_library_paths[item["name"]]))
+                    for item in supplied_libraries),
+                "oracle runtime dependency differs from authenticated install")
     if sealed_output_path is not None:
         require(dynamic_packet is not None,
                 "oracle sealed dependency audit packet unavailable")
@@ -13675,8 +13734,19 @@ def validate_result_sidecar_bundle(report, bundle_root, checkpoint_path=None,
                 runtime_provenance is not None,
                 "standalone report validation lacks runtime source truth")
     if runtime_binaries:
+        oracle_installed_libraries = None
+        if d12_runtime_provenance is not None:
+            dependency_files = d12_runtime_provenance.get(
+                "dependencies", {})
+            if all(name in dependency_files and
+                   dependency_files[name].get("installed_library")
+                   for name in ("gmp", "mpfr")):
+                oracle_installed_libraries = {
+                    name: dependency_files[name]["installed_library"]
+                    for name in ("gmp", "mpfr")}
         _validate_runtime_bindings(
-            report, runtime_binaries, runtime_provenance)
+            report, runtime_binaries, runtime_provenance,
+            oracle_installed_libraries)
     provider_rows = None
     worker_inventory = None
     d12_runtime_audit = None
@@ -14664,13 +14734,19 @@ def execute(args):
     published_oracle_dynamic = (
         pathlib.Path(args.output).resolve().parent /
         "anchored-row-oracle-runtime-execution-audit-v2.json")
+    oracle_installed_library_paths = {
+        "gmp": original_args.gmp_installed_library,
+        "mpfr": original_args.mpfr_installed_library}
+    oracle_installed_library_digests = _oracle_installed_library_digests(
+        oracle_installed_library_paths)
     oracle_independence_audit = audit_oracle_independence(
         original_runtime["independent_oracle_binary"][0],
         original_oracle_provenance["oracle_command_file"][0],
         original_oracle_provenance["oracle_link_map"][0],
         original_oracle_provenance["oracle_dynamic_dependencies"][0],
         sealed_output_path=sealed_oracle_dynamic,
-        dependency_evidence_path=oracle_dependency_snapshot)
+        dependency_evidence_path=oracle_dependency_snapshot,
+        installed_library_paths=oracle_installed_library_paths)
     oracle_runtime_library_root = (evidence_root /
                                    "anchored-row-oracle-runtime-libraries-v1")
     oracle_runtime_libraries = _snapshot_oracle_runtime_libraries(
@@ -14796,11 +14872,16 @@ def execute(args):
                 sha256_file(source) == digest == sha256_file(destination)
                 for source, digest, destination in oracle_runtime_libraries),
             "oracle runtime dependency identity changed during execution")
+    require(_oracle_installed_library_digests(
+                oracle_installed_library_paths) ==
+                oracle_installed_library_digests,
+            "oracle authenticated installed library changed during execution")
     require_git_binding(git_start, git_end, worktree_start, worktree_end,
                         expected_head, checkpoint["binding"]["git_head"])
     _publish_oracle_runtime_execution_packet(
         sealed_oracle_dynamic,oracle_runtime_libraries,
-        oracle_execution_audit,published_oracle_dynamic)
+        oracle_execution_audit,published_oracle_dynamic,
+        oracle_installed_library_paths)
     args.oracle_dynamic_dependencies = str(published_oracle_dynamic)
 
     candidate_source = ROOT / "experiments/anchored_row_qualification/candidate.cpp"
@@ -15096,9 +15177,11 @@ def main(argv=None):
                 args.boundary_dynamic_dependencies, args.gmp_archive,
                 args.gmp_build_provenance, args.gmp_install_provenance,
                 args.gmp_link_provenance, args.gmp_dynamic_dependency,
+                args.gmp_installed_library,
                 args.mpfr_archive, args.mpfr_build_provenance,
                 args.mpfr_install_provenance, args.mpfr_link_provenance,
-                args.mpfr_dynamic_dependency, args.opensubdiv_archive,
+                args.mpfr_dynamic_dependency, args.mpfr_installed_library,
+                args.opensubdiv_archive,
                 args.opensubdiv_build_provenance,
                 args.opensubdiv_install_provenance,
                 args.opensubdiv_link_provenance,
@@ -15256,9 +15339,11 @@ def main(argv=None):
                 args.oracle_dynamic_dependencies,
                 args.gmp_archive, args.gmp_build_provenance,
                 args.gmp_install_provenance, args.gmp_link_provenance,
-                args.gmp_dynamic_dependency, args.mpfr_archive,
+                args.gmp_dynamic_dependency, args.gmp_installed_library,
+                args.mpfr_archive,
                 args.mpfr_build_provenance, args.mpfr_install_provenance,
                 args.mpfr_link_provenance, args.mpfr_dynamic_dependency,
+                args.mpfr_installed_library,
                 args.opensubdiv_archive, args.opensubdiv_build_provenance,
                 args.opensubdiv_install_provenance,
                 args.opensubdiv_link_provenance,

@@ -247,6 +247,25 @@ of an original library after execution.
 
 No hosted or physical numeric run was started at `98c4f4c`.
 
+## Exact-SHA review at `953b0f9ece520376d6c8710730c96a551ae878c9`
+
+Technical, scientific, and verification review accepted the version-2
+writer-to-standalone integration repair, but the independent gatekeeper found
+a second coordinated provenance gap. Replacing one loaded runtime snapshot and
+updating only its digest inside the same version-2 packet still passed: the
+packet owned both the claimed digest and the bytes checked against it. The
+exact-SHA verdict was therefore `FAIL`, and no hosted or physical run began.
+
+The follow-up makes the separately retained GMP and MPFR installed-library
+artifacts mandatory inputs at qualification writing and standalone replay.
+Their role-specific hashes must equal the loaded snapshot hashes before the
+version-2 packet is published and whenever it is validated. The writer records
+their identities before scientific execution and rechecks them afterward. A
+coordinated packet-plus-snapshot substitution now fails against this distinct
+installed-library authority, while later mutation of an obsolete original
+runtime path remains harmless when the authenticated install artifact and
+loaded snapshot remain unchanged.
+
 ## Hosted and physical-host disposition
 
 The mandatory `macos-26` workflow completed successfully at exact SHA
