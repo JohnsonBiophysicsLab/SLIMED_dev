@@ -225,6 +225,28 @@ the eventual verdict `INCOMPLETE`. That is an allowed scientific result, not a
 qualification shortcut. No tolerance, fixture, sample, or acceptance target
 has been changed in response.
 
+## Exact-SHA review at `98c4f4c1491eaf16b44b57c3469e29ce84369316`
+
+All four exact-SHA reviewers rejected this revision for one shared executable
+integration defect. The production writer published the version-2 runtime
+execution packet as the independent oracle's dynamic-dependency evidence, but
+standalone independence validation compared every supplied packet directly to
+the older version-1 dependency-only object. A genuine version-2 report
+therefore failed with `oracle dynamic-dependency audit packet drift` before
+the immutable runtime libraries or 16,500-request sidecar could be admitted.
+
+The follow-up validator accepts a version-2 packet only after binding its
+canonical loaded-library files and execution sidecar, matching its exact
+`otool -L` transcript and digest to the authenticated oracle binary, and
+matching each audited library path and role to that transcript. It continues
+to require exact version-1 equality for dependency-only packets. The loaded
+snapshot bytes, rather than mutable post-execution originals, own the version-2
+library digests. A writer-to-standalone regression covers the successful path,
+audited-path drift, loaded-snapshot drift, sidecar drift, and harmless mutation
+of an original library after execution.
+
+No hosted or physical numeric run was started at `98c4f4c`.
+
 ## Hosted and physical-host disposition
 
 The mandatory `macos-26` workflow completed successfully at exact SHA

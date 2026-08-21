@@ -10471,8 +10471,9 @@ def binary_record(path, source_paths, capability, dependencies,
             "capability": capability}
 
 
-def _oracle_dynamic_dependency_packet(actual_dynamic, library_root):
-    """Bind the exact loaded MPFR/GMP dylib paths and bytes."""
+def _oracle_dynamic_dependency_layout(actual_dynamic, library_root,
+                                      require_available):
+    """Parse the exact MPFR/GMP dylib identities from an otool transcript."""
     try:
         dynamic_text = actual_dynamic.decode("utf-8", errors="strict")
     except UnicodeError as error:
@@ -10491,13 +10492,23 @@ def _oracle_dynamic_dependency_packet(actual_dynamic, library_root):
                 "oracle dynamic dependency lacks one exact lib" + name)
         raw_path = matches[0]
         path = pathlib.Path(raw_path).resolve()
-        require(raw_path == str(path) and path.is_file() and
+        require(raw_path == str(path) and
+                (not require_available or path.is_file()) and
                 path.is_relative_to(library_root) and
                 path.parent == library_root,
                 "oracle linked lib{} escapes the declared canonical root".
                 format(name))
-        libraries.append({"name": name, "path": str(path),
-                          "sha256": sha256_file(path)})
+        libraries.append((name, path))
+    return dynamic_text, libraries
+
+
+def _oracle_dynamic_dependency_packet(actual_dynamic, library_root):
+    """Bind the exact loaded MPFR/GMP dylib paths and bytes."""
+    dynamic_text, layout = _oracle_dynamic_dependency_layout(
+        actual_dynamic, library_root, True)
+    libraries = [
+        {"name": name, "path": str(path), "sha256": sha256_file(path)}
+        for name, path in layout]
     return {
         "schema_id": "oracle-runtime-dependency-audit-v1",
         "otool_L_sha256": sha256_bytes(actual_dynamic),
@@ -10635,6 +10646,11 @@ def _bound_oracle_execution_audit(dynamic_packet_path):
                 pathlib.PurePosixPath(item["relative_path"]).parts[0] ==
                     "anchored-row-oracle-runtime-libraries-v1" and
                 len(pathlib.PurePosixPath(item["relative_path"]).parts) == 2 and
+                pathlib.PurePosixPath(item["relative_path"]).name ==
+                    pathlib.Path(item["audited_path"]).name and
+                re.fullmatch(r"lib" + item["name"] +
+                             r"(?:\.[0-9]+)*\.dylib",
+                             pathlib.Path(item["audited_path"]).name) is not None and
                 SHA256_RE.fullmatch(item["sha256"] or "") is not None,
                 "oracle loaded runtime dependency binding drift")
         loaded = (packet_path.parent / item["relative_path"]).resolve()
@@ -10841,18 +10857,46 @@ def audit_oracle_independence(binary_path, command_path, link_map_path,
         return completed.stdout
 
     actual_dynamic = checked_output(["/usr/bin/otool", "-L", str(binary)])
-    dynamic_packet = _oracle_dynamic_dependency_packet(
-        actual_dynamic, library_root)
     supplied_dynamic = dynamic_file.read_bytes()
     if supplied_dynamic == actual_dynamic:
         require(sealed_output_path is not None,
                 "raw oracle dynamic transcript is not a sealed audit packet")
+        dynamic_packet = _oracle_dynamic_dependency_packet(
+            actual_dynamic, library_root)
     else:
         supplied_packet = strict_json_bytes(supplied_dynamic)
-        require(supplied_packet == dynamic_packet and
-                supplied_dynamic == jcs_bytes(dynamic_packet),
-                "oracle dynamic-dependency audit packet drift")
+        require(supplied_dynamic == jcs_bytes(supplied_packet),
+                "oracle dynamic-dependency audit packet is not canonical")
+        if supplied_packet.get("schema_id") == \
+                "oracle-runtime-dependency-audit-v1":
+            dynamic_packet = _oracle_dynamic_dependency_packet(
+                actual_dynamic, library_root)
+            require(supplied_packet == dynamic_packet,
+                    "oracle dynamic-dependency audit packet drift")
+        elif supplied_packet.get("schema_id") == \
+                "oracle-runtime-execution-audit-v2":
+            require(sealed_output_path is None,
+                    "oracle execution packet cannot mint a sealed audit")
+            _bound_oracle_execution_audit(dynamic_file)
+            dynamic_text, dynamic_layout = \
+                _oracle_dynamic_dependency_layout(
+                    actual_dynamic, library_root, False)
+            require(supplied_packet.get("otool_L_text") == dynamic_text and
+                    supplied_packet.get("otool_L_sha256") ==
+                        sha256_bytes(actual_dynamic) and
+                    len(supplied_packet.get("libraries", [])) == 2 and
+                    all(item.get("name") == name and
+                        item.get("audited_path") == str(path)
+                        for item, (name, path) in zip(
+                            supplied_packet["libraries"], dynamic_layout)),
+                    "oracle runtime execution packet audit projection drift")
+            dynamic_packet = None
+        else:
+            raise QualificationError(
+                "oracle dynamic-dependency audit packet schema")
     if sealed_output_path is not None:
+        require(dynamic_packet is not None,
+                "oracle sealed dependency audit packet unavailable")
         sealed_path = pathlib.Path(sealed_output_path).resolve()
         require(not sealed_path.exists(),
                 "oracle dynamic-dependency sealed output already exists")
