@@ -149,6 +149,26 @@ class OpenSubdivRegularProductionCacheInventoryTest(unittest.TestCase):
             ),
             (
                 mesh_header,
+                area.replace(
+                    "void Mesh::setup_from_vertices_faces",
+                    "#define invalidate_topology_derived_state() ((void)0)\n"
+                    "void Mesh::setup_from_vertices_faces",
+                    1,
+                ),
+                setup,
+            ),
+            (
+                mesh_header,
+                area,
+                setup.replace(
+                    "void Mesh::setup_flat",
+                    "#define invalidate_topology_derived_state() ((void)0)\n"
+                    "void Mesh::setup_flat",
+                    1,
+                ),
+            ),
+            (
+                mesh_header,
                 area,
                 setup.replace(
                     "    invalidate_topology_derived_state();",
@@ -244,6 +264,26 @@ class OpenSubdivRegularProductionCacheInventoryTest(unittest.TestCase):
                 setup.replace(
                     "invalidate_topology_derived_state();",
                     "regularLimitSurfaceRowCache_.invalidate();",
+                    1,
+                ),
+            ),
+            (
+                mesh_header,
+                area.replace(
+                    "    invalidate_topology_derived_state();",
+                    "    invalidate_topology_derived_state();\n"
+                    "    --topologyGeneration_;",
+                    1,
+                ),
+                setup,
+            ),
+            (
+                mesh_header,
+                area,
+                setup.replace(
+                    "    invalidate_topology_derived_state();",
+                    "    invalidate_topology_derived_state();\n"
+                    "    --topologyGeneration_;",
                     1,
                 ),
             ),
@@ -367,6 +407,7 @@ class OpenSubdivRegularProductionCacheInventoryTest(unittest.TestCase):
             "void Mesh::extra_caller() { invalidate_topology_derived_state(); }",
             "void Mesh::extra_reset() { regularLimitSurfaceRowCache_.invalidate(); }",
             "void Mesh::invalidate_topology_derived_state() {}",
+            "void Mesh::clobber_generation() { ++topologyGeneration_; }",
         ):
             with self.subTest(extra_source=extra_source):
                 self.assertTrue(
