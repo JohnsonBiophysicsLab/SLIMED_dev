@@ -242,6 +242,14 @@ def _has_unreviewed_macro_directive(code):
     return False
 
 
+def _has_conditional_directive(code):
+    """Report conditional preprocessing in a protected implementation file."""
+    return bool(re.search(
+        rf"^\s*{_CPP_DIRECTIVE_PREFIX}\s*"
+        r"(?:if|ifdef|ifndef|elif|else|endif)\b",
+        code, re.MULTILINE))
+
+
 def _mask_cpp_conditionals(code):
     """Exclude every conditional-preprocessor region from positive evidence."""
     masked = []
@@ -345,6 +353,13 @@ def invalidation_seam_errors_for_sources(
         r"regularLimitSurfaceRowCache_\s*\.\s*invalidate\s*"
         r"\(\s*\)\s*;\s*\+\+\s*topologyGeneration_\s*;\s*")
     errors = []
+
+    for name, code in (
+            ("Mesh header", lexical_code[0]),
+            ("import setup", lexical_code[1]),
+            ("flat setup", lexical_code[2])):
+        if _has_conditional_directive(code):
+            errors.append(f"{name} contains conditional preprocessing")
 
     mesh_class = _unique_braced_scope(
         header_code, r"\bclass\s+Mesh\b[^;{]*\{")

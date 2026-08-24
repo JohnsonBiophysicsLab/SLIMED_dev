@@ -375,6 +375,30 @@ class UnifiedLoopBaselineInventoryTest(unittest.TestCase):
         self.assert_text_mutation_rejected(
             "src/mesh/Mesh.cpp",
             lambda text: text.replace(
+                "    invalidate_topology_derived_state();",
+                "#if 1\n"
+                "    return;\n"
+                "#endif\n"
+                "    invalidate_topology_derived_state();", 1))
+        self.assert_text_mutation_rejected(
+            "src/mesh/Mesh_setup_flat.cpp",
+            lambda text: text.replace(
+                "    invalidate_topology_derived_state();",
+                "%:if 1\n"
+                "    return;\n"
+                "%:endif\n"
+                "    invalidate_topology_derived_state();", 1))
+        self.assert_text_mutation_rejected(
+            "include/mesh/Mesh.hpp",
+            lambda text: text.replace(
+                "        regularLimitSurfaceRowCache_.invalidate();",
+                "#ifdef __cplusplus\n"
+                "        return;\n"
+                "#endif\n"
+                "        regularLimitSurfaceRowCache_.invalidate();", 1))
+        self.assert_text_mutation_rejected(
+            "src/mesh/Mesh.cpp",
+            lambda text: text.replace(
                 "void Mesh::setup_from_vertices_faces",
                 "#define invalidate_topology_derived_state() ((void)0)\n"
                 "void Mesh::setup_from_vertices_faces", 1))

@@ -150,6 +150,42 @@ class OpenSubdivRegularProductionCacheInventoryTest(unittest.TestCase):
             (
                 mesh_header,
                 area.replace(
+                    "    invalidate_topology_derived_state();",
+                    "#if 1\n"
+                    "    return;\n"
+                    "#endif\n"
+                    "    invalidate_topology_derived_state();",
+                    1,
+                ),
+                setup,
+            ),
+            (
+                mesh_header,
+                area,
+                setup.replace(
+                    "    invalidate_topology_derived_state();",
+                    "%:if 1\n"
+                    "    return;\n"
+                    "%:endif\n"
+                    "    invalidate_topology_derived_state();",
+                    1,
+                ),
+            ),
+            (
+                mesh_header.replace(
+                    "        regularLimitSurfaceRowCache_.invalidate();",
+                    "#ifdef __cplusplus\n"
+                    "        return;\n"
+                    "#endif\n"
+                    "        regularLimitSurfaceRowCache_.invalidate();",
+                    1,
+                ),
+                area,
+                setup,
+            ),
+            (
+                mesh_header,
+                area.replace(
                     "void Mesh::setup_from_vertices_faces",
                     "#define invalidate_topology_derived_state() ((void)0)\n"
                     "void Mesh::setup_from_vertices_faces",
