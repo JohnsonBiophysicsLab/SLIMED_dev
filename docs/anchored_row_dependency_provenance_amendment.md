@@ -82,6 +82,14 @@ directory. The next run reuses only the literal path, never the first run's
 files. An alternate build path, path normalization, debug/symbol-table rewrite,
 or stripped binary is forbidden.
 
+Before either extraction, each absolute non-aliased input archive is copied
+through one no-follow file descriptor into the retained `source-archives`
+directory while SHA-256 is computed. File identity, length, modification time,
+and frozen digest must agree before and after the copy. Both runs extract only
+these sealed copies, and each sealed archive is rehashed immediately before and
+after each run. Reopening the original caller path after its initial check, or
+letting runs `A` and `B` observe different archive bytes, is forbidden.
+
 ## Exact derivation environment
 
 Derivation is permitted only on D12's already frozen physical fingerprint:
@@ -249,6 +257,8 @@ checked_in_freeze_summary_sha256=59f0da12d1e65e19423cf18e5607c384a3048d71dfc3cc1
 Tests and exact-SHA review must reject at least:
 
 - either wrong archive byte or digest, version, URL, or archive-role swap;
+- archive aliasing, replacement during snapshot, or different sealed archive
+  bytes observed by the two independent runs;
 - noncanonical, relative, aliased, hardlinked, or different install prefixes;
 - an existing/reused canonical install or build root before either build;
 - inherited or missing environment entries and changed compiler/SDK/tool path;

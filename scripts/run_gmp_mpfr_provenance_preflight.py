@@ -299,12 +299,61 @@ def git_observation() -> dict[str, Any]:
 
 
 def validate_archive(name: str, path: pathlib.Path) -> dict[str, Any]:
-    require(path.is_file() and not path.is_symlink(),
+    require(path.is_absolute() and path.is_file() and not path.is_symlink() and
+            path.resolve(strict=True) == path,
             f"{name} archive is unavailable or aliased")
     digest = sha256_file(path)
     require(digest == ARCHIVES[name]["sha256"],
             f"{name} archive digest differs from frozen authority")
     return {**ARCHIVES[name], "byte_length": path.stat().st_size}
+
+
+def snapshot_archive(name: str, source: pathlib.Path,
+                     destination: pathlib.Path) -> dict[str, Any]:
+    require(source.is_absolute(), f"{name} archive path is not absolute")
+    before = source.lstat() if source.exists() or source.is_symlink() else None
+    require(before is not None and stat.S_ISREG(before.st_mode) and
+            not source.is_symlink(),
+            f"{name} archive is unavailable or aliased")
+    require(not destination.exists() and not destination.is_symlink(),
+            f"{name} archive snapshot already exists")
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    flags = os.O_RDONLY
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    descriptor = os.open(source, flags)
+    digest = hashlib.sha256()
+    byte_length = 0
+    try:
+        opened = os.fstat(descriptor)
+        require((opened.st_dev, opened.st_ino, opened.st_size) ==
+                (before.st_dev, before.st_ino, before.st_size),
+                f"{name} archive changed before snapshot")
+        with destination.open("xb") as output:
+            while True:
+                chunk = os.read(descriptor, 1024 * 1024)
+                if not chunk:
+                    break
+                output.write(chunk)
+                digest.update(chunk)
+                byte_length += len(chunk)
+        after_open = os.fstat(descriptor)
+    finally:
+        os.close(descriptor)
+    after_path = source.lstat() if source.exists() or source.is_symlink() else None
+    require(after_path is not None and
+            (after_path.st_dev, after_path.st_ino, after_path.st_size,
+             after_path.st_mtime_ns) ==
+            (before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns) and
+            (after_open.st_dev, after_open.st_ino, after_open.st_size,
+             after_open.st_mtime_ns) ==
+            (before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns),
+            f"{name} archive changed during snapshot")
+    require(byte_length == before.st_size,
+            f"{name} archive snapshot length drift")
+    require(digest.hexdigest() == ARCHIVES[name]["sha256"],
+            f"{name} archive snapshot digest differs from frozen authority")
+    return validate_archive(name, destination)
 
 
 def closed_environment() -> dict[str, str]:
@@ -958,12 +1007,13 @@ def derive(args: argparse.Namespace) -> dict[str, Any]:
     validate_prefix_parent()
     require(not CANONICAL_PREFIX.exists(), "canonical prefix already exists")
     require(not CANONICAL_BUILD_ROOT.exists(), "canonical build root already exists")
-    archives = {
-        "gmp": pathlib.Path(args.gmp_archive).resolve(),
-        "mpfr": pathlib.Path(args.mpfr_archive).resolve(),
+    input_archives = {
+        "gmp": pathlib.Path(args.gmp_archive),
+        "mpfr": pathlib.Path(args.mpfr_archive),
     }
     archive_records = {
-        name: validate_archive(name, path) for name, path in archives.items()
+        name: validate_archive(name, path)
+        for name, path in input_archives.items()
     }
     require({name: {key: value for key, value in record.items()
                     if key != "byte_length"}
@@ -977,11 +1027,28 @@ def derive(args: argparse.Namespace) -> dict[str, Any]:
     require(git["worktree_clean"] is True,
             "derivation requires an empty exact-head worktree")
     output.mkdir(parents=True)
+    archive_root = output / "source-archives"
+    archives = {
+        name: archive_root / f"{ARCHIVES[name]['identity']}.tar.xz"
+        for name in ("gmp", "mpfr")
+    }
+    snapshot_records = {
+        name: snapshot_archive(name, input_archives[name], archives[name])
+        for name in ("gmp", "mpfr")
+    }
+    require(snapshot_records == archive_records,
+            "source archive snapshot projection drift")
+    for name in ("gmp", "mpfr"):
+        validate_archive(name, archives[name])
     first = build_pair("A", archives, output)
+    for name in ("gmp", "mpfr"):
+        validate_archive(name, archives[name])
     preserved = output / "run-a" / "installed-tree"
     require(not preserved.exists(), "run A installed tree already exists")
     CANONICAL_PREFIX.rename(preserved)
     second = build_pair("B", archives, output)
+    for name in ("gmp", "mpfr"):
+        validate_archive(name, archives[name])
     report = {
         "schema": SCHEMA,
         "authority": {

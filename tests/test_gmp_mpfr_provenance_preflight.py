@@ -264,12 +264,80 @@ class GmpMpfrProvenancePreflightTest(unittest.TestCase):
                     MODULE.validate_report(mutation, require_frozen=False)
 
     def test_archive_bytes_must_match_frozen_digest(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            path = pathlib.Path(temporary) / "gmp.tar.xz"
+        with tempfile.TemporaryDirectory(dir="/private/tmp") as temporary:
+            path = pathlib.Path(temporary).resolve() / "gmp.tar.xz"
             path.write_bytes(b"not the frozen archive")
             with self.assertRaisesRegex(
                     MODULE.PreflightError, "digest differs"):
                 MODULE.validate_archive("gmp", path)
+
+    def test_archive_snapshot_is_frozen_and_rejects_alias(self):
+        with tempfile.TemporaryDirectory(dir="/private/tmp") as temporary:
+            root = pathlib.Path(temporary).resolve()
+            source = root / "gmp.tar.xz"
+            raw = b"frozen archive bytes"
+            source.write_bytes(raw)
+            destination = root / "snapshots" / "gmp.tar.xz"
+            authority = copy.deepcopy(MODULE.ARCHIVES)
+            authority["gmp"]["sha256"] = MODULE.hashlib.sha256(raw).hexdigest()
+            with mock.patch.dict(MODULE.ARCHIVES, authority, clear=True):
+                record = MODULE.snapshot_archive("gmp", source, destination)
+            self.assertEqual(destination.read_bytes(), raw)
+            self.assertEqual(record["sha256"],
+                             MODULE.hashlib.sha256(raw).hexdigest())
+            alias = root / "gmp-alias.tar.xz"
+            alias.symlink_to(source.name)
+            with mock.patch.dict(MODULE.ARCHIVES, authority, clear=True):
+                with self.assertRaisesRegex(MODULE.PreflightError, "aliased"):
+                    MODULE.snapshot_archive("gmp", alias,
+                                            root / "second-snapshot.tar.xz")
+
+    def test_derive_uses_one_sealed_snapshot_for_both_runs(self):
+        with tempfile.TemporaryDirectory(dir="/private/tmp") as temporary:
+            root = pathlib.Path(temporary).resolve()
+            gmp = root / "input-gmp.tar.xz"
+            mpfr = root / "input-mpfr.tar.xz"
+            gmp.write_bytes(b"gmp archive")
+            mpfr.write_bytes(b"mpfr archive")
+            output = root / "proof"
+            prefix = root / "prefix"
+            build_root = root / "build-root"
+            authority = copy.deepcopy(MODULE.ARCHIVES)
+            authority["gmp"]["sha256"] = MODULE.sha256_file(gmp)
+            authority["mpfr"]["sha256"] = MODULE.sha256_file(mpfr)
+            calls = []
+
+            def fake_build(run_id, archives, _output):
+                calls.append({key: value for key, value in archives.items()})
+                (_output / f"run-{run_id.lower()}").mkdir()
+                prefix.mkdir()
+                return {"run_id": run_id, "builds": {}, "libraries": {
+                    "gmp": {"sha256": authority["gmp"]["sha256"]},
+                    "mpfr": {"sha256": authority["mpfr"]["sha256"]}}}
+
+            args = mock.Mock(output_dir=str(output), gmp_archive=str(gmp),
+                             mpfr_archive=str(mpfr))
+            with mock.patch.dict(MODULE.ARCHIVES, authority, clear=True), \
+                    mock.patch.object(MODULE, "CANONICAL_PREFIX", prefix), \
+                    mock.patch.object(MODULE, "CANONICAL_BUILD_ROOT", build_root), \
+                    mock.patch.object(MODULE, "validate_prefix_parent"), \
+                    mock.patch.object(MODULE, "platform_fingerprint",
+                                      return_value=MODULE.EXPECTED_PLATFORM), \
+                    mock.patch.object(MODULE, "compiler_identity",
+                                      return_value={"test": "compiler"}), \
+                    mock.patch.object(MODULE, "git_observation",
+                                      return_value={"head": "a" * 40,
+                                                    "worktree_clean": True}), \
+                    mock.patch.object(MODULE, "build_pair",
+                                      side_effect=fake_build), \
+                    mock.patch.object(MODULE, "validate_report"):
+                MODULE.derive(args)
+            self.assertEqual(len(calls), 2)
+            self.assertEqual(calls[0], calls[1])
+            for name, path in calls[0].items():
+                self.assertEqual(path.parent, output / "source-archives")
+                self.assertEqual(MODULE.sha256_file(path),
+                                 authority[name]["sha256"])
 
     def test_duplicate_json_key_and_noncanonical_json_reject(self):
         with tempfile.TemporaryDirectory() as temporary:

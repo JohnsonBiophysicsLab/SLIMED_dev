@@ -1461,6 +1461,9 @@ installed tree's directory components, unversioned symlinks, non-hardlinked
 projections. Git derivation identity uses closed-environment absolute Git and a
 complete HEAD/index/blob/mode audit. A copied report, coordinated sidecar edit,
 ambient Git redirect, hidden index flag, or alternate-prefix tree is rejected.
+Both builds consume the same retained no-follow snapshot of each frozen source
+archive; the original input path is never reopened after snapshot, and the
+sealed copies are rehashed around each extraction/build boundary.
 
 Frozen inputs:
 
