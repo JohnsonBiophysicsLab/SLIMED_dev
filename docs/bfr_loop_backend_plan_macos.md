@@ -1464,6 +1464,12 @@ ambient Git redirect, hidden index flag, or alternate-prefix tree is rejected.
 Both builds consume the same retained no-follow snapshot of each frozen source
 archive; the original input path is never reopened after snapshot, and the
 sealed copies are rehashed around each extraction/build boundary.
+The hardened derivation ran at clean exact pre-freeze head
+`3fd0b87865a52283478f39847e8cca36285a9126`; its canonical 16,153-byte bundle
+has SHA-256
+`97653fd13d25e431ebcf0b723a4e54225d76dc39d0bffea05e27c8705b69fc3d`.
+These remain proposed inputs pending the amendment's four exact-SHA reviews,
+merge, and explicit approval.
 
 Frozen inputs:
 
