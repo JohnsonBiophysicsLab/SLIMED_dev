@@ -407,6 +407,18 @@ class UnifiedLoopBaselineInventoryTest(unittest.TestCase):
         self.assert_text_mutation_rejected(
             "include/mesh/Mesh.hpp",
             lambda text: text.replace(
+                "    void invalidate_topology_derived_state()",
+                '#import "mesh/L7b_public_access.hpp"\n'
+                "    void invalidate_topology_derived_state()", 1))
+        self.assert_text_mutation_rejected(
+            "src/mesh/Mesh_setup_flat.cpp",
+            lambda text: text.replace(
+                "    invalidate_topology_derived_state();",
+                '%:include_next "mesh/L7b_early_return.hpp"\n'
+                "    invalidate_topology_derived_state();", 1))
+        self.assert_text_mutation_rejected(
+            "include/mesh/Mesh.hpp",
+            lambda text: text.replace(
                 "class Mesh",
                 '#include "/private/tmp/L7b_private_alias.hpp"\n'
                 "class Mesh", 1))
@@ -633,6 +645,17 @@ class UnifiedLoopBaselineInventoryTest(unittest.TestCase):
                 "{\n"
                 "    ++L7B_JOIN(topology, Generation_);\n"
                 "}\n")
+        self.assert_text_mutation_rejected(
+            "src/energy_force/Compute_energy_and_force_on_mesh.cpp",
+            lambda text: text.replace(
+                "void Mesh::clear_force_on_vertices_and_energy_on_faces()\n"
+                "{",
+                "void Mesh::clear_force_on_vertices_and_energy_on_faces()\n"
+                "{\n"
+                '#include "/private/tmp/L7b_clobber.inc"', 1))
+        self.assert_text_mutation_rejected(
+            "src/energy_force/Compute_energy_and_force_on_mesh.cpp",
+            lambda text: '#import "/private/tmp/L7b_clobber.inc"\n' + text)
         self.assert_text_mutation_rejected(
             "src/mesh/Mesh_io.cpp",
             lambda text: text +

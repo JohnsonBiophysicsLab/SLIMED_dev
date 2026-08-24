@@ -201,6 +201,26 @@ class OpenSubdivRegularProductionCacheInventoryTest(unittest.TestCase):
             ),
             (
                 mesh_header.replace(
+                    "    void invalidate_topology_derived_state()",
+                    '#import "mesh/L7b_public_access.hpp"\n'
+                    "    void invalidate_topology_derived_state()",
+                    1,
+                ),
+                area,
+                setup,
+            ),
+            (
+                mesh_header,
+                area,
+                setup.replace(
+                    "    invalidate_topology_derived_state();",
+                    '%:include_next "mesh/L7b_early_return.hpp"\n'
+                    "    invalidate_topology_derived_state();",
+                    1,
+                ),
+            ),
+            (
+                mesh_header.replace(
                     "class Mesh",
                     '#include "/private/tmp/L7b_private_alias.hpp"\n'
                     "class Mesh",
@@ -548,6 +568,10 @@ class OpenSubdivRegularProductionCacheInventoryTest(unittest.TestCase):
             "#define L7B_JOIN(a, b) L7B_JOIN_I(a, b)\n"
             "void Mesh::clobber_generation() "
             "{ ++L7B_JOIN(topology, Generation_); }",
+            "void Mesh::clobber_generation()\n"
+            "{\n"
+            '#include "/private/tmp/L7b_clobber.inc"\n'
+            "}",
         ):
             with self.subTest(extra_source=extra_source):
                 self.assertTrue(

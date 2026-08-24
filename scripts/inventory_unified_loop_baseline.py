@@ -565,14 +565,25 @@ _REVIEWED_IMPORT_INCLUDES = (
     '"mesh/OpenSubdiv_regular_evaluator.hpp"', "<sstream>", "<stdexcept>",
 )
 _REVIEWED_FLAT_INCLUDES = ('"mesh/Mesh.hpp"',)
+_REVIEWED_OTHER_SOURCE_COUNT = 85
+_REVIEWED_OTHER_INCLUSION_SHA256 = (
+    "f325d98ca110de9f75f0f83358995cb29b074e720d7bf4f08d3edc35a2fe56b9")
 
 
-def _include_operands(text: str) -> tuple[str, ...]:
-    """Return every logical-line include operand, including digraph forms."""
+def _source_inclusion_directives(text: str) -> tuple[tuple[str, str], ...]:
+    """Return logical-line include/import directives and their operands."""
     text = re.sub(r"\\\r?\n", "", text)
-    return tuple(match.group(1).strip() for match in re.finditer(
-        rf"^\s*{_CPP_DIRECTIVE_PREFIX}\s*include\b([^\n]*)",
+    return tuple((match.group(1), match.group(2).strip())
+                 for match in re.finditer(
+        rf"^\s*{_CPP_DIRECTIVE_PREFIX}\s*"
+        r"(include|include_next|import)\b([^\n]*)",
         text, re.MULTILINE))
+
+
+def _source_inclusion_surface_sha256(sources: list[str]) -> str:
+    surface = [_source_inclusion_directives(source) for source in sources]
+    encoded = json.dumps(surface, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
 
 
 def _has_unreviewed_macro_directive(code: str) -> bool:
@@ -610,11 +621,22 @@ def _has_conditional_directive(code: str) -> bool:
         code, re.MULTILINE))
 
 
-def _has_include_directive(code: str) -> bool:
+def _has_source_inclusion_directive(code: str) -> bool:
     """Report source inclusion inside a protected C++ scope."""
     return bool(re.search(
-        rf"^\s*{_CPP_DIRECTIVE_PREFIX}\s*include\b",
+        rf"^\s*{_CPP_DIRECTIVE_PREFIX}\s*"
+        r"(?:include|include_next|import)\b",
         code, re.MULTILINE))
+
+
+def _has_nested_source_inclusion(code: str) -> bool:
+    """Reject fragment expansion inside any scanned brace scope."""
+    directive = re.compile(
+        rf"^\s*{_CPP_DIRECTIVE_PREFIX}\s*"
+        r"(?:include|include_next|import)\b", re.MULTILINE)
+    return any(code[:match.start()].count("{") !=
+               code[:match.start()].count("}")
+               for match in directive.finditer(code))
 
 
 def _mask_cpp_conditionals(code: str) -> str:
@@ -700,7 +722,8 @@ def _topology_invalidation_seam_errors(
         mesh_header: str,
         mesh_source: str,
         flat_source: str,
-        other_mesh_sources: list[str]) -> list[str]:
+        other_mesh_sources: list[str],
+        require_complete_source_surface: bool = False) -> list[str]:
     lexical_code = [_cpp_code(source) for source in (
         mesh_header, mesh_source, flat_source, *other_mesh_sources)]
     unconditional_code = [_mask_cpp_conditionals(code) for code in lexical_code]
@@ -725,11 +748,20 @@ def _topology_invalidation_seam_errors(
         r"\(\s*\)\s*;\s*\+\+\s*topologyGeneration_\s*;\s*")
     errors: list[str] = []
 
+    if require_complete_source_surface and (
+            len(other_mesh_sources) != _REVIEWED_OTHER_SOURCE_COUNT or
+            _source_inclusion_surface_sha256(other_mesh_sources) !=
+            _REVIEWED_OTHER_INCLUSION_SHA256):
+        errors.append("all-source include surface has drifted")
+    if any(_has_nested_source_inclusion(code) for code in lexical_code[3:]):
+        errors.append("source inclusion occurs inside an unreviewed scope")
+
     for name, source, expected in (
             ("Mesh header", mesh_header, _REVIEWED_MESH_HEADER_INCLUDES),
             ("import setup", mesh_source, _REVIEWED_IMPORT_INCLUDES),
             ("flat setup", flat_source, _REVIEWED_FLAT_INCLUDES)):
-        if _include_operands(source) != expected:
+        reviewed = tuple(("include", operand) for operand in expected)
+        if _source_inclusion_directives(source) != reviewed:
             errors.append(f"{name} include surface has drifted")
 
     for name, code in (
@@ -745,7 +777,7 @@ def _topology_invalidation_seam_errors(
         errors.append("unique Mesh class scope")
     else:
         _, class_body = mesh_class
-        if _has_include_directive(class_body):
+        if _has_source_inclusion_directive(class_body):
             errors.append("Mesh class contains an unreviewed include")
         seam_scope = _unique_braced_scope(
             class_body,
@@ -769,7 +801,7 @@ def _topology_invalidation_seam_errors(
         r"\bvoid\s+Mesh::setup_from_vertices_faces\s*\([^)]*\)\s*\{")
     if import_scope is None:
         errors.append("unique import setup scope")
-    elif _has_include_directive(import_scope[1]):
+    elif _has_source_inclusion_directive(import_scope[1]):
         errors.append("import setup contains an unreviewed include")
     elif len(seam_call_pattern.findall(import_scope[1])) != 1:
         errors.append("import setup does not call seam exactly once")
@@ -780,7 +812,7 @@ def _topology_invalidation_seam_errors(
         lexical_code[2], r"\bvoid\s+Mesh::setup_flat\s*\(\s*\)\s*\{")
     if flat_scope is None:
         errors.append("unique flat setup scope")
-    elif _has_include_directive(flat_scope[1]):
+    elif _has_source_inclusion_directive(flat_scope[1]):
         errors.append("flat setup contains an unreviewed include")
     elif len(seam_call_pattern.findall(flat_scope[1])) != 1:
         errors.append("flat setup does not call seam exactly once")
@@ -991,7 +1023,8 @@ def collect_inventory() -> dict[str, Any]:
     fixture_inventory_test = _text("tests/test_irregular_fixture_inventory.py")
     corpus = _source_corpus()
     invalidation_seam_errors = _topology_invalidation_seam_errors(
-        mesh_header, geometry, mesh_setup_flat, other_seam_sources)
+        mesh_header, geometry, mesh_setup_flat, other_seam_sources,
+        require_complete_source_surface=True)
 
     observed_head = _git_output("rev-parse", "HEAD")
     wp0_reviewed_endpoint_commit = _git_output(
