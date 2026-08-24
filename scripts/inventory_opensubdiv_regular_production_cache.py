@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from pathlib import Path
 
 
@@ -138,29 +139,113 @@ def backend_header_leaks():
     return leaks
 
 
-def invalidation_seam_errors_for_sources(mesh_header, area, setup):
-    checks = {
-        "private topology invalidation seam count":
-            mesh_header.count("void invalidate_topology_derived_state()") == 1,
-        "cache invalidation seam ownership":
-            mesh_header.count("regularLimitSurfaceRowCache_.invalidate()") == 1,
-        "import setup seam call count":
-            area.count("invalidate_topology_derived_state()") == 1,
-        "flat setup seam call count":
-            setup.count("invalidate_topology_derived_state()") == 1,
-        "import setup bypasses seam":
-            "regularLimitSurfaceRowCache_.invalidate()" not in area,
-        "flat setup bypasses seam":
-            "regularLimitSurfaceRowCache_.invalidate()" not in setup,
-    }
-    return [name for name, passed in checks.items() if not passed]
+def _blank_non_code(match):
+    return "".join(
+        "\n" if character == "\n" else " " for character in match.group(0))
+
+
+def _cpp_code(text):
+    non_code = re.compile(
+        r"//[^\n]*|/\*.*?\*/|\"(?:\\.|[^\"\\])*\"|'(?:\\.|[^'\\])*'",
+        re.DOTALL,
+    )
+    return non_code.sub(_blank_non_code, text)
+
+
+def _unique_braced_scope(code, signature_pattern):
+    matches = list(re.finditer(signature_pattern, code, re.MULTILINE | re.DOTALL))
+    if len(matches) != 1:
+        return None
+    signature = matches[0]
+    opening = code.rfind("{", signature.start(), signature.end())
+    if opening < 0:
+        return None
+    depth = 1
+    cursor = opening + 1
+    while cursor < len(code) and depth:
+        if code[cursor] == "{":
+            depth += 1
+        elif code[cursor] == "}":
+            depth -= 1
+        cursor += 1
+    if depth:
+        return None
+    return signature.start(), code[opening + 1:cursor - 1]
+
+
+def invalidation_seam_errors_for_sources(
+        mesh_header, area, setup, other_mesh_sources=()):
+    header_code = _cpp_code(mesh_header)
+    area_code = _cpp_code(area)
+    setup_code = _cpp_code(setup)
+    other_code = [_cpp_code(source) for source in other_mesh_sources]
+    all_code = "\n".join([header_code, area_code, setup_code, *other_code])
+
+    reset_pattern = re.compile(
+        r"\bregularLimitSurfaceRowCache_\s*\.\s*invalidate\s*\(\s*\)\s*;")
+    seam_call_pattern = re.compile(
+        r"\binvalidate_topology_derived_state\s*\(\s*\)\s*;")
+    seam_definition_pattern = re.compile(
+        r"\bvoid\s+(?:Mesh::)?invalidate_topology_derived_state\s*"
+        r"\(\s*\)\s*\{")
+    errors = []
+
+    mesh_class = _unique_braced_scope(
+        header_code, r"\bclass\s+Mesh\b[^;{]*\{")
+    if mesh_class is None:
+        errors.append("unique Mesh class scope")
+    else:
+        _, class_body = mesh_class
+        seam_scope = _unique_braced_scope(
+            class_body,
+            r"\bvoid\s+invalidate_topology_derived_state\s*\(\s*\)\s*\{")
+        if seam_scope is None:
+            errors.append("unique topology invalidation seam definition")
+        else:
+            seam_start, seam_body = seam_scope
+            access_labels = list(re.finditer(
+                r"\b(public|protected|private)\s*:", class_body[:seam_start]))
+            if not access_labels or access_labels[-1].group(1) != "private":
+                errors.append("topology invalidation seam is not private")
+            if len(reset_pattern.findall(seam_body)) != 1:
+                errors.append("cache reset is not owned exactly once by seam")
+
+    import_scope = _unique_braced_scope(
+        area_code,
+        r"\bvoid\s+Mesh::setup_from_vertices_faces\s*\([^)]*\)\s*\{")
+    if import_scope is None:
+        errors.append("unique import setup scope")
+    elif len(seam_call_pattern.findall(import_scope[1])) != 1:
+        errors.append("import setup does not call seam exactly once")
+
+    flat_scope = _unique_braced_scope(
+        setup_code, r"\bvoid\s+Mesh::setup_flat\s*\(\s*\)\s*\{")
+    if flat_scope is None:
+        errors.append("unique flat setup scope")
+    elif len(seam_call_pattern.findall(flat_scope[1])) != 1:
+        errors.append("flat setup does not call seam exactly once")
+
+    if len(reset_pattern.findall(all_code)) != 1:
+        errors.append("cache reset exists outside the single seam")
+    if len(seam_definition_pattern.findall(all_code)) != 1:
+        errors.append("topology invalidation seam has unreviewed definitions")
+    if len(seam_call_pattern.findall(all_code)) != 2:
+        errors.append("topology invalidation seam has unreviewed callers")
+    return errors
 
 
 def invalidation_seam_errors():
+    excluded = {AREA, SETUP}
+    other_sources = [
+        path.read_text(encoding="utf-8")
+        for path in sorted((ROOT / "src/mesh").glob("*.cpp"))
+        if path.relative_to(ROOT) not in excluded
+    ]
     return invalidation_seam_errors_for_sources(
         (ROOT / MESH).read_text(encoding="utf-8"),
         (ROOT / AREA).read_text(encoding="utf-8"),
         (ROOT / SETUP).read_text(encoding="utf-8"),
+        other_sources,
     )
 
 

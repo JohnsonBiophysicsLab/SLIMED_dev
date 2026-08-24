@@ -489,6 +489,92 @@ def _cpp_code(text: str) -> str:
     return non_code.sub(_blank_non_code, text)
 
 
+def _unique_braced_scope(code: str, signature_pattern: str):
+    matches = list(re.finditer(
+        signature_pattern, code, re.MULTILINE | re.DOTALL))
+    if len(matches) != 1:
+        return None
+    signature = matches[0]
+    opening = code.rfind("{", signature.start(), signature.end())
+    if opening < 0:
+        return None
+    depth = 1
+    cursor = opening + 1
+    while cursor < len(code) and depth:
+        if code[cursor] == "{":
+            depth += 1
+        elif code[cursor] == "}":
+            depth -= 1
+        cursor += 1
+    if depth:
+        return None
+    return signature.start(), code[opening + 1:cursor - 1]
+
+
+def _topology_invalidation_seam_errors(
+        mesh_header: str,
+        mesh_source: str,
+        flat_source: str,
+        other_mesh_sources: list[str]) -> list[str]:
+    header_code = _cpp_code(mesh_header)
+    mesh_code = _cpp_code(mesh_source)
+    flat_code = _cpp_code(flat_source)
+    other_code = [_cpp_code(source) for source in other_mesh_sources]
+    all_code = "\n".join([header_code, mesh_code, flat_code, *other_code])
+
+    reset_pattern = re.compile(
+        r"\bregularLimitSurfaceRowCache_\s*\.\s*invalidate\s*\(\s*\)\s*;")
+    seam_call_pattern = re.compile(
+        r"\binvalidate_topology_derived_state\s*\(\s*\)\s*;")
+    seam_definition_pattern = re.compile(
+        r"\bvoid\s+(?:Mesh::)?invalidate_topology_derived_state\s*"
+        r"\(\s*\)\s*\{")
+    errors: list[str] = []
+
+    mesh_class = _unique_braced_scope(
+        header_code, r"\bclass\s+Mesh\b[^;{]*\{")
+    if mesh_class is None:
+        errors.append("unique Mesh class scope")
+    else:
+        _, class_body = mesh_class
+        seam_scope = _unique_braced_scope(
+            class_body,
+            r"\bvoid\s+invalidate_topology_derived_state\s*\(\s*\)\s*\{")
+        if seam_scope is None:
+            errors.append("unique topology invalidation seam definition")
+        else:
+            seam_start, seam_body = seam_scope
+            access_labels = list(re.finditer(
+                r"\b(public|protected|private)\s*:", class_body[:seam_start]))
+            if not access_labels or access_labels[-1].group(1) != "private":
+                errors.append("topology invalidation seam is not private")
+            if len(reset_pattern.findall(seam_body)) != 1:
+                errors.append("cache reset is not owned exactly once by seam")
+
+    import_scope = _unique_braced_scope(
+        mesh_code,
+        r"\bvoid\s+Mesh::setup_from_vertices_faces\s*\([^)]*\)\s*\{")
+    if import_scope is None:
+        errors.append("unique import setup scope")
+    elif len(seam_call_pattern.findall(import_scope[1])) != 1:
+        errors.append("import setup does not call seam exactly once")
+
+    flat_scope = _unique_braced_scope(
+        flat_code, r"\bvoid\s+Mesh::setup_flat\s*\(\s*\)\s*\{")
+    if flat_scope is None:
+        errors.append("unique flat setup scope")
+    elif len(seam_call_pattern.findall(flat_scope[1])) != 1:
+        errors.append("flat setup does not call seam exactly once")
+
+    if len(reset_pattern.findall(all_code)) != 1:
+        errors.append("cache reset exists outside the single seam")
+    if len(seam_definition_pattern.findall(all_code)) != 1:
+        errors.append("topology invalidation seam has unreviewed definitions")
+    if len(seam_call_pattern.findall(all_code)) != 2:
+        errors.append("topology invalidation seam has unreviewed callers")
+    return errors
+
+
 def _python_code(text: str) -> str:
     tokens = tokenize.generate_tokens(io.StringIO(text).readline)
     return tokenize.untokenize(
@@ -638,6 +724,12 @@ def collect_inventory() -> dict[str, Any]:
     regular = _text("src/mesh/OpenSubdiv_regular_evaluator.cpp")
     mesh_header = _text("include/mesh/Mesh.hpp")
     mesh_setup_flat = _text("src/mesh/Mesh_setup_flat.cpp")
+    other_mesh_sources = [
+        _text(path.relative_to(ROOT).as_posix())
+        for path in sorted((ROOT / "src/mesh").glob("*.cpp"))
+        if path.relative_to(ROOT).as_posix() not in {
+            "src/mesh/Mesh.cpp", "src/mesh/Mesh_setup_flat.cpp"}
+    ]
     v3 = _text("src/mesh/OpenSubdiv_valence3_row_provider.cpp")
     v4 = _text("src/mesh/OpenSubdiv_valence4_row_provider.cpp")
     v4_topology = _text("src/mesh/Valence4_topology_source_mapping.cpp")
@@ -659,6 +751,8 @@ def collect_inventory() -> dict[str, Any]:
         "tests/test_surface_geometry_characterization.cpp")
     fixture_inventory_test = _text("tests/test_irregular_fixture_inventory.py")
     corpus = _source_corpus()
+    invalidation_seam_errors = _topology_invalidation_seam_errors(
+        mesh_header, geometry, mesh_setup_flat, other_mesh_sources)
 
     observed_head = _git_output("rev-parse", "HEAD")
     wp0_reviewed_endpoint_commit = _git_output(
@@ -1200,17 +1294,8 @@ def collect_inventory() -> dict[str, Any]:
             "invalidations": [
                 "Mesh::setup_from_vertices_faces", "Mesh::setup_flat"],
             "only_reviewed_invalidations_present":
-                mesh_header.count(
-                    "void invalidate_topology_derived_state()") == 1
-                and mesh_header.count(
-                    "regularLimitSurfaceRowCache_.invalidate()") == 1
-                and geometry.count(
-                    "invalidate_topology_derived_state()") == 1
-                and mesh_setup_flat.count(
-                    "invalidate_topology_derived_state()") == 1
-                and "regularLimitSurfaceRowCache_.invalidate()" not in geometry
-                and "regularLimitSurfaceRowCache_.invalidate()" not in
-                    mesh_setup_flat,
+                not invalidation_seam_errors,
+            "invalidation_seam_errors": invalidation_seam_errors,
         },
         "G_volume_functionals": {
             "enumerated_factor_names": volume_factor_names,

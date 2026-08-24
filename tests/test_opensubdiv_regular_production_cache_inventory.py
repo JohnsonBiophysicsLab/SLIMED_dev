@@ -31,11 +31,29 @@ class OpenSubdivRegularProductionCacheInventoryTest(unittest.TestCase):
             (
                 mesh_header.replace(
                     "regularLimitSurfaceRowCache_.invalidate();",
-                    "// cache invalidation removed",
+                    "// regularLimitSurfaceRowCache_.invalidate();",
                     1,
                 ),
                 area,
                 setup,
+            ),
+            (
+                mesh_header,
+                area.replace(
+                    "invalidate_topology_derived_state();",
+                    "// invalidate_topology_derived_state();",
+                    1,
+                ),
+                setup,
+            ),
+            (
+                mesh_header,
+                area,
+                setup.replace(
+                    "invalidate_topology_derived_state();",
+                    "// invalidate_topology_derived_state();",
+                    1,
+                ),
             ),
             (
                 mesh_header,
@@ -65,6 +83,90 @@ class OpenSubdivRegularProductionCacheInventoryTest(unittest.TestCase):
                 ),
                 setup,
             ),
+            (
+                mesh_header.replace(
+                    "\nprivate:\n    /**\n"
+                    "     * @brief Invalidate topology-derived state",
+                    "\npublic:\n    /**\n"
+                    "     * @brief Invalidate topology-derived state",
+                    1,
+                ),
+                area,
+                setup,
+            ),
+            (
+                mesh_header.replace(
+                    "\nprivate:\n    /**\n"
+                    "     * @brief Invalidate topology-derived state",
+                    "\nprotected:\n    /**\n"
+                    "     * @brief Invalidate topology-derived state",
+                    1,
+                ),
+                area,
+                setup,
+            ),
+            (
+                mesh_header.replace(
+                    "    void invalidate_topology_derived_state()\n"
+                    "    {",
+                    "    // void invalidate_topology_derived_state()\n"
+                    "    // {",
+                    1,
+                ),
+                area,
+                setup,
+            ),
+            (
+                mesh_header.replace(
+                    "        regularLimitSurfaceRowCache_.invalidate();\n",
+                    "",
+                    1,
+                ).replace(
+                    "    std::uint64_t topologyGeneration_ = 0;",
+                    "    void misplaced_reset()\n"
+                    "    {\n"
+                    "        regularLimitSurfaceRowCache_.invalidate();\n"
+                    "    }\n\n"
+                    "    std::uint64_t topologyGeneration_ = 0;",
+                    1,
+                ),
+                area,
+                setup,
+            ),
+            (
+                mesh_header,
+                area.replace(
+                    "    invalidate_topology_derived_state();\n",
+                    "",
+                    1,
+                ) + "\nvoid misplaced_topology_invalidation()\n"
+                "{\n"
+                "    invalidate_topology_derived_state();\n"
+                "}\n",
+                setup,
+            ),
+            (
+                mesh_header,
+                area,
+                setup.replace(
+                    "invalidate_topology_derived_state();",
+                    "invalidate_topology_derived_state();\n"
+                    "    invalidate_topology_derived_state();",
+                    1,
+                ),
+            ),
+            (
+                mesh_header,
+                area,
+                setup.replace(
+                    "    invalidate_topology_derived_state();\n",
+                    "",
+                    1,
+                ) + "\nvoid misplaced_flat_topology_invalidation()\n"
+                "{\n"
+                "    invalidate_topology_derived_state();\n"
+                "}\n",
+            ),
         )
 
         for mutated_header, mutated_area, mutated_setup in mutations:
@@ -72,6 +174,17 @@ class OpenSubdivRegularProductionCacheInventoryTest(unittest.TestCase):
                 self.assertTrue(
                     inventory.invalidation_seam_errors_for_sources(
                         mutated_header, mutated_area, mutated_setup
+                    )
+                )
+        for extra_source in (
+            "void Mesh::extra_caller() { invalidate_topology_derived_state(); }",
+            "void Mesh::extra_reset() { regularLimitSurfaceRowCache_.invalidate(); }",
+            "void Mesh::invalidate_topology_derived_state() {}",
+        ):
+            with self.subTest(extra_source=extra_source):
+                self.assertTrue(
+                    inventory.invalidation_seam_errors_for_sources(
+                        mesh_header, area, setup, (extra_source,)
                     )
                 )
 
