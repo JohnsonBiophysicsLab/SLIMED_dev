@@ -548,11 +548,43 @@ def _cpp_code(text: str) -> str:
     return "".join(masked)
 
 
+_CPP_DIRECTIVE_PREFIX = r"(?:#|%:|\?\?=)"
+_INCLUDE_GUARD_NAME = re.compile(r"[A-Z][A-Z0-9_]*_(?:H|HPP)")
+
+
+def _has_unreviewed_macro_directive(code: str) -> bool:
+    """Reject source macros except conventional empty include guards.
+
+    The protected seam is deliberately checked fail-closed: even a macro whose
+    spelling does not mention the protected members can change access labels,
+    the overflow guard, or synthesize a member name with token pasting.
+    """
+    directive = re.compile(
+        rf"^\s*{_CPP_DIRECTIVE_PREFIX}\s*(define|undef)\b([^\n]*)",
+        re.MULTILINE)
+    for match in directive.finditer(code):
+        if match.group(1) != "define":
+            return True
+        definition = re.fullmatch(r"\s*([A-Za-z_]\w*)\s*", match.group(2))
+        if not definition:
+            return True
+        name = definition.group(1)
+        if not _INCLUDE_GUARD_NAME.fullmatch(name):
+            return True
+        guard = re.compile(
+            rf"^\s*{_CPP_DIRECTIVE_PREFIX}\s*ifndef\s+"
+            rf"{re.escape(name)}\b", re.MULTILINE)
+        if not guard.search(code):
+            return True
+    return False
+
+
 def _mask_cpp_conditionals(code: str) -> str:
     """Exclude every conditional-preprocessor region from positive evidence."""
     masked: list[str] = []
     depth = 0
-    directive = re.compile(r"^\s*#\s*([A-Za-z_]\w*)\b")
+    directive = re.compile(
+        rf"^\s*{_CPP_DIRECTIVE_PREFIX}\s*([A-Za-z_]\w*)\b")
     for line in code.splitlines(keepends=True):
         match = directive.match(line)
         if match:
@@ -646,10 +678,6 @@ def _topology_invalidation_seam_errors(
         r"\bvoid\s+(?:Mesh::)?invalidate_topology_derived_state\s*"
         r"\(\s*\)\s*\{")
     generation_pattern = re.compile(r"\btopologyGeneration_\b")
-    relevant_macro_pattern = re.compile(
-        r"^\s*#\s*(?:define|undef)\b[^\n]*\b(?:"
-        r"invalidate_topology_derived_state|regularLimitSurfaceRowCache_|"
-        r"topologyGeneration_|invalidate)\b", re.MULTILINE)
     reviewed_seam_body_pattern = re.compile(
         r"\s*if\s*\(\s*topologyGeneration_\s*==\s*"
         r"std::numeric_limits\s*<\s*std::uint64_t\s*>\s*::\s*max\s*"
@@ -710,7 +738,7 @@ def _topology_invalidation_seam_errors(
     if (len(generation_pattern.findall(header_code)) != 4 or
             len(generation_pattern.findall(all_code)) != 4):
         errors.append("topology generation has unreviewed references")
-    if relevant_macro_pattern.search(all_lexical_code):
+    if any(_has_unreviewed_macro_directive(code) for code in lexical_code):
         errors.append("topology invalidation identity is macro-shadowed")
     for name, pattern in (
             ("cache reset", reset_pattern),

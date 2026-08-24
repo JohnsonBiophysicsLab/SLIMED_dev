@@ -387,6 +387,20 @@ class UnifiedLoopBaselineInventoryTest(unittest.TestCase):
         self.assert_text_mutation_rejected(
             "src/mesh/Mesh.cpp",
             lambda text: text.replace(
+                "void Mesh::setup_from_vertices_faces",
+                "%:define invalidate_topology_derived_state() ((void)0)\n"
+                "void Mesh::setup_from_vertices_faces", 1))
+        self.assert_text_mutation_rejected(
+            "include/mesh/Mesh.hpp",
+            lambda text: text.replace(
+                "class Mesh", "#define private public\nclass Mesh", 1))
+        self.assert_text_mutation_rejected(
+            "include/mesh/Mesh.hpp",
+            lambda text: text.replace(
+                "class Mesh", "#define max min\nclass Mesh", 1))
+        self.assert_text_mutation_rejected(
+            "src/mesh/Mesh.cpp",
+            lambda text: text.replace(
                 "    invalidate_topology_derived_state();",
                 "    if (false) { invalidate_topology_derived_state(); }", 1))
         self.assert_text_mutation_rejected(
@@ -452,6 +466,14 @@ class UnifiedLoopBaselineInventoryTest(unittest.TestCase):
                 "    invalidate_topology_derived_state();",
                 "    invalidate_topology_derived_state();\n"
                 "    --topologyGeneration_;", 1))
+        self.assert_text_mutation_rejected(
+            "src/mesh/Mesh.cpp",
+            lambda text: text.replace(
+                "    invalidate_topology_derived_state();",
+                "    invalidate_topology_derived_state();\n"
+                "#define L7B_JOIN_I(a, b) a##b\n"
+                "#define L7B_JOIN(a, b) L7B_JOIN_I(a, b)\n"
+                "    --L7B_JOIN(topology, Generation_);", 1))
         self.assert_text_mutation_rejected(
             "src/mesh/Mesh.cpp",
             lambda text: text.replace(
@@ -541,6 +563,15 @@ class UnifiedLoopBaselineInventoryTest(unittest.TestCase):
                 "\nvoid Mesh::clobber_topology_generation()\n"
                 "{\n"
                 "    ++topologyGeneration_;\n"
+                "}\n")
+        self.assert_text_mutation_rejected(
+            "src/energy_force/Compute_energy_and_force_on_mesh.cpp",
+            lambda text: text +
+                "\n#define L7B_JOIN_I(a, b) a##b\n"
+                "#define L7B_JOIN(a, b) L7B_JOIN_I(a, b)\n"
+                "void Mesh::clobber_topology_generation()\n"
+                "{\n"
+                "    ++L7B_JOIN(topology, Generation_);\n"
                 "}\n")
         self.assert_text_mutation_rejected(
             "src/mesh/Mesh_io.cpp",

@@ -159,6 +159,34 @@ class OpenSubdivRegularProductionCacheInventoryTest(unittest.TestCase):
             ),
             (
                 mesh_header,
+                area.replace(
+                    "void Mesh::setup_from_vertices_faces",
+                    "%:define invalidate_topology_derived_state() ((void)0)\n"
+                    "void Mesh::setup_from_vertices_faces",
+                    1,
+                ),
+                setup,
+            ),
+            (
+                mesh_header.replace(
+                    "class Mesh",
+                    "#define private public\nclass Mesh",
+                    1,
+                ),
+                area,
+                setup,
+            ),
+            (
+                mesh_header.replace(
+                    "class Mesh",
+                    "#define max min\nclass Mesh",
+                    1,
+                ),
+                area,
+                setup,
+            ),
+            (
+                mesh_header,
                 area,
                 setup.replace(
                     "void Mesh::setup_flat",
@@ -273,6 +301,18 @@ class OpenSubdivRegularProductionCacheInventoryTest(unittest.TestCase):
                     "    invalidate_topology_derived_state();",
                     "    invalidate_topology_derived_state();\n"
                     "    --topologyGeneration_;",
+                    1,
+                ),
+                setup,
+            ),
+            (
+                mesh_header,
+                area.replace(
+                    "    invalidate_topology_derived_state();",
+                    "    invalidate_topology_derived_state();\n"
+                    "#define L7B_JOIN_I(a, b) a##b\n"
+                    "#define L7B_JOIN(a, b) L7B_JOIN_I(a, b)\n"
+                    "    --L7B_JOIN(topology, Generation_);",
                     1,
                 ),
                 setup,
@@ -408,6 +448,10 @@ class OpenSubdivRegularProductionCacheInventoryTest(unittest.TestCase):
             "void Mesh::extra_reset() { regularLimitSurfaceRowCache_.invalidate(); }",
             "void Mesh::invalidate_topology_derived_state() {}",
             "void Mesh::clobber_generation() { ++topologyGeneration_; }",
+            "#define L7B_JOIN_I(a, b) a##b\n"
+            "#define L7B_JOIN(a, b) L7B_JOIN_I(a, b)\n"
+            "void Mesh::clobber_generation() "
+            "{ ++L7B_JOIN(topology, Generation_); }",
         ):
             with self.subTest(extra_source=extra_source):
                 self.assertTrue(
