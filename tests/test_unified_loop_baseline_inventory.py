@@ -381,6 +381,42 @@ class UnifiedLoopBaselineInventoryTest(unittest.TestCase):
                 "#endif\n"
                 "    invalidate_topology_derived_state();", 1))
         self.assert_text_mutation_rejected(
+            "src/mesh/Mesh.cpp",
+            lambda text: text.replace(
+                "    invalidate_topology_derived_state();",
+                '#include "mesh/L7b_early_return.hpp"\n'
+                "    invalidate_topology_derived_state();", 1))
+        self.assert_text_mutation_rejected(
+            "src/mesh/Mesh_setup_flat.cpp",
+            lambda text: text.replace(
+                "    invalidate_topology_derived_state();",
+                '#include "mesh/L7b_early_return.hpp"\n'
+                "    invalidate_topology_derived_state();", 1))
+        self.assert_text_mutation_rejected(
+            "include/mesh/Mesh.hpp",
+            lambda text: text.replace(
+                "        regularLimitSurfaceRowCache_.invalidate();",
+                '#include "mesh/L7b_early_return.hpp"\n'
+                "        regularLimitSurfaceRowCache_.invalidate();", 1))
+        self.assert_text_mutation_rejected(
+            "include/mesh/Mesh.hpp",
+            lambda text: text.replace(
+                "    void invalidate_topology_derived_state()",
+                '#include "mesh/L7b_public_access.hpp"\n'
+                "    void invalidate_topology_derived_state()", 1))
+        self.assert_text_mutation_rejected(
+            "include/mesh/Mesh.hpp",
+            lambda text: text.replace(
+                "class Mesh",
+                '#include "/private/tmp/L7b_private_alias.hpp"\n'
+                "class Mesh", 1))
+        self.assert_text_mutation_rejected(
+            "src/mesh/Mesh.cpp",
+            lambda text: text.replace(
+                '#include "mesh/Mesh.hpp"',
+                '#include "mesh/Mesh.hpp"\n'
+                '#include "/private/tmp/L7b_private_alias.hpp"', 1))
+        self.assert_text_mutation_rejected(
             "src/mesh/Mesh_setup_flat.cpp",
             lambda text: text.replace(
                 "    invalidate_topology_derived_state();",

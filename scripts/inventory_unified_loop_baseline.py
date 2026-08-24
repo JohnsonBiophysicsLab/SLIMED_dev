@@ -550,6 +550,29 @@ def _cpp_code(text: str) -> str:
 
 _CPP_DIRECTIVE_PREFIX = r"(?:#|%:|\?\?=)"
 _INCLUDE_GUARD_NAME = re.compile(r"[A-Z][A-Z0-9_]*_(?:H|HPP)")
+_REVIEWED_MESH_HEADER_INCLUDES = (
+    "<math.h>", "<cmath>", "<vector>", "<iostream>", "<fstream>",
+    "<sstream>", "<string>", "<stdexcept>", "<array>", "<cstdint>",
+    "<limits>", "<unordered_map>", "<omp.h>", "<algorithm>",
+    '"mesh/Face.hpp"', '"mesh/Vertex.hpp"',
+    '"energy_force/Energy.hpp"', '"energy_force/Force.hpp"',
+    '"mesh/Gauss_quadrature.hpp"',
+    '"mesh/Regular_limit_surface_row_cache.hpp"',
+    '"linalg/Linear_algebra.hpp"', '"Parameters.hpp"',
+)
+_REVIEWED_IMPORT_INCLUDES = (
+    '"mesh/Mesh.hpp"', '"mesh/Limit_surface_evaluator.hpp"',
+    '"mesh/OpenSubdiv_regular_evaluator.hpp"', "<sstream>", "<stdexcept>",
+)
+_REVIEWED_FLAT_INCLUDES = ('"mesh/Mesh.hpp"',)
+
+
+def _include_operands(text: str) -> tuple[str, ...]:
+    """Return every logical-line include operand, including digraph forms."""
+    text = re.sub(r"\\\r?\n", "", text)
+    return tuple(match.group(1).strip() for match in re.finditer(
+        rf"^\s*{_CPP_DIRECTIVE_PREFIX}\s*include\b([^\n]*)",
+        text, re.MULTILINE))
 
 
 def _has_unreviewed_macro_directive(code: str) -> bool:
@@ -584,6 +607,13 @@ def _has_conditional_directive(code: str) -> bool:
     return bool(re.search(
         rf"^\s*{_CPP_DIRECTIVE_PREFIX}\s*"
         r"(?:if|ifdef|ifndef|elif|else|endif)\b",
+        code, re.MULTILINE))
+
+
+def _has_include_directive(code: str) -> bool:
+    """Report source inclusion inside a protected C++ scope."""
+    return bool(re.search(
+        rf"^\s*{_CPP_DIRECTIVE_PREFIX}\s*include\b",
         code, re.MULTILINE))
 
 
@@ -695,6 +725,13 @@ def _topology_invalidation_seam_errors(
         r"\(\s*\)\s*;\s*\+\+\s*topologyGeneration_\s*;\s*")
     errors: list[str] = []
 
+    for name, source, expected in (
+            ("Mesh header", mesh_header, _REVIEWED_MESH_HEADER_INCLUDES),
+            ("import setup", mesh_source, _REVIEWED_IMPORT_INCLUDES),
+            ("flat setup", flat_source, _REVIEWED_FLAT_INCLUDES)):
+        if _include_operands(source) != expected:
+            errors.append(f"{name} include surface has drifted")
+
     for name, code in (
             ("Mesh header", lexical_code[0]),
             ("import setup", lexical_code[1]),
@@ -703,11 +740,13 @@ def _topology_invalidation_seam_errors(
             errors.append(f"{name} contains conditional preprocessing")
 
     mesh_class = _unique_braced_scope(
-        header_code, r"\bclass\s+Mesh\b[^;{]*\{")
+        lexical_code[0], r"\bclass\s+Mesh\b[^;{]*\{")
     if mesh_class is None:
         errors.append("unique Mesh class scope")
     else:
         _, class_body = mesh_class
+        if _has_include_directive(class_body):
+            errors.append("Mesh class contains an unreviewed include")
         seam_scope = _unique_braced_scope(
             class_body,
             r"\bvoid\s+invalidate_topology_derived_state\s*\(\s*\)\s*\{")
@@ -726,19 +765,23 @@ def _topology_invalidation_seam_errors(
                 errors.append("topology invalidation seam body has drifted")
 
     import_scope = _unique_braced_scope(
-        mesh_code,
+        lexical_code[1],
         r"\bvoid\s+Mesh::setup_from_vertices_faces\s*\([^)]*\)\s*\{")
     if import_scope is None:
         errors.append("unique import setup scope")
+    elif _has_include_directive(import_scope[1]):
+        errors.append("import setup contains an unreviewed include")
     elif len(seam_call_pattern.findall(import_scope[1])) != 1:
         errors.append("import setup does not call seam exactly once")
     elif not _scope_begins_with(import_scope[1], seam_call_pattern):
         errors.append("import setup does not begin with a direct seam call")
 
     flat_scope = _unique_braced_scope(
-        flat_code, r"\bvoid\s+Mesh::setup_flat\s*\(\s*\)\s*\{")
+        lexical_code[2], r"\bvoid\s+Mesh::setup_flat\s*\(\s*\)\s*\{")
     if flat_scope is None:
         errors.append("unique flat setup scope")
+    elif _has_include_directive(flat_scope[1]):
+        errors.append("flat setup contains an unreviewed include")
     elif len(seam_call_pattern.findall(flat_scope[1])) != 1:
         errors.append("flat setup does not call seam exactly once")
     elif not _scope_begins_with(flat_scope[1], seam_call_pattern):

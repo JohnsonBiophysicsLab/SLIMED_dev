@@ -161,6 +161,66 @@ class OpenSubdivRegularProductionCacheInventoryTest(unittest.TestCase):
             ),
             (
                 mesh_header,
+                area.replace(
+                    "    invalidate_topology_derived_state();",
+                    '#include "mesh/L7b_early_return.hpp"\n'
+                    "    invalidate_topology_derived_state();",
+                    1,
+                ),
+                setup,
+            ),
+            (
+                mesh_header,
+                area,
+                setup.replace(
+                    "    invalidate_topology_derived_state();",
+                    '#include "mesh/L7b_early_return.hpp"\n'
+                    "    invalidate_topology_derived_state();",
+                    1,
+                ),
+            ),
+            (
+                mesh_header.replace(
+                    "        regularLimitSurfaceRowCache_.invalidate();",
+                    '#include "mesh/L7b_early_return.hpp"\n'
+                    "        regularLimitSurfaceRowCache_.invalidate();",
+                    1,
+                ),
+                area,
+                setup,
+            ),
+            (
+                mesh_header.replace(
+                    "    void invalidate_topology_derived_state()",
+                    '#include "mesh/L7b_public_access.hpp"\n'
+                    "    void invalidate_topology_derived_state()",
+                    1,
+                ),
+                area,
+                setup,
+            ),
+            (
+                mesh_header.replace(
+                    "class Mesh",
+                    '#include "/private/tmp/L7b_private_alias.hpp"\n'
+                    "class Mesh",
+                    1,
+                ),
+                area,
+                setup,
+            ),
+            (
+                mesh_header,
+                area.replace(
+                    '#include "mesh/Mesh.hpp"',
+                    '#include "mesh/Mesh.hpp"\n'
+                    '#include "/private/tmp/L7b_private_alias.hpp"',
+                    1,
+                ),
+                setup,
+            ),
+            (
+                mesh_header,
                 area,
                 setup.replace(
                     "    invalidate_topology_derived_state();",
