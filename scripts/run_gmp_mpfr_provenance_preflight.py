@@ -107,6 +107,23 @@ LIBRARIES = {
     },
 }
 
+GIT_ENVIRONMENT = {
+    "GIT_CONFIG_GLOBAL": "/dev/null",
+    "GIT_CONFIG_NOSYSTEM": "1",
+    "GIT_OPTIONAL_LOCKS": "0",
+    "LANG": "C",
+    "LC_ALL": "C",
+    "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+    "TMPDIR": "/private/tmp",
+}
+
+AUDIT_ENVIRONMENT = {
+    "LANG": "C",
+    "LC_ALL": "C",
+    "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+    "TMPDIR": "/private/tmp",
+}
+
 
 class PreflightError(RuntimeError):
     pass
@@ -165,6 +182,11 @@ def exact_command_output(command: list[str]) -> str:
     return run(command, timeout=60).stdout.strip()
 
 
+def exact_git_output(arguments: list[str]) -> str:
+    return run(["/usr/bin/git", "-C", str(ROOT), *arguments],
+               env=GIT_ENVIRONMENT, timeout=60).stdout
+
+
 def sysctl_int(name: str) -> int:
     return int(exact_command_output(["/usr/sbin/sysctl", "-n", name]))
 
@@ -204,13 +226,76 @@ def compiler_identity() -> dict[str, str]:
             "version": version, "sdkroot": str(SDKROOT)}
 
 
+def _git_blob_sha1(raw: bytes) -> str:
+    header = f"blob {len(raw)}\0".encode("ascii")
+    return hashlib.sha1(header + raw).hexdigest()
+
+
+def _parse_git_index(raw: str) -> dict[str, tuple[str, str]]:
+    records: dict[str, tuple[str, str]] = {}
+    for record in raw.split("\0"):
+        if not record:
+            continue
+        metadata, path = record.split("\t", 1)
+        mode, digest, stage = metadata.split(" ")
+        require(stage == "0", "Git index has an unmerged entry")
+        require(path not in records, "Git index path is duplicated")
+        records[path] = (mode, digest)
+    return records
+
+
+def _parse_git_tree(raw: str) -> dict[str, tuple[str, str]]:
+    records: dict[str, tuple[str, str]] = {}
+    for record in raw.split("\0"):
+        if not record:
+            continue
+        metadata, path = record.split("\t", 1)
+        mode, object_type, digest = metadata.split(" ")
+        require(object_type == "blob", "Git tree contains unsupported object")
+        require(path not in records, "Git tree path is duplicated")
+        records[path] = (mode, digest)
+    return records
+
+
 def git_observation() -> dict[str, Any]:
-    head = exact_command_output(["/usr/bin/git", "-C", str(ROOT),
-                                 "rev-parse", "HEAD"])
-    status = exact_command_output(["/usr/bin/git", "-C", str(ROOT),
-                                   "status", "--porcelain=v1",
-                                   "--untracked-files=all"])
-    return {"head": head, "worktree_clean": status == ""}
+    top = pathlib.Path(exact_git_output(
+        ["rev-parse", "--show-toplevel"]).strip())
+    git_dir = pathlib.Path(exact_git_output(
+        ["rev-parse", "--absolute-git-dir"]).strip())
+    require(ROOT.resolve(strict=True) == ROOT and
+            top.resolve(strict=True) == ROOT,
+            "Git top-level differs from the proof worktree")
+    require(git_dir.is_absolute() and git_dir.is_dir() and
+            git_dir.resolve(strict=True) == git_dir,
+            "Git directory is unavailable or aliased")
+    head = exact_git_output(["rev-parse", "HEAD"]).strip()
+    status = exact_git_output(
+        ["status", "--porcelain=v1", "--untracked-files=all"])
+    require(status == "", "derivation Git worktree is not clean")
+    flags = exact_git_output(["ls-files", "-v", "-z"]).split("\0")
+    require(all(not entry or entry.startswith("H ") for entry in flags),
+            "Git index contains assume-unchanged or skip-worktree state")
+    index = _parse_git_index(exact_git_output(["ls-files", "-s", "-z"]))
+    tree = _parse_git_tree(exact_git_output(
+        ["ls-tree", "-r", "-z", "--full-tree", head]))
+    require(index == tree, "Git index differs from the exact HEAD tree")
+    for relative, (mode, digest) in index.items():
+        path = ROOT / relative
+        if mode == "120000":
+            require(path.is_symlink(), "tracked Git symlink shape drift")
+            raw = os.readlink(path).encode("utf-8")
+        else:
+            require(mode in {"100644", "100755"},
+                    "unsupported tracked Git file mode")
+            require(path.is_file() and not path.is_symlink(),
+                    "tracked Git file is unavailable or aliased")
+            raw = path.read_bytes()
+            executable = bool(path.stat().st_mode & stat.S_IXUSR)
+            require(executable == (mode == "100755"),
+                    "tracked Git executable mode drift")
+        require(_git_blob_sha1(raw) == digest,
+                "tracked Git worktree bytes differ from exact HEAD")
+    return {"head": head, "worktree_clean": True}
 
 
 def validate_archive(name: str, path: pathlib.Path) -> dict[str, Any]:
@@ -252,6 +337,83 @@ def validate_prefix_parent() -> None:
     require(CANONICAL_BUILD_ROOT.is_absolute() and
             CANONICAL_BUILD_ROOT.parent == pathlib.Path("/private/tmp"),
             "canonical build root drift")
+
+
+def require_canonical_directory(path: pathlib.Path, message: str) -> None:
+    require(path.is_absolute() and path.is_dir() and not path.is_symlink(),
+            message)
+    require(path.resolve(strict=True) == path, message)
+
+
+def _otool_dependencies(text: str, library: pathlib.Path) -> list[str]:
+    lines = text.splitlines()
+    require(lines and lines[0] == f"{library}:",
+            "otool dependency header drift")
+    result = []
+    for line in lines[1:]:
+        stripped = line.strip()
+        require(" (" in stripped, "otool dependency record malformed")
+        result.append(stripped.split(" (", 1)[0])
+    require(result, "otool dependency inventory is empty")
+    return result
+
+
+def audit_installed_library(name: str,
+                            expected: dict[str, Any] | None = None
+                            ) -> tuple[dict[str, Any], str, str]:
+    contract = LIBRARIES[name]
+    validate_prefix_parent()
+    require_canonical_directory(CANONICAL_PREFIX,
+                                f"{name} install prefix is unavailable or aliased")
+    library_root = CANONICAL_PREFIX / "lib"
+    require_canonical_directory(library_root,
+                                f"{name} library root is unavailable or aliased")
+    link = library_root / contract["link_name"]
+    versioned = library_root / contract["versioned_name"]
+    link_stat = link.lstat() if link.exists() or link.is_symlink() else None
+    require(link_stat is not None and stat.S_ISLNK(link_stat.st_mode),
+            f"{name} unversioned library is not a symlink")
+    require(os.readlink(link) == contract["versioned_name"],
+            f"{name} unversioned symlink target drift")
+    versioned_stat = versioned.lstat() if versioned.exists() else None
+    require(versioned_stat is not None and stat.S_ISREG(versioned_stat.st_mode) and
+            not versioned.is_symlink(),
+            f"{name} versioned library unavailable")
+    require(versioned.resolve(strict=True) == versioned,
+            f"{name} versioned library path is aliased")
+    require(versioned_stat.st_nlink == 1,
+            f"{name} versioned library must not be hardlinked")
+    mode = f"{stat.S_IMODE(versioned_stat.st_mode):04o}"
+    require(mode == "0755", f"{name} versioned library mode drift")
+    otool_d = run(["/usr/bin/otool", "-D", str(versioned)],
+                  env=AUDIT_ENVIRONMENT, timeout=60).stdout
+    otool_l = run(["/usr/bin/otool", "-L", str(versioned)],
+                  env=AUDIT_ENVIRONMENT, timeout=60).stdout
+    expected_id = str(versioned)
+    id_lines = otool_d.splitlines()
+    require(id_lines == [f"{versioned}:", expected_id],
+            f"{name} LC_ID_DYLIB differs from canonical path")
+    dependencies = _otool_dependencies(otool_l, versioned)
+    require(dependencies[0] == expected_id,
+            f"{name} LC_ID_DYLIB projection drift")
+    if name == "mpfr":
+        expected_gmp = str(library_root / LIBRARIES["gmp"]["versioned_name"])
+        require(expected_gmp in dependencies,
+                "MPFR LC_LOAD_DYLIB does not name canonical GMP")
+    projection = {
+        "canonical_path": str(versioned),
+        "link_path": str(link),
+        "link_target": os.readlink(link),
+        "byte_length": versioned_stat.st_size,
+        "mode": mode,
+        "sha256": sha256_file(versioned),
+        "otool_d_sha256": hashlib.sha256(otool_d.encode()).hexdigest(),
+        "otool_l_sha256": hashlib.sha256(otool_l.encode()).hexdigest(),
+    }
+    if expected is not None:
+        require(projection == expected,
+                f"{name} installed projection differs from frozen authority")
+    return projection, otool_d, otool_l
 
 
 def configure_argv(name: str, source: pathlib.Path) -> list[str]:
@@ -330,43 +492,15 @@ def build_dependency(name: str, source: pathlib.Path,
 def inspect_library(name: str, output: pathlib.Path,
                     output_root: pathlib.Path) -> dict[str, Any]:
     contract = LIBRARIES[name]
-    link = CANONICAL_PREFIX / "lib" / contract["link_name"]
     versioned = CANONICAL_PREFIX / "lib" / contract["versioned_name"]
-    for component in (CANONICAL_PREFIX, CANONICAL_PREFIX / "lib"):
-        require(component.is_dir() and not component.is_symlink() and
-                component.resolve(strict=True) == component,
-                f"{name} install path has an alias")
-    require(link.is_symlink(), f"{name} unversioned library is not a symlink")
-    require(os.readlink(link) == contract["versioned_name"],
-            f"{name} unversioned symlink target drift")
-    require(versioned.is_file() and not versioned.is_symlink(),
-            f"{name} versioned library unavailable")
-    require(stat.S_IMODE(versioned.stat().st_mode) == 0o755,
-            f"{name} versioned library mode drift")
-    otool_d = run(["/usr/bin/otool", "-D", str(versioned)], timeout=60).stdout
-    otool_l = run(["/usr/bin/otool", "-L", str(versioned)], timeout=60).stdout
-    expected_id = str(CANONICAL_PREFIX / "lib" / contract["versioned_name"])
-    require(expected_id in otool_d.splitlines()[1:],
-            f"{name} LC_ID_DYLIB is not the canonical prefix")
-    if name == "mpfr":
-        expected_gmp = str(CANONICAL_PREFIX / "lib" /
-                           LIBRARIES["gmp"]["versioned_name"])
-        require(expected_gmp in otool_l,
-                "MPFR LC_LOAD_DYLIB does not name canonical GMP")
+    projection, otool_d, otool_l = audit_installed_library(name)
     output.mkdir(parents=True, exist_ok=True)
     copied = output / contract["versioned_name"]
     shutil.copy2(versioned, copied)
     (output / f"{name}.otool-D.txt").write_text(otool_d, encoding="utf-8")
     (output / f"{name}.otool-L.txt").write_text(otool_l, encoding="utf-8")
     return {
-        "canonical_path": str(versioned),
-        "link_path": str(link),
-        "link_target": os.readlink(link),
-        "byte_length": versioned.stat().st_size,
-        "mode": "0755",
-        "sha256": sha256_file(versioned),
-        "otool_d_sha256": hashlib.sha256(otool_d.encode()).hexdigest(),
-        "otool_l_sha256": hashlib.sha256(otool_l.encode()).hexdigest(),
+        **projection,
         "artifacts": {
             "library": artifact_descriptor(copied, output_root),
             "otool_d": artifact_descriptor(output / f"{name}.otool-D.txt",
@@ -533,7 +667,9 @@ def validate_report(report: Any, *, require_frozen: bool) -> None:
                         descriptor["byte_length"] > 0,
                         f"{name} artifact byte length malformed")
                 require(isinstance(descriptor["sha256"], str) and
-                        len(descriptor["sha256"]) == 64,
+                        len(descriptor["sha256"]) == 64 and
+                        all(ch in "0123456789abcdef"
+                            for ch in descriptor["sha256"]),
                         f"{name} artifact digest malformed")
             require(library["artifacts"]["library"]["sha256"] ==
                     library["sha256"], f"{name} copied library digest drift")
@@ -570,10 +706,123 @@ def validate_report(report: Any, *, require_frozen: bool) -> None:
         require(report[field] is False, f"{field} must remain false")
 
 
-def freeze_summary(report: Any, report_bytes: bytes) -> dict[str, Any]:
+def _canonical_artifact_file(root: pathlib.Path, relative: str
+                             ) -> pathlib.Path:
+    require(isinstance(relative, str) and relative and
+            not relative.startswith("/") and
+            all(part not in {"", ".", ".."}
+                for part in pathlib.PurePosixPath(relative).parts),
+            "proof artifact relative path is noncanonical")
+    path = root.joinpath(*pathlib.PurePosixPath(relative).parts)
+    parent = root
+    for part in pathlib.PurePosixPath(relative).parts[:-1]:
+        parent = parent / part
+        require_canonical_directory(parent,
+                                    "proof artifact directory is aliased")
+    file_stat = path.lstat() if path.exists() or path.is_symlink() else None
+    require(file_stat is not None and stat.S_ISREG(file_stat.st_mode) and
+            not path.is_symlink(), "proof artifact is missing or aliased")
+    require(file_stat.st_nlink == 1, "proof artifact must not be hardlinked")
+    require(path.resolve(strict=True) == path,
+            "proof artifact path is not physically canonical")
+    return path
+
+
+def _require_descriptor_bytes(root: pathlib.Path,
+                              descriptor: dict[str, Any]) -> pathlib.Path:
+    path = _canonical_artifact_file(root, descriptor["relative_path"])
+    require(path.stat().st_size == descriptor["byte_length"],
+            "proof artifact byte length drift")
+    require(sha256_file(path) == descriptor["sha256"],
+            "proof artifact digest drift")
+    return path
+
+
+def validate_retained_artifacts(report: Any,
+                                artifact_root: pathlib.Path) -> None:
+    validate_report(report, require_frozen=True)
+    require_canonical_directory(artifact_root,
+                                "proof artifact root is unavailable or aliased")
+    seen_paths: set[str] = set()
+    seen_files: set[tuple[int, int]] = set()
+
+    def bind(descriptor: dict[str, Any]) -> pathlib.Path:
+        relative = descriptor["relative_path"]
+        require(relative not in seen_paths,
+                "proof artifact descriptor path is duplicated")
+        seen_paths.add(relative)
+        path = _require_descriptor_bytes(artifact_root, descriptor)
+        file_stat = path.stat()
+        identity = (file_stat.st_dev, file_stat.st_ino)
+        require(identity not in seen_files,
+                "proof artifact descriptors alias one physical file")
+        seen_files.add(identity)
+        return path
+
+    for run_record in report["runs"]:
+        for name in ("gmp", "mpfr"):
+            build = run_record["builds"][name]
+            transcript_paths = {
+                key: bind(descriptor)
+                for key, descriptor in build["transcripts"].items()
+            }
+            expected_text = {
+                "configure.argv": "".join(
+                    value + "\n" for value in build["configure_argv"]),
+                "build.argv": "".join(
+                    value + "\n" for value in build["build_argv"]),
+                "install.argv": "".join(
+                    value + "\n" for value in build["install_argv"]),
+                "environment": "".join(
+                    f"{key}={build['environment'][key]}\n"
+                    for key in sorted(build["environment"])),
+            }
+            for transcript_name, expected in expected_text.items():
+                require(transcript_paths[transcript_name].read_text(
+                    encoding="utf-8") == expected,
+                    f"{name} retained {transcript_name} semantic drift")
+
+            library = run_record["libraries"][name]
+            artifacts = {
+                key: bind(descriptor)
+                for key, descriptor in library["artifacts"].items()
+            }
+            copied_stat = artifacts["library"].stat()
+            require(stat.S_IMODE(copied_stat.st_mode) == 0o755,
+                    f"{name} retained library mode drift")
+            otool_d = artifacts["otool_d"].read_text(encoding="utf-8")
+            otool_l = artifacts["otool_l"].read_text(encoding="utf-8")
+            canonical_path = pathlib.Path(library["canonical_path"])
+            require(otool_d.splitlines() == [
+                f"{canonical_path}:", str(canonical_path)],
+                f"{name} retained LC_ID_DYLIB transcript drift")
+            dependencies = _otool_dependencies(otool_l, canonical_path)
+            require(dependencies[0] == str(canonical_path),
+                    f"{name} retained LC_ID_DYLIB projection drift")
+            if name == "mpfr":
+                expected_gmp = str(CANONICAL_PREFIX / "lib" /
+                                   LIBRARIES["gmp"]["versioned_name"])
+                require(expected_gmp in dependencies,
+                        "retained MPFR LC_LOAD_DYLIB projection drift")
+    require(len(seen_paths) == 52,
+            "proof artifact inventory does not contain exactly 52 files")
+
+
+def validate_source_archives(gmp_archive: pathlib.Path,
+                             mpfr_archive: pathlib.Path) -> None:
+    validate_archive("gmp", gmp_archive)
+    validate_archive("mpfr", mpfr_archive)
+
+
+def freeze_summary(report: Any, report_bytes: bytes,
+                   artifact_root: pathlib.Path,
+                   gmp_archive: pathlib.Path,
+                   mpfr_archive: pathlib.Path) -> dict[str, Any]:
     require(report_bytes == canonical_bytes(report),
             "derivation bundle bytes are not canonical")
     validate_report(report, require_frozen=True)
+    validate_retained_artifacts(report, artifact_root)
+    validate_source_archives(gmp_archive, mpfr_archive)
     comparable_fields = (
         "canonical_path", "link_path", "link_target", "byte_length", "mode",
         "sha256", "otool_d_sha256", "otool_l_sha256")
@@ -682,6 +931,23 @@ def validate_freeze_summary(summary: Any) -> None:
                   "d9a_reopened", "b3_unblocked", "far_selected",
                   "production_authorized"):
         require(summary[field] is False, f"freeze summary {field} drift")
+    require(hashlib.sha256(canonical_bytes(summary) + b"\n").hexdigest() ==
+            EVIDENCE_FILE_SHA256,
+            "freeze summary differs from the reviewed evidence authority")
+
+
+def verify_frozen_bundle(report: Any, report_bytes: bytes,
+                         artifact_root: pathlib.Path,
+                         gmp_archive: pathlib.Path,
+                         mpfr_archive: pathlib.Path) -> dict[str, Any]:
+    summary = freeze_summary(report, report_bytes, artifact_root,
+                             gmp_archive, mpfr_archive)
+    validate_freeze_summary(summary)
+    reviewed = strict_json(EVIDENCE, repository_lf=True)
+    validate_freeze_summary(reviewed)
+    require(summary == reviewed,
+            "derivation bundle differs from the reviewed freeze summary")
+    return summary
 
 
 def derive(args: argparse.Namespace) -> dict[str, Any]:
@@ -749,19 +1015,22 @@ def derive(args: argparse.Namespace) -> dict[str, Any]:
     return report
 
 
-def verify_installed() -> dict[str, str]:
+def verify_installed(gmp_archive: pathlib.Path,
+                     mpfr_archive: pathlib.Path) -> dict[str, str]:
     require(all(value != "PENDING"
                 for value in FROZEN_PHYSICAL_LIBRARY_SHA256.values()),
             "frozen physical library digests are pending")
+    validate_source_archives(gmp_archive, mpfr_archive)
+    summary = strict_json(EVIDENCE, repository_lf=True)
+    validate_freeze_summary(summary)
     result = {}
-    for name, contract in LIBRARIES.items():
-        path = CANONICAL_PREFIX / "lib" / contract["versioned_name"]
-        require(path.is_file() and not path.is_symlink(),
-                f"frozen {name} installed library unavailable")
-        digest = sha256_file(path)
-        require(digest == FROZEN_PHYSICAL_LIBRARY_SHA256[name],
+    for name in LIBRARIES:
+        expected = summary["runs"][1]["libraries"][name]
+        projection, _otool_d, _otool_l = audit_installed_library(
+            name, expected)
+        require(projection["sha256"] == FROZEN_PHYSICAL_LIBRARY_SHA256[name],
                 f"frozen {name} installed library digest drift")
-        result[name] = digest
+        result[name] = projection["sha256"]
     return result
 
 
@@ -809,6 +1078,7 @@ def main() -> int:
     parser.add_argument("--gmp-archive")
     parser.add_argument("--mpfr-archive")
     parser.add_argument("--output-dir")
+    parser.add_argument("--artifact-root")
     args = parser.parse_args()
     try:
         if args.self_test:
@@ -818,18 +1088,36 @@ def main() -> int:
                     "--derive requires both archives and --output-dir")
             result = derive(args)
         elif args.verify_report:
-            report = strict_json(pathlib.Path(args.verify_report).resolve())
-            validate_report(report, require_frozen=True)
+            require(args.artifact_root and args.gmp_archive and
+                    args.mpfr_archive,
+                    "--verify-report requires --artifact-root and both archives")
+            report_path = pathlib.Path(args.verify_report)
+            report_bytes = report_path.read_bytes()
+            report = strict_json(report_path)
+            verify_frozen_bundle(
+                report, report_bytes, pathlib.Path(args.artifact_root),
+                pathlib.Path(args.gmp_archive),
+                pathlib.Path(args.mpfr_archive))
             result = {"status": "ok", "derived_libraries":
                       report["derived_libraries"]}
         elif args.freeze_summary:
-            report_path = pathlib.Path(args.freeze_summary).resolve()
+            require(args.artifact_root and args.gmp_archive and
+                    args.mpfr_archive,
+                    "--freeze-summary requires --artifact-root and both archives")
+            report_path = pathlib.Path(args.freeze_summary)
             report_bytes = report_path.read_bytes()
             report = strict_json(report_path)
-            result = freeze_summary(report, report_bytes)
+            result = freeze_summary(
+                report, report_bytes, pathlib.Path(args.artifact_root),
+                pathlib.Path(args.gmp_archive),
+                pathlib.Path(args.mpfr_archive))
             validate_freeze_summary(result)
         else:
-            result = {"status": "ok", "installed_libraries": verify_installed()}
+            require(args.gmp_archive and args.mpfr_archive,
+                    "--verify-installed requires both frozen source archives")
+            result = {"status": "ok", "installed_libraries":
+                      verify_installed(pathlib.Path(args.gmp_archive),
+                                       pathlib.Path(args.mpfr_archive))}
     except (OSError, ValueError, PreflightError, subprocess.TimeoutExpired) as exc:
         print(f"B2 dependency provenance preflight failed: {exc}", file=sys.stderr)
         return 1

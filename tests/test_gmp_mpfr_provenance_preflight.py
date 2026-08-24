@@ -1,6 +1,7 @@
 import copy
 import importlib.util
 import json
+import os
 import pathlib
 import subprocess
 import tempfile
@@ -124,6 +125,86 @@ def valid_report():
     }
 
 
+def frozen_report():
+    report = valid_report()
+    for run in report["runs"]:
+        for name, digest in MODULE.FROZEN_PHYSICAL_LIBRARY_SHA256.items():
+            run["libraries"][name]["sha256"] = digest
+            run["libraries"][name]["artifacts"]["library"]["sha256"] = digest
+    report["derived_libraries"] = copy.deepcopy(
+        MODULE.FROZEN_PHYSICAL_LIBRARY_SHA256)
+    return report
+
+
+def materialize_report_artifacts(report, root):
+    library_bytes = {"gmp": b"gmp-frozen-test-library",
+                     "mpfr": b"mpfr-frozen-test-library"}
+    digests = {name: MODULE.hashlib.sha256(raw).hexdigest()
+               for name, raw in library_bytes.items()}
+    for run in report["runs"]:
+        for name in ("gmp", "mpfr"):
+            build = run["builds"][name]
+            contents = {
+                "configure.argv": "".join(
+                    value + "\n" for value in build["configure_argv"]).encode(),
+                "build.argv": "".join(
+                    value + "\n" for value in build["build_argv"]).encode(),
+                "install.argv": "".join(
+                    value + "\n" for value in build["install_argv"]).encode(),
+                "environment": "".join(
+                    f"{key}={build['environment'][key]}\n"
+                    for key in sorted(build["environment"])).encode(),
+                "configure.log": b"configure output\n",
+                "build.log": b"build output\n",
+                "install.log": b"install output\n",
+                "config.status": b"config status\n",
+                "config.log": b"config log\n",
+                "Makefile": b"all:\n\t@true\n",
+            }
+            for key, descriptor_value in build["transcripts"].items():
+                path = root / descriptor_value["relative_path"]
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(contents[key])
+                descriptor_value["byte_length"] = len(contents[key])
+                descriptor_value["sha256"] = MODULE.hashlib.sha256(
+                    contents[key]).hexdigest()
+
+            library = run["libraries"][name]
+            canonical = pathlib.Path(library["canonical_path"])
+            if name == "gmp":
+                dependencies = [str(canonical), "/usr/lib/libSystem.B.dylib"]
+            else:
+                dependencies = [
+                    str(canonical),
+                    str(MODULE.CANONICAL_PREFIX / "lib" /
+                        MODULE.LIBRARIES["gmp"]["versioned_name"]),
+                    "/usr/lib/libSystem.B.dylib"]
+            otool_d = f"{canonical}:\n{canonical}\n".encode()
+            otool_l = (f"{canonical}:\n" + "".join(
+                f"\t{item} (compatibility version 1.0.0)\n"
+                for item in dependencies)).encode()
+            artifact_bytes = {
+                "library": library_bytes[name],
+                "otool_d": otool_d,
+                "otool_l": otool_l,
+            }
+            for key, descriptor_value in library["artifacts"].items():
+                path = root / descriptor_value["relative_path"]
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(artifact_bytes[key])
+                if key == "library":
+                    path.chmod(0o755)
+                descriptor_value["byte_length"] = len(artifact_bytes[key])
+                descriptor_value["sha256"] = MODULE.hashlib.sha256(
+                    artifact_bytes[key]).hexdigest()
+            library["byte_length"] = len(library_bytes[name])
+            library["sha256"] = digests[name]
+            library["otool_d_sha256"] = MODULE.hashlib.sha256(otool_d).hexdigest()
+            library["otool_l_sha256"] = MODULE.hashlib.sha256(otool_l).hexdigest()
+    report["derived_libraries"] = digests
+    return digests
+
+
 class GmpMpfrProvenancePreflightTest(unittest.TestCase):
     def test_authority_literals_and_self_test(self):
         result = MODULE.self_test()
@@ -228,14 +309,20 @@ class GmpMpfrProvenancePreflightTest(unittest.TestCase):
                 if command[1] == "-D":
                     output = f"{target}:\n{target}\n"
                 else:
-                    output = (f"{target}:\n\t{library_root / 'libgmp.10.dylib'} "
-                              "(compatibility version 1.0.0)\n")
+                    dependencies = [str(target)]
+                    if target.name.startswith("libmpfr"):
+                        dependencies.append(str(
+                            library_root / "libgmp.10.dylib"))
+                    output = f"{target}:\n" + "".join(
+                        f"\t{item} (compatibility version 1.0.0)\n"
+                        for item in dependencies)
                 return subprocess.CompletedProcess(command, 0, output, "")
 
             artifact_root = root / "proof"
             artifact_root.mkdir()
             shared = artifact_root / "run-a" / "libraries"
             with mock.patch.object(MODULE, "CANONICAL_PREFIX", prefix), \
+                    mock.patch.object(MODULE, "validate_prefix_parent"), \
                     mock.patch.object(MODULE, "run", side_effect=fake_run):
                 gmp = MODULE.inspect_library("gmp", shared, artifact_root)
                 mpfr = MODULE.inspect_library("mpfr", shared, artifact_root)
@@ -251,7 +338,7 @@ class GmpMpfrProvenancePreflightTest(unittest.TestCase):
         with mock.patch.object(MODULE, "CANONICAL_PREFIX",
                                pathlib.Path("/private/tmp/absent-b2b-prefix")):
             with self.assertRaisesRegex(MODULE.PreflightError, "unavailable"):
-                MODULE.verify_installed()
+                MODULE.audit_installed_library("gmp")
 
     def test_frozen_digest_report_validates(self):
         report = valid_report()
@@ -264,27 +351,173 @@ class GmpMpfrProvenancePreflightTest(unittest.TestCase):
         MODULE.validate_report(report, require_frozen=True)
 
     def test_freeze_summary_binds_complete_derivation(self):
-        report = valid_report()
-        for run in report["runs"]:
-            for name, digest in MODULE.FROZEN_PHYSICAL_LIBRARY_SHA256.items():
-                run["libraries"][name]["sha256"] = digest
-                run["libraries"][name]["artifacts"]["library"]["sha256"] = digest
-        report["derived_libraries"] = copy.deepcopy(
-            MODULE.FROZEN_PHYSICAL_LIBRARY_SHA256)
-        report_bytes = MODULE.canonical_bytes(report)
-        summary = MODULE.freeze_summary(report, report_bytes)
-        MODULE.validate_freeze_summary(summary)
-        self.assertEqual(summary["derivation_bundle"], {
-            "byte_length": len(report_bytes),
-            "sha256": MODULE.hashlib.sha256(report_bytes).hexdigest(),
-        })
+        reviewed = MODULE.strict_json(MODULE.EVIDENCE, repository_lf=True)
+        MODULE.validate_freeze_summary(reviewed)
         for mutation in (
-                {**summary, "numeric_d12_executed": True},
-                {**summary, "derived_libraries": {
-                    **summary["derived_libraries"], "gmp": SHA_A}},
-                {**summary, "runs": list(reversed(summary["runs"]))}):
+                {**reviewed, "numeric_d12_executed": True},
+                {**reviewed, "derived_libraries": {
+                    **reviewed["derived_libraries"], "gmp": SHA_A}},
+                {**reviewed, "runs": list(reversed(reviewed["runs"]))}):
             with self.assertRaises(MODULE.PreflightError):
                 MODULE.validate_freeze_summary(mutation)
+
+    def test_retained_artifact_bundle_is_byte_and_semantically_bound(self):
+        with tempfile.TemporaryDirectory(dir="/private/tmp") as temporary:
+            root = pathlib.Path(temporary).resolve()
+            report = valid_report()
+            digests = materialize_report_artifacts(report, root)
+            with mock.patch.dict(MODULE.FROZEN_PHYSICAL_LIBRARY_SHA256,
+                                 digests, clear=True):
+                MODULE.validate_retained_artifacts(report, root)
+
+                configure = (root / report["runs"][0]["builds"]["gmp"]
+                             ["transcripts"]["configure.argv"]["relative_path"])
+                original = configure.read_bytes()
+                configure.write_bytes(original + b"--poison\n")
+                descriptor_value = report["runs"][0]["builds"]["gmp"][
+                    "transcripts"]["configure.argv"]
+                descriptor_value["byte_length"] = configure.stat().st_size
+                descriptor_value["sha256"] = MODULE.sha256_file(configure)
+                with self.assertRaisesRegex(MODULE.PreflightError, "semantic"):
+                    MODULE.validate_retained_artifacts(report, root)
+
+    def test_retained_artifact_missing_digest_alias_and_hardlink_reject(self):
+        for attack in ("missing", "digest", "symlink", "hardlink"):
+            with self.subTest(attack=attack), \
+                    tempfile.TemporaryDirectory(dir="/private/tmp") as temporary:
+                root = pathlib.Path(temporary).resolve()
+                report = valid_report()
+                digests = materialize_report_artifacts(report, root)
+                descriptor_value = report["runs"][0]["builds"]["gmp"][
+                    "transcripts"]["configure.log"]
+                path = root / descriptor_value["relative_path"]
+                if attack == "missing":
+                    path.unlink()
+                elif attack == "digest":
+                    descriptor_value["sha256"] = "0" * 64
+                elif attack == "symlink":
+                    raw = path.read_bytes()
+                    target = path.with_name("configure-log-target")
+                    target.write_bytes(raw)
+                    path.unlink()
+                    path.symlink_to(target.name)
+                else:
+                    raw = path.read_bytes()
+                    target = path.with_name("configure-log-hardlink")
+                    path.unlink()
+                    target.write_bytes(raw)
+                    os.link(target, path)
+                with mock.patch.dict(MODULE.FROZEN_PHYSICAL_LIBRARY_SHA256,
+                                     digests, clear=True):
+                    with self.assertRaises(MODULE.PreflightError):
+                        MODULE.validate_retained_artifacts(report, root)
+
+    def test_freeze_summary_requires_real_artifacts_and_archives(self):
+        with tempfile.TemporaryDirectory(dir="/private/tmp") as temporary:
+            root = pathlib.Path(temporary).resolve()
+            report = valid_report()
+            digests = materialize_report_artifacts(report, root)
+            report_bytes = MODULE.canonical_bytes(report)
+            with mock.patch.dict(MODULE.FROZEN_PHYSICAL_LIBRARY_SHA256,
+                                 digests, clear=True), \
+                    mock.patch.object(MODULE, "validate_source_archives") as audit:
+                summary = MODULE.freeze_summary(
+                    report, report_bytes, root,
+                    pathlib.Path("gmp.tar.xz"), pathlib.Path("mpfr.tar.xz"))
+            audit.assert_called_once()
+            self.assertEqual(summary["derivation_bundle"]["sha256"],
+                             MODULE.hashlib.sha256(report_bytes).hexdigest())
+            with self.assertRaises(MODULE.PreflightError):
+                MODULE.validate_freeze_summary(summary)
+
+    def test_installed_tree_audit_rejects_links_modes_hardlinks_and_otool(self):
+        attacks = ("wrong-link", "missing-link", "mode", "hardlink", "otool")
+        for attack in attacks:
+            with self.subTest(attack=attack), \
+                    tempfile.TemporaryDirectory(dir="/private/tmp") as temporary:
+                root = pathlib.Path(temporary).resolve()
+                prefix = root / "prefix"
+                library_root = prefix / "lib"
+                library_root.mkdir(parents=True)
+                for name, contract in MODULE.LIBRARIES.items():
+                    versioned = library_root / contract["versioned_name"]
+                    versioned.write_bytes((name + "-library").encode())
+                    versioned.chmod(0o755)
+                    (library_root / contract["link_name"]).symlink_to(
+                        contract["versioned_name"])
+                if attack == "wrong-link":
+                    link = library_root / "libgmp.dylib"
+                    link.unlink()
+                    link.symlink_to("libmpfr.6.dylib")
+                elif attack == "missing-link":
+                    (library_root / "libgmp.dylib").unlink()
+                elif attack == "mode":
+                    (library_root / "libgmp.10.dylib").chmod(0o600)
+                elif attack == "hardlink":
+                    os.link(library_root / "libgmp.10.dylib",
+                            library_root / "gmp-hardlink")
+
+                def fake_run(command, **_kwargs):
+                    target = pathlib.Path(command[-1])
+                    if command[1] == "-D":
+                        identity = ("/wrong/install/name" if attack == "otool"
+                                    and target.name.startswith("libgmp")
+                                    else str(target))
+                        output = f"{target}:\n{identity}\n"
+                    else:
+                        dependencies = [str(target)]
+                        if target.name.startswith("libmpfr"):
+                            dependencies.append(str(
+                                library_root / "libgmp.10.dylib"))
+                        output = f"{target}:\n" + "".join(
+                            f"\t{item} (compatibility version 1.0.0)\n"
+                            for item in dependencies)
+                    return subprocess.CompletedProcess(command, 0, output, "")
+
+                with mock.patch.object(MODULE, "CANONICAL_PREFIX", prefix), \
+                        mock.patch.object(MODULE, "validate_prefix_parent"), \
+                        mock.patch.object(MODULE, "run", side_effect=fake_run):
+                    with self.assertRaises(MODULE.PreflightError):
+                        MODULE.audit_installed_library("gmp")
+
+    def test_installed_tree_audit_rejects_symlinked_prefix(self):
+        with tempfile.TemporaryDirectory(dir="/private/tmp") as temporary:
+            root = pathlib.Path(temporary).resolve()
+            real = root / "real"
+            (real / "lib").mkdir(parents=True)
+            alias = root / "alias"
+            alias.symlink_to(real.name)
+            with mock.patch.object(MODULE, "CANONICAL_PREFIX", alias), \
+                    mock.patch.object(MODULE, "validate_prefix_parent"):
+                with self.assertRaisesRegex(MODULE.PreflightError, "aliased"):
+                    MODULE.audit_installed_library("gmp")
+
+    def test_git_observation_ignores_redirects_and_rejects_hidden_flags(self):
+        with tempfile.TemporaryDirectory(dir="/private/tmp") as temporary:
+            repo = pathlib.Path(temporary).resolve()
+            subprocess.run(["/usr/bin/git", "init", "-q", str(repo)], check=True)
+            tracked = repo / "tracked.txt"
+            tracked.write_text("reviewed\n", encoding="utf-8")
+            subprocess.run(["/usr/bin/git", "-C", str(repo), "add", "tracked.txt"],
+                           check=True)
+            subprocess.run([
+                "/usr/bin/git", "-C", str(repo), "-c", "user.name=review",
+                "-c", "user.email=review@example.invalid", "commit", "-qm",
+                "reviewed"], check=True)
+            expected = subprocess.run(
+                ["/usr/bin/git", "-C", str(repo), "rev-parse", "HEAD"],
+                check=True, capture_output=True, text=True).stdout.strip()
+            with mock.patch.object(MODULE, "ROOT", repo), \
+                    mock.patch.dict(os.environ, {
+                        "GIT_DIR": str(MODULE.ROOT / ".git"),
+                        "GIT_WORK_TREE": str(MODULE.ROOT)}, clear=False):
+                self.assertEqual(MODULE.git_observation()["head"], expected)
+            subprocess.run(["/usr/bin/git", "-C", str(repo), "update-index",
+                            "--assume-unchanged", "tracked.txt"], check=True)
+            with mock.patch.object(MODULE, "ROOT", repo):
+                with self.assertRaisesRegex(MODULE.PreflightError,
+                                            "assume-unchanged"):
+                    MODULE.git_observation()
 
     def test_pending_constant_is_never_admissible(self):
         with mock.patch.dict(MODULE.FROZEN_PHYSICAL_LIBRARY_SHA256,
@@ -292,7 +525,8 @@ class GmpMpfrProvenancePreflightTest(unittest.TestCase):
             with self.assertRaisesRegex(MODULE.PreflightError, "pending"):
                 MODULE.validate_report(valid_report(), require_frozen=True)
             with self.assertRaisesRegex(MODULE.PreflightError, "pending"):
-                MODULE.verify_installed()
+                MODULE.verify_installed(pathlib.Path("gmp"),
+                                        pathlib.Path("mpfr"))
 
     def test_canonical_encoding_is_stable(self):
         report = valid_report()

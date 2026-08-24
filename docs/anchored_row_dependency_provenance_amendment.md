@@ -164,9 +164,14 @@ and explicit user approval complete.
 Routine physical qualification does not rebuild dependencies. It cheaply
 requires the exact canonical paths, symlinks, load commands, and frozen
 versioned-library SHA-256 values before snapshotting or launching any oracle or
-candidate process. The later Package 2 implementation must also require the
-source archive path and compare it directly to the archive SHA-256 constants
-above; hashing a co-produced envelope is insufficient.
+candidate process. The routine audit walks the physical prefix and `lib`
+directory without resolving away an alias, rejects symlinked directory
+components and hardlinked versioned leaves, requires mode `0755`, exact byte
+length, exact unversioned-link target, exact `LC_ID_DYLIB`, MPFR's exact GMP
+`LC_LOAD_DYLIB`, and the frozen `otool -D`/`otool -L` transcript digests. The
+same invocation must receive both frozen source archive paths and compare their
+bytes directly to the archive SHA-256 constants above; hashing a co-produced
+envelope is insufficient.
 
 The GitHub-hosted `macos-26` workflow continues to download and verify the same
 literal archives and rebuild them from source on every clean runner. Hosted
@@ -205,6 +210,34 @@ freeze commit. Reviewers compare the summary to the complete bundle, rerun the
 derivation from the archived inputs, or validate the frozen installed tree
 independently. Neither file is a qualification report.
 
+Complete-bundle validation is impossible without the retained artifact root
+and both source archives. The validator resolves every one of the exact 52
+declared transcript/library/`otool` records beneath one physically canonical
+root, rejects missing files, symlink or hardlink aliases, then compares exact
+byte length and SHA-256. It additionally parses the retained command and closed
+environment transcripts and the Mach-O install/load projections; descriptor
+shape alone is never evidence. The regenerated freeze summary must equal the
+reviewed checked-in summary byte-for-byte and must retain its reviewed file
+SHA-256. A report copied without its sidecars, or coordinated edits to a
+sidecar and its report descriptor, therefore fail.
+
+The exact review commands are:
+
+```text
+python3 scripts/run_gmp_mpfr_provenance_preflight.py --verify-report REPORT \
+  --artifact-root ARTIFACT_ROOT --gmp-archive GMP_ARCHIVE \
+  --mpfr-archive MPFR_ARCHIVE
+python3 scripts/run_gmp_mpfr_provenance_preflight.py --verify-installed \
+  --gmp-archive GMP_ARCHIVE --mpfr-archive MPFR_ARCHIVE
+```
+
+Derivation Git identity is observed with absolute `/usr/bin/git` under a closed
+environment containing no inherited `GIT_*` values. The audit requires the
+canonical executing worktree, canonical Git directory, empty status including
+untracked files, no skip-worktree or assume-unchanged index flags, index equality
+with the exact HEAD tree, and byte/mode equality for every tracked blob. An
+alternate clean repository selected through ambient Git variables is forbidden.
+
 ```text
 complete_derivation_bundle_bytes=16153
 complete_derivation_bundle_sha256=9a2e1a7b2f64ee0092c3550771ea60baaec9a50b63597450f7d9bd5e0eb1b09a
@@ -221,6 +254,10 @@ Tests and exact-SHA review must reject at least:
 - inherited or missing environment entries and changed compiler/SDK/tool path;
 - missing, extra, reordered, or changed configure/build/install arguments;
 - one-run evidence, run reorder, transcript omission, or duplicate JSON keys;
+- a report without its exact 52 retained files, a descriptor/sidecar coordinated
+  mutation, semantic command/environment drift, traversal, symlink, or hardlink;
+- ambient `GIT_DIR`, `GIT_WORK_TREE`, or `PATH` redirection, hidden index flags,
+  index/tree drift, tracked byte drift, or executable-mode drift;
 - versioned-library name, unversioned symlink, mode, length, digest, install ID,
   load dependency, or `otool` transcript drift;
 - coordinated packet/snapshot/installed-library substitution that differs from

@@ -1451,6 +1451,17 @@ qualification/activation decision. It requires its own exact-SHA verification,
 technical, scientific, and gatekeeper PASS, merge, and explicit user approval
 before Package 2 may consume it.
 
+The proof validator must not accept descriptor-only evidence. Exact review
+requires both frozen source archives and the complete retained root containing
+all 52 declared files; every path, byte length, digest, command/environment
+transcript, and Mach-O install/load projection is replayed against the reviewed
+freeze summary. Routine physical enforcement separately audits the canonical
+installed tree's directory components, unversioned symlinks, non-hardlinked
+`0755` versioned leaves, byte lengths, source-derived hashes, and exact `otool`
+projections. Git derivation identity uses closed-environment absolute Git and a
+complete HEAD/index/blob/mode audit. A copied report, coordinated sidecar edit,
+ambient Git redirect, hidden index flag, or alternate-prefix tree is rejected.
+
 Frozen inputs:
 
 - reuse the exact D10 MPFR/Stam oracle, fixtures, manifest hashes, row targets,
