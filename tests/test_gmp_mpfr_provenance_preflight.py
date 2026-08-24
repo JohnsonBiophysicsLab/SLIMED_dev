@@ -2,6 +2,7 @@ import copy
 import importlib.util
 import json
 import pathlib
+import subprocess
 import tempfile
 import unittest
 from unittest import mock
@@ -196,6 +197,40 @@ class GmpMpfrProvenancePreflightTest(unittest.TestCase):
         self.assertNotIn("CPATH", environment)
         self.assertNotIn("CFLAGS", environment)
         self.assertNotIn("CCC_OVERRIDE_OPTIONS", environment)
+
+    def test_both_library_artifacts_share_one_run_directory(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary).resolve()
+            prefix = root / "canonical-prefix"
+            library_root = prefix / "lib"
+            library_root.mkdir(parents=True)
+            for name, contract in MODULE.LIBRARIES.items():
+                versioned = library_root / contract["versioned_name"]
+                versioned.write_bytes((name + "-library").encode())
+                versioned.chmod(0o755)
+                (library_root / contract["link_name"]).symlink_to(
+                    contract["versioned_name"])
+
+            def fake_run(command, **_kwargs):
+                target = pathlib.Path(command[-1])
+                if command[1] == "-D":
+                    output = f"{target}:\n{target}\n"
+                else:
+                    output = (f"{target}:\n\t{library_root / 'libgmp.10.dylib'} "
+                              "(compatibility version 1.0.0)\n")
+                return subprocess.CompletedProcess(command, 0, output, "")
+
+            artifact_root = root / "proof"
+            artifact_root.mkdir()
+            shared = artifact_root / "run-a" / "libraries"
+            with mock.patch.object(MODULE, "CANONICAL_PREFIX", prefix), \
+                    mock.patch.object(MODULE, "run", side_effect=fake_run):
+                gmp = MODULE.inspect_library("gmp", shared, artifact_root)
+                mpfr = MODULE.inspect_library("mpfr", shared, artifact_root)
+            self.assertEqual(gmp["sha256"],
+                             gmp["artifacts"]["library"]["sha256"])
+            self.assertEqual(mpfr["sha256"],
+                             mpfr["artifacts"]["library"]["sha256"])
 
     def test_pending_digest_cannot_verify_report_or_install(self):
         with self.assertRaisesRegex(MODULE.PreflightError, "pending"):

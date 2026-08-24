@@ -328,7 +328,7 @@ def inspect_library(name: str, output: pathlib.Path,
                            LIBRARIES["gmp"]["versioned_name"])
         require(expected_gmp in otool_l,
                 "MPFR LC_LOAD_DYLIB does not name canonical GMP")
-    output.mkdir(parents=True)
+    output.mkdir(parents=True, exist_ok=True)
     copied = output / contract["versioned_name"]
     shutil.copy2(versioned, copied)
     (output / f"{name}.otool-D.txt").write_text(otool_d, encoding="utf-8")
