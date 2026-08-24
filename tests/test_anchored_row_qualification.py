@@ -2785,6 +2785,29 @@ class AnchoredRowQualificationTests(unittest.TestCase):
             with self.assertRaises(MODULE.QualificationError):
                 MODULE.validate_d12_envelope_contract(candidate, "a" * 40)
 
+    def test_d12_producer_accepts_canonical_clean_observation_shape(self):
+        head = "a" * 40
+        args = SimpleNamespace(
+            expected_binding_head=head,
+            gmp_archive="/proof/gmp.tar.xz",
+            mpfr_archive="/proof/mpfr.tar.xz",
+            gmp_installed_library="/proof/libgmp.10.dylib",
+            mpfr_installed_library="/proof/libmpfr.6.dylib")
+        frozen = MODULE.QualificationError("reached frozen authority")
+        with mock.patch.object(
+                MODULE, "git_observations", return_value=(
+                    MODULE.git_identity("PRESENT", head),
+                    MODULE.worktree_observation(True))), \
+                mock.patch.object(
+                    MODULE, "validate_frozen_gmp_mpfr_authority",
+                    side_effect=frozen) as validator, \
+                self.assertRaisesRegex(
+                    MODULE.QualificationError, "reached frozen authority"):
+            MODULE.produce_d12_evidence(args)
+        validator.assert_called_once_with(
+            args.gmp_archive, args.mpfr_archive,
+            args.gmp_installed_library, args.mpfr_installed_library)
+
     def test_d12_command_profile_binds_distinct_compile_and_link_argv(self):
         profile = {
             "working_directory": str(MODULE.ROOT),
@@ -3691,6 +3714,9 @@ class AnchoredRowQualificationTests(unittest.TestCase):
                 path = library_root / MODULE.DEPENDENCY_PROVENANCE.LIBRARIES[
                     name]["versioned_name"]
                 path.write_bytes(payload)
+                path.chmod(0o755)
+                (library_root / MODULE.DEPENDENCY_PROVENANCE.LIBRARIES[
+                    name]["link_name"]).symlink_to(path.name)
                 libraries[name] = path
                 digests[name] = MODULE.sha256_file(path)
             with mock.patch.object(
@@ -3704,6 +3730,11 @@ class AnchoredRowQualificationTests(unittest.TestCase):
                 self.assertEqual(MODULE.validate_frozen_gmp_mpfr_authority(
                     "/proof/gmp.tar.xz", "/proof/mpfr.tar.xz",
                     str(libraries["gmp"]), str(libraries["mpfr"])), digests)
+                installed_paths = {
+                    name: str(path) for name, path in libraries.items()}
+                self.assertEqual(
+                    MODULE._frozen_oracle_installed_library_digests(
+                        installed_paths), digests)
                 with mock.patch.object(
                         MODULE, "_run_d12_closed_git",
                         return_value=SimpleNamespace(returncode=1)), \
@@ -3717,13 +3748,52 @@ class AnchoredRowQualificationTests(unittest.TestCase):
                     MODULE.validate_frozen_gmp_mpfr_authority(
                         "/proof/gmp.tar.xz", "/proof/mpfr.tar.xz",
                         str(alternate), str(libraries["mpfr"]))
-                canonical_gmp = libraries["gmp"].read_bytes()
-                libraries["gmp"].write_bytes(b"coordinated substitute\n")
+                canonical = {
+                    name: path.read_bytes() for name, path in libraries.items()}
+                libraries["gmp"].write_bytes(b"coordinated substitute gmp\n")
+                libraries["mpfr"].write_bytes(b"coordinated substitute mpfr\n")
                 with self.assertRaises(MODULE.QualificationError):
                     MODULE.validate_frozen_gmp_mpfr_authority(
                         "/proof/gmp.tar.xz", "/proof/mpfr.tar.xz",
                         str(libraries["gmp"]), str(libraries["mpfr"]))
-                libraries["gmp"].write_bytes(canonical_gmp)
+                with self.assertRaises(MODULE.QualificationError):
+                    MODULE._frozen_oracle_installed_library_digests(
+                        installed_paths)
+                attack = root / "coordinated-attack"
+                attack.mkdir()
+                transcript = "proof-oracle:\n"
+                sealed = attack / "sealed.json"
+                sealed.write_bytes(MODULE.jcs_bytes({
+                    "schema_id": "oracle-runtime-dependency-audit-v1",
+                    "otool_L_text": transcript,
+                    "otool_L_sha256": MODULE.sha256_bytes(
+                        transcript.encode("utf-8")),
+                    "libraries": [
+                        {"name": name, "path": str(libraries[name]),
+                         "sha256": MODULE.sha256_file(libraries[name])}
+                        for name in ("gmp", "mpfr")]}))
+                loaded = MODULE._snapshot_oracle_runtime_libraries(
+                    sealed, attack /
+                    "anchored-row-oracle-runtime-libraries-v1")
+                raw_value = MODULE.jcs_bytes({
+                    "schema_version": 1,
+                    "kind": "stam_oracle_sample_v1",
+                    "status": "uncovered",
+                    "reason_code": "NO_ISOLATION_BY_DEPTH_12"})
+                with mock.patch.object(
+                        MODULE, "ORACLE_EXECUTION_REQUEST_COUNT", 1):
+                    audit = MODULE.OracleExecutionAuditArtifact(attack)
+                    audit.add("request\n", "a" * 64, raw_value,
+                              MODULE.strict_json_bytes(raw_value))
+                    descriptor = audit.finish()
+                    with self.assertRaises(MODULE.QualificationError):
+                        MODULE._publish_oracle_runtime_execution_packet(
+                            sealed, loaded, descriptor,
+                            attack / "execution-packet.json",
+                            installed_paths,
+                            require_frozen_installed_libraries=True)
+                for name, payload in canonical.items():
+                    libraries[name].write_bytes(payload)
             with mock.patch.object(
                     MODULE.DEPENDENCY_PROVENANCE, "CANONICAL_PREFIX", prefix), \
                     mock.patch.object(

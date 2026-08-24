@@ -24,6 +24,7 @@ import shutil
 import shlex
 import signal
 import sqlite3
+import stat
 import struct
 import subprocess
 import sys
@@ -1356,7 +1357,8 @@ def _validate_runtime_bindings(report, runtime_binaries,
                             oracle_files["link_map"],
                             oracle_files["dynamic_dependencies"],
                             installed_library_paths=
-                                oracle_installed_libraries),
+                                oracle_installed_libraries,
+                            require_frozen_installed_libraries=True),
                     "oracle independence audit differs from runtime evidence")
     return True
 
@@ -8897,9 +8899,10 @@ def produce_d12_evidence(args):
     expected_head = args.expected_binding_head or git_start.get("git_commit")
     require(git_start.get("state") == "PRESENT" and
             git_start.get("git_commit") == expected_head and
-            worktree_start == {"state": "PRESENT", "clean": True},
+            worktree_start == {
+                "state": "PRESENT", "clean": True, "reason_code": None},
             "D12 production requires exact clean Git HEAD")
-    validate_frozen_gmp_mpfr_authority(
+    frozen_dependency_digests = validate_frozen_gmp_mpfr_authority(
         args.gmp_archive, args.mpfr_archive,
         args.gmp_installed_library, args.mpfr_installed_library)
     checkpoint_path = pathlib.Path(args.checkpoint).resolve()
@@ -9123,6 +9126,11 @@ def produce_d12_evidence(args):
     require(audit["instrumented_translation_units_sha256"] ==
             instrumentation_digest,
             "D12 runtime instrumentation audit drift")
+    require(validate_frozen_gmp_mpfr_authority(
+                args.gmp_archive, args.mpfr_archive,
+                args.gmp_installed_library,
+                args.mpfr_installed_library) == frozen_dependency_digests,
+            "D12 GMP/MPFR authority changed during execution")
     git_end, worktree_end = git_observations()
     require_git_binding(git_start, git_end, worktree_start, worktree_end,
                         expected_head, expected_head)
@@ -10654,9 +10662,49 @@ def _oracle_installed_library_digests(installed_library_paths):
     return result
 
 
+def _frozen_oracle_installed_library_digests(installed_library_paths):
+    """Bind the oracle's exact installed paths and bytes to PR 209 authority."""
+    require(isinstance(installed_library_paths, dict) and
+            set(installed_library_paths) == {"gmp", "mpfr"},
+            "oracle frozen installed-library authority is incomplete")
+    prefix = DEPENDENCY_PROVENANCE.CANONICAL_PREFIX
+    library_root = prefix / "lib"
+    try:
+        DEPENDENCY_PROVENANCE.require_canonical_directory(
+            prefix, "oracle frozen install prefix is aliased")
+        DEPENDENCY_PROVENANCE.require_canonical_directory(
+            library_root, "oracle frozen library root is aliased")
+    except DEPENDENCY_PROVENANCE.PreflightError as error:
+        raise QualificationError(str(error)) from error
+    expected_paths = {
+        name: (library_root /
+               DEPENDENCY_PROVENANCE.LIBRARIES[name]["versioned_name"])
+        for name in ("gmp", "mpfr")}
+    for name in ("gmp", "mpfr"):
+        expected = expected_paths[name]
+        link = library_root / DEPENDENCY_PROVENANCE.LIBRARIES[name][
+            "link_name"]
+        expected_stat = expected.lstat() if expected.exists() else None
+        require(isinstance(installed_library_paths[name], str) and
+                installed_library_paths[name] == str(expected) and
+                expected_stat is not None and
+                stat.S_ISREG(expected_stat.st_mode) and
+                expected_stat.st_nlink == 1 and not expected.is_symlink() and
+                stat.S_IMODE(expected_stat.st_mode) == 0o755 and
+                expected.resolve(strict=True) == expected and
+                link.is_symlink() and os.readlink(link) == expected.name,
+                "oracle {} installed-library shape differs from frozen authority".
+                format(name))
+    observed = _oracle_installed_library_digests(installed_library_paths)
+    require(observed ==
+                DEPENDENCY_PROVENANCE.FROZEN_PHYSICAL_LIBRARY_SHA256,
+            "oracle installed-library bytes differ from frozen authority")
+    return observed
+
+
 def _publish_oracle_runtime_execution_packet(
         sealed_audit_path, runtime_bindings, execution_audit, destination,
-        installed_library_paths):
+        installed_library_paths, require_frozen_installed_libraries=False):
     """Bind the actually loaded immutable dylibs and unique-request audit."""
     sealed_path = pathlib.Path(sealed_audit_path).resolve()
     destination = pathlib.Path(destination).resolve()
@@ -10702,8 +10750,10 @@ def _publish_oracle_runtime_execution_packet(
         "otool_L_sha256": packet["otool_L_sha256"],
         "libraries": libraries,
         "execution_audit": copy.deepcopy(execution_audit)}
-    installed_digests = _oracle_installed_library_digests(
-        installed_library_paths)
+    installed_digests = (
+        _frozen_oracle_installed_library_digests(installed_library_paths)
+        if require_frozen_installed_libraries else
+        _oracle_installed_library_digests(installed_library_paths))
     require(all(
                 item["sha256"] == installed_digests[item["name"]] and
                 not os.path.samefile(
@@ -10874,7 +10924,8 @@ def audit_oracle_independence(binary_path, command_path, link_map_path,
                               dynamic_dependencies_path,
                               sealed_output_path=None,
                               dependency_evidence_path=None,
-                              installed_library_paths=None):
+                              installed_library_paths=None,
+                              require_frozen_installed_libraries=False):
     """Recompute the frozen primary-oracle independence proof."""
     B2.validate_source_separation()
     _audit_oracle_mpfr_calls()
@@ -11010,8 +11061,11 @@ def audit_oracle_independence(binary_path, command_path, link_map_path,
             raise QualificationError(
                 "oracle dynamic-dependency audit packet schema")
     if installed_library_paths is not None:
-        installed_digests = _oracle_installed_library_digests(
-            installed_library_paths)
+        installed_digests = (
+            _frozen_oracle_installed_library_digests(
+                installed_library_paths)
+            if require_frozen_installed_libraries else
+            _oracle_installed_library_digests(installed_library_paths))
         require(supplied_libraries is not None and
                 all(item["sha256"] == installed_digests[item["name"]] and
                     (loaded_library_paths is None or
@@ -13795,6 +13849,19 @@ def validate_result_sidecar_bundle(report, bundle_root, checkpoint_path=None,
                       d12_envelope["serial_only_context"])
     validate_report(report, serial_context)
     runtime_binaries = runtime_binaries or {}
+    frozen_dependency_arguments = None
+    frozen_dependency_digests = None
+    if d12_runtime_provenance is not None:
+        dependency_files = d12_runtime_provenance.get("dependencies", {})
+        require(set(dependency_files) == {"gmp", "mpfr", "opensubdiv"},
+                "standalone validation lacks complete dependency provenance")
+        frozen_dependency_arguments = (
+            dependency_files["gmp"]["archive"],
+            dependency_files["mpfr"]["archive"],
+            dependency_files["gmp"]["installed_library"],
+            dependency_files["mpfr"]["installed_library"])
+        frozen_dependency_digests = validate_frozen_gmp_mpfr_authority(
+            *frozen_dependency_arguments)
     if report.get("identity", {}).get("schema_id") == SCHEMA_ID:
         require(set(runtime_binaries) == {
                     "row_provider", "representation_candidate",
@@ -13823,12 +13890,6 @@ def validate_result_sidecar_bundle(report, bundle_root, checkpoint_path=None,
                 set(d12_runtime_provenance.get("dependencies", {})) ==
                     {"gmp", "mpfr", "opensubdiv"},
                 "qualified D12 validation lacks dependency provenance")
-        dependency_files = d12_runtime_provenance["dependencies"]
-        validate_frozen_gmp_mpfr_authority(
-            dependency_files["gmp"]["archive"],
-            dependency_files["mpfr"]["archive"],
-            dependency_files["gmp"]["installed_library"],
-            dependency_files["mpfr"]["installed_library"])
         d12_runtime_binaries = d12_runtime_binaries or {}
         require(set(d12_runtime_binaries) == set(
                     d12_envelope["binaries"]) and
@@ -14079,6 +14140,11 @@ def validate_result_sidecar_bundle(report, bundle_root, checkpoint_path=None,
             len(unexpected_records) == descriptor["record_count"] ==
                 unexpected["required_record_count"],
             "unexpected-path sidecar binding mismatch")
+    if frozen_dependency_arguments is not None:
+        require(validate_frozen_gmp_mpfr_authority(
+                    *frozen_dependency_arguments) ==
+                    frozen_dependency_digests,
+                "GMP/MPFR authority changed during standalone validation")
     d12_evidence.close()
     return True
 
@@ -14815,8 +14881,10 @@ def execute(args):
     oracle_installed_library_paths = {
         "gmp": original_args.gmp_installed_library,
         "mpfr": original_args.mpfr_installed_library}
-    oracle_installed_library_digests = _oracle_installed_library_digests(
-        oracle_installed_library_paths)
+    oracle_installed_library_digests = validate_frozen_gmp_mpfr_authority(
+        original_args.gmp_archive, original_args.mpfr_archive,
+        original_args.gmp_installed_library,
+        original_args.mpfr_installed_library)
     oracle_independence_audit = audit_oracle_independence(
         original_runtime["independent_oracle_binary"][0],
         original_oracle_provenance["oracle_command_file"][0],
@@ -14824,7 +14892,8 @@ def execute(args):
         original_oracle_provenance["oracle_dynamic_dependencies"][0],
         sealed_output_path=sealed_oracle_dynamic,
         dependency_evidence_path=oracle_dependency_snapshot,
-        installed_library_paths=oracle_installed_library_paths)
+        installed_library_paths=oracle_installed_library_paths,
+        require_frozen_installed_libraries=True)
     oracle_runtime_library_root = (evidence_root /
                                    "anchored-row-oracle-runtime-libraries-v1")
     oracle_runtime_libraries = _snapshot_oracle_runtime_libraries(
@@ -14950,8 +15019,10 @@ def execute(args):
                 sha256_file(source) == digest == sha256_file(destination)
                 for source, digest, destination in oracle_runtime_libraries),
             "oracle runtime dependency identity changed during execution")
-    require(_oracle_installed_library_digests(
-                oracle_installed_library_paths) ==
+    require(validate_frozen_gmp_mpfr_authority(
+                original_args.gmp_archive, original_args.mpfr_archive,
+                original_args.gmp_installed_library,
+                original_args.mpfr_installed_library) ==
                 oracle_installed_library_digests,
             "oracle authenticated installed library changed during execution")
     require_git_binding(git_start, git_end, worktree_start, worktree_end,
@@ -14959,7 +15030,8 @@ def execute(args):
     _publish_oracle_runtime_execution_packet(
         sealed_oracle_dynamic,oracle_runtime_libraries,
         oracle_execution_audit,published_oracle_dynamic,
-        oracle_installed_library_paths)
+        oracle_installed_library_paths,
+        require_frozen_installed_libraries=True)
     args.oracle_dynamic_dependencies = str(published_oracle_dynamic)
 
     candidate_source = ROOT / "experiments/anchored_row_qualification/candidate.cpp"
@@ -15436,6 +15508,9 @@ def main(argv=None):
                 args.gmp_archive, args.mpfr_archive,
                 args.gmp_installed_library, args.mpfr_installed_library)
             value = execute(args)
+            validate_frozen_gmp_mpfr_authority(
+                args.gmp_archive, args.mpfr_archive,
+                args.gmp_installed_library, args.mpfr_installed_library)
             encoded = jcs_bytes(value)
             if args.output:
                 pathlib.Path(args.output).write_bytes(encoded)

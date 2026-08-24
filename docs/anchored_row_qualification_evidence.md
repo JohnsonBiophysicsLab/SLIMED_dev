@@ -285,6 +285,27 @@ Package 2 now rejects an alternate path, archive, installed byte sequence, mode,
 symlink projection, Mach-O install/load projection, or envelope digest even
 when caller-controlled packet and snapshot claims are changed together.
 
+## Exact-SHA review at `77e597eb3cb960c2da20f908a0c218e632794498`
+
+All four reviews rejected this first PR 209 integration. The entry points
+validated the source-derived installed tree, but discarded the returned frozen
+digests before the later oracle audit and snapshot established their runtime
+baseline. A coordinated replacement in that interval could therefore make the
+packet, loaded snapshots, and installed copies agree on non-frozen bytes. The
+D12 producer also compared a canonical three-field clean-worktree observation
+to a stale two-field literal and could not reach its provenance gate.
+
+The follow-up carries the frozen binding into the installed-library digest
+operation itself, requiring the exact canonical versioned paths, regular
+single-link `0755` leaves, exact unversioned symlink targets, and PR 209 hashes.
+Execution repeats the full source/archive/install audit at the actual snapshot
+boundary and after scientific use; packet publication and standalone oracle
+audit independently require the same frozen binding. Standalone bundle and D12
+production validation repeat the source audit before and after their use. A
+valid-at-T0/substituted-at-T1 regression exercises the previously accepting
+sequence, and the D12 writer regression uses the canonical clean-worktree
+record including `reason_code: null`.
+
 ## Hosted and physical-host disposition
 
 The mandatory `macos-26` workflow completed successfully at exact SHA
