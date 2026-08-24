@@ -291,6 +291,12 @@ class GmpMpfrProvenancePreflightTest(unittest.TestCase):
                 with self.assertRaisesRegex(MODULE.PreflightError, "aliased"):
                     MODULE.snapshot_archive("gmp", alias,
                                             root / "second-snapshot.tar.xz")
+            hardlink = root / "gmp-hardlink.tar.xz"
+            os.link(source, hardlink)
+            with mock.patch.dict(MODULE.ARCHIVES, authority, clear=True):
+                with self.assertRaisesRegex(MODULE.PreflightError, "aliased"):
+                    MODULE.snapshot_archive("gmp", hardlink,
+                                            root / "third-snapshot.tar.xz")
 
     def test_derive_uses_one_sealed_snapshot_for_both_runs(self):
         with tempfile.TemporaryDirectory(dir="/private/tmp") as temporary:
@@ -306,6 +312,12 @@ class GmpMpfrProvenancePreflightTest(unittest.TestCase):
             authority["gmp"]["sha256"] = MODULE.sha256_file(gmp)
             authority["mpfr"]["sha256"] = MODULE.sha256_file(mpfr)
             calls = []
+            validated_paths = []
+            original_validate_archive = MODULE.validate_archive
+
+            def recording_validate_archive(name, path):
+                validated_paths.append(path)
+                return original_validate_archive(name, path)
 
             def fake_build(run_id, archives, _output):
                 calls.append({key: value for key, value in archives.items()})
@@ -330,6 +342,8 @@ class GmpMpfrProvenancePreflightTest(unittest.TestCase):
                                                     "worktree_clean": True}), \
                     mock.patch.object(MODULE, "build_pair",
                                       side_effect=fake_build), \
+                    mock.patch.object(MODULE, "validate_archive",
+                                      side_effect=recording_validate_archive), \
                     mock.patch.object(MODULE, "validate_report"):
                 MODULE.derive(args)
             self.assertEqual(len(calls), 2)
@@ -338,6 +352,11 @@ class GmpMpfrProvenancePreflightTest(unittest.TestCase):
                 self.assertEqual(path.parent, output / "source-archives")
                 self.assertEqual(MODULE.sha256_file(path),
                                  authority[name]["sha256"])
+            self.assertNotIn(gmp, validated_paths)
+            self.assertNotIn(mpfr, validated_paths)
+            self.assertTrue(validated_paths)
+            self.assertTrue(all(path.parent == output / "source-archives"
+                                for path in validated_paths))
 
     def test_duplicate_json_key_and_noncanonical_json_reject(self):
         with tempfile.TemporaryDirectory() as temporary:

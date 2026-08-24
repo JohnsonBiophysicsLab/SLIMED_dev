@@ -82,13 +82,16 @@ directory. The next run reuses only the literal path, never the first run's
 files. An alternate build path, path normalization, debug/symbol-table rewrite,
 or stripped binary is forbidden.
 
-Before either extraction, each absolute non-aliased input archive is copied
-through one no-follow file descriptor into the retained `source-archives`
-directory while SHA-256 is computed. File identity, length, modification time,
-and frozen digest must agree before and after the copy. Both runs extract only
-these sealed copies, and each sealed archive is rehashed immediately before and
-after each run. Reopening the original caller path after its initial check, or
-letting runs `A` and `B` observe different archive bytes, is forbidden.
+Before either extraction, each absolute non-aliased, single-link input archive
+is opened exactly once through one no-follow file descriptor and copied into
+the retained `source-archives` directory while SHA-256 is computed. That one
+descriptor is the initial authority check and the only read of the caller path;
+there is no earlier hash pass followed by a reopen. Device/inode identity,
+single-link count, length, modification time, and frozen digest must agree
+before and after the copy. Both runs extract only these single-link sealed
+copies, and each sealed archive is rehashed immediately before and after each
+run. Reopening the original caller path, accepting a hardlink alias, or letting
+runs `A` and `B` observe different archive bytes is forbidden.
 
 ## Exact derivation environment
 

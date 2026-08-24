@@ -299,8 +299,10 @@ def git_observation() -> dict[str, Any]:
 
 
 def validate_archive(name: str, path: pathlib.Path) -> dict[str, Any]:
-    require(path.is_absolute() and path.is_file() and not path.is_symlink() and
-            path.resolve(strict=True) == path,
+    archive_stat = path.lstat() if path.exists() or path.is_symlink() else None
+    require(path.is_absolute() and archive_stat is not None and
+            stat.S_ISREG(archive_stat.st_mode) and not path.is_symlink() and
+            archive_stat.st_nlink == 1 and path.resolve(strict=True) == path,
             f"{name} archive is unavailable or aliased")
     digest = sha256_file(path)
     require(digest == ARCHIVES[name]["sha256"],
@@ -313,7 +315,8 @@ def snapshot_archive(name: str, source: pathlib.Path,
     require(source.is_absolute(), f"{name} archive path is not absolute")
     before = source.lstat() if source.exists() or source.is_symlink() else None
     require(before is not None and stat.S_ISREG(before.st_mode) and
-            not source.is_symlink(),
+            not source.is_symlink() and before.st_nlink == 1 and
+            source.resolve(strict=True) == source,
             f"{name} archive is unavailable or aliased")
     require(not destination.exists() and not destination.is_symlink(),
             f"{name} archive snapshot already exists")
@@ -326,8 +329,9 @@ def snapshot_archive(name: str, source: pathlib.Path,
     byte_length = 0
     try:
         opened = os.fstat(descriptor)
-        require((opened.st_dev, opened.st_ino, opened.st_size) ==
-                (before.st_dev, before.st_ino, before.st_size),
+        require((opened.st_dev, opened.st_ino, opened.st_size,
+                 opened.st_nlink) ==
+                (before.st_dev, before.st_ino, before.st_size, 1),
                 f"{name} archive changed before snapshot")
         with destination.open("xb") as output:
             while True:
@@ -343,11 +347,13 @@ def snapshot_archive(name: str, source: pathlib.Path,
     after_path = source.lstat() if source.exists() or source.is_symlink() else None
     require(after_path is not None and
             (after_path.st_dev, after_path.st_ino, after_path.st_size,
-             after_path.st_mtime_ns) ==
-            (before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns) and
+             after_path.st_mtime_ns, after_path.st_nlink) ==
+            (before.st_dev, before.st_ino, before.st_size,
+             before.st_mtime_ns, 1) and
             (after_open.st_dev, after_open.st_ino, after_open.st_size,
-             after_open.st_mtime_ns) ==
-            (before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns),
+             after_open.st_mtime_ns, after_open.st_nlink) ==
+            (before.st_dev, before.st_ino, before.st_size,
+             before.st_mtime_ns, 1),
             f"{name} archive changed during snapshot")
     require(byte_length == before.st_size,
             f"{name} archive snapshot length drift")
@@ -1011,14 +1017,6 @@ def derive(args: argparse.Namespace) -> dict[str, Any]:
         "gmp": pathlib.Path(args.gmp_archive),
         "mpfr": pathlib.Path(args.mpfr_archive),
     }
-    archive_records = {
-        name: validate_archive(name, path)
-        for name, path in input_archives.items()
-    }
-    require({name: {key: value for key, value in record.items()
-                    if key != "byte_length"}
-             for name, record in archive_records.items()} == ARCHIVES,
-            "archive records drift")
     platform = platform_fingerprint()
     require(platform == EXPECTED_PLATFORM,
             "derivation host differs from frozen physical fingerprint")
@@ -1036,8 +1034,10 @@ def derive(args: argparse.Namespace) -> dict[str, Any]:
         name: snapshot_archive(name, input_archives[name], archives[name])
         for name in ("gmp", "mpfr")
     }
-    require(snapshot_records == archive_records,
-            "source archive snapshot projection drift")
+    require({name: {key: value for key, value in record.items()
+                    if key != "byte_length"}
+             for name, record in snapshot_records.items()} == ARCHIVES,
+            "source archive snapshot records drift")
     for name in ("gmp", "mpfr"):
         validate_archive(name, archives[name])
     first = build_pair("A", archives, output)

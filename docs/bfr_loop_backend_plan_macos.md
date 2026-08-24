@@ -1461,9 +1461,10 @@ installed tree's directory components, unversioned symlinks, non-hardlinked
 projections. Git derivation identity uses closed-environment absolute Git and a
 complete HEAD/index/blob/mode audit. A copied report, coordinated sidecar edit,
 ambient Git redirect, hidden index flag, or alternate-prefix tree is rejected.
-Both builds consume the same retained no-follow snapshot of each frozen source
-archive; the original input path is never reopened after snapshot, and the
-sealed copies are rehashed around each extraction/build boundary.
+Both builds consume the same retained, single-link, no-follow snapshot of each
+frozen source archive. Its one file descriptor performs the caller archive's
+only validation/read, the original input path is never reopened, and the
+single-link sealed copies are rehashed around each extraction/build boundary.
 The hardened derivation ran at clean exact pre-freeze head
 `3fd0b87865a52283478f39847e8cca36285a9126`; its canonical 16,153-byte bundle
 has SHA-256
