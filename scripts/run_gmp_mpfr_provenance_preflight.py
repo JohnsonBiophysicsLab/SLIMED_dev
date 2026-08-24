@@ -25,8 +25,8 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 AMENDMENT = ROOT / "docs/anchored_row_dependency_provenance_amendment.md"
 EVIDENCE = ROOT / "docs/anchored_row_dependency_provenance_evidence.json"
 PLAN = ROOT / "docs/bfr_loop_backend_plan_macos.md"
-EVIDENCE_FILE_SHA256 = "1b13d66a5e1db1e3061632a4423f1200e79607d48c2cb7986dbfcfdcdc7fdeef"
-DERIVATION_START_HEAD = "3fd0b87865a52283478f39847e8cca36285a9126"
+EVIDENCE_FILE_SHA256 = "59e8cb382d472e8e291482d0f1ad52cd60708f231446cc2f132bc30e277428de"
+DERIVATION_START_HEAD = "a482cbc445d506679a73c48847d4cda0bc55df18"
 
 SCHEMA = "b2-gmp-mpfr-provenance-preflight-v1"
 FREEZE_SCHEMA = "b2-gmp-mpfr-provenance-freeze-v1"
@@ -73,7 +73,7 @@ EXPECTED_PLATFORM = {
 }
 
 # Derived by two exact source builds at CANONICAL_PREFIX from clean head
-# 3fd0b87865a52283478f39847e8cca36285a9126.  The amendment remains proposed
+# a482cbc445d506679a73c48847d4cda0bc55df18.  The amendment remains proposed
 # until exact-SHA reviews, merge, and explicit user approval all complete.
 FROZEN_PHYSICAL_LIBRARY_SHA256 = {
     "gmp": "f872fbd53e7a265961e6c79ae846741637f59a28c04a839db55724bd12bbfb32",

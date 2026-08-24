@@ -1466,9 +1466,9 @@ frozen source archive. Its one file descriptor performs the caller archive's
 only validation/read, the original input path is never reopened, and the
 single-link sealed copies are rehashed around each extraction/build boundary.
 The hardened derivation ran at clean exact pre-freeze head
-`3fd0b87865a52283478f39847e8cca36285a9126`; its canonical 16,153-byte bundle
+`a482cbc445d506679a73c48847d4cda0bc55df18`; its canonical 16,153-byte bundle
 has SHA-256
-`97653fd13d25e431ebcf0b723a4e54225d76dc39d0bffea05e27c8705b69fc3d`.
+`45befb0a8fa14ec4a765d2434b81048e1099dc1a7944518de8b8b703fb686d41`.
 These remain proposed inputs pending the amendment's four exact-SHA reviews,
 merge, and explicit approval.
 

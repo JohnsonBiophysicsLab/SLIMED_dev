@@ -167,7 +167,7 @@ mpfr_libmpfr_6_dylib_sha256=2b51afa01ece4b200eacf92a318c38097595ab8cd656e0602cb0
 ```
 
 These values were rederived on 2026-08-24 by both ordered clean builds from
-exact hardened start head `3fd0b87865a52283478f39847e8cca36285a9126`.
+exact hardened start head `a482cbc445d506679a73c48847d4cda0bc55df18`.
 That head performed the closed full Git audit and sealed-archive checks before
 either build. GMP was 481,392
 bytes and MPFR was 580,208 bytes in each run. Derivation alone does not approve
@@ -253,8 +253,8 @@ alternate clean repository selected through ambient Git variables is forbidden.
 
 ```text
 complete_derivation_bundle_bytes=16153
-complete_derivation_bundle_sha256=97653fd13d25e431ebcf0b723a4e54225d76dc39d0bffea05e27c8705b69fc3d
-checked_in_freeze_summary_sha256=1b13d66a5e1db1e3061632a4423f1200e79607d48c2cb7986dbfcfdcdc7fdeef
+complete_derivation_bundle_sha256=45befb0a8fa14ec4a765d2434b81048e1099dc1a7944518de8b8b703fb686d41
+checked_in_freeze_summary_sha256=59e8cb382d472e8e291482d0f1ad52cd60708f231446cc2f132bc30e277428de
 ```
 
 ## Required attacks
