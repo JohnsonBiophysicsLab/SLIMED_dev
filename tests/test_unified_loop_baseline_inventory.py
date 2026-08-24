@@ -389,6 +389,36 @@ class UnifiedLoopBaselineInventoryTest(unittest.TestCase):
                 "        if (false) { "
                 "regularLimitSurfaceRowCache_.invalidate(); }", 1))
         self.assert_text_mutation_rejected(
+            "include/mesh/Mesh.hpp",
+            lambda text: text.replace(
+                "        regularLimitSurfaceRowCache_.invalidate();",
+                "        if (false) "
+                "regularLimitSurfaceRowCache_.invalidate();", 1))
+        self.assert_text_mutation_rejected(
+            "include/mesh/Mesh.hpp",
+            lambda text: text.replace(
+                "        regularLimitSurfaceRowCache_.invalidate();",
+                "        while (false) "
+                "regularLimitSurfaceRowCache_.invalidate();", 1))
+        self.assert_text_mutation_rejected(
+            "include/mesh/Mesh.hpp",
+            lambda text: text.replace(
+                "        regularLimitSurfaceRowCache_.invalidate();",
+                "        return;\n"
+                "        regularLimitSurfaceRowCache_.invalidate();", 1))
+        self.assert_text_mutation_rejected(
+            "include/mesh/Mesh.hpp",
+            lambda text: text.replace(
+                "        regularLimitSurfaceRowCache_.invalidate();",
+                "        goto after_reset;\n"
+                "        regularLimitSurfaceRowCache_.invalidate();\n"
+                "        after_reset:", 1))
+        self.assert_text_mutation_rejected(
+            "include/mesh/Mesh.hpp",
+            lambda text: text.replace(
+                "        ++topologyGeneration_;",
+                "        // ++topologyGeneration_;", 1))
+        self.assert_text_mutation_rejected(
             "src/mesh/Mesh.cpp",
             lambda text: text.replace(
                 "invalidate_topology_derived_state();",

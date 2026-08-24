@@ -645,6 +645,13 @@ def _topology_invalidation_seam_errors(
     seam_definition_pattern = re.compile(
         r"\bvoid\s+(?:Mesh::)?invalidate_topology_derived_state\s*"
         r"\(\s*\)\s*\{")
+    reviewed_seam_body_pattern = re.compile(
+        r"\s*if\s*\(\s*topologyGeneration_\s*==\s*"
+        r"std::numeric_limits\s*<\s*std::uint64_t\s*>\s*::\s*max\s*"
+        r"\(\s*\)\s*\)\s*\{\s*"
+        r"throw\s+std::overflow_error\s*\(\s*\)\s*;\s*\}\s*"
+        r"regularLimitSurfaceRowCache_\s*\.\s*invalidate\s*"
+        r"\(\s*\)\s*;\s*\+\+\s*topologyGeneration_\s*;\s*")
     errors: list[str] = []
 
     mesh_class = _unique_braced_scope(
@@ -667,6 +674,8 @@ def _topology_invalidation_seam_errors(
                 errors.append("cache reset is not owned exactly once by seam")
             elif len(_direct_scope_matches(seam_body, reset_pattern)) != 1:
                 errors.append("cache reset is not a direct seam statement")
+            if not reviewed_seam_body_pattern.fullmatch(seam_body):
+                errors.append("topology invalidation seam body has drifted")
 
     import_scope = _unique_braced_scope(
         mesh_code,

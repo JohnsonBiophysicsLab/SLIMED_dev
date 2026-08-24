@@ -189,6 +189,56 @@ class OpenSubdivRegularProductionCacheInventoryTest(unittest.TestCase):
                 setup,
             ),
             (
+                mesh_header.replace(
+                    "        regularLimitSurfaceRowCache_.invalidate();",
+                    "        if (false) "
+                    "regularLimitSurfaceRowCache_.invalidate();",
+                    1,
+                ),
+                area,
+                setup,
+            ),
+            (
+                mesh_header.replace(
+                    "        regularLimitSurfaceRowCache_.invalidate();",
+                    "        while (false) "
+                    "regularLimitSurfaceRowCache_.invalidate();",
+                    1,
+                ),
+                area,
+                setup,
+            ),
+            (
+                mesh_header.replace(
+                    "        regularLimitSurfaceRowCache_.invalidate();",
+                    "        return;\n"
+                    "        regularLimitSurfaceRowCache_.invalidate();",
+                    1,
+                ),
+                area,
+                setup,
+            ),
+            (
+                mesh_header.replace(
+                    "        regularLimitSurfaceRowCache_.invalidate();",
+                    "        goto after_reset;\n"
+                    "        regularLimitSurfaceRowCache_.invalidate();\n"
+                    "        after_reset:",
+                    1,
+                ),
+                area,
+                setup,
+            ),
+            (
+                mesh_header.replace(
+                    "        ++topologyGeneration_;",
+                    "        // ++topologyGeneration_;",
+                    1,
+                ),
+                area,
+                setup,
+            ),
+            (
                 mesh_header,
                 area,
                 setup.replace(
