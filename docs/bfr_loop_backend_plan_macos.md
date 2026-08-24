@@ -1433,6 +1433,45 @@ This records evidence-contract authority only: it does not qualify the
 candidate, reopen D9a, unblock B3, select Far, authorize post-hoc normalization,
 or authorize production.
 
+**Proposed dependency-provenance amendment (authorized for proof-only
+implementation on 2026-08-24; not yet approved as a frozen input).** Package 2
+review showed that a caller could coordinate changes to a GMP/MPFR runtime
+packet, loaded snapshot, retained installed copy, and their co-produced
+digests. Distinct paths and inodes are not an independent authority. The
+separate
+[`anchored_row_dependency_provenance_amendment.md`](anchored_row_dependency_provenance_amendment.md)
+moves the trust root to the already frozen GMP 6.3.0 and MPFR 4.2.2 upstream
+archive digests. On the exact physical D12 host it requires two clean,
+closed-environment source builds at one literal canonical install prefix,
+byte-identical versioned Mach-O libraries, and derived-then-frozen physical
+library digests. The hosted workflow continues to rebuild the checked archives
+and cannot satisfy numeric D12. This proposal changes no scientific or
+operational target and authorizes neither Package 2 execution nor any
+qualification/activation decision. It requires its own exact-SHA verification,
+technical, scientific, and gatekeeper PASS, merge, and explicit user approval
+before Package 2 may consume it.
+
+The proof validator must not accept descriptor-only evidence. Exact review
+requires both frozen source archives and the complete retained root containing
+all 52 declared files; every path, byte length, digest, command/environment
+transcript, and Mach-O install/load projection is replayed against the reviewed
+freeze summary. Routine physical enforcement separately audits the canonical
+installed tree's directory components, unversioned symlinks, non-hardlinked
+`0755` versioned leaves, byte lengths, source-derived hashes, and exact `otool`
+projections. Git derivation identity uses closed-environment absolute Git and a
+complete HEAD/index/blob/mode audit. A copied report, coordinated sidecar edit,
+ambient Git redirect, hidden index flag, or alternate-prefix tree is rejected.
+Both builds consume the same retained, single-link, no-follow snapshot of each
+frozen source archive. Its one file descriptor performs the caller archive's
+only validation/read, the original input path is never reopened, and the
+single-link sealed copies are rehashed around each extraction/build boundary.
+The hardened derivation ran at clean exact pre-freeze head
+`a482cbc445d506679a73c48847d4cda0bc55df18`; its canonical 16,153-byte bundle
+has SHA-256
+`45befb0a8fa14ec4a765d2434b81048e1099dc1a7944518de8b8b703fb686d41`.
+These remain proposed inputs pending the amendment's four exact-SHA reviews,
+merge, and explicit approval.
+
 Frozen inputs:
 
 - reuse the exact D10 MPFR/Stam oracle, fixtures, manifest hashes, row targets,
