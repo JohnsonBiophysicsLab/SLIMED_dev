@@ -67,6 +67,21 @@ Mach-O comparison, ignored load command, stripped signature, install-name
 rewrite, alternate prefix, alias, hardlink authority, or package-manager
 library is forbidden.
 
+MPFR retains its compile/object paths in the Mach-O symbol string table. The
+source/build root is therefore also pinned exactly:
+
+```text
+/private/tmp/slimed-b2-d12-dependency-build-v1
+```
+
+Runs `A` and `B` are sequential. Before each run, this build root and the
+canonical install prefix are both absent; each archive is freshly extracted
+again into `gmp-source` or `mpfr-source` below the build root. After a run, the
+complete source/build tree is moved intact into that run's proof-artifact
+directory. The next run reuses only the literal path, never the first run's
+files. An alternate build path, path normalization, debug/symbol-table rewrite,
+or stripped binary is forbidden.
+
 ## Exact derivation environment
 
 Derivation is permitted only on D12's already frozen physical fingerprint:
@@ -108,14 +123,14 @@ ZERO_AR_DATE=1
 ```
 
 For each of independent runs `A` and `B`, the two archives are freshly
-extracted into distinct source/build directories. Commands are exact arrays,
+extracted into the now-empty canonical build root. Commands are exact arrays,
 not shell strings:
 
 ```text
-GMP:  <fresh-gmp-source>/configure
+GMP:  /private/tmp/slimed-b2-d12-dependency-build-v1/gmp-source/configure
       --prefix=/private/tmp/slimed-b2-d12-dependencies-v1
       --enable-shared --disable-static
-MPFR: <fresh-mpfr-source>/configure
+MPFR: /private/tmp/slimed-b2-d12-dependency-build-v1/mpfr-source/configure
       --prefix=/private/tmp/slimed-b2-d12-dependencies-v1
       --with-gmp=/private/tmp/slimed-b2-d12-dependencies-v1
       --enable-shared --disable-static
@@ -163,7 +178,8 @@ emits canonical JSON with kind `b2-gmp-mpfr-provenance-preflight-v1`. It binds:
 - exact Git head and an empty worktree at derivation start;
 - the complete physical fingerprint and compiler/SDK identity;
 - both archive identities, URLs, and SHA-256 values;
-- the canonical prefix, exact closed environment, and exact command arrays;
+- the canonical install and build roots, exact closed environment, and exact
+  command arrays;
 - ordered independent runs `A` and `B`, transcript hashes, canonical library
   paths/symlinks/modes/lengths/hashes, and `otool` transcript hashes;
 - the equal derived GMP and MPFR digests; and
@@ -183,7 +199,7 @@ Tests and exact-SHA review must reject at least:
 
 - either wrong archive byte or digest, version, URL, or archive-role swap;
 - noncanonical, relative, aliased, hardlinked, or different install prefixes;
-- an existing/reused canonical prefix before either build;
+- an existing/reused canonical install or build root before either build;
 - inherited or missing environment entries and changed compiler/SDK/tool path;
 - missing, extra, reordered, or changed configure/build/install arguments;
 - one-run evidence, run reorder, transcript omission, or duplicate JSON keys;

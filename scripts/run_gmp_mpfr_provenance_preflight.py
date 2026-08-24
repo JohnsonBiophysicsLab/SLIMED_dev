@@ -28,6 +28,8 @@ PLAN = ROOT / "docs/bfr_loop_backend_plan_macos.md"
 SCHEMA = "b2-gmp-mpfr-provenance-preflight-v1"
 CANONICAL_PREFIX = pathlib.Path(
     "/private/tmp/slimed-b2-d12-dependencies-v1")
+CANONICAL_BUILD_ROOT = pathlib.Path(
+    "/private/tmp/slimed-b2-d12-dependency-build-v1")
 COMPILER = pathlib.Path(
     "/Library/Developer/CommandLineTools/usr/bin/clang")
 COMPILER_CXX = pathlib.Path(
@@ -226,6 +228,9 @@ def validate_prefix_parent() -> None:
                 "canonical prefix parent is unavailable or aliased")
         require(component.resolve(strict=True) == component,
                 "canonical prefix parent is not physically canonical")
+    require(CANONICAL_BUILD_ROOT.is_absolute() and
+            CANONICAL_BUILD_ROOT.parent == pathlib.Path("/private/tmp"),
+            "canonical build root drift")
 
 
 def configure_argv(name: str, source: pathlib.Path) -> list[str]:
@@ -289,8 +294,7 @@ def build_dependency(name: str, source: pathlib.Path,
         "configure.log", "build.log", "install.log", "config.status",
         "config.log", "Makefile")
     return {
-        "source_root_relative": source.resolve().relative_to(
-            output_root.resolve()).as_posix(),
+        "canonical_source_root": str(source.resolve()),
         "configure_argv": configure,
         "build_argv": build,
         "install_argv": install,
@@ -356,12 +360,15 @@ def build_pair(run_id: str, archives: dict[str, pathlib.Path],
                output: pathlib.Path) -> dict[str, Any]:
     require(not CANONICAL_PREFIX.exists(),
             "canonical prefix must be absent before each independent build")
+    require(not CANONICAL_BUILD_ROOT.exists(),
+            "canonical build root must be absent before each independent build")
     run_root = output / f"run-{run_id.lower()}"
     require(not run_root.exists(), "independent build output already exists")
     run_root.mkdir(parents=True)
     result: dict[str, Any] = {"run_id": run_id, "builds": {}}
+    CANONICAL_BUILD_ROOT.mkdir()
     for name in ("gmp", "mpfr"):
-        source = run_root / f"{name}-source"
+        source = CANONICAL_BUILD_ROOT / f"{name}-source"
         extract_archive(archives[name], source)
         result["builds"][name] = build_dependency(
             name, source, run_root / f"{name}-transcript", output)
@@ -369,6 +376,9 @@ def build_pair(run_id: str, archives: dict[str, pathlib.Path],
         name: inspect_library(name, run_root / "libraries", output)
         for name in ("gmp", "mpfr")
     }
+    retained_sources = run_root / "source-trees"
+    require(not retained_sources.exists(), "retained source tree already exists")
+    CANONICAL_BUILD_ROOT.rename(retained_sources)
     return result
 
 
@@ -405,6 +415,7 @@ def validate_report(report: Any, *, require_frozen: bool) -> None:
     require(report["archives"] == ARCHIVES, "archive authority drift")
     require(report["build_contract"] == {
         "canonical_prefix": str(CANONICAL_PREFIX),
+        "canonical_build_root": str(CANONICAL_BUILD_ROOT),
         "environment": dict(sorted(BUILD_ENVIRONMENT.items())),
         "gmp_configure_suffix": ["--enable-shared", "--disable-static"],
         "mpfr_configure_suffix": [f"--with-gmp={CANONICAL_PREFIX}",
@@ -417,7 +428,6 @@ def validate_report(report: Any, *, require_frozen: bool) -> None:
             "exactly two independent runs required")
     require([item.get("run_id") for item in report["runs"]] == ["A", "B"],
             "independent build order drift")
-    source_roots: set[str] = set()
     for item in report["runs"]:
         require(set(item) == {"run_id", "builds", "libraries"},
                 "run members drift")
@@ -426,25 +436,19 @@ def validate_report(report: Any, *, require_frozen: bool) -> None:
         for name in ("gmp", "mpfr"):
             build = item["builds"][name]
             require(set(build) == {
-                "source_root_relative", "configure_argv", "build_argv",
+                "canonical_source_root", "configure_argv", "build_argv",
                 "install_argv", "environment", "transcripts"},
                 f"{name} build record members drift")
-            expected_source = (
-                f"run-{item['run_id'].lower()}/{name}-source")
-            require(build["source_root_relative"] == expected_source,
+            expected_source = str(CANONICAL_BUILD_ROOT / f"{name}-source")
+            require(build["canonical_source_root"] == expected_source,
                     f"{name} source root drift")
-            require(expected_source not in source_roots,
-                    "independent source roots collide")
-            source_roots.add(expected_source)
             configure = build["configure_argv"]
             require(isinstance(configure, list), f"{name} configure argv malformed")
             expected_suffix = [f"--prefix={CANONICAL_PREFIX}"]
             if name == "mpfr":
                 expected_suffix.append(f"--with-gmp={CANONICAL_PREFIX}")
             expected_suffix.extend(["--enable-shared", "--disable-static"])
-            require(configure[1:] == expected_suffix and
-                    pathlib.PurePosixPath(configure[0]).name == "configure" and
-                    pathlib.PurePosixPath(configure[0]).is_absolute(),
+            require(configure == [expected_source + "/configure", *expected_suffix],
                     f"{name} configure argv drift")
             require(build["build_argv"] == ["/usr/bin/make", "-j1"],
                     f"{name} build argv drift")
@@ -558,6 +562,7 @@ def derive(args: argparse.Namespace) -> dict[str, Any]:
     require(not output.exists(), "derivation output already exists")
     validate_prefix_parent()
     require(not CANONICAL_PREFIX.exists(), "canonical prefix already exists")
+    require(not CANONICAL_BUILD_ROOT.exists(), "canonical build root already exists")
     archives = {
         "gmp": pathlib.Path(args.gmp_archive).resolve(),
         "mpfr": pathlib.Path(args.mpfr_archive).resolve(),
@@ -595,6 +600,7 @@ def derive(args: argparse.Namespace) -> dict[str, Any]:
         "archives": ARCHIVES,
         "build_contract": {
             "canonical_prefix": str(CANONICAL_PREFIX),
+            "canonical_build_root": str(CANONICAL_BUILD_ROOT),
             "environment": dict(sorted(BUILD_ENVIRONMENT.items())),
             "gmp_configure_suffix": ["--enable-shared", "--disable-static"],
             "mpfr_configure_suffix": [f"--with-gmp={CANONICAL_PREFIX}",
@@ -643,7 +649,8 @@ def verify_installed() -> dict[str, str]:
 def self_test() -> dict[str, Any]:
     require(AMENDMENT.is_file() and PLAN.is_file(), "authority document unavailable")
     text = AMENDMENT.read_text(encoding="utf-8")
-    for literal in (str(CANONICAL_PREFIX), ARCHIVES["gmp"]["sha256"],
+    for literal in (str(CANONICAL_PREFIX), str(CANONICAL_BUILD_ROOT),
+                    ARCHIVES["gmp"]["sha256"],
                     ARCHIVES["mpfr"]["sha256"], COMPILER_VERSION,
                     "independent_rederivation_not_host_operator_resistance"):
         require(literal in text, f"amendment lacks frozen literal {literal}")
@@ -651,6 +658,7 @@ def self_test() -> dict[str, Any]:
         "status": "ok",
         "schema": SCHEMA,
         "canonical_prefix": str(CANONICAL_PREFIX),
+        "canonical_build_root": str(CANONICAL_BUILD_ROOT),
         "archives": {name: value["sha256"] for name, value in ARCHIVES.items()},
         "frozen_library_digests": FROZEN_PHYSICAL_LIBRARY_SHA256,
         "candidate_executed": False,

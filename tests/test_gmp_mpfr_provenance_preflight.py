@@ -27,9 +27,9 @@ def descriptor(path, sha=SHA_C, length=7):
 
 def build_record(run_id, name):
     root = f"run-{run_id.lower()}"
-    source = f"{root}/{name}-source"
+    source = str(MODULE.CANONICAL_BUILD_ROOT / f"{name}-source")
     transcript = f"{root}/{name}-transcript"
-    configure = [f"/private/tmp/proof/{source}/configure",
+    configure = [f"{source}/configure",
                  f"--prefix={MODULE.CANONICAL_PREFIX}"]
     if name == "mpfr":
         configure.append(f"--with-gmp={MODULE.CANONICAL_PREFIX}")
@@ -39,7 +39,7 @@ def build_record(run_id, name):
         "configure.log", "build.log", "install.log", "config.status",
         "config.log", "Makefile")
     return {
-        "source_root_relative": source,
+        "canonical_source_root": source,
         "configure_argv": configure,
         "build_argv": ["/usr/bin/make", "-j1"],
         "install_argv": ["/usr/bin/make", "install"],
@@ -100,6 +100,7 @@ def valid_report():
         "archives": copy.deepcopy(MODULE.ARCHIVES),
         "build_contract": {
             "canonical_prefix": str(MODULE.CANONICAL_PREFIX),
+            "canonical_build_root": str(MODULE.CANONICAL_BUILD_ROOT),
             "environment": dict(sorted(MODULE.BUILD_ENVIRONMENT.items())),
             "gmp_configure_suffix": ["--enable-shared", "--disable-static"],
             "mpfr_configure_suffix": [
@@ -129,6 +130,8 @@ class GmpMpfrProvenancePreflightTest(unittest.TestCase):
         self.assertEqual(result["status"], "ok")
         self.assertEqual(result["canonical_prefix"],
                          "/private/tmp/slimed-b2-d12-dependencies-v1")
+        self.assertEqual(result["canonical_build_root"],
+                         "/private/tmp/slimed-b2-d12-dependency-build-v1")
         self.assertFalse(result["candidate_executed"])
         self.assertFalse(result["numeric_d12_executed"])
         text = MODULE.AMENDMENT.read_text(encoding="utf-8")
@@ -145,6 +148,9 @@ class GmpMpfrProvenancePreflightTest(unittest.TestCase):
         mutations.append(value)
         value = valid_report()
         value["build_contract"]["canonical_prefix"] = "/private/tmp/elsewhere"
+        mutations.append(value)
+        value = valid_report()
+        value["build_contract"]["canonical_build_root"] = "/private/tmp/elsewhere"
         mutations.append(value)
         value = valid_report()
         value["runs"] = value["runs"][:1]
