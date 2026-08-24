@@ -20,6 +20,60 @@ class OpenSubdivRegularProductionCacheInventoryTest(unittest.TestCase):
         self.assertEqual(result["status"], "passed")
         self.assertEqual(len(result["located"]), len(inventory.ANCHORS))
         self.assertFalse(result["missing"])
+        self.assertFalse(result["invalidation_seam_errors"])
+
+    def test_topology_setups_use_one_private_invalidation_seam(self):
+        mesh_header = (ROOT / inventory.MESH).read_text(encoding="utf-8")
+        area = (ROOT / inventory.AREA).read_text(encoding="utf-8")
+        setup = (ROOT / inventory.SETUP).read_text(encoding="utf-8")
+
+        mutations = (
+            (
+                mesh_header.replace(
+                    "regularLimitSurfaceRowCache_.invalidate();",
+                    "// cache invalidation removed",
+                    1,
+                ),
+                area,
+                setup,
+            ),
+            (
+                mesh_header,
+                area.replace(
+                    "invalidate_topology_derived_state();",
+                    "regularLimitSurfaceRowCache_.invalidate();",
+                    1,
+                ),
+                setup,
+            ),
+            (
+                mesh_header,
+                area,
+                setup.replace(
+                    "invalidate_topology_derived_state();",
+                    "regularLimitSurfaceRowCache_.invalidate();",
+                    1,
+                ),
+            ),
+            (
+                mesh_header,
+                area.replace(
+                    "invalidate_topology_derived_state();",
+                    "invalidate_topology_derived_state();\n"
+                    "    invalidate_topology_derived_state();",
+                    1,
+                ),
+                setup,
+            ),
+        )
+
+        for mutated_header, mutated_area, mutated_setup in mutations:
+            with self.subTest():
+                self.assertTrue(
+                    inventory.invalidation_seam_errors_for_sources(
+                        mutated_header, mutated_area, mutated_setup
+                    )
+                )
 
     def test_default_surfaces_do_not_gain_cache_dependency(self):
         result = inventory.payload()

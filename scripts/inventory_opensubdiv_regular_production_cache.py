@@ -55,8 +55,16 @@ ANCHORS = {
         FORCE,
         "cached_opensubdiv_regular_shape_functions_by_face(mesh)",
     ),
-    "flat setup invalidation": (SETUP, "regularLimitSurfaceRowCache_.invalidate()"),
-    "import setup invalidation": (AREA, "regularLimitSurfaceRowCache_.invalidate()"),
+    "private topology invalidation seam": (
+        MESH,
+        "void invalidate_topology_derived_state()",
+    ),
+    "cache invalidation owned by seam": (
+        MESH,
+        "regularLimitSurfaceRowCache_.invalidate()",
+    ),
+    "flat setup invalidation": (SETUP, "invalidate_topology_derived_state()"),
+    "import setup invalidation": (AREA, "invalidate_topology_derived_state()"),
     "repeated evaluation test": (
         TEST,
         "ReusesOneImmutableTableAcrossAreaForceAndCoordinateUpdates",
@@ -130,6 +138,32 @@ def backend_header_leaks():
     return leaks
 
 
+def invalidation_seam_errors_for_sources(mesh_header, area, setup):
+    checks = {
+        "private topology invalidation seam count":
+            mesh_header.count("void invalidate_topology_derived_state()") == 1,
+        "cache invalidation seam ownership":
+            mesh_header.count("regularLimitSurfaceRowCache_.invalidate()") == 1,
+        "import setup seam call count":
+            area.count("invalidate_topology_derived_state()") == 1,
+        "flat setup seam call count":
+            setup.count("invalidate_topology_derived_state()") == 1,
+        "import setup bypasses seam":
+            "regularLimitSurfaceRowCache_.invalidate()" not in area,
+        "flat setup bypasses seam":
+            "regularLimitSurfaceRowCache_.invalidate()" not in setup,
+    }
+    return [name for name, passed in checks.items() if not passed]
+
+
+def invalidation_seam_errors():
+    return invalidation_seam_errors_for_sources(
+        (ROOT / MESH).read_text(encoding="utf-8"),
+        (ROOT / AREA).read_text(encoding="utf-8"),
+        (ROOT / SETUP).read_text(encoding="utf-8"),
+    )
+
+
 def payload():
     located = {}
     missing = []
@@ -141,8 +175,10 @@ def payload():
             located[name] = match
     default_leaks = forbidden_default_dependency_changes()
     header_leaks = backend_header_leaks()
+    seam_errors = invalidation_seam_errors()
     return {
-        "status": "passed" if not missing and not default_leaks and not header_leaks else "failed",
+        "status": "passed" if not missing and not default_leaks and not header_leaks
+        and not seam_errors else "failed",
         "kind": "production_regular_opensubdiv_row_cache_inventory",
         "production_cache_implemented": True,
         "default_opensubdiv_dependency": False,
@@ -153,6 +189,7 @@ def payload():
         "missing": missing,
         "default_surface_leaks": default_leaks,
         "backend_header_leaks": header_leaks,
+        "invalidation_seam_errors": seam_errors,
     }
 
 
@@ -170,6 +207,7 @@ def main():
         print(f"anchors: {len(result['located'])}/{len(ANCHORS)}")
         print(f"default surface leaks: {len(result['default_surface_leaks'])}")
         print(f"backend header leaks: {len(result['backend_header_leaks'])}")
+        print(f"invalidation seam errors: {len(result['invalidation_seam_errors'])}")
     return 1 if args.check and result["status"] != "passed" else 0
 
 

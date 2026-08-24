@@ -636,6 +636,8 @@ def collect_inventory() -> dict[str, Any]:
     bfr_plan = _text("docs/bfr_loop_backend_plan_macos.md")
     compute = _text("src/energy_force/Compute_energy_and_force_on_mesh.cpp")
     regular = _text("src/mesh/OpenSubdiv_regular_evaluator.cpp")
+    mesh_header = _text("include/mesh/Mesh.hpp")
+    mesh_setup_flat = _text("src/mesh/Mesh_setup_flat.cpp")
     v3 = _text("src/mesh/OpenSubdiv_valence3_row_provider.cpp")
     v4 = _text("src/mesh/OpenSubdiv_valence4_row_provider.cpp")
     v4_topology = _text("src/mesh/Valence4_topology_source_mapping.cpp")
@@ -1198,9 +1200,17 @@ def collect_inventory() -> dict[str, Any]:
             "invalidations": [
                 "Mesh::setup_from_vertices_faces", "Mesh::setup_flat"],
             "only_reviewed_invalidations_present":
-                _text("src/mesh/Mesh.cpp").count("regularLimitSurfaceRowCache_.invalidate()") == 1
-                and _text("src/mesh/Mesh_setup_flat.cpp").count(
-                    "regularLimitSurfaceRowCache_.invalidate()") == 1,
+                mesh_header.count(
+                    "void invalidate_topology_derived_state()") == 1
+                and mesh_header.count(
+                    "regularLimitSurfaceRowCache_.invalidate()") == 1
+                and geometry.count(
+                    "invalidate_topology_derived_state()") == 1
+                and mesh_setup_flat.count(
+                    "invalidate_topology_derived_state()") == 1
+                and "regularLimitSurfaceRowCache_.invalidate()" not in geometry
+                and "regularLimitSurfaceRowCache_.invalidate()" not in
+                    mesh_setup_flat,
         },
         "G_volume_functionals": {
             "enumerated_factor_names": volume_factor_names,

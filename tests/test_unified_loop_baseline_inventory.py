@@ -300,6 +300,27 @@ class UnifiedLoopBaselineInventoryTest(unittest.TestCase):
         self.assert_mutation_rejected(
             lambda r: r["F_regular_cache"]["key_fields"].append(
                 "coordinates"))
+        self.assert_text_mutation_rejected(
+            "include/mesh/Mesh.hpp",
+            lambda text: text.replace(
+                "regularLimitSurfaceRowCache_.invalidate();",
+                "// cache invalidation removed", 1))
+        self.assert_text_mutation_rejected(
+            "src/mesh/Mesh.cpp",
+            lambda text: text.replace(
+                "invalidate_topology_derived_state();",
+                "regularLimitSurfaceRowCache_.invalidate();", 1))
+        self.assert_text_mutation_rejected(
+            "src/mesh/Mesh_setup_flat.cpp",
+            lambda text: text.replace(
+                "invalidate_topology_derived_state();",
+                "regularLimitSurfaceRowCache_.invalidate();", 1))
+        self.assert_text_mutation_rejected(
+            "src/mesh/Mesh.cpp",
+            lambda text: text.replace(
+                "invalidate_topology_derived_state();",
+                "invalidate_topology_derived_state();\n"
+                "    invalidate_topology_derived_state();", 1))
 
     def test_G_geometry_energy_force_are_independent_anchors(self) -> None:
         self.assert_mutation_rejected(
