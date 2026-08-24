@@ -1433,6 +1433,24 @@ This records evidence-contract authority only: it does not qualify the
 candidate, reopen D9a, unblock B3, select Far, authorize post-hoc normalization,
 or authorize production.
 
+**Proposed dependency-provenance amendment (authorized for proof-only
+implementation on 2026-08-24; not yet approved as a frozen input).** Package 2
+review showed that a caller could coordinate changes to a GMP/MPFR runtime
+packet, loaded snapshot, retained installed copy, and their co-produced
+digests. Distinct paths and inodes are not an independent authority. The
+separate
+[`anchored_row_dependency_provenance_amendment.md`](anchored_row_dependency_provenance_amendment.md)
+moves the trust root to the already frozen GMP 6.3.0 and MPFR 4.2.2 upstream
+archive digests. On the exact physical D12 host it requires two clean,
+closed-environment source builds at one literal canonical install prefix,
+byte-identical versioned Mach-O libraries, and derived-then-frozen physical
+library digests. The hosted workflow continues to rebuild the checked archives
+and cannot satisfy numeric D12. This proposal changes no scientific or
+operational target and authorizes neither Package 2 execution nor any
+qualification/activation decision. It requires its own exact-SHA verification,
+technical, scientific, and gatekeeper PASS, merge, and explicit user approval
+before Package 2 may consume it.
+
 Frozen inputs:
 
 - reuse the exact D10 MPFR/Stam oracle, fixtures, manifest hashes, row targets,

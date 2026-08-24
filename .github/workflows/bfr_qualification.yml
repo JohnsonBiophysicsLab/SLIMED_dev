@@ -48,6 +48,8 @@ jobs:
           python3 -m unittest tests.test_invariant_row_representation_preflight
           python3 scripts/run_anchored_row_qualification.py --self-test --json
           python3 -m unittest tests.test_anchored_row_qualification
+          python3 scripts/run_gmp_mpfr_provenance_preflight.py --self-test --json
+          python3 -m unittest tests.test_gmp_mpfr_provenance_preflight
 
       - name: Download and checksum proof archives
         shell: bash
