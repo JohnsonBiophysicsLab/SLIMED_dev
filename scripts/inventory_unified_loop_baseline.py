@@ -607,6 +607,25 @@ def _unique_braced_scope(code: str, signature_pattern: str):
     return signature.start(), code[opening + 1:cursor - 1]
 
 
+def _direct_scope_matches(code: str, pattern: re.Pattern[str]):
+    """Return pattern matches that are direct statements in this brace scope."""
+    direct = []
+    for match in pattern.finditer(code):
+        prefix = code[:match.start()]
+        if prefix.count("{") == prefix.count("}"):
+            direct.append(match)
+    return direct
+
+
+def _scope_begins_with(code: str, pattern: re.Pattern[str]) -> bool:
+    """Require the named direct statement to be the scope's first code."""
+    match = pattern.search(code)
+    direct_starts = {candidate.start()
+                     for candidate in _direct_scope_matches(code, pattern)}
+    return bool(match and not code[:match.start()].strip()
+                and match.start() in direct_starts)
+
+
 def _topology_invalidation_seam_errors(
         mesh_header: str,
         mesh_source: str,
@@ -646,6 +665,8 @@ def _topology_invalidation_seam_errors(
                 errors.append("topology invalidation seam is not private")
             if len(reset_pattern.findall(seam_body)) != 1:
                 errors.append("cache reset is not owned exactly once by seam")
+            elif len(_direct_scope_matches(seam_body, reset_pattern)) != 1:
+                errors.append("cache reset is not a direct seam statement")
 
     import_scope = _unique_braced_scope(
         mesh_code,
@@ -654,6 +675,8 @@ def _topology_invalidation_seam_errors(
         errors.append("unique import setup scope")
     elif len(seam_call_pattern.findall(import_scope[1])) != 1:
         errors.append("import setup does not call seam exactly once")
+    elif not _scope_begins_with(import_scope[1], seam_call_pattern):
+        errors.append("import setup does not begin with a direct seam call")
 
     flat_scope = _unique_braced_scope(
         flat_code, r"\bvoid\s+Mesh::setup_flat\s*\(\s*\)\s*\{")
@@ -661,6 +684,8 @@ def _topology_invalidation_seam_errors(
         errors.append("unique flat setup scope")
     elif len(seam_call_pattern.findall(flat_scope[1])) != 1:
         errors.append("flat setup does not call seam exactly once")
+    elif not _scope_begins_with(flat_scope[1], seam_call_pattern):
+        errors.append("flat setup does not begin with a direct seam call")
 
     if len(reset_pattern.findall(all_code)) != 1:
         errors.append("cache reset exists outside the single seam")
