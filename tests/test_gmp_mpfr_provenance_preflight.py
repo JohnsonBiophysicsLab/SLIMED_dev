@@ -91,7 +91,7 @@ def valid_report():
             "plan": "docs/bfr_loop_backend_plan_macos.md",
             "threat_model": "independent_rederivation_not_host_operator_resistance",
         },
-        "git": {"head": "a" * 40, "worktree_clean": True},
+        "git": {"head": MODULE.DERIVATION_START_HEAD, "worktree_clean": True},
         "platform": copy.deepcopy(MODULE.EXPECTED_PLATFORM),
         "compiler": {
             "c": str(MODULE.COMPILER), "cxx": str(MODULE.COMPILER_CXX),
@@ -135,8 +135,14 @@ class GmpMpfrProvenancePreflightTest(unittest.TestCase):
         self.assertFalse(result["candidate_executed"])
         self.assertFalse(result["numeric_d12_executed"])
         text = MODULE.AMENDMENT.read_text(encoding="utf-8")
-        self.assertIn("gmp_libgmp_10_dylib_sha256=PENDING", text)
-        self.assertIn("mpfr_libmpfr_6_dylib_sha256=PENDING", text)
+        self.assertIn(
+            "gmp_libgmp_10_dylib_sha256=" +
+            MODULE.FROZEN_PHYSICAL_LIBRARY_SHA256["gmp"], text)
+        self.assertIn(
+            "mpfr_libmpfr_6_dylib_sha256=" +
+            MODULE.FROZEN_PHYSICAL_LIBRARY_SHA256["mpfr"], text)
+        self.assertEqual(MODULE.sha256_file(MODULE.EVIDENCE),
+                         MODULE.EVIDENCE_FILE_SHA256)
 
     def test_complete_synthetic_report_validates_before_freeze(self):
         MODULE.validate_report(valid_report(), require_frozen=False)
@@ -238,11 +244,55 @@ class GmpMpfrProvenancePreflightTest(unittest.TestCase):
             self.assertEqual(mpfr["sha256"],
                              mpfr["artifacts"]["library"]["sha256"])
 
-    def test_pending_digest_cannot_verify_report_or_install(self):
-        with self.assertRaisesRegex(MODULE.PreflightError, "pending"):
+    def test_nonfrozen_digest_and_missing_install_cannot_verify(self):
+        with self.assertRaisesRegex(MODULE.PreflightError,
+                                    "differ from frozen"):
             MODULE.validate_report(valid_report(), require_frozen=True)
-        with self.assertRaisesRegex(MODULE.PreflightError, "pending"):
-            MODULE.verify_installed()
+        with mock.patch.object(MODULE, "CANONICAL_PREFIX",
+                               pathlib.Path("/private/tmp/absent-b2b-prefix")):
+            with self.assertRaisesRegex(MODULE.PreflightError, "unavailable"):
+                MODULE.verify_installed()
+
+    def test_frozen_digest_report_validates(self):
+        report = valid_report()
+        for run in report["runs"]:
+            for name, digest in MODULE.FROZEN_PHYSICAL_LIBRARY_SHA256.items():
+                run["libraries"][name]["sha256"] = digest
+                run["libraries"][name]["artifacts"]["library"]["sha256"] = digest
+        report["derived_libraries"] = copy.deepcopy(
+            MODULE.FROZEN_PHYSICAL_LIBRARY_SHA256)
+        MODULE.validate_report(report, require_frozen=True)
+
+    def test_freeze_summary_binds_complete_derivation(self):
+        report = valid_report()
+        for run in report["runs"]:
+            for name, digest in MODULE.FROZEN_PHYSICAL_LIBRARY_SHA256.items():
+                run["libraries"][name]["sha256"] = digest
+                run["libraries"][name]["artifacts"]["library"]["sha256"] = digest
+        report["derived_libraries"] = copy.deepcopy(
+            MODULE.FROZEN_PHYSICAL_LIBRARY_SHA256)
+        report_bytes = MODULE.canonical_bytes(report)
+        summary = MODULE.freeze_summary(report, report_bytes)
+        MODULE.validate_freeze_summary(summary)
+        self.assertEqual(summary["derivation_bundle"], {
+            "byte_length": len(report_bytes),
+            "sha256": MODULE.hashlib.sha256(report_bytes).hexdigest(),
+        })
+        for mutation in (
+                {**summary, "numeric_d12_executed": True},
+                {**summary, "derived_libraries": {
+                    **summary["derived_libraries"], "gmp": SHA_A}},
+                {**summary, "runs": list(reversed(summary["runs"]))}):
+            with self.assertRaises(MODULE.PreflightError):
+                MODULE.validate_freeze_summary(mutation)
+
+    def test_pending_constant_is_never_admissible(self):
+        with mock.patch.dict(MODULE.FROZEN_PHYSICAL_LIBRARY_SHA256,
+                             {"gmp": "PENDING", "mpfr": "PENDING"}, clear=True):
+            with self.assertRaisesRegex(MODULE.PreflightError, "pending"):
+                MODULE.validate_report(valid_report(), require_frozen=True)
+            with self.assertRaisesRegex(MODULE.PreflightError, "pending"):
+                MODULE.verify_installed()
 
     def test_canonical_encoding_is_stable(self):
         report = valid_report()

@@ -151,9 +151,15 @@ then immutable B2b inputs and must appear byte-for-byte in the proof script,
 the canonical evidence record, and the later Package 2 validator:
 
 ```text
-gmp_libgmp_10_dylib_sha256=PENDING
-mpfr_libmpfr_6_dylib_sha256=PENDING
+gmp_libgmp_10_dylib_sha256=f872fbd53e7a265961e6c79ae846741637f59a28c04a839db55724bd12bbfb32
+mpfr_libmpfr_6_dylib_sha256=2b51afa01ece4b200eacf92a318c38097595ab8cd656e0602cb0e55f9cce247e
 ```
+
+These values were derived on 2026-08-24 by both ordered clean builds from exact
+start head `53c7cab5186347af618896962f1f082ce9111cbf`. GMP was 481,392
+bytes and MPFR was 580,208 bytes in each run. Derivation alone does not approve
+the values; they remain proposed until this amendment's exact-SHA gates, merge,
+and explicit user approval complete.
 
 Routine physical qualification does not rebuild dependencies. It cheaply
 requires the exact canonical paths, symlinks, load commands, and frozen
@@ -172,7 +178,8 @@ provisioning, and independence audit only.
 ## Canonical evidence
 
 [`run_gmp_mpfr_provenance_preflight.py`](../scripts/run_gmp_mpfr_provenance_preflight.py)
-emits canonical JSON with kind `b2-gmp-mpfr-provenance-preflight-v1`. It binds:
+emits a complete canonical derivation bundle with kind
+`b2-gmp-mpfr-provenance-preflight-v1`. It binds:
 
 - this amendment and the macOS Bfr plan;
 - exact Git head and an empty worktree at derivation start;
@@ -186,12 +193,23 @@ emits canonical JSON with kind `b2-gmp-mpfr-provenance-preflight-v1`. It binds:
 - false values for candidate/oracle execution, numeric D12 execution,
   qualification, D9a reopening, B3 unblocking, Far selection, and production.
 
-The derivation output itself is not a qualification report. Before approval,
-the exact evidence JSON is copied to
-`docs/anchored_row_dependency_provenance_evidence.json`; its embedded start
-head must be the clean contract/tool commit immediately preceding the evidence
-freeze commit. Reviewers rerun derivation from the archived inputs or validate
-the frozen evidence and installed tree independently.
+The complete bundle and retained trees remain external proof artifacts. Its
+canonical byte length and SHA-256, both per-run build-record digests, exact
+library projections, authority, environment, and no-activation fields are
+committed in the smaller
+`b2-gmp-mpfr-provenance-freeze-v1` summary at
+`docs/anchored_row_dependency_provenance_evidence.json`. Its bytes are the
+canonical object followed by exactly one repository LF. The embedded start
+head is the clean contract/tool commit immediately preceding the evidence
+freeze commit. Reviewers compare the summary to the complete bundle, rerun the
+derivation from the archived inputs, or validate the frozen installed tree
+independently. Neither file is a qualification report.
+
+```text
+complete_derivation_bundle_bytes=16153
+complete_derivation_bundle_sha256=9a2e1a7b2f64ee0092c3550771ea60baaec9a50b63597450f7d9bd5e0eb1b09a
+checked_in_freeze_summary_sha256=59f0da12d1e65e19423cf18e5607c384a3048d71dfc3cc1ef4f5e1dbd8a1d51e
+```
 
 ## Required attacks
 

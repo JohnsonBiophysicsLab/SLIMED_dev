@@ -23,9 +23,13 @@ from typing import Any
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 AMENDMENT = ROOT / "docs/anchored_row_dependency_provenance_amendment.md"
+EVIDENCE = ROOT / "docs/anchored_row_dependency_provenance_evidence.json"
 PLAN = ROOT / "docs/bfr_loop_backend_plan_macos.md"
+EVIDENCE_FILE_SHA256 = "59f0da12d1e65e19423cf18e5607c384a3048d71dfc3cc1ef4f5e1dbd8a1d51e"
+DERIVATION_START_HEAD = "53c7cab5186347af618896962f1f082ce9111cbf"
 
 SCHEMA = "b2-gmp-mpfr-provenance-preflight-v1"
+FREEZE_SCHEMA = "b2-gmp-mpfr-provenance-freeze-v1"
 CANONICAL_PREFIX = pathlib.Path(
     "/private/tmp/slimed-b2-d12-dependencies-v1")
 CANONICAL_BUILD_ROOT = pathlib.Path(
@@ -68,11 +72,12 @@ EXPECTED_PLATFORM = {
     "macos_version": "26.5.1",
 }
 
-# Filled only after two exact source builds at CANONICAL_PREFIX agree and the
-# generated evidence has been reviewed.  PENDING is rejected by --verify.
+# Derived by two exact source builds at CANONICAL_PREFIX from clean head
+# 53c7cab5186347af618896962f1f082ce9111cbf.  The amendment remains proposed
+# until exact-SHA reviews, merge, and explicit user approval all complete.
 FROZEN_PHYSICAL_LIBRARY_SHA256 = {
-    "gmp": "PENDING",
-    "mpfr": "PENDING",
+    "gmp": "f872fbd53e7a265961e6c79ae846741637f59a28c04a839db55724bd12bbfb32",
+    "mpfr": "2b51afa01ece4b200eacf92a318c38097595ab8cd656e0602cb0e55f9cce247e",
 }
 
 BUILD_ENVIRONMENT = {
@@ -126,7 +131,7 @@ def canonical_bytes(value: Any) -> bytes:
         allow_nan=False).encode("utf-8")
 
 
-def strict_json(path: pathlib.Path) -> Any:
+def strict_json(path: pathlib.Path, *, repository_lf: bool = False) -> Any:
     def pairs(values: list[tuple[str, Any]]) -> dict[str, Any]:
         result: dict[str, Any] = {}
         for key, value in values:
@@ -135,8 +140,10 @@ def strict_json(path: pathlib.Path) -> Any:
         return result
 
     raw = path.read_bytes()
-    value = json.loads(raw.decode("utf-8"), object_pairs_hook=pairs)
-    require(raw == canonical_bytes(value), "evidence is not canonical JSON")
+    payload = raw[:-1] if repository_lf and raw.endswith(b"\n") else raw
+    value = json.loads(payload.decode("utf-8"), object_pairs_hook=pairs)
+    expected = canonical_bytes(value) + (b"\n" if repository_lf else b"")
+    require(raw == expected, "evidence is not canonical JSON")
     return value
 
 
@@ -217,6 +224,20 @@ def validate_archive(name: str, path: pathlib.Path) -> dict[str, Any]:
 
 def closed_environment() -> dict[str, str]:
     return dict(BUILD_ENVIRONMENT)
+
+
+def expected_build_contract() -> dict[str, Any]:
+    return {
+        "canonical_prefix": str(CANONICAL_PREFIX),
+        "canonical_build_root": str(CANONICAL_BUILD_ROOT),
+        "environment": dict(sorted(BUILD_ENVIRONMENT.items())),
+        "gmp_configure_suffix": ["--enable-shared", "--disable-static"],
+        "mpfr_configure_suffix": [f"--with-gmp={CANONICAL_PREFIX}",
+                                  "--enable-shared", "--disable-static"],
+        "make_argv": ["/usr/bin/make", "-j1"],
+        "install_argv": ["/usr/bin/make", "install"],
+        "independent_build_count": 2,
+    }
 
 
 def validate_prefix_parent() -> None:
@@ -407,23 +428,17 @@ def validate_report(report: Any, *, require_frozen: bool) -> None:
             "Git head malformed")
     require(report["git"]["worktree_clean"] is True,
             "derivation Git worktree was not clean")
+    if require_frozen:
+        require(report["git"]["head"] == DERIVATION_START_HEAD,
+                "derivation start head drift")
     require(report["platform"] == EXPECTED_PLATFORM, "physical fingerprint drift")
     require(report["compiler"] == {
         "c": str(COMPILER), "cxx": str(COMPILER_CXX),
         "version": COMPILER_VERSION, "sdkroot": str(SDKROOT)},
         "compiler authority drift")
     require(report["archives"] == ARCHIVES, "archive authority drift")
-    require(report["build_contract"] == {
-        "canonical_prefix": str(CANONICAL_PREFIX),
-        "canonical_build_root": str(CANONICAL_BUILD_ROOT),
-        "environment": dict(sorted(BUILD_ENVIRONMENT.items())),
-        "gmp_configure_suffix": ["--enable-shared", "--disable-static"],
-        "mpfr_configure_suffix": [f"--with-gmp={CANONICAL_PREFIX}",
-                                  "--enable-shared", "--disable-static"],
-        "make_argv": ["/usr/bin/make", "-j1"],
-        "install_argv": ["/usr/bin/make", "install"],
-        "independent_build_count": 2,
-    }, "build contract drift")
+    require(report["build_contract"] == expected_build_contract(),
+            "build contract drift")
     require(isinstance(report["runs"], list) and len(report["runs"]) == 2,
             "exactly two independent runs required")
     require([item.get("run_id") for item in report["runs"]] == ["A", "B"],
@@ -555,6 +570,120 @@ def validate_report(report: Any, *, require_frozen: bool) -> None:
         require(report[field] is False, f"{field} must remain false")
 
 
+def freeze_summary(report: Any, report_bytes: bytes) -> dict[str, Any]:
+    require(report_bytes == canonical_bytes(report),
+            "derivation bundle bytes are not canonical")
+    validate_report(report, require_frozen=True)
+    comparable_fields = (
+        "canonical_path", "link_path", "link_target", "byte_length", "mode",
+        "sha256", "otool_d_sha256", "otool_l_sha256")
+    runs = []
+    for run in report["runs"]:
+        runs.append({
+            "run_id": run["run_id"],
+            "builds_sha256": hashlib.sha256(
+                canonical_bytes(run["builds"])).hexdigest(),
+            "run_record_sha256": hashlib.sha256(
+                canonical_bytes(run)).hexdigest(),
+            "libraries": {
+                name: {field: run["libraries"][name][field]
+                       for field in comparable_fields}
+                for name in ("gmp", "mpfr")
+            },
+        })
+    return {
+        "schema": FREEZE_SCHEMA,
+        "authority": report["authority"],
+        "git": report["git"],
+        "platform": report["platform"],
+        "compiler": report["compiler"],
+        "archives": report["archives"],
+        "build_contract": report["build_contract"],
+        "derivation_bundle": {
+            "byte_length": len(report_bytes),
+            "sha256": hashlib.sha256(report_bytes).hexdigest(),
+        },
+        "runs": runs,
+        "derived_libraries": report["derived_libraries"],
+        "rebuild_match": True,
+        "candidate_executed": False,
+        "oracle_executed": False,
+        "numeric_d12_executed": False,
+        "qualification_decided": False,
+        "d9a_reopened": False,
+        "b3_unblocked": False,
+        "far_selected": False,
+        "production_authorized": False,
+    }
+
+
+def validate_freeze_summary(summary: Any) -> None:
+    require(isinstance(summary, dict), "freeze summary must be an object")
+    required = {
+        "schema", "authority", "git", "platform", "compiler", "archives",
+        "build_contract", "derivation_bundle", "runs", "derived_libraries",
+        "rebuild_match", "candidate_executed", "oracle_executed",
+        "numeric_d12_executed", "qualification_decided", "d9a_reopened",
+        "b3_unblocked", "far_selected", "production_authorized",
+    }
+    require(set(summary) == required, "freeze summary members drift")
+    require(summary["schema"] == FREEZE_SCHEMA, "freeze summary schema drift")
+    require(summary["authority"] == {
+        "amendment": "docs/anchored_row_dependency_provenance_amendment.md",
+        "plan": "docs/bfr_loop_backend_plan_macos.md",
+        "threat_model": "independent_rederivation_not_host_operator_resistance",
+    }, "freeze summary authority drift")
+    require(summary["platform"] == EXPECTED_PLATFORM,
+            "freeze summary platform drift")
+    require(summary["compiler"] == {
+        "c": str(COMPILER), "cxx": str(COMPILER_CXX),
+        "version": COMPILER_VERSION, "sdkroot": str(SDKROOT)},
+        "freeze summary compiler drift")
+    require(summary["archives"] == ARCHIVES, "freeze summary archives drift")
+    require(summary["build_contract"] == expected_build_contract(),
+            "freeze summary build contract drift")
+    require(summary["derived_libraries"] == FROZEN_PHYSICAL_LIBRARY_SHA256,
+            "freeze summary derived digest drift")
+    require(isinstance(summary["derivation_bundle"], dict) and
+            set(summary["derivation_bundle"]) == {"byte_length", "sha256"} and
+            isinstance(summary["derivation_bundle"]["byte_length"], int) and
+            summary["derivation_bundle"]["byte_length"] > 0 and
+            isinstance(summary["derivation_bundle"]["sha256"], str) and
+            len(summary["derivation_bundle"]["sha256"]) == 64,
+            "derivation bundle descriptor malformed")
+    require(isinstance(summary["runs"], list) and
+            [run.get("run_id") for run in summary["runs"]] == ["A", "B"],
+            "freeze summary run order drift")
+    for run in summary["runs"]:
+        require(set(run) == {
+            "run_id", "builds_sha256", "run_record_sha256", "libraries"},
+            "freeze summary run members drift")
+        for digest_field in ("builds_sha256", "run_record_sha256"):
+            require(isinstance(run[digest_field], str) and
+                    len(run[digest_field]) == 64,
+                    "freeze summary run digest malformed")
+        require(set(run["libraries"]) == {"gmp", "mpfr"},
+                "freeze summary library set drift")
+    for name in ("gmp", "mpfr"):
+        require(summary["runs"][0]["libraries"][name] ==
+                summary["runs"][1]["libraries"][name],
+                f"freeze summary {name} rebuild differs")
+        require(summary["runs"][0]["libraries"][name]["sha256"] ==
+                FROZEN_PHYSICAL_LIBRARY_SHA256[name],
+                f"freeze summary {name} digest drift")
+    require(summary["rebuild_match"] is True,
+            "freeze summary rebuild match drift")
+    require(isinstance(summary["git"], dict) and
+            summary["git"] == {
+                "head": DERIVATION_START_HEAD, "worktree_clean": True},
+            "freeze summary clean-head binding drift")
+    for field in ("candidate_executed", "oracle_executed",
+                  "numeric_d12_executed", "qualification_decided",
+                  "d9a_reopened", "b3_unblocked", "far_selected",
+                  "production_authorized"):
+        require(summary[field] is False, f"freeze summary {field} drift")
+
+
 def derive(args: argparse.Namespace) -> dict[str, Any]:
     output = pathlib.Path(args.output_dir).resolve()
     require(str(output).startswith("/private/tmp/"),
@@ -598,17 +727,7 @@ def derive(args: argparse.Namespace) -> dict[str, Any]:
         "platform": platform,
         "compiler": compiler,
         "archives": ARCHIVES,
-        "build_contract": {
-            "canonical_prefix": str(CANONICAL_PREFIX),
-            "canonical_build_root": str(CANONICAL_BUILD_ROOT),
-            "environment": dict(sorted(BUILD_ENVIRONMENT.items())),
-            "gmp_configure_suffix": ["--enable-shared", "--disable-static"],
-            "mpfr_configure_suffix": [f"--with-gmp={CANONICAL_PREFIX}",
-                                      "--enable-shared", "--disable-static"],
-            "make_argv": ["/usr/bin/make", "-j1"],
-            "install_argv": ["/usr/bin/make", "install"],
-            "independent_build_count": 2,
-        },
+        "build_contract": expected_build_contract(),
         "runs": [first, second],
         "derived_libraries": {
             name: first["libraries"][name]["sha256"]
@@ -647,13 +766,18 @@ def verify_installed() -> dict[str, str]:
 
 
 def self_test() -> dict[str, Any]:
-    require(AMENDMENT.is_file() and PLAN.is_file(), "authority document unavailable")
+    require(AMENDMENT.is_file() and PLAN.is_file() and EVIDENCE.is_file(),
+            "authority document unavailable")
+    require(sha256_file(EVIDENCE) == EVIDENCE_FILE_SHA256,
+            "frozen evidence-summary file hash drift")
     text = AMENDMENT.read_text(encoding="utf-8")
     for literal in (str(CANONICAL_PREFIX), str(CANONICAL_BUILD_ROOT),
                     ARCHIVES["gmp"]["sha256"],
                     ARCHIVES["mpfr"]["sha256"], COMPILER_VERSION,
                     "independent_rederivation_not_host_operator_resistance"):
         require(literal in text, f"amendment lacks frozen literal {literal}")
+    summary = strict_json(EVIDENCE, repository_lf=True)
+    validate_freeze_summary(summary)
     return {
         "status": "ok",
         "schema": SCHEMA,
@@ -661,6 +785,7 @@ def self_test() -> dict[str, Any]:
         "canonical_build_root": str(CANONICAL_BUILD_ROOT),
         "archives": {name: value["sha256"] for name, value in ARCHIVES.items()},
         "frozen_library_digests": FROZEN_PHYSICAL_LIBRARY_SHA256,
+        "derivation_bundle": summary["derivation_bundle"],
         "candidate_executed": False,
         "oracle_executed": False,
         "numeric_d12_executed": False,
@@ -678,6 +803,7 @@ def main() -> int:
     modes.add_argument("--self-test", action="store_true")
     modes.add_argument("--derive", action="store_true")
     modes.add_argument("--verify-report")
+    modes.add_argument("--freeze-summary")
     modes.add_argument("--verify-installed", action="store_true")
     parser.add_argument("--json", action="store_true")
     parser.add_argument("--gmp-archive")
@@ -696,12 +822,19 @@ def main() -> int:
             validate_report(report, require_frozen=True)
             result = {"status": "ok", "derived_libraries":
                       report["derived_libraries"]}
+        elif args.freeze_summary:
+            report_path = pathlib.Path(args.freeze_summary).resolve()
+            report_bytes = report_path.read_bytes()
+            report = strict_json(report_path)
+            result = freeze_summary(report, report_bytes)
+            validate_freeze_summary(result)
         else:
             result = {"status": "ok", "installed_libraries": verify_installed()}
     except (OSError, ValueError, PreflightError, subprocess.TimeoutExpired) as exc:
         print(f"B2 dependency provenance preflight failed: {exc}", file=sys.stderr)
         return 1
-    if args.json or args.derive or args.verify_report or args.verify_installed:
+    if (args.json or args.derive or args.verify_report or args.freeze_summary or
+            args.verify_installed):
         print(json.dumps(result, sort_keys=True, separators=(",", ":")))
     else:
         print("B2 GMP/MPFR provenance preflight: ok")
