@@ -8,6 +8,10 @@ Candidate: `anchored_difference_rows_v1`
 Approved B2b oracle-uncovered contract merge:
 `022df7a8e11bcc4aee4df2254cc994cf4efdeb4f`
 
+Approved B2b GMP/MPFR dependency-provenance amendment: exact reviewed head
+`29cd8992eb6862cdc55b66245ea6f4a525a48a74`, PR 209 merge
+`6a5531415b7b280c1a8c34be22f6c58e2b6d521c`.
+
 ## Scope and frozen authority
 
 B2c remains isolated to the proof lane. It does not alter provider rows,
@@ -24,6 +28,9 @@ The authority consumed by this package remains:
 - component targets: `5.0e-7`, `2.5e-6`, and `1.25e-5`;
 - primary oracle: independently certified Stam evaluation plus independent
   uniform-subdivision coverage; and
+- GMP 6.3.0 and MPFR 4.2.2 physical libraries: the source-derived hashes and
+  canonical `/private/tmp/slimed-b2-d12-dependencies-v1` install tree frozen by
+  the approved PR 209 provenance amendment; and
 - no post-hoc normalization, Far fallback, D9a reopening, B3 work, or
   production activation.
 
@@ -265,6 +272,18 @@ coordinated packet-plus-snapshot substitution now fails against this distinct
 installed-library authority, while later mutation of an obsolete original
 runtime path remains harmless when the authenticated install artifact and
 loaded snapshot remain unchanged.
+
+That caller-supplied installed-copy boundary was subsequently replaced by the
+approved source-derived B2b authority. PR 209 independently rebuilt GMP 6.3.0
+and MPFR 4.2.2 twice from the frozen archive hashes under one closed build
+contract and canonical install prefix. The two runs produced byte-identical
+versioned Mach-O libraries, freezing GMP SHA-256
+`f872fbd53e7a265961e6c79ae846741637f59a28c04a839db55724bd12bbfb32`
+and MPFR SHA-256
+`2b51afa01ece4b200eacf92a318c38097595ab8cd656e0602cb0e55f9cce247e`.
+Package 2 now rejects an alternate path, archive, installed byte sequence, mode,
+symlink projection, Mach-O install/load projection, or envelope digest even
+when caller-controlled packet and snapshot claims are changed together.
 
 ## Hosted and physical-host disposition
 

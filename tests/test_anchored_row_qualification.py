@@ -105,6 +105,9 @@ class AnchoredRowQualificationTests(unittest.TestCase):
             MODULE.APPROVED_RESULT_EVIDENCE_AMENDMENT_MERGE,
             "67e5c2c84c907fe79bab257d992fbcbdf0480d48")
         self.assertEqual(
+            MODULE.APPROVED_DEPENDENCY_PROVENANCE_MERGE,
+            "6a5531415b7b280c1a8c34be22f6c58e2b6d521c")
+        self.assertEqual(
             MODULE.load_schema()["$defs"]["identity"]["properties"][
                 "approved_b2b_merge_git_commit"]["const"],
             MODULE.APPROVED_RESULT_EVIDENCE_AMENDMENT_MERGE)
@@ -2719,6 +2722,19 @@ class AnchoredRowQualificationTests(unittest.TestCase):
             with self.assertRaises(MODULE.QualificationError):
                 MODULE.validate_d12_envelope_contract(candidate, "a" * 40)
 
+        for dependency_name, field in (
+                ("gmp", "archive_sha256"),
+                ("gmp", "installed_library_sha256"),
+                ("mpfr", "archive_sha256"),
+                ("mpfr", "installed_library_sha256")):
+            candidate = copy.deepcopy(envelope)
+            candidate["dependencies"][dependency_name][field] = "f" * 64
+            candidate["content_sha256"] = MODULE.ZERO_SHA256
+            candidate["content_sha256"] = MODULE.sha256_bytes(
+                MODULE.jcs_bytes(candidate))
+            with self.assertRaises(MODULE.QualificationError):
+                MODULE.validate_d12_envelope_contract(candidate, "a" * 40)
+
         for coordinated_mutation in (
                 "same_phase", "compile_source", "link_object",
                 "shared_profile_roots", "traversal_profile_roots",
@@ -3661,6 +3677,66 @@ class AnchoredRowQualificationTests(unittest.TestCase):
         self.assertNotIn('"installed_library":\n'
                          '                                args.opensubdiv_dynamic_dependency',
                          runner)
+
+    def test_physical_gmp_mpfr_authority_rejects_path_and_byte_substitution(self):
+        with tempfile.TemporaryDirectory(dir="/private/tmp") as temporary:
+            root = pathlib.Path(temporary).resolve()
+            prefix = root / "frozen-prefix"
+            library_root = prefix / "lib"
+            library_root.mkdir(parents=True)
+            libraries = {}
+            digests = {}
+            for name, payload in (("gmp", b"frozen gmp\n"),
+                                  ("mpfr", b"frozen mpfr\n")):
+                path = library_root / MODULE.DEPENDENCY_PROVENANCE.LIBRARIES[
+                    name]["versioned_name"]
+                path.write_bytes(payload)
+                libraries[name] = path
+                digests[name] = MODULE.sha256_file(path)
+            with mock.patch.object(
+                    MODULE.DEPENDENCY_PROVENANCE, "CANONICAL_PREFIX", prefix), \
+                    mock.patch.object(
+                        MODULE.DEPENDENCY_PROVENANCE,
+                        "FROZEN_PHYSICAL_LIBRARY_SHA256", digests), \
+                    mock.patch.object(
+                        MODULE.DEPENDENCY_PROVENANCE, "verify_installed",
+                        return_value=digests):
+                self.assertEqual(MODULE.validate_frozen_gmp_mpfr_authority(
+                    "/proof/gmp.tar.xz", "/proof/mpfr.tar.xz",
+                    str(libraries["gmp"]), str(libraries["mpfr"])), digests)
+                with mock.patch.object(
+                        MODULE, "_run_d12_closed_git",
+                        return_value=SimpleNamespace(returncode=1)), \
+                        self.assertRaises(MODULE.QualificationError):
+                    MODULE.validate_frozen_gmp_mpfr_authority(
+                        "/proof/gmp.tar.xz", "/proof/mpfr.tar.xz",
+                        str(libraries["gmp"]), str(libraries["mpfr"]))
+                alternate = root / libraries["gmp"].name
+                alternate.write_bytes(libraries["gmp"].read_bytes())
+                with self.assertRaises(MODULE.QualificationError):
+                    MODULE.validate_frozen_gmp_mpfr_authority(
+                        "/proof/gmp.tar.xz", "/proof/mpfr.tar.xz",
+                        str(alternate), str(libraries["mpfr"]))
+                canonical_gmp = libraries["gmp"].read_bytes()
+                libraries["gmp"].write_bytes(b"coordinated substitute\n")
+                with self.assertRaises(MODULE.QualificationError):
+                    MODULE.validate_frozen_gmp_mpfr_authority(
+                        "/proof/gmp.tar.xz", "/proof/mpfr.tar.xz",
+                        str(libraries["gmp"]), str(libraries["mpfr"]))
+                libraries["gmp"].write_bytes(canonical_gmp)
+            with mock.patch.object(
+                    MODULE.DEPENDENCY_PROVENANCE, "CANONICAL_PREFIX", prefix), \
+                    mock.patch.object(
+                        MODULE.DEPENDENCY_PROVENANCE,
+                        "FROZEN_PHYSICAL_LIBRARY_SHA256", digests), \
+                    mock.patch.object(
+                        MODULE.DEPENDENCY_PROVENANCE, "verify_installed",
+                        side_effect=MODULE.DEPENDENCY_PROVENANCE.PreflightError(
+                            "archive drift")), \
+                    self.assertRaises(MODULE.QualificationError):
+                MODULE.validate_frozen_gmp_mpfr_authority(
+                    "/proof/gmp.tar.xz", "/proof/mpfr.tar.xz",
+                    str(libraries["gmp"]), str(libraries["mpfr"]))
 
     def test_d12_provider_reference_preserves_frozen_row_order(self):
         rows = []

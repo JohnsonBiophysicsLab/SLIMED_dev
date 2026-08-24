@@ -1,7 +1,9 @@
 # B2b GMP/MPFR source-to-library provenance amendment
 
-Status: **proof-only proposal authorized for implementation and exact-SHA
-review on 2026-08-24; not yet merged or approved as a frozen B2b input**
+Status: **frozen proof-only B2b input; exact head
+`29cd8992eb6862cdc55b66245ea6f4a525a48a74` passed all four reviews, PR 209
+merged as `6a5531415b7b280c1a8c34be22f6c58e2b6d521c`, and explicit approval was
+recorded on 2026-08-24**
 
 This document is an additive amendment to
 [`anchored_row_qualification_preflight.md`](anchored_row_qualification_preflight.md)

@@ -1433,8 +1433,7 @@ This records evidence-contract authority only: it does not qualify the
 candidate, reopen D9a, unblock B3, select Far, authorize post-hoc normalization,
 or authorize production.
 
-**Proposed dependency-provenance amendment (authorized for proof-only
-implementation on 2026-08-24; not yet approved as a frozen input).** Package 2
+**Recorded dependency-provenance amendment approval (2026-08-24).** Package 2
 review showed that a caller could coordinate changes to a GMP/MPFR runtime
 packet, loaded snapshot, retained installed copy, and their co-produced
 digests. Distinct paths and inodes are not an independent authority. The
@@ -1444,12 +1443,14 @@ moves the trust root to the already frozen GMP 6.3.0 and MPFR 4.2.2 upstream
 archive digests. On the exact physical D12 host it requires two clean,
 closed-environment source builds at one literal canonical install prefix,
 byte-identical versioned Mach-O libraries, and derived-then-frozen physical
-library digests. The hosted workflow continues to rebuild the checked archives
-and cannot satisfy numeric D12. This proposal changes no scientific or
-operational target and authorizes neither Package 2 execution nor any
-qualification/activation decision. It requires its own exact-SHA verification,
-technical, scientific, and gatekeeper PASS, merge, and explicit user approval
-before Package 2 may consume it.
+library digests. Exact head
+`29cd8992eb6862cdc55b66245ea6f4a525a48a74` passed verification,
+technical, scientific, and gatekeeper review; PR 209 merged it as
+`6a5531415b7b280c1a8c34be22f6c58e2b6d521c`, after which the user explicitly
+accepted it as a frozen B2b input. The hosted workflow continues to rebuild
+the checked archives and cannot satisfy numeric D12. This amendment changes no
+scientific or operational target and authorizes neither a qualification result
+nor any activation decision.
 
 The proof validator must not accept descriptor-only evidence. Exact review
 requires both frozen source archives and the complete retained root containing
@@ -1469,8 +1470,8 @@ The hardened derivation ran at clean exact pre-freeze head
 `a482cbc445d506679a73c48847d4cda0bc55df18`; its canonical 16,153-byte bundle
 has SHA-256
 `45befb0a8fa14ec4a765d2434b81048e1099dc1a7944518de8b8b703fb686d41`.
-These remain proposed inputs pending the amendment's four exact-SHA reviews,
-merge, and explicit approval.
+These are frozen inputs at the reviewed and approved PR 209 authority. Package
+2 must consume them fail-closed before any hosted or physical execution.
 
 Frozen inputs:
 
@@ -1953,7 +1954,7 @@ Nothing in this plan decides them.
 | KB2r | B2-readiness budgets plus complete section-8/section-7 fixture execution manifest | Merged as PR 195 at `b8cb9470077c1c5e15449318eff7b61e7464cd51`; D12 approved 2026-08-10 before any candidate run | T2 + explicit user D12 |
 | KB2 | Bfr qualification evidence against B2p's and D12's frozen inputs; Far comparator results published | Merged as PR 197 at `5d49b7ff06160cbdfa25eb19c973b4bcccac59d9`; exact head `efbe73f94e42e9f364baf6b2531ef4c7104cded9` passed all T2 reviews; D9a recorded Bfr not qualified on 2026-08-10 | T2 verification + technical + scientific + gatekeeper completed; explicit user D9a decision recorded |
 | KB2a | Proof-only invariant-preserving row-representation architecture preflight; no production | Merged as PR 199 at `1a8763fc931ace724828504972b2fc3fc61a1795`; exact head `2c6d455abde562d63967d4ab301c6365775d0662` passed verification, technical, scientific, and gatekeeper review; user selected `anchored_difference_rows_v1` solely as a proof qualification candidate | Reviews complete; candidate selection recorded, not qualification |
-| KB2b | Freeze anchored-row independent-oracle application, all-three-anchor sensitivity protocol, scientific targets, verdict semantics, and the separately reviewed complete result-evidence amendment before authoritative execution | Original packet and additive amendment merged and explicitly approved; PR 204 exact head `0c6e8898dae979685fdcb09d531e1dfeb40e505d`, merge `67e5c2c84c907fe79bab257d992fbcbdf0480d48` | T2 verification + technical + scientific + gatekeeper complete; explicit user amendment approval recorded 2026-08-16 |
+| KB2b | Freeze anchored-row independent-oracle application, all-three-anchor sensitivity protocol, scientific targets, verdict semantics, the complete result-evidence amendment, and source-derived GMP/MPFR physical-library authority before authoritative execution | Original packet and additive amendments merged and explicitly approved; result contract PR 204 exact head `0c6e8898dae979685fdcb09d531e1dfeb40e505d`, merge `67e5c2c84c907fe79bab257d992fbcbdf0480d48`; dependency provenance PR 209 exact head `29cd8992eb6862cdc55b66245ea6f4a525a48a74`, merge `6a5531415b7b280c1a8c34be22f6c58e2b6d521c` | T2 verification + technical + scientific + gatekeeper complete; explicit result-contract approval recorded 2026-08-16 and dependency-provenance approval recorded 2026-08-24 |
 | KB2c | Execute the separately scoped proof-only anchored-row qualification against approved B2b inputs | Separately authorized proof execution may resume against the approved B2b inputs; authoritative exact-SHA result and qualification decision remain pending | T2 verification + technical + scientific + gatekeeper, then explicit user qualification decision |
 | KB3 | Bfr full-mesh provider; owns the exact 30700 pin and the no-Far-in-production tests | Blocked by recorded D9a outcome: Bfr not qualified. Requires a new explicit architecture decision; no Far fallback. | T2, only after a new explicit architecture decision |
 | KB4 | Topology epoch cache, invalidation, flip-pair re-preparation cost | Pending B3 | Technical |

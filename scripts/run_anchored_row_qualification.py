@@ -49,12 +49,21 @@ B2A_SPEC = importlib.util.spec_from_file_location("b2a_preflight", B2A_PATH)
 B2A = importlib.util.module_from_spec(B2A_SPEC)
 B2A_SPEC.loader.exec_module(B2A)
 B2 = B2A.B2
+DEPENDENCY_PROVENANCE_PATH = (
+    ROOT / "scripts/run_gmp_mpfr_provenance_preflight.py")
+DEPENDENCY_PROVENANCE_SPEC = importlib.util.spec_from_file_location(
+    "gmp_mpfr_provenance_preflight", DEPENDENCY_PROVENANCE_PATH)
+DEPENDENCY_PROVENANCE = importlib.util.module_from_spec(
+    DEPENDENCY_PROVENANCE_SPEC)
+DEPENDENCY_PROVENANCE_SPEC.loader.exec_module(DEPENDENCY_PROVENANCE)
 
 SCHEMA_ID = "anchored-row-qualification-report-v1"
 CANDIDATE = "anchored_difference_rows_v1"
 APPROVED_B2B_MERGE = "022df7a8e11bcc4aee4df2254cc994cf4efdeb4f"
 APPROVED_RESULT_EVIDENCE_AMENDMENT_MERGE = (
     "67e5c2c84c907fe79bab257d992fbcbdf0480d48")
+APPROVED_DEPENDENCY_PROVENANCE_MERGE = (
+    "6a5531415b7b280c1a8c34be22f6c58e2b6d521c")
 RESULT_EVIDENCE_PATH_ANCHOR_SHA256 = (
     "0e82d15b0244aaa779a1ca600fdc8b43ac501ab91aa615e8adb8dcd8682ecf66")
 RESULT_EVIDENCE_MUTATION_MANIFEST_SHA256 = (
@@ -125,8 +134,8 @@ RUNTIME_SOURCE_ENTRYPOINTS = {
 MAX_RESULT_RECORD_BYTES = 16 * 1024 * 1024
 MAX_RESULT_RECORD_NESTING = 64
 DEPENDENCY_ARCHIVE_SHA256 = {
-    "gmp": "a3c2b80201b89e68616f4ad30bc66aee4927c3ce50e33929ca819d5c43538898",
-    "mpfr": "b67ba0383ef7e8a8563734e2e889ef5ec3c3b898a01d00fa0a6869ad81c6ce01",
+    "gmp": DEPENDENCY_PROVENANCE.ARCHIVES["gmp"]["sha256"],
+    "mpfr": DEPENDENCY_PROVENANCE.ARCHIVES["mpfr"]["sha256"],
     "opensubdiv": "f843eb49daf20264007d807cbc64516a1fed9cdb1149aaf84ff47691d97491f9",
 }
 FROZEN_FIXTURE_SHA256 = {
@@ -2835,6 +2844,11 @@ def _d12_envelope_contract_fixture():
         dependency["source_identity"] = {
             "gmp": "6.3.0", "mpfr": "4.2.2",
             "opensubdiv": "3.7.0"}[name]
+        if name in {"gmp", "mpfr"}:
+            dependency["archive_sha256"] = \
+                DEPENDENCY_PROVENANCE.ARCHIVES[name]["sha256"]
+            dependency["installed_library_sha256"] = \
+                DEPENDENCY_PROVENANCE.FROZEN_PHYSICAL_LIBRARY_SHA256[name]
     value["platform"] = {
         "platform_state": "UNQUALIFIED_PLATFORM",
         "expected_fingerprint": copy.deepcopy(
@@ -3419,6 +3433,14 @@ def validate_d12_envelope_contract(value, expected_head):
                     "gmp": "6.3.0", "mpfr": "4.2.2",
                     "opensubdiv": "3.7.0"}[name],
                 "D12 dependency source identity drift")
+        if name in {"gmp", "mpfr"}:
+            require(dependency["archive_sha256"] ==
+                        DEPENDENCY_PROVENANCE.ARCHIVES[name]["sha256"] and
+                    dependency["installed_library_sha256"] ==
+                        DEPENDENCY_PROVENANCE.FROZEN_PHYSICAL_LIBRARY_SHA256[
+                            name],
+                    "D12 {} dependency differs from the frozen source-derived authority".
+                    format(name))
     platform = value["platform"]
     qualification_platform = B2.load_manifest()["qualification_platform"]
     require(platform["expected_fingerprint"] ==
@@ -8767,6 +8789,49 @@ def _d12_binary_evidence(binary_path, command_path, link_map_path,
     return value
 
 
+def validate_frozen_gmp_mpfr_authority(
+        gmp_archive, mpfr_archive, gmp_installed_library,
+        mpfr_installed_library):
+    """Bind physical qualification to the merged source-derived authority."""
+    ancestry = _run_d12_closed_git(
+        ["merge-base", "--is-ancestor",
+         APPROVED_DEPENDENCY_PROVENANCE_MERGE, "HEAD"], ROOT)
+    require(ancestry.returncode == 0,
+            "Package 2 does not descend from approved GMP/MPFR authority")
+    supplied_libraries = {
+        "gmp": gmp_installed_library,
+        "mpfr": mpfr_installed_library,
+    }
+    expected_libraries = {
+        name: (DEPENDENCY_PROVENANCE.CANONICAL_PREFIX / "lib" /
+               DEPENDENCY_PROVENANCE.LIBRARIES[name]["versioned_name"])
+        for name in ("gmp", "mpfr")
+    }
+    for name, path_text in supplied_libraries.items():
+        require(isinstance(path_text, str) and bool(path_text),
+                "frozen {} installed-library path is unavailable".format(
+                    name))
+        supplied = pathlib.Path(path_text)
+        expected = expected_libraries[name]
+        require(supplied.is_absolute() and str(supplied) == str(expected) and
+                supplied.is_file() and not supplied.is_symlink() and
+                supplied.resolve(strict=True) == expected,
+                "frozen {} installed-library path differs from source-derived authority".
+                format(name))
+    try:
+        observed = DEPENDENCY_PROVENANCE.verify_installed(
+            pathlib.Path(gmp_archive), pathlib.Path(mpfr_archive))
+    except (DEPENDENCY_PROVENANCE.PreflightError, OSError, ValueError) as error:
+        raise QualificationError(
+            "frozen GMP/MPFR source-derived authority failed: " + str(error))
+    require(observed ==
+            DEPENDENCY_PROVENANCE.FROZEN_PHYSICAL_LIBRARY_SHA256 and
+            all(sha256_file(expected_libraries[name]) == observed[name]
+                for name in ("gmp", "mpfr")),
+            "frozen GMP/MPFR installed bytes differ from source-derived authority")
+    return observed
+
+
 def _d12_dependency_evidence(version, archive_path, build_path,
                              install_path, link_path, library_path):
     paths = [pathlib.Path(path).resolve() for path in (
@@ -8834,6 +8899,9 @@ def produce_d12_evidence(args):
             git_start.get("git_commit") == expected_head and
             worktree_start == {"state": "PRESENT", "clean": True},
             "D12 production requires exact clean Git HEAD")
+    validate_frozen_gmp_mpfr_authority(
+        args.gmp_archive, args.mpfr_archive,
+        args.gmp_installed_library, args.mpfr_installed_library)
     checkpoint_path = pathlib.Path(args.checkpoint).resolve()
     artifact_root = pathlib.Path(args.artifact_dir).resolve()
     checkpoint = strict_json_bytes(checkpoint_path.read_bytes())
@@ -13751,6 +13819,16 @@ def validate_result_sidecar_bundle(report, bundle_root, checkpoint_path=None,
     worker_inventory = None
     d12_runtime_audit = None
     if d12_envelope is not None:
+        require(d12_runtime_provenance is not None and
+                set(d12_runtime_provenance.get("dependencies", {})) ==
+                    {"gmp", "mpfr", "opensubdiv"},
+                "qualified D12 validation lacks dependency provenance")
+        dependency_files = d12_runtime_provenance["dependencies"]
+        validate_frozen_gmp_mpfr_authority(
+            dependency_files["gmp"]["archive"],
+            dependency_files["mpfr"]["archive"],
+            dependency_files["gmp"]["installed_library"],
+            dependency_files["mpfr"]["installed_library"])
         d12_runtime_binaries = d12_runtime_binaries or {}
         require(set(d12_runtime_binaries) == set(
                     d12_envelope["binaries"]) and
@@ -15189,6 +15267,9 @@ def main(argv=None):
                 args.opensubdiv_installed_library]
             require(all(required_provenance),
                     "report validation requires every provenance input")
+            validate_frozen_gmp_mpfr_authority(
+                args.gmp_archive, args.mpfr_archive,
+                args.gmp_installed_library, args.mpfr_installed_library)
             report_path = pathlib.Path(args.validate_report).resolve()
             raw = report_path.read_bytes()
             value = strict_json_bytes(raw)
@@ -15351,6 +15432,9 @@ def main(argv=None):
             ]
             require(all(provenance_arguments),
                     "execution requires every frozen compile/link/dependency provenance path")
+            validate_frozen_gmp_mpfr_authority(
+                args.gmp_archive, args.mpfr_archive,
+                args.gmp_installed_library, args.mpfr_installed_library)
             value = execute(args)
             encoded = jcs_bytes(value)
             if args.output:

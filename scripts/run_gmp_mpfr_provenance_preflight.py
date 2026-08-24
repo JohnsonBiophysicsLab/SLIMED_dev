@@ -73,8 +73,9 @@ EXPECTED_PLATFORM = {
 }
 
 # Derived by two exact source builds at CANONICAL_PREFIX from clean head
-# a482cbc445d506679a73c48847d4cda0bc55df18.  The amendment remains proposed
-# until exact-SHA reviews, merge, and explicit user approval all complete.
+# a482cbc445d506679a73c48847d4cda0bc55df18. Exact head 29cd8992 passed all
+# four reviews, merged in PR 209, and was explicitly approved as frozen B2b
+# authority on 2026-08-24.
 FROZEN_PHYSICAL_LIBRARY_SHA256 = {
     "gmp": "f872fbd53e7a265961e6c79ae846741637f59a28c04a839db55724bd12bbfb32",
     "mpfr": "2b51afa01ece4b200eacf92a318c38097595ab8cd656e0602cb0e55f9cce247e",
