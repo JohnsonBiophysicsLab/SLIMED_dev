@@ -124,6 +124,7 @@ class BfrQualificationContractTests(unittest.TestCase):
                       "raw": "AC Power", "value": MODULE.EXPECTED_POWER_VALUE},
             "thermal": {"api": MODULE.EXPECTED_THERMAL_API, "query_ok": True,
                         "raw": 0, "value": MODULE.EXPECTED_THERMAL_VALUE},
+            "process_returncode": 0,
         }
         boundaries = ["primary_before", "primary_after",
                       "determinism_before", "determinism_after"]
@@ -456,6 +457,32 @@ class BfrQualificationContractTests(unittest.TestCase):
             "serialization_replay_rss_sampled": False,
         }
         return manifest, job, (identity, candidate, level, mode), report
+
+    def test_candidate_platform_probe_binds_success_process_returncode(self):
+        observed = {
+            "schema_version": 1, "kind": "bfr_platform_probe", "status": "ok",
+            "finite": True, "fingerprint_queries_ok": True,
+            "fingerprint": copy.deepcopy(MODULE.EXPECTED_PLATFORM_FINGERPRINT),
+            "power": {"api": MODULE.EXPECTED_POWER_API, "query_ok": True,
+                      "raw": "AC Power", "value": MODULE.EXPECTED_POWER_VALUE},
+            "thermal": {"api": MODULE.EXPECTED_THERMAL_API, "query_ok": True,
+                        "raw": 0, "value": MODULE.EXPECTED_THERMAL_VALUE},
+        }
+        completed = subprocess.CompletedProcess(
+            ["candidate", "--platform-probe"], 0,
+            json.dumps(observed), "")
+        with mock.patch.object(MODULE, "run", return_value=completed):
+            result = MODULE.candidate_platform_probe("candidate")
+        self.assertEqual(result, dict(observed, process_returncode=0))
+
+        forged = dict(observed, process_returncode=0)
+        completed = subprocess.CompletedProcess(
+            ["candidate", "--platform-probe"], 0,
+            json.dumps(forged), "")
+        with mock.patch.object(MODULE, "run", return_value=completed):
+            result = MODULE.candidate_platform_probe("candidate")
+        self.assertEqual(result["status"], "query_failed")
+        self.assertEqual(result["process_returncode"], 0)
 
     def test_terminal_scientific_failure_schema_is_complete_and_fail_closed(self):
         valid = self._terminal_failure_evidence()

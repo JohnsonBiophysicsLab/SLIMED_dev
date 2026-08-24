@@ -1,7 +1,8 @@
 # B2c anchored-row qualification evidence
 
-Status: **Package 2 remediation is in progress after an exact-SHA `FAIL`;
-qualification remains `INCOMPLETE` and numeric D12 execution is blocked**
+Status: **physical execution exposed a closed B2-to-B2c process-boundary
+provenance gap; a local remediation is prepared, qualification remains
+`INCOMPLETE`, and numeric D12 must be rerun only after a new exact-SHA gate**
 
 Candidate: `anchored_difference_rows_v1`
 
@@ -331,15 +332,56 @@ Because the current review verdict is `FAIL`, no physical-host numeric D12
 run may begin. Running it now would create evidence at a scientifically
 inadmissible SHA and conflict with the implementation plan.
 
+## Exact-head hosted and physical execution at `192cb350`
+
+The dependency-runtime remediation at exact SHA
+`192cb3505bc4e1ce29a10253a2844b5e34a0be79` subsequently passed independent
+technical, scientific, verification, and gatekeeper review. PR 207 was
+force-with-lease updated to that exact linear head. GitHub Actions run
+`32780683538` completed the mandatory `macos-26` correctness, dependency
+provisioning, Release/TSan reproduction, invariant-representation analysis,
+Package 2 executable audit, and artifact publication successfully. Its retained
+artifact is named
+`bfr-hosted-reproduction-192cb3505bc4e1ce29a10253a2844b5e34a0be79`.
+
+The physical machine matched every frozen D12 field and was on AC power with
+nominal `NSProcessInfo.thermalState`. A first complete 294-case B2 attempt was
+retained as an explicitly unqualified infrastructure attempt because the Codex
+sandbox denied the read-only `kern.hv_vmm_present` query. No case was discarded
+or selectively rerun. A fresh complete run outside that sandbox produced a
+`QUALIFIED` platform record with zero mismatches, exactly 294 cases and 1,176
+qualified boundary observations. Its checkpoint is 1,603,916 bytes with
+SHA-256 `4d1f90ea065901dcf9b7219997717ceac1c3207826778190e6d443610dd799f2`;
+its B2 evidence is 2,868,511 bytes with SHA-256
+`0efa692a7ebbc09f30bce8ccd60c860286a0f18f117e723b4d6a47871039af72`.
+The inherited B2 D12 summary was `PASS`, with zero exceeded cases.
+
+Package 2 D12 envelope production then stopped before any provider or
+representation TSan worker execution with
+`D12 full process-boundary probe is malformed or lossy`. The hardened B2c
+decoder requires the actual platform-probe subprocess return code, but
+`run_bfr_qualification.py::candidate_platform_probe` returned the successful
+child JSON without adding its independently observed return code. The child
+cannot authoritatively report its own process return code, so the correct fix is
+at the parent observation boundary. The local remediation adds that observed
+field only after requiring the child payload to have the exact closed key set,
+and rejects a child-supplied counterfeit. Its focused regression, all 14 B2
+tests, and all 99 anchored-row qualification tests pass. The physical attempt
+therefore found an evidence-contract integration defect, not a candidate
+numeric failure; no qualification, D9a reopening, B3 unblocking, Far selection,
+or production activation follows.
+
 ## Required next work
 
-1. Commit and push the remediation implementation and its adversarial tests.
+1. Commit the parent-owned platform-probe return-code remediation and its
+   adversarial regression.
 2. Run four fresh independent exact-SHA reviews and obtain PASS verdicts.
-3. Rerun the hosted `macos-26` workflow at that reviewed exact head and retain
-   its correctness, provisioning, and independence-audit artifacts.
+3. Push the reviewed head, rerun the hosted `macos-26` workflow, and retain its
+   exact-head artifact.
 4. On the frozen physical host, confirm the worktree is empty, AC power and
-   nominal thermal state are continuously observed, then execute numeric D12
-   without selective reruns or discarded repeats.
+   nominal thermal state are continuously observed, then perform a fresh
+   complete B2 matrix and Package 2 numeric D12 execution without selective
+   reruns or discarded repeats.
 5. Submit the exact physical-host artifact for independent technical and
    scientific review before any qualification decision.
 

@@ -221,8 +221,11 @@ def candidate_platform_probe(candidate_binary):
         observed = json.loads(completed.stdout)
     except (ValueError, json.JSONDecodeError):
         return failure
-    if not isinstance(observed, dict):
+    expected_observed_keys = set(failure) - {"process_returncode"}
+    if (not isinstance(observed, dict) or
+            set(observed) != expected_observed_keys):
         return failure
+    observed["process_returncode"] = completed.returncode
     return observed
 
 
