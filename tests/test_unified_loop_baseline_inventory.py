@@ -657,6 +657,14 @@ class UnifiedLoopBaselineInventoryTest(unittest.TestCase):
             "src/energy_force/Compute_energy_and_force_on_mesh.cpp",
             lambda text: '#import "/private/tmp/L7b_clobber.inc"\n' + text)
         self.assert_text_mutation_rejected(
+            "src/energy_force/Compute_energy_and_force_on_mesh.cpp",
+            lambda text: '#/**/import "/private/tmp/L7b_clobber.inc"\n'
+            + text)
+        self.assert_text_mutation_rejected(
+            "src/energy_force/Compute_energy_and_force_on_mesh.cpp",
+            lambda text: '/**/ #include "/private/tmp/L7b_clobber.inc"\n'
+            + text)
+        self.assert_text_mutation_rejected(
             "src/mesh/Mesh_io.cpp",
             lambda text: text +
                 "\nvoid Mesh::invalidate_topology_derived_state() {}\n")

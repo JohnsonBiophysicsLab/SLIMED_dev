@@ -241,6 +241,17 @@ class OpenSubdivRegularProductionCacheInventoryTest(unittest.TestCase):
             ),
             (
                 mesh_header,
+                '#/**/import "/private/tmp/L7b_private_alias.hpp"\n' + area,
+                setup,
+            ),
+            (
+                mesh_header,
+                '/**/ #include "/private/tmp/L7b_private_alias.hpp"\n'
+                + area,
+                setup,
+            ),
+            (
+                mesh_header,
                 area,
                 setup.replace(
                     "    invalidate_topology_derived_state();",

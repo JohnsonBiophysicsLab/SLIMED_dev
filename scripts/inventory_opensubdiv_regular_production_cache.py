@@ -231,17 +231,21 @@ _REVIEWED_IMPORT_INCLUDES = (
 _REVIEWED_FLAT_INCLUDES = ('"mesh/Mesh.hpp"',)
 _REVIEWED_OTHER_SOURCE_COUNT = 85
 _REVIEWED_OTHER_INCLUSION_SHA256 = (
-    "f325d98ca110de9f75f0f83358995cb29b074e720d7bf4f08d3edc35a2fe56b9")
+    "4761748a94a031dc5eba9029af56507b7a6366408818cd17b180bd351f2467d7")
 
 
 def _source_inclusion_directives(text):
     """Return logical-line include/import directives and their operands."""
     text = re.sub(r"\\\r?\n", "", text)
-    return tuple((match.group(1), match.group(2).strip())
-                 for match in re.finditer(
+    code = _cpp_code(text)
+    directives = []
+    for match in re.finditer(
         rf"^\s*{_CPP_DIRECTIVE_PREFIX}\s*"
-        r"(include|include_next|import)\b([^\n]*)",
-        text, re.MULTILINE))
+            r"(include|include_next|import)\b", code, re.MULTILINE):
+        line_end = text.find("\n", match.end())
+        line_end = len(text) if line_end < 0 else line_end
+        directives.append((match.group(1), text[match.end():line_end].strip()))
+    return tuple(directives)
 
 
 def _source_inclusion_surface_sha256(sources):
