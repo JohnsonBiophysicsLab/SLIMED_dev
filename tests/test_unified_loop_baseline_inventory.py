@@ -316,6 +316,63 @@ class UnifiedLoopBaselineInventoryTest(unittest.TestCase):
                 "invalidate_topology_derived_state();",
                 "// invalidate_topology_derived_state();", 1))
         self.assert_text_mutation_rejected(
+            "include/mesh/Mesh.hpp",
+            lambda text: text.replace(
+                "regularLimitSurfaceRowCache_.invalidate();",
+                'const char* fake_reset = R"tag(" '
+                'regularLimitSurfaceRowCache_.invalidate(); " )tag";', 1))
+        self.assert_text_mutation_rejected(
+            "src/mesh/Mesh.cpp",
+            lambda text: text.replace(
+                "invalidate_topology_derived_state();",
+                'const char* fake_call = R"tag(" '
+                'invalidate_topology_derived_state(); " )tag";', 1))
+        self.assert_text_mutation_rejected(
+            "src/mesh/Mesh.cpp",
+            lambda text: text.replace(
+                "invalidate_topology_derived_state();",
+                "#define FAKE_TOPOLOGY_CALL "
+                "invalidate_topology_derived_state();", 1))
+        self.assert_text_mutation_rejected(
+            "include/mesh/Mesh.hpp",
+            lambda text: text.replace(
+                "regularLimitSurfaceRowCache_.invalidate();",
+                "// continued decoy " + chr(92) + "\n"
+                "        regularLimitSurfaceRowCache_.invalidate();", 1))
+        self.assert_text_mutation_rejected(
+            "src/mesh/Mesh.cpp",
+            lambda text: text.replace(
+                "invalidate_topology_derived_state();",
+                "// continued decoy " + chr(92) + "\n"
+                "    invalidate_topology_derived_state();", 1))
+        self.assert_text_mutation_rejected(
+            "src/mesh/Mesh_setup_flat.cpp",
+            lambda text: text.replace(
+                "invalidate_topology_derived_state();",
+                'const char* fake_call = R"tag(" '
+                'invalidate_topology_derived_state(); " )tag";', 1))
+        self.assert_text_mutation_rejected(
+            "include/mesh/Mesh.hpp",
+            lambda text: text.replace(
+                "        regularLimitSurfaceRowCache_.invalidate();",
+                "#if 0\n"
+                "        regularLimitSurfaceRowCache_.invalidate();\n"
+                "#endif", 1))
+        self.assert_text_mutation_rejected(
+            "src/mesh/Mesh.cpp",
+            lambda text: text.replace(
+                "    invalidate_topology_derived_state();",
+                "#if 0\n"
+                "    invalidate_topology_derived_state();\n"
+                "#endif", 1))
+        self.assert_text_mutation_rejected(
+            "src/mesh/Mesh_setup_flat.cpp",
+            lambda text: text.replace(
+                "    invalidate_topology_derived_state();",
+                "#if 0\n"
+                "    invalidate_topology_derived_state();\n"
+                "#endif", 1))
+        self.assert_text_mutation_rejected(
             "src/mesh/Mesh.cpp",
             lambda text: text.replace(
                 "invalidate_topology_derived_state();",
@@ -337,6 +394,15 @@ class UnifiedLoopBaselineInventoryTest(unittest.TestCase):
                 "\nprivate:\n    /**\n"
                 "     * @brief Invalidate topology-derived state",
                 "\npublic:\n    /**\n"
+                "     * @brief Invalidate topology-derived state", 1))
+        self.assert_text_mutation_rejected(
+            "include/mesh/Mesh.hpp",
+            lambda text: text.replace(
+                "\nprivate:\n    /**\n"
+                "     * @brief Invalidate topology-derived state",
+                "\npublic:\n"
+                "    class NestedAccessDecoy { private: int value; };\n"
+                "    /**\n"
                 "     * @brief Invalidate topology-derived state", 1))
         self.assert_text_mutation_rejected(
             "include/mesh/Mesh.hpp",
@@ -386,14 +452,14 @@ class UnifiedLoopBaselineInventoryTest(unittest.TestCase):
                 "    invalidate_topology_derived_state();\n"
                 "}\n")
         self.assert_text_mutation_rejected(
-            "src/mesh/Mesh_io.cpp",
+            "src/energy_force/Compute_energy_and_force_on_mesh.cpp",
             lambda text: text +
                 "\nvoid Mesh::extra_topology_invalidation()\n"
                 "{\n"
                 "    invalidate_topology_derived_state();\n"
                 "}\n")
         self.assert_text_mutation_rejected(
-            "src/mesh/Mesh_io.cpp",
+            "src/energy_force/Compute_energy_and_force_on_mesh.cpp",
             lambda text: text +
                 "\nvoid Mesh::extra_cache_reset()\n"
                 "{\n"

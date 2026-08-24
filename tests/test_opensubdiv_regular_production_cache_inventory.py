@@ -26,6 +26,7 @@ class OpenSubdivRegularProductionCacheInventoryTest(unittest.TestCase):
         mesh_header = (ROOT / inventory.MESH).read_text(encoding="utf-8")
         area = (ROOT / inventory.AREA).read_text(encoding="utf-8")
         setup = (ROOT / inventory.SETUP).read_text(encoding="utf-8")
+        self.assertIn(ROOT / inventory.FORCE, inventory._other_cpp_paths())
 
         mutations = (
             (
@@ -66,6 +67,99 @@ class OpenSubdivRegularProductionCacheInventoryTest(unittest.TestCase):
             ),
             (
                 mesh_header,
+                area.replace(
+                    "invalidate_topology_derived_state();",
+                    "#define FAKE_TOPOLOGY_CALL "
+                    "invalidate_topology_derived_state();",
+                    1,
+                ),
+                setup,
+            ),
+            (
+                mesh_header.replace(
+                    "regularLimitSurfaceRowCache_.invalidate();",
+                    "// continued decoy " + chr(92) + "\n"
+                    "        regularLimitSurfaceRowCache_.invalidate();",
+                    1,
+                ),
+                area,
+                setup,
+            ),
+            (
+                mesh_header,
+                area.replace(
+                    "invalidate_topology_derived_state();",
+                    "// continued decoy " + chr(92) + "\n"
+                    "    invalidate_topology_derived_state();",
+                    1,
+                ),
+                setup,
+            ),
+            (
+                mesh_header.replace(
+                    "regularLimitSurfaceRowCache_.invalidate();",
+                    'const char* fake_reset = R"tag(" '
+                    'regularLimitSurfaceRowCache_.invalidate(); " )tag";',
+                    1,
+                ),
+                area,
+                setup,
+            ),
+            (
+                mesh_header,
+                area.replace(
+                    "invalidate_topology_derived_state();",
+                    'const char* fake_call = R"tag(" '
+                    'invalidate_topology_derived_state(); " )tag";',
+                    1,
+                ),
+                setup,
+            ),
+            (
+                mesh_header,
+                area,
+                setup.replace(
+                    "invalidate_topology_derived_state();",
+                    'const char* fake_call = R"tag(" '
+                    'invalidate_topology_derived_state(); " )tag";',
+                    1,
+                ),
+            ),
+            (
+                mesh_header.replace(
+                    "        regularLimitSurfaceRowCache_.invalidate();",
+                    "#if 0\n"
+                    "        regularLimitSurfaceRowCache_.invalidate();\n"
+                    "#endif",
+                    1,
+                ),
+                area,
+                setup,
+            ),
+            (
+                mesh_header,
+                area.replace(
+                    "    invalidate_topology_derived_state();",
+                    "#if 0\n"
+                    "    invalidate_topology_derived_state();\n"
+                    "#endif",
+                    1,
+                ),
+                setup,
+            ),
+            (
+                mesh_header,
+                area,
+                setup.replace(
+                    "    invalidate_topology_derived_state();",
+                    "#if 0\n"
+                    "    invalidate_topology_derived_state();\n"
+                    "#endif",
+                    1,
+                ),
+            ),
+            (
+                mesh_header,
                 area,
                 setup.replace(
                     "invalidate_topology_derived_state();",
@@ -88,6 +182,19 @@ class OpenSubdivRegularProductionCacheInventoryTest(unittest.TestCase):
                     "\nprivate:\n    /**\n"
                     "     * @brief Invalidate topology-derived state",
                     "\npublic:\n    /**\n"
+                    "     * @brief Invalidate topology-derived state",
+                    1,
+                ),
+                area,
+                setup,
+            ),
+            (
+                mesh_header.replace(
+                    "\nprivate:\n    /**\n"
+                    "     * @brief Invalidate topology-derived state",
+                    "\npublic:\n"
+                    "    class NestedAccessDecoy { private: int value; };\n"
+                    "    /**\n"
                     "     * @brief Invalidate topology-derived state",
                     1,
                 ),

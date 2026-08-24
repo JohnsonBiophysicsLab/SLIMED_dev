@@ -139,17 +139,113 @@ def backend_header_leaks():
     return leaks
 
 
-def _blank_non_code(match):
-    return "".join(
-        "\n" if character == "\n" else " " for character in match.group(0))
-
-
 def _cpp_code(text):
-    non_code = re.compile(
-        r"//[^\n]*|/\*.*?\*/|\"(?:\\.|[^\"\\])*\"|'(?:\\.|[^'\\])*'",
-        re.DOTALL,
-    )
-    return non_code.sub(_blank_non_code, text)
+    """Mask C++ comments and ordinary/raw literals, preserving positions."""
+    text = re.sub(r"\\\r?\n", "", text)
+    masked = list(text)
+    index = 0
+    state = "code"
+    raw_start = re.compile(
+        r"(?:u8|[uUL])?R\"([^\s()\\]{0,16})\(")
+    while index < len(text):
+        current = text[index]
+        following = text[index + 1] if index + 1 < len(text) else ""
+        if state == "code":
+            raw = raw_start.match(text, index)
+            if raw and (index == 0 or not (text[index - 1].isalnum() or
+                                           text[index - 1] == "_")):
+                closing = ")" + raw.group(1) + '"'
+                end = text.find(closing, raw.end())
+                end = len(text) if end < 0 else end + len(closing)
+                for cursor in range(index, end):
+                    if text[cursor] != "\n":
+                        masked[cursor] = " "
+                index = end
+                continue
+            if current == "/" and following == "/":
+                masked[index] = masked[index + 1] = " "
+                index += 2
+                state = "line_comment"
+                continue
+            if current == "/" and following == "*":
+                masked[index] = masked[index + 1] = " "
+                index += 2
+                state = "block_comment"
+                continue
+            if current in ('"', "'"):
+                masked[index] = " "
+                state = "string" if current == '"' else "character"
+                index += 1
+                continue
+        elif state == "line_comment":
+            if current == "\n":
+                state = "code"
+            else:
+                masked[index] = " "
+            index += 1
+            continue
+        elif state == "block_comment":
+            if current == "*" and following == "/":
+                masked[index] = masked[index + 1] = " "
+                index += 2
+                state = "code"
+                continue
+            if current != "\n":
+                masked[index] = " "
+            index += 1
+            continue
+        else:
+            if current != "\n":
+                masked[index] = " "
+            if current == "\\" and following:
+                if following != "\n":
+                    masked[index + 1] = " "
+                index += 2
+                continue
+            if ((state == "string" and current == '"') or
+                    (state == "character" and current == "'")):
+                state = "code"
+            index += 1
+            continue
+        index += 1
+    return "".join(masked)
+
+
+def _mask_cpp_conditionals(code):
+    """Exclude every conditional-preprocessor region from positive evidence."""
+    masked = []
+    depth = 0
+    directive = re.compile(r"^\s*#\s*([A-Za-z_]\w*)\b")
+    for line in code.splitlines(keepends=True):
+        match = directive.match(line)
+        if match:
+            name = match.group(1)
+            if name in {"if", "ifdef", "ifndef"}:
+                depth += 1
+            elif name == "endif":
+                depth = max(0, depth - 1)
+            masked.append("".join(
+                "\n" if character == "\n" else " " for character in line))
+        elif depth:
+            masked.append("".join(
+                "\n" if character == "\n" else " " for character in line))
+        else:
+            masked.append(line)
+    return "".join(masked)
+
+
+def _direct_access_label(code, position):
+    depth = 0
+    access = None
+    for token in re.finditer(
+            r"[{}]|\b(public|protected|private)\s*:", code[:position]):
+        if token.group(0) == "{":
+            depth += 1
+        elif token.group(0) == "}":
+            depth = max(0, depth - 1)
+        elif depth == 0:
+            access = token.group(1)
+    return access, depth
 
 
 def _unique_braced_scope(code, signature_pattern):
@@ -175,11 +271,12 @@ def _unique_braced_scope(code, signature_pattern):
 
 def invalidation_seam_errors_for_sources(
         mesh_header, area, setup, other_mesh_sources=()):
-    header_code = _cpp_code(mesh_header)
-    area_code = _cpp_code(area)
-    setup_code = _cpp_code(setup)
-    other_code = [_cpp_code(source) for source in other_mesh_sources]
-    all_code = "\n".join([header_code, area_code, setup_code, *other_code])
+    lexical_code = [_cpp_code(source) for source in (
+        mesh_header, area, setup, *other_mesh_sources)]
+    unconditional_code = [_mask_cpp_conditionals(code) for code in lexical_code]
+    header_code, area_code, setup_code, *other_code = unconditional_code
+    all_lexical_code = "\n".join(lexical_code)
+    all_code = "\n".join(unconditional_code)
 
     reset_pattern = re.compile(
         r"\bregularLimitSurfaceRowCache_\s*\.\s*invalidate\s*\(\s*\)\s*;")
@@ -203,9 +300,8 @@ def invalidation_seam_errors_for_sources(
             errors.append("unique topology invalidation seam definition")
         else:
             seam_start, seam_body = seam_scope
-            access_labels = list(re.finditer(
-                r"\b(public|protected|private)\s*:", class_body[:seam_start]))
-            if not access_labels or access_labels[-1].group(1) != "private":
+            access, seam_depth = _direct_access_label(class_body, seam_start)
+            if access != "private" or seam_depth != 0:
                 errors.append("topology invalidation seam is not private")
             if len(reset_pattern.findall(seam_body)) != 1:
                 errors.append("cache reset is not owned exactly once by seam")
@@ -231,16 +327,32 @@ def invalidation_seam_errors_for_sources(
         errors.append("topology invalidation seam has unreviewed definitions")
     if len(seam_call_pattern.findall(all_code)) != 2:
         errors.append("topology invalidation seam has unreviewed callers")
+    for name, pattern in (
+            ("cache reset", reset_pattern),
+            ("topology invalidation seam call", seam_call_pattern),
+            ("topology invalidation seam definition", seam_definition_pattern)):
+        if len(pattern.findall(all_lexical_code)) != len(pattern.findall(all_code)):
+            errors.append(f"{name} appears in a preprocessor conditional")
     return errors
 
 
-def invalidation_seam_errors():
-    excluded = {AREA, SETUP}
-    other_sources = [
-        path.read_text(encoding="utf-8")
-        for path in sorted((ROOT / "src/mesh").glob("*.cpp"))
-        if path.relative_to(ROOT) not in excluded
+def _other_cpp_paths():
+    excluded = {MESH, AREA, SETUP}
+    suffixes = {
+        ".cpp", ".cc", ".cxx", ".cu", ".mm",
+        ".hpp", ".h", ".cuh", ".ipp", ".tpp", ".inl"}
+    return [
+        path
+        for base in (ROOT / "src", ROOT / "include")
+        for path in sorted(base.rglob("*"))
+        if path.is_file() and path.suffix in suffixes
+        and path.relative_to(ROOT) not in excluded
     ]
+
+
+def invalidation_seam_errors():
+    other_sources = [path.read_text(encoding="utf-8")
+                     for path in _other_cpp_paths()]
     return invalidation_seam_errors_for_sources(
         (ROOT / MESH).read_text(encoding="utf-8"),
         (ROOT / AREA).read_text(encoding="utf-8"),
