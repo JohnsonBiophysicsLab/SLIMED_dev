@@ -300,6 +300,374 @@ class UnifiedLoopBaselineInventoryTest(unittest.TestCase):
         self.assert_mutation_rejected(
             lambda r: r["F_regular_cache"]["key_fields"].append(
                 "coordinates"))
+        self.assert_text_mutation_rejected(
+            "include/mesh/Mesh.hpp",
+            lambda text: text.replace(
+                "regularLimitSurfaceRowCache_.invalidate();",
+                "// regularLimitSurfaceRowCache_.invalidate();", 1))
+        self.assert_text_mutation_rejected(
+            "src/mesh/Mesh.cpp",
+            lambda text: text.replace(
+                "invalidate_topology_derived_state();",
+                "// invalidate_topology_derived_state();", 1))
+        self.assert_text_mutation_rejected(
+            "src/mesh/Mesh_setup_flat.cpp",
+            lambda text: text.replace(
+                "invalidate_topology_derived_state();",
+                "// invalidate_topology_derived_state();", 1))
+        self.assert_text_mutation_rejected(
+            "include/mesh/Mesh.hpp",
+            lambda text: text.replace(
+                "regularLimitSurfaceRowCache_.invalidate();",
+                'const char* fake_reset = R"tag(" '
+                'regularLimitSurfaceRowCache_.invalidate(); " )tag";', 1))
+        self.assert_text_mutation_rejected(
+            "src/mesh/Mesh.cpp",
+            lambda text: text.replace(
+                "invalidate_topology_derived_state();",
+                'const char* fake_call = R"tag(" '
+                'invalidate_topology_derived_state(); " )tag";', 1))
+        self.assert_text_mutation_rejected(
+            "src/mesh/Mesh.cpp",
+            lambda text: text.replace(
+                "invalidate_topology_derived_state();",
+                "#define FAKE_TOPOLOGY_CALL "
+                "invalidate_topology_derived_state();", 1))
+        self.assert_text_mutation_rejected(
+            "include/mesh/Mesh.hpp",
+            lambda text: text.replace(
+                "regularLimitSurfaceRowCache_.invalidate();",
+                "// continued decoy " + chr(92) + "\n"
+                "        regularLimitSurfaceRowCache_.invalidate();", 1))
+        self.assert_text_mutation_rejected(
+            "src/mesh/Mesh.cpp",
+            lambda text: text.replace(
+                "invalidate_topology_derived_state();",
+                "// continued decoy " + chr(92) + "\n"
+                "    invalidate_topology_derived_state();", 1))
+        self.assert_text_mutation_rejected(
+            "src/mesh/Mesh_setup_flat.cpp",
+            lambda text: text.replace(
+                "invalidate_topology_derived_state();",
+                'const char* fake_call = R"tag(" '
+                'invalidate_topology_derived_state(); " )tag";', 1))
+        self.assert_text_mutation_rejected(
+            "include/mesh/Mesh.hpp",
+            lambda text: text.replace(
+                "        regularLimitSurfaceRowCache_.invalidate();",
+                "#if 0\n"
+                "        regularLimitSurfaceRowCache_.invalidate();\n"
+                "#endif", 1))
+        self.assert_text_mutation_rejected(
+            "src/mesh/Mesh.cpp",
+            lambda text: text.replace(
+                "    invalidate_topology_derived_state();",
+                "#if 0\n"
+                "    invalidate_topology_derived_state();\n"
+                "#endif", 1))
+        self.assert_text_mutation_rejected(
+            "src/mesh/Mesh_setup_flat.cpp",
+            lambda text: text.replace(
+                "    invalidate_topology_derived_state();",
+                "#if 0\n"
+                "    invalidate_topology_derived_state();\n"
+                "#endif", 1))
+        self.assert_text_mutation_rejected(
+            "src/mesh/Mesh.cpp",
+            lambda text: text.replace(
+                "    invalidate_topology_derived_state();",
+                "#if 1\n"
+                "    return;\n"
+                "#endif\n"
+                "    invalidate_topology_derived_state();", 1))
+        self.assert_text_mutation_rejected(
+            "src/mesh/Mesh.cpp",
+            lambda text: text.replace(
+                "    invalidate_topology_derived_state();",
+                '#include "mesh/L7b_early_return.hpp"\n'
+                "    invalidate_topology_derived_state();", 1))
+        self.assert_text_mutation_rejected(
+            "src/mesh/Mesh_setup_flat.cpp",
+            lambda text: text.replace(
+                "    invalidate_topology_derived_state();",
+                '#include "mesh/L7b_early_return.hpp"\n'
+                "    invalidate_topology_derived_state();", 1))
+        self.assert_text_mutation_rejected(
+            "include/mesh/Mesh.hpp",
+            lambda text: text.replace(
+                "        regularLimitSurfaceRowCache_.invalidate();",
+                '#include "mesh/L7b_early_return.hpp"\n'
+                "        regularLimitSurfaceRowCache_.invalidate();", 1))
+        self.assert_text_mutation_rejected(
+            "include/mesh/Mesh.hpp",
+            lambda text: text.replace(
+                "    void invalidate_topology_derived_state()",
+                '#include "mesh/L7b_public_access.hpp"\n'
+                "    void invalidate_topology_derived_state()", 1))
+        self.assert_text_mutation_rejected(
+            "include/mesh/Mesh.hpp",
+            lambda text: text.replace(
+                "    void invalidate_topology_derived_state()",
+                '#import "mesh/L7b_public_access.hpp"\n'
+                "    void invalidate_topology_derived_state()", 1))
+        self.assert_text_mutation_rejected(
+            "src/mesh/Mesh_setup_flat.cpp",
+            lambda text: text.replace(
+                "    invalidate_topology_derived_state();",
+                '%:include_next "mesh/L7b_early_return.hpp"\n'
+                "    invalidate_topology_derived_state();", 1))
+        self.assert_text_mutation_rejected(
+            "include/mesh/Mesh.hpp",
+            lambda text: text.replace(
+                "class Mesh",
+                '#include "/private/tmp/L7b_private_alias.hpp"\n'
+                "class Mesh", 1))
+        self.assert_text_mutation_rejected(
+            "src/mesh/Mesh.cpp",
+            lambda text: text.replace(
+                '#include "mesh/Mesh.hpp"',
+                '#include "mesh/Mesh.hpp"\n'
+                '#include "/private/tmp/L7b_private_alias.hpp"', 1))
+        self.assert_text_mutation_rejected(
+            "src/mesh/Mesh_setup_flat.cpp",
+            lambda text: text.replace(
+                "    invalidate_topology_derived_state();",
+                "%:if 1\n"
+                "    return;\n"
+                "%:endif\n"
+                "    invalidate_topology_derived_state();", 1))
+        self.assert_text_mutation_rejected(
+            "include/mesh/Mesh.hpp",
+            lambda text: text.replace(
+                "        regularLimitSurfaceRowCache_.invalidate();",
+                "#ifdef __cplusplus\n"
+                "        return;\n"
+                "#endif\n"
+                "        regularLimitSurfaceRowCache_.invalidate();", 1))
+        self.assert_text_mutation_rejected(
+            "src/mesh/Mesh.cpp",
+            lambda text: text.replace(
+                "void Mesh::setup_from_vertices_faces",
+                "#define invalidate_topology_derived_state() ((void)0)\n"
+                "void Mesh::setup_from_vertices_faces", 1))
+        self.assert_text_mutation_rejected(
+            "src/mesh/Mesh_setup_flat.cpp",
+            lambda text: text.replace(
+                "void Mesh::setup_flat",
+                "#define invalidate_topology_derived_state() ((void)0)\n"
+                "void Mesh::setup_flat", 1))
+        self.assert_text_mutation_rejected(
+            "src/mesh/Mesh.cpp",
+            lambda text: text.replace(
+                "void Mesh::setup_from_vertices_faces",
+                "%:define invalidate_topology_derived_state() ((void)0)\n"
+                "void Mesh::setup_from_vertices_faces", 1))
+        self.assert_text_mutation_rejected(
+            "include/mesh/Mesh.hpp",
+            lambda text: text.replace(
+                "class Mesh", "#define private public\nclass Mesh", 1))
+        self.assert_text_mutation_rejected(
+            "include/mesh/Mesh.hpp",
+            lambda text: text.replace(
+                "class Mesh", "#define max min\nclass Mesh", 1))
+        self.assert_text_mutation_rejected(
+            "src/mesh/Mesh.cpp",
+            lambda text: text.replace(
+                "    invalidate_topology_derived_state();",
+                "    if (false) { invalidate_topology_derived_state(); }", 1))
+        self.assert_text_mutation_rejected(
+            "src/mesh/Mesh_setup_flat.cpp",
+            lambda text: text.replace(
+                "    invalidate_topology_derived_state();",
+                "    if (false) { invalidate_topology_derived_state(); }", 1))
+        self.assert_text_mutation_rejected(
+            "include/mesh/Mesh.hpp",
+            lambda text: text.replace(
+                "        regularLimitSurfaceRowCache_.invalidate();",
+                "        if (false) { "
+                "regularLimitSurfaceRowCache_.invalidate(); }", 1))
+        self.assert_text_mutation_rejected(
+            "include/mesh/Mesh.hpp",
+            lambda text: text.replace(
+                "        regularLimitSurfaceRowCache_.invalidate();",
+                "        if (false) "
+                "regularLimitSurfaceRowCache_.invalidate();", 1))
+        self.assert_text_mutation_rejected(
+            "include/mesh/Mesh.hpp",
+            lambda text: text.replace(
+                "        regularLimitSurfaceRowCache_.invalidate();",
+                "        while (false) "
+                "regularLimitSurfaceRowCache_.invalidate();", 1))
+        self.assert_text_mutation_rejected(
+            "include/mesh/Mesh.hpp",
+            lambda text: text.replace(
+                "        regularLimitSurfaceRowCache_.invalidate();",
+                "        return;\n"
+                "        regularLimitSurfaceRowCache_.invalidate();", 1))
+        self.assert_text_mutation_rejected(
+            "include/mesh/Mesh.hpp",
+            lambda text: text.replace(
+                "        regularLimitSurfaceRowCache_.invalidate();",
+                "        goto after_reset;\n"
+                "        regularLimitSurfaceRowCache_.invalidate();\n"
+                "        after_reset:", 1))
+        self.assert_text_mutation_rejected(
+            "include/mesh/Mesh.hpp",
+            lambda text: text.replace(
+                "        ++topologyGeneration_;",
+                "        // ++topologyGeneration_;", 1))
+        self.assert_text_mutation_rejected(
+            "src/mesh/Mesh.cpp",
+            lambda text: text.replace(
+                "invalidate_topology_derived_state();",
+                "regularLimitSurfaceRowCache_.invalidate();", 1))
+        self.assert_text_mutation_rejected(
+            "src/mesh/Mesh_setup_flat.cpp",
+            lambda text: text.replace(
+                "invalidate_topology_derived_state();",
+                "regularLimitSurfaceRowCache_.invalidate();", 1))
+        self.assert_text_mutation_rejected(
+            "src/mesh/Mesh.cpp",
+            lambda text: text.replace(
+                "    invalidate_topology_derived_state();",
+                "    invalidate_topology_derived_state();\n"
+                "    --topologyGeneration_;", 1))
+        self.assert_text_mutation_rejected(
+            "src/mesh/Mesh_setup_flat.cpp",
+            lambda text: text.replace(
+                "    invalidate_topology_derived_state();",
+                "    invalidate_topology_derived_state();\n"
+                "    --topologyGeneration_;", 1))
+        self.assert_text_mutation_rejected(
+            "src/mesh/Mesh.cpp",
+            lambda text: text.replace(
+                "    invalidate_topology_derived_state();",
+                "    invalidate_topology_derived_state();\n"
+                "#define L7B_JOIN_I(a, b) a##b\n"
+                "#define L7B_JOIN(a, b) L7B_JOIN_I(a, b)\n"
+                "    --L7B_JOIN(topology, Generation_);", 1))
+        self.assert_text_mutation_rejected(
+            "src/mesh/Mesh.cpp",
+            lambda text: text.replace(
+                "invalidate_topology_derived_state();",
+                "invalidate_topology_derived_state();\n"
+                "    invalidate_topology_derived_state();", 1))
+        self.assert_text_mutation_rejected(
+            "include/mesh/Mesh.hpp",
+            lambda text: text.replace(
+                "\nprivate:\n    /**\n"
+                "     * @brief Invalidate topology-derived state",
+                "\npublic:\n    /**\n"
+                "     * @brief Invalidate topology-derived state", 1))
+        self.assert_text_mutation_rejected(
+            "include/mesh/Mesh.hpp",
+            lambda text: text.replace(
+                "\nprivate:\n    /**\n"
+                "     * @brief Invalidate topology-derived state",
+                "\npublic:\n"
+                "    class NestedAccessDecoy { private: int value; };\n"
+                "    /**\n"
+                "     * @brief Invalidate topology-derived state", 1))
+        self.assert_text_mutation_rejected(
+            "include/mesh/Mesh.hpp",
+            lambda text: text.replace(
+                "\nprivate:\n    /**\n"
+                "     * @brief Invalidate topology-derived state",
+                "\nprotected:\n    /**\n"
+                "     * @brief Invalidate topology-derived state", 1))
+        self.assert_text_mutation_rejected(
+            "include/mesh/Mesh.hpp",
+            lambda text: text.replace(
+                "    void invalidate_topology_derived_state()\n"
+                "    {",
+                "    // void invalidate_topology_derived_state()\n"
+                "    // {", 1))
+        self.assert_text_mutation_rejected(
+            "include/mesh/Mesh.hpp",
+            lambda text: text.replace(
+                "        regularLimitSurfaceRowCache_.invalidate();\n",
+                "", 1).replace(
+                    "    std::uint64_t topologyGeneration_ = 0;",
+                    "    void misplaced_reset()\n"
+                    "    {\n"
+                    "        regularLimitSurfaceRowCache_.invalidate();\n"
+                    "    }\n\n"
+                    "    std::uint64_t topologyGeneration_ = 0;", 1))
+        self.assert_text_mutation_rejected(
+            "src/mesh/Mesh.cpp",
+            lambda text: text.replace(
+                "    invalidate_topology_derived_state();\n", "", 1)
+                + "\nvoid misplaced_topology_invalidation()\n"
+                "{\n"
+                "    invalidate_topology_derived_state();\n"
+                "}\n")
+        self.assert_text_mutation_rejected(
+            "src/mesh/Mesh_setup_flat.cpp",
+            lambda text: text.replace(
+                "invalidate_topology_derived_state();",
+                "invalidate_topology_derived_state();\n"
+                "    invalidate_topology_derived_state();", 1))
+        self.assert_text_mutation_rejected(
+            "src/mesh/Mesh_setup_flat.cpp",
+            lambda text: text.replace(
+                "    invalidate_topology_derived_state();\n", "", 1)
+                + "\nvoid misplaced_flat_topology_invalidation()\n"
+                "{\n"
+                "    invalidate_topology_derived_state();\n"
+                "}\n")
+        self.assert_text_mutation_rejected(
+            "src/energy_force/Compute_energy_and_force_on_mesh.cpp",
+            lambda text: text +
+                "\nvoid Mesh::extra_topology_invalidation()\n"
+                "{\n"
+                "    invalidate_topology_derived_state();\n"
+                "}\n")
+        self.assert_text_mutation_rejected(
+            "src/energy_force/Compute_energy_and_force_on_mesh.cpp",
+            lambda text: text +
+                "\nvoid Mesh::extra_cache_reset()\n"
+                "{\n"
+                "    regularLimitSurfaceRowCache_.invalidate();\n"
+                "}\n")
+        self.assert_text_mutation_rejected(
+            "src/energy_force/Compute_energy_and_force_on_mesh.cpp",
+            lambda text: text +
+                "\nvoid Mesh::clobber_topology_generation()\n"
+                "{\n"
+                "    ++topologyGeneration_;\n"
+                "}\n")
+        self.assert_text_mutation_rejected(
+            "src/energy_force/Compute_energy_and_force_on_mesh.cpp",
+            lambda text: text +
+                "\n#define L7B_JOIN_I(a, b) a##b\n"
+                "#define L7B_JOIN(a, b) L7B_JOIN_I(a, b)\n"
+                "void Mesh::clobber_topology_generation()\n"
+                "{\n"
+                "    ++L7B_JOIN(topology, Generation_);\n"
+                "}\n")
+        self.assert_text_mutation_rejected(
+            "src/energy_force/Compute_energy_and_force_on_mesh.cpp",
+            lambda text: text.replace(
+                "void Mesh::clear_force_on_vertices_and_energy_on_faces()\n"
+                "{",
+                "void Mesh::clear_force_on_vertices_and_energy_on_faces()\n"
+                "{\n"
+                '#include "/private/tmp/L7b_clobber.inc"', 1))
+        self.assert_text_mutation_rejected(
+            "src/energy_force/Compute_energy_and_force_on_mesh.cpp",
+            lambda text: '#import "/private/tmp/L7b_clobber.inc"\n' + text)
+        self.assert_text_mutation_rejected(
+            "src/energy_force/Compute_energy_and_force_on_mesh.cpp",
+            lambda text: '#/**/import "/private/tmp/L7b_clobber.inc"\n'
+            + text)
+        self.assert_text_mutation_rejected(
+            "src/energy_force/Compute_energy_and_force_on_mesh.cpp",
+            lambda text: '/**/ #include "/private/tmp/L7b_clobber.inc"\n'
+            + text)
+        self.assert_text_mutation_rejected(
+            "src/mesh/Mesh_io.cpp",
+            lambda text: text +
+                "\nvoid Mesh::invalidate_topology_derived_state() {}\n")
 
     def test_G_geometry_energy_force_are_independent_anchors(self) -> None:
         self.assert_mutation_rejected(

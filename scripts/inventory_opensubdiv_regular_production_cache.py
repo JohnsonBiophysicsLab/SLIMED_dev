@@ -4,7 +4,9 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
+import re
 from pathlib import Path
 
 
@@ -55,8 +57,16 @@ ANCHORS = {
         FORCE,
         "cached_opensubdiv_regular_shape_functions_by_face(mesh)",
     ),
-    "flat setup invalidation": (SETUP, "regularLimitSurfaceRowCache_.invalidate()"),
-    "import setup invalidation": (AREA, "regularLimitSurfaceRowCache_.invalidate()"),
+    "private topology invalidation seam": (
+        MESH,
+        "void invalidate_topology_derived_state()",
+    ),
+    "cache invalidation owned by seam": (
+        MESH,
+        "regularLimitSurfaceRowCache_.invalidate()",
+    ),
+    "flat setup invalidation": (SETUP, "invalidate_topology_derived_state()"),
+    "import setup invalidation": (AREA, "invalidate_topology_derived_state()"),
     "repeated evaluation test": (
         TEST,
         "ReusesOneImmutableTableAcrossAreaForceAndCoordinateUpdates",
@@ -130,6 +140,396 @@ def backend_header_leaks():
     return leaks
 
 
+def _cpp_code(text):
+    """Mask C++ comments and ordinary/raw literals, preserving positions."""
+    text = re.sub(r"\\\r?\n", "", text)
+    masked = list(text)
+    index = 0
+    state = "code"
+    raw_start = re.compile(
+        r"(?:u8|[uUL])?R\"([^\s()\\]{0,16})\(")
+    while index < len(text):
+        current = text[index]
+        following = text[index + 1] if index + 1 < len(text) else ""
+        if state == "code":
+            raw = raw_start.match(text, index)
+            if raw and (index == 0 or not (text[index - 1].isalnum() or
+                                           text[index - 1] == "_")):
+                closing = ")" + raw.group(1) + '"'
+                end = text.find(closing, raw.end())
+                end = len(text) if end < 0 else end + len(closing)
+                for cursor in range(index, end):
+                    if text[cursor] != "\n":
+                        masked[cursor] = " "
+                index = end
+                continue
+            if current == "/" and following == "/":
+                masked[index] = masked[index + 1] = " "
+                index += 2
+                state = "line_comment"
+                continue
+            if current == "/" and following == "*":
+                masked[index] = masked[index + 1] = " "
+                index += 2
+                state = "block_comment"
+                continue
+            if current in ('"', "'"):
+                masked[index] = " "
+                state = "string" if current == '"' else "character"
+                index += 1
+                continue
+        elif state == "line_comment":
+            if current == "\n":
+                state = "code"
+            else:
+                masked[index] = " "
+            index += 1
+            continue
+        elif state == "block_comment":
+            if current == "*" and following == "/":
+                masked[index] = masked[index + 1] = " "
+                index += 2
+                state = "code"
+                continue
+            if current != "\n":
+                masked[index] = " "
+            index += 1
+            continue
+        else:
+            if current != "\n":
+                masked[index] = " "
+            if current == "\\" and following:
+                if following != "\n":
+                    masked[index + 1] = " "
+                index += 2
+                continue
+            if ((state == "string" and current == '"') or
+                    (state == "character" and current == "'")):
+                state = "code"
+            index += 1
+            continue
+        index += 1
+    return "".join(masked)
+
+
+_CPP_DIRECTIVE_PREFIX = r"(?:#|%:|\?\?=)"
+_INCLUDE_GUARD_NAME = re.compile(r"[A-Z][A-Z0-9_]*_(?:H|HPP)")
+_REVIEWED_MESH_HEADER_INCLUDES = (
+    "<math.h>", "<cmath>", "<vector>", "<iostream>", "<fstream>",
+    "<sstream>", "<string>", "<stdexcept>", "<array>", "<cstdint>",
+    "<limits>", "<unordered_map>", "<omp.h>", "<algorithm>",
+    '"mesh/Face.hpp"', '"mesh/Vertex.hpp"',
+    '"energy_force/Energy.hpp"', '"energy_force/Force.hpp"',
+    '"mesh/Gauss_quadrature.hpp"',
+    '"mesh/Regular_limit_surface_row_cache.hpp"',
+    '"linalg/Linear_algebra.hpp"', '"Parameters.hpp"',
+)
+_REVIEWED_IMPORT_INCLUDES = (
+    '"mesh/Mesh.hpp"', '"mesh/Limit_surface_evaluator.hpp"',
+    '"mesh/OpenSubdiv_regular_evaluator.hpp"', "<sstream>", "<stdexcept>",
+)
+_REVIEWED_FLAT_INCLUDES = ('"mesh/Mesh.hpp"',)
+_REVIEWED_OTHER_SOURCE_COUNT = 85
+_REVIEWED_OTHER_INCLUSION_SHA256 = (
+    "4761748a94a031dc5eba9029af56507b7a6366408818cd17b180bd351f2467d7")
+
+
+def _source_inclusion_directives(text):
+    """Return logical-line include/import directives and their operands."""
+    text = re.sub(r"\\\r?\n", "", text)
+    code = _cpp_code(text)
+    directives = []
+    for match in re.finditer(
+        rf"^\s*{_CPP_DIRECTIVE_PREFIX}\s*"
+            r"(include|include_next|import)\b", code, re.MULTILINE):
+        line_end = text.find("\n", match.end())
+        line_end = len(text) if line_end < 0 else line_end
+        directives.append((match.group(1), text[match.end():line_end].strip()))
+    return tuple(directives)
+
+
+def _source_inclusion_surface_sha256(sources):
+    surface = [_source_inclusion_directives(source) for source in sources]
+    encoded = json.dumps(surface, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _has_unreviewed_macro_directive(code):
+    """Reject source macros except conventional empty include guards.
+
+    The protected seam is deliberately checked fail-closed: even a macro whose
+    spelling does not mention the protected members can change access labels,
+    the overflow guard, or synthesize a member name with token pasting.
+    """
+    directive = re.compile(
+        rf"^\s*{_CPP_DIRECTIVE_PREFIX}\s*(define|undef)\b([^\n]*)",
+        re.MULTILINE)
+    for match in directive.finditer(code):
+        if match.group(1) != "define":
+            return True
+        definition = re.fullmatch(r"\s*([A-Za-z_]\w*)\s*", match.group(2))
+        if not definition:
+            return True
+        name = definition.group(1)
+        if not _INCLUDE_GUARD_NAME.fullmatch(name):
+            return True
+        guard = re.compile(
+            rf"^\s*{_CPP_DIRECTIVE_PREFIX}\s*ifndef\s+"
+            rf"{re.escape(name)}\b", re.MULTILINE)
+        if not guard.search(code):
+            return True
+    return False
+
+
+def _has_conditional_directive(code):
+    """Report conditional preprocessing in a protected implementation file."""
+    return bool(re.search(
+        rf"^\s*{_CPP_DIRECTIVE_PREFIX}\s*"
+        r"(?:if|ifdef|ifndef|elif|else|endif)\b",
+        code, re.MULTILINE))
+
+
+def _has_source_inclusion_directive(code):
+    """Report source inclusion inside a protected C++ scope."""
+    return bool(re.search(
+        rf"^\s*{_CPP_DIRECTIVE_PREFIX}\s*"
+        r"(?:include|include_next|import)\b",
+        code, re.MULTILINE))
+
+
+def _has_nested_source_inclusion(code):
+    """Reject fragment expansion inside any scanned brace scope."""
+    directive = re.compile(
+        rf"^\s*{_CPP_DIRECTIVE_PREFIX}\s*"
+        r"(?:include|include_next|import)\b", re.MULTILINE)
+    return any(code[:match.start()].count("{") !=
+               code[:match.start()].count("}")
+               for match in directive.finditer(code))
+
+
+def _mask_cpp_conditionals(code):
+    """Exclude every conditional-preprocessor region from positive evidence."""
+    masked = []
+    depth = 0
+    directive = re.compile(
+        rf"^\s*{_CPP_DIRECTIVE_PREFIX}\s*([A-Za-z_]\w*)\b")
+    for line in code.splitlines(keepends=True):
+        match = directive.match(line)
+        if match:
+            name = match.group(1)
+            if name in {"if", "ifdef", "ifndef"}:
+                depth += 1
+            elif name == "endif":
+                depth = max(0, depth - 1)
+            masked.append("".join(
+                "\n" if character == "\n" else " " for character in line))
+        elif depth:
+            masked.append("".join(
+                "\n" if character == "\n" else " " for character in line))
+        else:
+            masked.append(line)
+    return "".join(masked)
+
+
+def _direct_access_label(code, position):
+    depth = 0
+    access = None
+    for token in re.finditer(
+            r"[{}]|\b(public|protected|private)\s*:", code[:position]):
+        if token.group(0) == "{":
+            depth += 1
+        elif token.group(0) == "}":
+            depth = max(0, depth - 1)
+        elif depth == 0:
+            access = token.group(1)
+    return access, depth
+
+
+def _unique_braced_scope(code, signature_pattern):
+    matches = list(re.finditer(signature_pattern, code, re.MULTILINE | re.DOTALL))
+    if len(matches) != 1:
+        return None
+    signature = matches[0]
+    opening = code.rfind("{", signature.start(), signature.end())
+    if opening < 0:
+        return None
+    depth = 1
+    cursor = opening + 1
+    while cursor < len(code) and depth:
+        if code[cursor] == "{":
+            depth += 1
+        elif code[cursor] == "}":
+            depth -= 1
+        cursor += 1
+    if depth:
+        return None
+    return signature.start(), code[opening + 1:cursor - 1]
+
+
+def _direct_scope_matches(code, pattern):
+    """Return pattern matches that are direct statements in this brace scope."""
+    direct = []
+    for match in pattern.finditer(code):
+        prefix = code[:match.start()]
+        if prefix.count("{") == prefix.count("}"):
+            direct.append(match)
+    return direct
+
+
+def _scope_begins_with(code, pattern):
+    """Require the named direct statement to be the scope's first code."""
+    match = pattern.search(code)
+    direct_starts = {candidate.start()
+                     for candidate in _direct_scope_matches(code, pattern)}
+    return bool(match and not code[:match.start()].strip()
+                and match.start() in direct_starts)
+
+
+def invalidation_seam_errors_for_sources(
+        mesh_header, area, setup, other_mesh_sources=(),
+        require_complete_source_surface=False):
+    lexical_code = [_cpp_code(source) for source in (
+        mesh_header, area, setup, *other_mesh_sources)]
+    unconditional_code = [_mask_cpp_conditionals(code) for code in lexical_code]
+    header_code, area_code, setup_code, *other_code = unconditional_code
+    all_lexical_code = "\n".join(lexical_code)
+    all_code = "\n".join(unconditional_code)
+
+    reset_pattern = re.compile(
+        r"\bregularLimitSurfaceRowCache_\s*\.\s*invalidate\s*\(\s*\)\s*;")
+    seam_call_pattern = re.compile(
+        r"\binvalidate_topology_derived_state\s*\(\s*\)\s*;")
+    seam_definition_pattern = re.compile(
+        r"\bvoid\s+(?:Mesh::)?invalidate_topology_derived_state\s*"
+        r"\(\s*\)\s*\{")
+    generation_pattern = re.compile(r"\btopologyGeneration_\b")
+    reviewed_seam_body_pattern = re.compile(
+        r"\s*if\s*\(\s*topologyGeneration_\s*==\s*"
+        r"std::numeric_limits\s*<\s*std::uint64_t\s*>\s*::\s*max\s*"
+        r"\(\s*\)\s*\)\s*\{\s*"
+        r"throw\s+std::overflow_error\s*\(\s*\)\s*;\s*\}\s*"
+        r"regularLimitSurfaceRowCache_\s*\.\s*invalidate\s*"
+        r"\(\s*\)\s*;\s*\+\+\s*topologyGeneration_\s*;\s*")
+    errors = []
+
+    if require_complete_source_surface and (
+            len(other_mesh_sources) != _REVIEWED_OTHER_SOURCE_COUNT or
+            _source_inclusion_surface_sha256(other_mesh_sources) !=
+            _REVIEWED_OTHER_INCLUSION_SHA256):
+        errors.append("all-source include surface has drifted")
+    if any(_has_nested_source_inclusion(code) for code in lexical_code[3:]):
+        errors.append("source inclusion occurs inside an unreviewed scope")
+
+    for name, source, expected in (
+            ("Mesh header", mesh_header, _REVIEWED_MESH_HEADER_INCLUDES),
+            ("import setup", area, _REVIEWED_IMPORT_INCLUDES),
+            ("flat setup", setup, _REVIEWED_FLAT_INCLUDES)):
+        reviewed = tuple(("include", operand) for operand in expected)
+        if _source_inclusion_directives(source) != reviewed:
+            errors.append(f"{name} include surface has drifted")
+
+    for name, code in (
+            ("Mesh header", lexical_code[0]),
+            ("import setup", lexical_code[1]),
+            ("flat setup", lexical_code[2])):
+        if _has_conditional_directive(code):
+            errors.append(f"{name} contains conditional preprocessing")
+
+    mesh_class = _unique_braced_scope(
+        lexical_code[0], r"\bclass\s+Mesh\b[^;{]*\{")
+    if mesh_class is None:
+        errors.append("unique Mesh class scope")
+    else:
+        _, class_body = mesh_class
+        if _has_source_inclusion_directive(class_body):
+            errors.append("Mesh class contains an unreviewed include")
+        seam_scope = _unique_braced_scope(
+            class_body,
+            r"\bvoid\s+invalidate_topology_derived_state\s*\(\s*\)\s*\{")
+        if seam_scope is None:
+            errors.append("unique topology invalidation seam definition")
+        else:
+            seam_start, seam_body = seam_scope
+            access, seam_depth = _direct_access_label(class_body, seam_start)
+            if access != "private" or seam_depth != 0:
+                errors.append("topology invalidation seam is not private")
+            if len(reset_pattern.findall(seam_body)) != 1:
+                errors.append("cache reset is not owned exactly once by seam")
+            elif len(_direct_scope_matches(seam_body, reset_pattern)) != 1:
+                errors.append("cache reset is not a direct seam statement")
+            if not reviewed_seam_body_pattern.fullmatch(seam_body):
+                errors.append("topology invalidation seam body has drifted")
+
+    import_scope = _unique_braced_scope(
+        lexical_code[1],
+        r"\bvoid\s+Mesh::setup_from_vertices_faces\s*\([^)]*\)\s*\{")
+    if import_scope is None:
+        errors.append("unique import setup scope")
+    elif _has_source_inclusion_directive(import_scope[1]):
+        errors.append("import setup contains an unreviewed include")
+    elif len(seam_call_pattern.findall(import_scope[1])) != 1:
+        errors.append("import setup does not call seam exactly once")
+    elif not _scope_begins_with(import_scope[1], seam_call_pattern):
+        errors.append("import setup does not begin with a direct seam call")
+
+    flat_scope = _unique_braced_scope(
+        lexical_code[2], r"\bvoid\s+Mesh::setup_flat\s*\(\s*\)\s*\{")
+    if flat_scope is None:
+        errors.append("unique flat setup scope")
+    elif _has_source_inclusion_directive(flat_scope[1]):
+        errors.append("flat setup contains an unreviewed include")
+    elif len(seam_call_pattern.findall(flat_scope[1])) != 1:
+        errors.append("flat setup does not call seam exactly once")
+    elif not _scope_begins_with(flat_scope[1], seam_call_pattern):
+        errors.append("flat setup does not begin with a direct seam call")
+
+    if len(reset_pattern.findall(all_code)) != 1:
+        errors.append("cache reset exists outside the single seam")
+    if len(seam_definition_pattern.findall(all_code)) != 1:
+        errors.append("topology invalidation seam has unreviewed definitions")
+    if len(seam_call_pattern.findall(all_code)) != 2:
+        errors.append("topology invalidation seam has unreviewed callers")
+    if (len(generation_pattern.findall(header_code)) != 4 or
+            len(generation_pattern.findall(all_code)) != 4):
+        errors.append("topology generation has unreviewed references")
+    if any(_has_unreviewed_macro_directive(code) for code in lexical_code):
+        errors.append("topology invalidation identity is macro-shadowed")
+    for name, pattern in (
+            ("cache reset", reset_pattern),
+            ("topology invalidation seam call", seam_call_pattern),
+            ("topology invalidation seam definition", seam_definition_pattern),
+            ("topology generation", generation_pattern)):
+        if len(pattern.findall(all_lexical_code)) != len(pattern.findall(all_code)):
+            errors.append(f"{name} appears in a preprocessor conditional")
+    return errors
+
+
+def _other_cpp_paths():
+    excluded = {MESH, AREA, SETUP}
+    suffixes = {
+        ".cpp", ".cc", ".cxx", ".cu", ".mm",
+        ".hpp", ".h", ".cuh", ".ipp", ".tpp", ".inl"}
+    return [
+        path
+        for base in (ROOT / "src", ROOT / "include")
+        for path in sorted(base.rglob("*"))
+        if path.is_file() and path.suffix in suffixes
+        and path.relative_to(ROOT) not in excluded
+    ]
+
+
+def invalidation_seam_errors():
+    other_sources = [path.read_text(encoding="utf-8")
+                     for path in _other_cpp_paths()]
+    return invalidation_seam_errors_for_sources(
+        (ROOT / MESH).read_text(encoding="utf-8"),
+        (ROOT / AREA).read_text(encoding="utf-8"),
+        (ROOT / SETUP).read_text(encoding="utf-8"),
+        other_sources,
+        require_complete_source_surface=True,
+    )
+
+
 def payload():
     located = {}
     missing = []
@@ -141,8 +541,10 @@ def payload():
             located[name] = match
     default_leaks = forbidden_default_dependency_changes()
     header_leaks = backend_header_leaks()
+    seam_errors = invalidation_seam_errors()
     return {
-        "status": "passed" if not missing and not default_leaks and not header_leaks else "failed",
+        "status": "passed" if not missing and not default_leaks and not header_leaks
+        and not seam_errors else "failed",
         "kind": "production_regular_opensubdiv_row_cache_inventory",
         "production_cache_implemented": True,
         "default_opensubdiv_dependency": False,
@@ -153,6 +555,7 @@ def payload():
         "missing": missing,
         "default_surface_leaks": default_leaks,
         "backend_header_leaks": header_leaks,
+        "invalidation_seam_errors": seam_errors,
     }
 
 
@@ -170,6 +573,7 @@ def main():
         print(f"anchors: {len(result['located'])}/{len(ANCHORS)}")
         print(f"default surface leaks: {len(result['default_surface_leaks'])}")
         print(f"backend header leaks: {len(result['backend_header_leaks'])}")
+        print(f"invalidation seam errors: {len(result['invalidation_seam_errors'])}")
     return 1 if args.check and result["status"] != "passed" else 0
 
 
