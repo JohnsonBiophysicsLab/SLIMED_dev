@@ -211,9 +211,13 @@ def strict_child_json(text):
     def reject_nonstandard_constant(value):
         raise ValueError("nonstandard child JSON constant: {}".format(value))
 
+    def reject_floating_number(value):
+        raise ValueError("floating child JSON number: {}".format(value))
+
     return json.loads(
         text, object_pairs_hook=reject_duplicate_pairs,
-        parse_constant=reject_nonstandard_constant)
+        parse_constant=reject_nonstandard_constant,
+        parse_float=reject_floating_number)
 
 
 def candidate_platform_probe(candidate_binary):

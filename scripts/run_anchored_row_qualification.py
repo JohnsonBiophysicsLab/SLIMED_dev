@@ -3155,6 +3155,7 @@ def _validate_d12_full_probe(probe):
         "fingerprint"]
     fingerprint = probe.get("fingerprint") if isinstance(probe, dict) else None
     require(isinstance(probe, dict) and set(probe) == expected_keys and
+            type(probe["schema_version"]) is int and
             probe["schema_version"] == 1 and
             probe["kind"] == "bfr_platform_probe" and
             probe["status"] in {"ok", "query_failed"} and

@@ -1,7 +1,7 @@
 # B2c anchored-row qualification evidence
 
-Status: **exact-SHA review of the process-return-code repair exposed a lossy
-duplicate-key JSON boundary; a strict-decoder remediation is in progress,
+Status: **exact-SHA review of the strict duplicate-key repair exposed a lossy
+floating-number JSON boundary; an exact-number remediation is in progress,
 qualification remains `INCOMPLETE`, and numeric D12 must be rerun only after a
 new exact-SHA gate**
 
@@ -381,10 +381,20 @@ as a successful probe. The follow-up replaces that lossy boundary with strict
 recursive duplicate-key and non-standard numeric-constant rejection and adds
 production-decoder attacks for both top-level and nested duplicates.
 
+Exact-SHA review of that strict-key repair at
+`fa4ea6bea991433c99504492b38f78b87a4d2759` confirmed that the duplicate-key
+and non-standard-constant attacks were closed, but found that the default JSON
+floating-point decoder could round `1.00000000000000001` to binary64 `1.0`.
+Because Python equates that float to integer schema version `1`, the production
+B2c decoder accepted the lossy value. The follow-up rejects every floating token
+at the child boundary because the platform-probe grammar is integer/string/bool
+only, and independently requires `schema_version` to have exact integer type
+when persisted evidence is revalidated.
+
 ## Required next work
 
-1. Commit the strict child-JSON remediation and its top-level/nested duplicate
-   and non-standard-constant regressions.
+1. Commit the exact-number child-JSON remediation and its rounded-decimal,
+   exponent, nested-float, and non-standard-constant regressions.
 2. Run four fresh independent exact-SHA reviews and obtain PASS verdicts.
 3. Push the reviewed head, rerun the hosted `macos-26` workflow, and retain its
    exact-head artifact.

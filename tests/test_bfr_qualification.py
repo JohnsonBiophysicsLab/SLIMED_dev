@@ -481,6 +481,9 @@ class BfrQualificationContractTests(unittest.TestCase):
         self.assertEqual(result, dict(observed, process_returncode=0))
         self.assertEqual(
             ANCHORED_MODULE._validate_d12_full_probe(result), result)
+        float_schema = dict(result, schema_version=1.0)
+        with self.assertRaises(ANCHORED_MODULE.QualificationError):
+            ANCHORED_MODULE._validate_d12_full_probe(float_schema)
 
         forged = dict(observed, process_returncode=0)
         completed = subprocess.CompletedProcess(
@@ -511,7 +514,14 @@ class BfrQualificationContractTests(unittest.TestCase):
             canonical.replace(
                 '"query_ok":true,"raw":"AC Power"',
                 '"query_ok":false,"query_ok":true,"raw":"AC Power"', 1),
+            canonical.replace(
+                '"schema_version":1',
+                '"schema_version":1.00000000000000001', 1),
+            canonical.replace('"schema_version":1', '"schema_version":1e0', 1),
+            canonical.replace('"raw":0', '"raw":0.0', 1),
             canonical.replace('"raw":0', '"raw":NaN', 1),
+            canonical.replace('"raw":0', '"raw":Infinity', 1),
+            canonical.replace('"raw":0', '"raw":-Infinity', 1),
         ]
         for raw in attacks:
             completed = subprocess.CompletedProcess(
