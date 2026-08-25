@@ -50,6 +50,11 @@ using namespace std;
 
 struct OpenSubdivRegularProductionParityRecheck;
 
+namespace slimed::loop_topology
+{
+class LoopTopologyTransaction;
+}
+
 /**
  * @brief A class representing a triangular mesh that defines a
  * limit surface.
@@ -828,12 +833,15 @@ protected:
     double get_squared_distance_sp_and_v(const Matrix &scaffoldingPoint, const Vertex &vertex);
 
 private:
+    friend class slimed::loop_topology::LoopTopologyTransaction;
+
     /**
      * @brief Invalidate topology-derived state and advance its generation.
      *
      * This is the single internal invalidation seam for a topology rebuild.
      * It is private so callers cannot advance the identity or clear
-     * derived state independently of Mesh topology setup.
+     * derived state independently of Mesh topology setup or the reviewed
+     * topology transaction.
      */
     void invalidate_topology_derived_state()
     {

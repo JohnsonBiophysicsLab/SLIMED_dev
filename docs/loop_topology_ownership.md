@@ -1,18 +1,20 @@
-# Loop topology ownership index
+# Loop topology ownership and transaction
 
 ## Scope
 
-This package adds an observational index over the complete face list. It reads
-only `faces[*].adjacentVertices` and a declared vertex count. Coordinates and
-rectangular grid indices are not inputs. The ownership construction and mesh
-adjacency routines are unchanged; the two mesh setup entry points now use one
-internal topology invalidation seam in place of their former direct regular-row
-cache invalidations.
+The L7a package added an observational index over the complete face list. It
+reads only `faces[*].adjacentVertices` and a declared vertex count. Coordinates
+and rectangular grid indices are not inputs. L7b added one monotonic Mesh
+topology generation and internal invalidation seam. L7c adds a deliberately
+inactive fixed-cardinality transaction that stages and validates candidate face
+connectivity, rebuilds connectivity-derived adjacency, and either commits it or
+leaves the live Mesh unchanged.
 
 L7 is a mandatory prerequisite of WP9 because that later lane presumes owned
 edge incidence and a validated topology representation. L7 is independent of
-D9a, D9b, and the B packages. This package supplies no topology mutation,
-transaction, evaluator wiring, formula change, or cost claim.
+D9a, D9b, and the B packages. L7c supplies transaction infrastructure, not an
+edge-flip algorithm, candidate selector, runtime route, evaluator wiring,
+formula change, or cost claim.
 
 ## Ownership and ordering
 
@@ -72,12 +74,15 @@ All names live in `namespace slimed::loop_topology`, matching the repository's
 
 `Mesh` starts with topology generation zero. Its private
 `invalidate_topology_derived_state()` seam rejects integer overflow, clears the
-existing regular-row cache, and advances the generation once. The only callers
-are `setup_from_vertices_faces()` and `setup_flat()`, replacing the direct cache
-invalidation previously present at the start of each entry point. Consequently,
-each setup call advances once, while direct coordinate edits do not advance.
+existing regular-row cache, and advances the generation once. Its reviewed
+callers are `setup_from_vertices_faces()`, `setup_flat()`, and the L7c
+transaction commit, replacing the direct cache invalidation previously present
+at the start of each setup entry point. Consequently, each setup or successful
+transaction commit advances once, while direct coordinate edits do not advance.
 The seam is private so a caller cannot clear derived state or advance identity
-without entering mesh setup.
+without entering mesh setup or the one reviewed topology transaction. A fully
+qualified friend names that already-defined transaction class; there is no
+unclaimed global friend name or generic cache-reset capability.
 
 Implicit copy construction preserves the generation. `Mesh` remains
 non-copy-assignable because it owns a `Param&`; L7b does not add assignment
@@ -93,18 +98,82 @@ identity, that coordinate edits do not, and that an equal-connectivity rebuild
 is distinguishable only by the advanced epoch. This package does not connect a
 new runtime consumer to that key.
 
+## Atomic fixed-cardinality transaction
+
+`LoopTopologyTransaction` snapshots the source generation, vertex and face
+cardinality, and exact oriented face rows when it is constructed. `stage()`
+accepts only the same number of faces and rejects an exact no-op. It builds
+temporary `Face` rows and invokes the public fail-closed ownership validator;
+an invalid candidate retains that validator's distinct reason code and never
+writes the Mesh.
+
+For an accepted candidate, staging constructs every connectivity-owned vector
+before commit:
+
+- each face gets exactly three neighboring face IDs, in its local oriented-edge
+  order;
+- each vertex gets the ownership index's counter-clockwise incident-face cycle;
+- vertex neighbors are aligned with that cycle by taking the outgoing vertex of
+  each incident oriented face; and
+- evaluator-specific `Face::oneRingVertices` rows are staged empty so rows from
+  the previous topology cannot survive under a new epoch.
+
+Staging and explicit rollback only own temporary vectors. They therefore leave
+the live connectivity, derived vectors, topology generation, coordinates,
+labels, geometry, energy, and force objects unchanged. A rejected stage is
+finalized fail-closed rather than being partially repaired or retried through a
+less-validated path.
+
+Before commit, the transaction rechecks generation, both cardinalities, and
+the exact source face rows. This catches both a competing accepted transaction
+and direct public face-connectivity drift that did not advance the epoch. The
+commit then checks generation overflow and calls the private invalidation seam
+once. Every subsequent live write is a `std::vector<int>::swap`, statically
+required to be `noexcept`; the installed connectivity and all derived vectors
+were already built. Thus under the required exclusive-Mesh-access precondition,
+an exception cannot expose a partial topology: invalidation failure precedes
+all swaps, while nothing after successful invalidation can throw.
+
+The transaction is intentionally single-use and non-copyable. `commit()` and
+`rollback()` require a successfully staged candidate, and either operation
+finalizes it. Structured transaction reasons distinguish state-machine misuse,
+fixed-cardinality/no-op policy rejection, nested topology rejection, derived
+rebuild failure, stale generation/cardinality/connectivity, overflow, and
+invalidation failure.
+
+This package does not serialize nonparticipating concurrent readers; callers
+must hold exclusive access to the Mesh. It preserves non-connectivity fields by
+retaining the existing `Vertex` and `Face` objects, but that mechanical face-ID
+retention is not an approved physical insertion/material/layer label transfer
+policy. One-rings are cleared rather than evaluator-rebuilt, so a committed
+transaction is not evaluator- or science-ready. L7d checkpoint and restart,
+L7e periodic/ghost/boundary/material/label policy, L7f optimizer and dynamics
+consequences, Gate-C evaluator coverage, Gate-D science continuity, and
+production flip activation all remain separately deferred.
+
 ## Evidence contract
 
-The single focused test file checks the five declared closed fixture families,
+The ownership test checks the five declared closed fixture families,
 the metadata-described before/after family, all listed rejection classes,
 deterministic byte ordering, coordinate independence, and validation-check
 sensitivity. It also checks zero initialization, exact one-step increments at
 both setup entry points, coordinate stability, copy construction, deliberately
 unavailable copy assignment, complete existing-key identity, exact fixture
-ownership/diagnostics, and missed-bump sensitivity. The largest checked-in
-fixture is also used for a plain construction-time measurement with no
-acceptance threshold or comparison.
+ownership/diagnostics, and missed-bump sensitivity. The transaction test uses
+the authoritative single-flip family to check exact stage/rollback and
+validator-rejection nonmutation, fixed-cardinality and no-op policy, one-step
+commit generation, connectivity-derived face and vertex adjacency, cleared
+evaluator one-rings, non-connectivity retention, competing epochs, unversioned
+source drift, cardinality drift, state-machine finalization, and stable reason
+names. The largest checked-in fixture is also used for a plain construction-time
+measurement with no acceptance threshold or comparison.
 
-Default builds require neither OpenSubdiv nor CUDA for this index. Sanitizer,
+Both regular-cache inventories now admit exactly one third seam caller: the
+namespaced transaction's unique `commit() noexcept` scope. Their focused
+mutations reject missing, duplicate, conditional, unreachable, renamed,
+macro-shadowed, include-injected, access-widened, or additional callers while
+retaining the all-source cache/generation scan.
+
+Default builds require neither OpenSubdiv nor CUDA for this package. Sanitizer,
 default-suite, readiness-script, coverage-copy, and whitespace evidence are
 recorded at the package gate; independent T2 review remains required.
