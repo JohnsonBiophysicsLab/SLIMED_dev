@@ -336,6 +336,22 @@ class UnifiedLoopBaselineInventoryTest(unittest.TestCase):
         self.assert_text_mutation_rejected(
             "src/mesh/Loop_topology_transaction.cpp",
             lambda text: text.replace(
+                "\n    try\n    {",
+                "\n    return result("
+                "LoopTopologyTransactionReason::none);\n\n"
+                "    try\n    {", 1))
+        self.assert_text_mutation_rejected(
+            "src/mesh/Loop_topology_transaction.cpp",
+            lambda text: text.replace(
+                "\n    try\n    {",
+                "\n    goto after_invalidation;\n\n"
+                "    try\n    {", 1).replace(
+                    "\n    for (std::size_t face = 0;",
+                    "\nafter_invalidation:\n"
+                    "    for (std::size_t face = 0;", 1))
+        self.assert_text_mutation_rejected(
+            "src/mesh/Loop_topology_transaction.cpp",
+            lambda text: text.replace(
                 "        mesh_.invalidate_topology_derived_state();",
                 "#if 0\n"
                 "        mesh_.invalidate_topology_derived_state();\n"
@@ -352,6 +368,14 @@ class UnifiedLoopBaselineInventoryTest(unittest.TestCase):
                 "    friend class slimed::loop_topology::"
                 "LoopTopologyTransaction;",
                 "    // transaction friendship removed", 1))
+        self.assert_text_mutation_rejected(
+            "include/mesh/Mesh.hpp",
+            lambda text: text.replace(
+                "private:\n    friend class slimed::loop_topology::"
+                "LoopTopologyTransaction;",
+                "public:\n#pragma private:\n"
+                "    friend class slimed::loop_topology::"
+                "LoopTopologyTransaction;", 1))
         self.assert_text_mutation_rejected(
             "include/mesh/Mesh.hpp",
             lambda text: text.replace(

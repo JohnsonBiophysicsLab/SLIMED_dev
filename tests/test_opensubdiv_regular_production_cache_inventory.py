@@ -631,6 +631,18 @@ class OpenSubdivRegularProductionCacheInventoryTest(unittest.TestCase):
                 "LoopTopologyTransactionReason::none);\n"
                 "        mesh_.invalidate_topology_derived_state();", 1),
             transaction.replace(
+                "\n    try\n    {",
+                "\n    return result("
+                "LoopTopologyTransactionReason::none);\n\n"
+                "    try\n    {", 1),
+            transaction.replace(
+                "\n    try\n    {",
+                "\n    goto after_invalidation;\n\n"
+                "    try\n    {", 1).replace(
+                    "\n    for (std::size_t face = 0;",
+                    "\nafter_invalidation:\n"
+                    "    for (std::size_t face = 0;", 1),
+            transaction.replace(
                 "        mesh_.invalidate_topology_derived_state();",
                 "#if 0\n"
                 "        mesh_.invalidate_topology_derived_state();\n"
@@ -668,6 +680,12 @@ class OpenSubdivRegularProductionCacheInventoryTest(unittest.TestCase):
                 "private:\n    friend class slimed::loop_topology::"
                 "LoopTopologyTransaction;",
                 "public:\n    friend class slimed::loop_topology::"
+                "LoopTopologyTransaction;", 1),
+            mesh_header.replace(
+                "private:\n    friend class slimed::loop_topology::"
+                "LoopTopologyTransaction;",
+                "public:\n#pragma private:\n"
+                "    friend class slimed::loop_topology::"
                 "LoopTopologyTransaction;", 1),
         ):
             with self.subTest():

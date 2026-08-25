@@ -238,6 +238,8 @@ _REVIEWED_TRANSACTION_INCLUDES = (
     '"mesh/Loop_topology_transaction.hpp"', "<algorithm>", "<limits>",
     "<type_traits>", "<utility>", '"mesh/Mesh.hpp"',
 )
+_REVIEWED_TRANSACTION_COMMIT_SHA256 = (
+    "19485b5963d97cd60472e5c66dcf5a275ad6b410fb32270beb7545cd8f4dc748")
 _REVIEWED_OTHER_SOURCE_COUNT = 86
 _REVIEWED_OTHER_INCLUSION_SHA256 = (
     "8be98f909e50b3e463616d7b050705697a9f2baa730c2973673b166d86482817")
@@ -303,6 +305,13 @@ def _has_source_inclusion_directive(code):
     return bool(re.search(
         rf"^\s*{_CPP_DIRECTIVE_PREFIX}\s*"
         r"(?:include|include_next|import)\b",
+        code, re.MULTILINE))
+
+
+def _has_preprocessor_directive(code):
+    """Report any preprocessing directive inside a protected C++ scope."""
+    return bool(re.search(
+        rf"^\s*{_CPP_DIRECTIVE_PREFIX}\s*[A-Za-z_]\w*\b",
         code, re.MULTILINE))
 
 
@@ -394,6 +403,12 @@ def _scope_begins_with(code, pattern):
                 and match.start() in direct_starts)
 
 
+def _scope_contract_sha256(code):
+    """Hash the reviewed lexical scope while ignoring formatting whitespace."""
+    normalized = re.sub(r"\s+", " ", code).strip().encode("utf-8")
+    return hashlib.sha256(normalized).hexdigest()
+
+
 def invalidation_seam_errors_for_sources(
         mesh_header, area, setup, other_mesh_sources=(),
         require_complete_source_surface=False, transaction_source=""):
@@ -464,8 +479,8 @@ def invalidation_seam_errors_for_sources(
         errors.append("unique Mesh class scope")
     else:
         _, class_body = mesh_class
-        if _has_source_inclusion_directive(class_body):
-            errors.append("Mesh class contains an unreviewed include")
+        if _has_preprocessor_directive(class_body):
+            errors.append("Mesh class contains unreviewed preprocessing")
         seam_scope = _unique_braced_scope(
             class_body,
             r"\bvoid\s+invalidate_topology_derived_state\s*\(\s*\)\s*\{")
@@ -527,6 +542,9 @@ def invalidation_seam_errors_for_sources(
             errors.append("unique topology transaction commit scope")
         else:
             _, transaction_body = transaction_scope
+            if (_scope_contract_sha256(transaction_body) !=
+                    _REVIEWED_TRANSACTION_COMMIT_SHA256):
+                errors.append("topology transaction commit body has drifted")
             if _has_source_inclusion_directive(transaction_body):
                 errors.append("topology transaction contains an unreviewed include")
             if len(seam_call_pattern.findall(transaction_body)) != 1:
