@@ -1,6 +1,11 @@
 import importlib.util
+import os
 from pathlib import Path
+import shlex
+import shutil
+import subprocess
 import sys
+import tempfile
 import unittest
 
 
@@ -673,6 +678,9 @@ class OpenSubdivRegularProductionCacheInventoryTest(unittest.TestCase):
 
         for mutated_header in (
             mesh_header.replace(
+                '#include "mesh/Loop_topology_transaction.hpp"',
+                '// transaction definition include removed', 1),
+            mesh_header.replace(
                 "    friend class slimed::loop_topology::"
                 "LoopTopologyTransaction;",
                 "    // transaction friendship removed", 1),
@@ -700,6 +708,65 @@ class OpenSubdivRegularProductionCacheInventoryTest(unittest.TestCase):
             ("void Mesh::extra_caller() "
              "{ invalidate_topology_derived_state(); }",),
             transaction_source=transaction))
+
+    def test_mesh_header_claims_transaction_friend_type(self):
+        cxx_words = shlex.split(os.environ.get("CXX", ""))
+        if cxx_words:
+            compiler = shutil.which(cxx_words[0])
+            compiler_command = ([compiler] + cxx_words[1:]
+                                if compiler else [])
+        else:
+            compiler = (shutil.which("g++") or shutil.which("clang++") or
+                        shutil.which("c++"))
+            compiler_command = [compiler] if compiler else []
+        gsl_config = shutil.which("gsl-config")
+        if not compiler_command or not gsl_config:
+            self.skipTest("C++ compiler or gsl-config is unavailable")
+
+        gsl = subprocess.run(
+            [gsl_config, "--cflags"], cwd=ROOT, capture_output=True,
+            text=True, check=True, timeout=30)
+        flags = ["-std=c++17", f"-I{ROOT / 'include'}"]
+        flags.extend(shlex.split(gsl.stdout))
+        for candidate in (
+                Path("/opt/homebrew/opt/libomp/include"),
+                Path("/usr/local/opt/libomp/include")):
+            if candidate.is_dir():
+                flags.append(f"-I{candidate}")
+
+        with tempfile.TemporaryDirectory(prefix="l7c-friend-claim-") as temp:
+            temp_path = Path(temp)
+            control = temp_path / "control.cpp"
+            control.write_text(
+                '#include "mesh/Mesh.hpp"\nint main() { return 0; }\n',
+                encoding="utf-8")
+            control_result = subprocess.run(
+                compiler_command + flags + ["-fsyntax-only", str(control)],
+                cwd=ROOT, capture_output=True, text=True, timeout=60)
+            self.assertEqual(
+                control_result.returncode, 0, control_result.stderr)
+
+            probe = temp_path / "redefine_friend.cpp"
+            probe.write_text(
+                '#include "mesh/Mesh.hpp"\n'
+                'namespace slimed::loop_topology {\n'
+                'class LoopTopologyTransaction {\n'
+                'public:\n'
+                '    static void access(Mesh& mesh) {\n'
+                '        mesh.invalidate_topology_derived_state();\n'
+                '    }\n'
+                '};\n'
+                '}\n',
+                encoding="utf-8")
+            probe_result = subprocess.run(
+                compiler_command + flags + ["-fsyntax-only", str(probe)],
+                cwd=ROOT, capture_output=True, text=True, timeout=60)
+            self.assertNotEqual(probe_result.returncode, 0)
+            diagnostic = probe_result.stderr.lower()
+            self.assertTrue(
+                any(marker in diagnostic for marker in (
+                    "redefinition", "redefined", "previous definition")),
+                probe_result.stderr)
 
     def test_default_surfaces_do_not_gain_cache_dependency(self):
         result = inventory.payload()

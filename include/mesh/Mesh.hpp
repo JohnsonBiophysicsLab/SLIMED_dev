@@ -40,6 +40,7 @@
 #include "energy_force/Force.hpp"
 #include "mesh/Gauss_quadrature.hpp"
 #include "mesh/Regular_limit_surface_row_cache.hpp"
+#include "mesh/Loop_topology_transaction.hpp"
 // matrix math
 #include "linalg/Linear_algebra.hpp"
 // parameters
@@ -49,11 +50,6 @@
 using namespace std;
 
 struct OpenSubdivRegularProductionParityRecheck;
-
-namespace slimed::loop_topology
-{
-class LoopTopologyTransaction;
-}
 
 /**
  * @brief A class representing a triangular mesh that defines a

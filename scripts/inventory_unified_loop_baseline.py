@@ -558,6 +558,7 @@ _REVIEWED_MESH_HEADER_INCLUDES = (
     '"energy_force/Energy.hpp"', '"energy_force/Force.hpp"',
     '"mesh/Gauss_quadrature.hpp"',
     '"mesh/Regular_limit_surface_row_cache.hpp"',
+    '"mesh/Loop_topology_transaction.hpp"',
     '"linalg/Linear_algebra.hpp"', '"Parameters.hpp"',
 )
 _REVIEWED_IMPORT_INCLUDES = (

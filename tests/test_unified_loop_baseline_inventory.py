@@ -365,6 +365,11 @@ class UnifiedLoopBaselineInventoryTest(unittest.TestCase):
         self.assert_text_mutation_rejected(
             "include/mesh/Mesh.hpp",
             lambda text: text.replace(
+                '#include "mesh/Loop_topology_transaction.hpp"',
+                '// transaction definition include removed', 1))
+        self.assert_text_mutation_rejected(
+            "include/mesh/Mesh.hpp",
+            lambda text: text.replace(
                 "    friend class slimed::loop_topology::"
                 "LoopTopologyTransaction;",
                 "    // transaction friendship removed", 1))

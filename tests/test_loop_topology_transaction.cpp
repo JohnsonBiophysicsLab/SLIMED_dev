@@ -9,10 +9,12 @@
 #include <string>
 #include <vector>
 
-#include "mesh/Loop_topology_transaction.hpp"
 #include "mesh/Mesh.hpp"
 
 using namespace slimed::loop_topology;
+
+static_assert(sizeof(LoopTopologyTransaction) > 0,
+              "Mesh.hpp must claim the transaction friend type by definition");
 
 namespace
 {

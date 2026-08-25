@@ -81,8 +81,11 @@ at the start of each setup entry point. Consequently, each setup or successful
 transaction commit advances once, while direct coordinate edits do not advance.
 The seam is private so a caller cannot clear derived state or advance identity
 without entering mesh setup or the one reviewed topology transaction. A fully
-qualified friend names that already-defined transaction class; there is no
-unclaimed global friend name or generic cache-reset capability.
+qualified friend names the transaction class whose complete definition is
+included before `Mesh` is declared; there is no unclaimed global or qualified
+friend name and no generic cache-reset capability. A compile-negative test
+confirms that a translation unit including only `Mesh.hpp` cannot redefine the
+friend type to acquire private access.
 
 Implicit copy construction preserves the generation. `Mesh` remains
 non-copy-assignable because it owns a `Param&`; L7b does not add assignment
