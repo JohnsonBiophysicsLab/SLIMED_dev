@@ -198,6 +198,24 @@ def require(condition, message):
         raise QualificationError(message)
 
 
+def strict_child_json(text):
+    """Decode a subprocess JSON object without lossy key/number handling."""
+    def reject_duplicate_pairs(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError("duplicate child JSON key: {}".format(key))
+            result[key] = value
+        return result
+
+    def reject_nonstandard_constant(value):
+        raise ValueError("nonstandard child JSON constant: {}".format(value))
+
+    return json.loads(
+        text, object_pairs_hook=reject_duplicate_pairs,
+        parse_constant=reject_nonstandard_constant)
+
+
 def candidate_platform_probe(candidate_binary):
     """Return a non-throwing physical-host/power/thermal observation."""
     failure = {
@@ -218,8 +236,8 @@ def candidate_platform_probe(candidate_binary):
     if completed.returncode != 0:
         return failure
     try:
-        observed = json.loads(completed.stdout)
-    except (ValueError, json.JSONDecodeError):
+        observed = strict_child_json(completed.stdout)
+    except ValueError:
         return failure
     expected_observed_keys = set(failure) - {"process_returncode"}
     if (not isinstance(observed, dict) or

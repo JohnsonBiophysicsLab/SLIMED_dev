@@ -1,8 +1,9 @@
 # B2c anchored-row qualification evidence
 
-Status: **physical execution exposed a closed B2-to-B2c process-boundary
-provenance gap; a local remediation is prepared, qualification remains
-`INCOMPLETE`, and numeric D12 must be rerun only after a new exact-SHA gate**
+Status: **exact-SHA review of the process-return-code repair exposed a lossy
+duplicate-key JSON boundary; a strict-decoder remediation is in progress,
+qualification remains `INCOMPLETE`, and numeric D12 must be rerun only after a
+new exact-SHA gate**
 
 Candidate: `anchored_difference_rows_v1`
 
@@ -328,9 +329,8 @@ Numeric execution additionally requires AC power, nominal thermal state, an
 empty worktree, and an exact head that has passed technical, scientific,
 verification, and gatekeeper review.
 
-Because the current review verdict is `FAIL`, no physical-host numeric D12
-run may begin. Running it now would create evidence at a scientifically
-inadmissible SHA and conflict with the implementation plan.
+At that historical review point the verdict was `FAIL`, so physical-host
+numeric D12 remained blocked until the later exact-SHA remediation gate.
 
 ## Exact-head hosted and physical execution at `192cb350`
 
@@ -371,10 +371,20 @@ therefore found an evidence-contract integration defect, not a candidate
 numeric failure; no qualification, D9a reopening, B3 unblocking, Far selection,
 or production activation follows.
 
+Exact-SHA review of the first parent-owned return-code repair at
+`7321355fbbcd1a26db3213f8b3d7688109a2f188` confirmed that genuine successful
+probes gained the independently observed return code and passed the production
+B2c decoder. It also found that ordinary `json.loads` collapsed duplicate
+top-level or nested keys before the exact-keyset check. A child could therefore
+publish conflicting duplicate `status` fields and have the last value accepted
+as a successful probe. The follow-up replaces that lossy boundary with strict
+recursive duplicate-key and non-standard numeric-constant rejection and adds
+production-decoder attacks for both top-level and nested duplicates.
+
 ## Required next work
 
-1. Commit the parent-owned platform-probe return-code remediation and its
-   adversarial regression.
+1. Commit the strict child-JSON remediation and its top-level/nested duplicate
+   and non-standard-constant regressions.
 2. Run four fresh independent exact-SHA reviews and obtain PASS verdicts.
 3. Push the reviewed head, rerun the hosted `macos-26` workflow, and retain its
    exact-head artifact.

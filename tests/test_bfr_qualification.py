@@ -16,6 +16,11 @@ RUNNER = ROOT / "scripts/run_bfr_qualification.py"
 SPEC = importlib.util.spec_from_file_location("run_bfr_qualification", str(RUNNER))
 MODULE = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(MODULE)
+ANCHORED_RUNNER = ROOT / "scripts/run_anchored_row_qualification.py"
+ANCHORED_SPEC = importlib.util.spec_from_file_location(
+    "run_anchored_row_qualification_for_bfr_test", str(ANCHORED_RUNNER))
+ANCHORED_MODULE = importlib.util.module_from_spec(ANCHORED_SPEC)
+ANCHORED_SPEC.loader.exec_module(ANCHORED_MODULE)
 
 
 class BfrQualificationContractTests(unittest.TestCase):
@@ -474,6 +479,8 @@ class BfrQualificationContractTests(unittest.TestCase):
         with mock.patch.object(MODULE, "run", return_value=completed):
             result = MODULE.candidate_platform_probe("candidate")
         self.assertEqual(result, dict(observed, process_returncode=0))
+        self.assertEqual(
+            ANCHORED_MODULE._validate_d12_full_probe(result), result)
 
         forged = dict(observed, process_returncode=0)
         completed = subprocess.CompletedProcess(
@@ -483,6 +490,38 @@ class BfrQualificationContractTests(unittest.TestCase):
             result = MODULE.candidate_platform_probe("candidate")
         self.assertEqual(result["status"], "query_failed")
         self.assertEqual(result["process_returncode"], 0)
+        with self.assertRaises(ANCHORED_MODULE.QualificationError):
+            ANCHORED_MODULE._validate_d12_full_probe(result)
+
+    def test_candidate_platform_probe_rejects_lossy_json(self):
+        observed = {
+            "schema_version": 1, "kind": "bfr_platform_probe", "status": "ok",
+            "finite": True, "fingerprint_queries_ok": True,
+            "fingerprint": copy.deepcopy(MODULE.EXPECTED_PLATFORM_FINGERPRINT),
+            "power": {"api": MODULE.EXPECTED_POWER_API, "query_ok": True,
+                      "raw": "AC Power", "value": MODULE.EXPECTED_POWER_VALUE},
+            "thermal": {"api": MODULE.EXPECTED_THERMAL_API, "query_ok": True,
+                        "raw": 0, "value": MODULE.EXPECTED_THERMAL_VALUE},
+        }
+        canonical = json.dumps(observed, separators=(",", ":"))
+        attacks = [
+            canonical.replace(
+                '"status":"ok"',
+                '"status":"query_failed","status":"ok"', 1),
+            canonical.replace(
+                '"query_ok":true,"raw":"AC Power"',
+                '"query_ok":false,"query_ok":true,"raw":"AC Power"', 1),
+            canonical.replace('"raw":0', '"raw":NaN', 1),
+        ]
+        for raw in attacks:
+            completed = subprocess.CompletedProcess(
+                ["candidate", "--platform-probe"], 0, raw, "")
+            with mock.patch.object(MODULE, "run", return_value=completed):
+                result = MODULE.candidate_platform_probe("candidate")
+            self.assertEqual(result["status"], "query_failed")
+            self.assertEqual(result["process_returncode"], 0)
+            with self.assertRaises(ANCHORED_MODULE.QualificationError):
+                ANCHORED_MODULE._validate_d12_full_probe(result)
 
     def test_terminal_scientific_failure_schema_is_complete_and_fail_closed(self):
         valid = self._terminal_failure_evidence()
