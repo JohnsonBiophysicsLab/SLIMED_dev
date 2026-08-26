@@ -558,6 +558,7 @@ _REVIEWED_MESH_HEADER_INCLUDES = (
     '"energy_force/Energy.hpp"', '"energy_force/Force.hpp"',
     '"mesh/Gauss_quadrature.hpp"',
     '"mesh/Regular_limit_surface_row_cache.hpp"',
+    '"mesh/Loop_topology_transaction.hpp"',
     '"linalg/Linear_algebra.hpp"', '"Parameters.hpp"',
 )
 _REVIEWED_IMPORT_INCLUDES = (
@@ -565,9 +566,15 @@ _REVIEWED_IMPORT_INCLUDES = (
     '"mesh/OpenSubdiv_regular_evaluator.hpp"', "<sstream>", "<stdexcept>",
 )
 _REVIEWED_FLAT_INCLUDES = ('"mesh/Mesh.hpp"',)
-_REVIEWED_OTHER_SOURCE_COUNT = 85
+_REVIEWED_TRANSACTION_INCLUDES = (
+    '"mesh/Loop_topology_transaction.hpp"', "<algorithm>", "<limits>",
+    "<type_traits>", "<utility>", '"mesh/Mesh.hpp"',
+)
+_REVIEWED_TRANSACTION_COMMIT_SHA256 = (
+    "19485b5963d97cd60472e5c66dcf5a275ad6b410fb32270beb7545cd8f4dc748")
+_REVIEWED_OTHER_SOURCE_COUNT = 86
 _REVIEWED_OTHER_INCLUSION_SHA256 = (
-    "4761748a94a031dc5eba9029af56507b7a6366408818cd17b180bd351f2467d7")
+    "8be98f909e50b3e463616d7b050705697a9f2baa730c2973673b166d86482817")
 
 
 def _source_inclusion_directives(text: str) -> tuple[tuple[str, str], ...]:
@@ -630,6 +637,13 @@ def _has_source_inclusion_directive(code: str) -> bool:
     return bool(re.search(
         rf"^\s*{_CPP_DIRECTIVE_PREFIX}\s*"
         r"(?:include|include_next|import)\b",
+        code, re.MULTILINE))
+
+
+def _has_preprocessor_directive(code: str) -> bool:
+    """Report any preprocessing directive inside a protected C++ scope."""
+    return bool(re.search(
+        rf"^\s*{_CPP_DIRECTIVE_PREFIX}\s*[A-Za-z_]\w*\b",
         code, re.MULTILINE))
 
 
@@ -722,16 +736,25 @@ def _scope_begins_with(code: str, pattern: re.Pattern[str]) -> bool:
                 and match.start() in direct_starts)
 
 
+def _scope_contract_sha256(code: str) -> str:
+    """Hash the reviewed lexical scope while ignoring formatting whitespace."""
+    normalized = re.sub(r"\s+", " ", code).strip().encode("utf-8")
+    return hashlib.sha256(normalized).hexdigest()
+
+
 def _topology_invalidation_seam_errors(
         mesh_header: str,
         mesh_source: str,
         flat_source: str,
         other_mesh_sources: list[str],
-        require_complete_source_surface: bool = False) -> list[str]:
+        require_complete_source_surface: bool = False,
+        transaction_source: str = "") -> list[str]:
     lexical_code = [_cpp_code(source) for source in (
-        mesh_header, mesh_source, flat_source, *other_mesh_sources)]
+        mesh_header, mesh_source, flat_source, transaction_source,
+        *other_mesh_sources)]
     unconditional_code = [_mask_cpp_conditionals(code) for code in lexical_code]
-    header_code, mesh_code, flat_code, *other_code = unconditional_code
+    header_code, mesh_code, flat_code, transaction_code, *other_code = (
+        unconditional_code)
     all_lexical_code = "\n".join(lexical_code)
     all_code = "\n".join(unconditional_code)
 
@@ -739,6 +762,9 @@ def _topology_invalidation_seam_errors(
         r"\bregularLimitSurfaceRowCache_\s*\.\s*invalidate\s*\(\s*\)\s*;")
     seam_call_pattern = re.compile(
         r"\binvalidate_topology_derived_state\s*\(\s*\)\s*;")
+    transaction_seam_call_pattern = re.compile(
+        r"\bmesh_\s*\.\s*invalidate_topology_derived_state\s*"
+        r"\(\s*\)\s*;")
     seam_definition_pattern = re.compile(
         r"\bvoid\s+(?:Mesh::)?invalidate_topology_derived_state\s*"
         r"\(\s*\)\s*\{")
@@ -757,21 +783,31 @@ def _topology_invalidation_seam_errors(
             _source_inclusion_surface_sha256(other_mesh_sources) !=
             _REVIEWED_OTHER_INCLUSION_SHA256):
         errors.append("all-source include surface has drifted")
-    if any(_has_nested_source_inclusion(code) for code in lexical_code[3:]):
+    if any(_has_nested_source_inclusion(code) for code in lexical_code[4:]):
         errors.append("source inclusion occurs inside an unreviewed scope")
 
-    for name, source, expected in (
-            ("Mesh header", mesh_header, _REVIEWED_MESH_HEADER_INCLUDES),
-            ("import setup", mesh_source, _REVIEWED_IMPORT_INCLUDES),
-            ("flat setup", flat_source, _REVIEWED_FLAT_INCLUDES)):
+    reviewed_sources = [
+        ("Mesh header", mesh_header, _REVIEWED_MESH_HEADER_INCLUDES),
+        ("import setup", mesh_source, _REVIEWED_IMPORT_INCLUDES),
+        ("flat setup", flat_source, _REVIEWED_FLAT_INCLUDES),
+    ]
+    if transaction_source:
+        reviewed_sources.append((
+            "topology transaction", transaction_source,
+            _REVIEWED_TRANSACTION_INCLUDES))
+    for name, source, expected in reviewed_sources:
         reviewed = tuple(("include", operand) for operand in expected)
         if _source_inclusion_directives(source) != reviewed:
             errors.append(f"{name} include surface has drifted")
 
-    for name, code in (
-            ("Mesh header", lexical_code[0]),
-            ("import setup", lexical_code[1]),
-            ("flat setup", lexical_code[2])):
+    protected_code = [
+        ("Mesh header", lexical_code[0]),
+        ("import setup", lexical_code[1]),
+        ("flat setup", lexical_code[2]),
+    ]
+    if transaction_source:
+        protected_code.append(("topology transaction", lexical_code[3]))
+    for name, code in protected_code:
         if _has_conditional_directive(code):
             errors.append(f"{name} contains conditional preprocessing")
 
@@ -781,8 +817,8 @@ def _topology_invalidation_seam_errors(
         errors.append("unique Mesh class scope")
     else:
         _, class_body = mesh_class
-        if _has_source_inclusion_directive(class_body):
-            errors.append("Mesh class contains an unreviewed include")
+        if _has_preprocessor_directive(class_body):
+            errors.append("Mesh class contains unreviewed preprocessing")
         seam_scope = _unique_braced_scope(
             class_body,
             r"\bvoid\s+invalidate_topology_derived_state\s*\(\s*\)\s*\{")
@@ -799,6 +835,18 @@ def _topology_invalidation_seam_errors(
                 errors.append("cache reset is not a direct seam statement")
             if not reviewed_seam_body_pattern.fullmatch(seam_body):
                 errors.append("topology invalidation seam body has drifted")
+        if transaction_source:
+            friend_pattern = re.compile(
+                r"\bfriend\s+class\s+"
+                r"slimed::loop_topology::LoopTopologyTransaction\s*;")
+            friend_matches = list(friend_pattern.finditer(class_body))
+            if len(friend_matches) != 1:
+                errors.append("transaction is not the unique seam friend")
+            else:
+                access, friend_depth = _direct_access_label(
+                    class_body, friend_matches[0].start())
+                if access != "private" or friend_depth != 0:
+                    errors.append("transaction seam friendship is not private")
 
     import_scope = _unique_braced_scope(
         lexical_code[1],
@@ -823,11 +871,41 @@ def _topology_invalidation_seam_errors(
     elif not _scope_begins_with(flat_scope[1], seam_call_pattern):
         errors.append("flat setup does not begin with a direct seam call")
 
+    if transaction_source:
+        transaction_scope = _unique_braced_scope(
+            transaction_code,
+            r"\bLoopTopologyTransactionResult\s+"
+            r"LoopTopologyTransaction::commit\s*\(\s*\)\s*noexcept\s*\{")
+        if transaction_scope is None:
+            errors.append("unique topology transaction commit scope")
+        else:
+            _, transaction_body = transaction_scope
+            if (_scope_contract_sha256(transaction_body) !=
+                    _REVIEWED_TRANSACTION_COMMIT_SHA256):
+                errors.append("topology transaction commit body has drifted")
+            if _has_source_inclusion_directive(transaction_body):
+                errors.append("topology transaction contains an unreviewed include")
+            if len(seam_call_pattern.findall(transaction_body)) != 1:
+                errors.append("topology transaction does not call seam exactly once")
+            transaction_try = _unique_braced_scope(
+                transaction_body, r"\btry\s*\{")
+            if transaction_try is None:
+                errors.append("unique topology transaction invalidation try scope")
+            else:
+                try_start, try_body = transaction_try
+                if (transaction_body[:try_start].count("{") !=
+                        transaction_body[:try_start].count("}")):
+                    errors.append("topology transaction invalidation is conditional")
+                if not transaction_seam_call_pattern.fullmatch(
+                        try_body.strip()):
+                    errors.append("topology transaction invalidation try body has drifted")
+
     if len(reset_pattern.findall(all_code)) != 1:
         errors.append("cache reset exists outside the single seam")
     if len(seam_definition_pattern.findall(all_code)) != 1:
         errors.append("topology invalidation seam has unreviewed definitions")
-    if len(seam_call_pattern.findall(all_code)) != 2:
+    expected_call_count = 3 if transaction_source else 2
+    if len(seam_call_pattern.findall(all_code)) != expected_call_count:
         errors.append("topology invalidation seam has unreviewed callers")
     if (len(generation_pattern.findall(header_code)) != 4 or
             len(generation_pattern.findall(all_code)) != 4):
@@ -993,6 +1071,8 @@ def collect_inventory() -> dict[str, Any]:
     regular = _text("src/mesh/OpenSubdiv_regular_evaluator.cpp")
     mesh_header = _text("include/mesh/Mesh.hpp")
     mesh_setup_flat = _text("src/mesh/Mesh_setup_flat.cpp")
+    topology_transaction = _text(
+        "src/mesh/Loop_topology_transaction.cpp")
     seam_surface_suffixes = {
         ".cpp", ".cc", ".cxx", ".cu", ".mm",
         ".hpp", ".h", ".cuh", ".ipp", ".tpp", ".inl"}
@@ -1003,7 +1083,8 @@ def collect_inventory() -> dict[str, Any]:
         if path.is_file() and path.suffix in seam_surface_suffixes
         and path.relative_to(ROOT).as_posix() not in {
             "include/mesh/Mesh.hpp", "src/mesh/Mesh.cpp",
-            "src/mesh/Mesh_setup_flat.cpp"}
+            "src/mesh/Mesh_setup_flat.cpp",
+            "src/mesh/Loop_topology_transaction.cpp"}
     ]
     v3 = _text("src/mesh/OpenSubdiv_valence3_row_provider.cpp")
     v4 = _text("src/mesh/OpenSubdiv_valence4_row_provider.cpp")
@@ -1028,7 +1109,8 @@ def collect_inventory() -> dict[str, Any]:
     corpus = _source_corpus()
     invalidation_seam_errors = _topology_invalidation_seam_errors(
         mesh_header, geometry, mesh_setup_flat, other_seam_sources,
-        require_complete_source_surface=True)
+        require_complete_source_surface=True,
+        transaction_source=topology_transaction)
 
     observed_head = _git_output("rev-parse", "HEAD")
     wp0_reviewed_endpoint_commit = _git_output(
@@ -1568,7 +1650,8 @@ def collect_inventory() -> dict[str, Any]:
                 regular.index("struct RefinerDeleter")],
             "mutex_guarded": "std::lock_guard<std::mutex> lock(cache.mutex_)" in regular,
             "invalidations": [
-                "Mesh::setup_from_vertices_faces", "Mesh::setup_flat"],
+                "Mesh::setup_from_vertices_faces", "Mesh::setup_flat",
+                "LoopTopologyTransaction::commit"],
             "only_reviewed_invalidations_present":
                 not invalidation_seam_errors,
             "invalidation_seam_errors": invalidation_seam_errors,
@@ -1885,7 +1968,9 @@ def validate_inventory(report: dict[str, Any], check_adr: bool = True) -> list[s
                 "regular cache schema/key drift")
         require(f["coordinates_excluded"], "coordinates entered regular cache key")
         require(f["mutex_guarded"], "regular cache mutex drift")
-        require(f["invalidations"] == ["Mesh::setup_from_vertices_faces", "Mesh::setup_flat"],
+        require(f["invalidations"] == [
+                    "Mesh::setup_from_vertices_faces", "Mesh::setup_flat",
+                    "LoopTopologyTransaction::commit"],
                 "regular cache invalidation list drift")
         require(f["only_reviewed_invalidations_present"], "regular cache invalidation anchor drift")
 

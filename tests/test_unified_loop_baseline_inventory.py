@@ -316,6 +316,72 @@ class UnifiedLoopBaselineInventoryTest(unittest.TestCase):
                 "invalidate_topology_derived_state();",
                 "// invalidate_topology_derived_state();", 1))
         self.assert_text_mutation_rejected(
+            "src/mesh/Loop_topology_transaction.cpp",
+            lambda text: text.replace(
+                "        mesh_.invalidate_topology_derived_state();",
+                "        // mesh_.invalidate_topology_derived_state();", 1))
+        self.assert_text_mutation_rejected(
+            "src/mesh/Loop_topology_transaction.cpp",
+            lambda text: text.replace(
+                "        mesh_.invalidate_topology_derived_state();",
+                "        if (false) { "
+                "mesh_.invalidate_topology_derived_state(); }", 1))
+        self.assert_text_mutation_rejected(
+            "src/mesh/Loop_topology_transaction.cpp",
+            lambda text: text.replace(
+                "        mesh_.invalidate_topology_derived_state();",
+                "        return result("
+                "LoopTopologyTransactionReason::none);\n"
+                "        mesh_.invalidate_topology_derived_state();", 1))
+        self.assert_text_mutation_rejected(
+            "src/mesh/Loop_topology_transaction.cpp",
+            lambda text: text.replace(
+                "\n    try\n    {",
+                "\n    return result("
+                "LoopTopologyTransactionReason::none);\n\n"
+                "    try\n    {", 1))
+        self.assert_text_mutation_rejected(
+            "src/mesh/Loop_topology_transaction.cpp",
+            lambda text: text.replace(
+                "\n    try\n    {",
+                "\n    goto after_invalidation;\n\n"
+                "    try\n    {", 1).replace(
+                    "\n    for (std::size_t face = 0;",
+                    "\nafter_invalidation:\n"
+                    "    for (std::size_t face = 0;", 1))
+        self.assert_text_mutation_rejected(
+            "src/mesh/Loop_topology_transaction.cpp",
+            lambda text: text.replace(
+                "        mesh_.invalidate_topology_derived_state();",
+                "#if 0\n"
+                "        mesh_.invalidate_topology_derived_state();\n"
+                "#endif", 1))
+        self.assert_text_mutation_rejected(
+            "src/mesh/Loop_topology_transaction.cpp",
+            lambda text: text.replace(
+                "        mesh_.invalidate_topology_derived_state();",
+                '#include "mesh/L7c_early_return.hpp"\n'
+                "        mesh_.invalidate_topology_derived_state();", 1))
+        self.assert_text_mutation_rejected(
+            "include/mesh/Mesh.hpp",
+            lambda text: text.replace(
+                '#include "mesh/Loop_topology_transaction.hpp"',
+                '// transaction definition include removed', 1))
+        self.assert_text_mutation_rejected(
+            "include/mesh/Mesh.hpp",
+            lambda text: text.replace(
+                "    friend class slimed::loop_topology::"
+                "LoopTopologyTransaction;",
+                "    // transaction friendship removed", 1))
+        self.assert_text_mutation_rejected(
+            "include/mesh/Mesh.hpp",
+            lambda text: text.replace(
+                "private:\n    friend class slimed::loop_topology::"
+                "LoopTopologyTransaction;",
+                "public:\n#pragma private:\n"
+                "    friend class slimed::loop_topology::"
+                "LoopTopologyTransaction;", 1))
+        self.assert_text_mutation_rejected(
             "include/mesh/Mesh.hpp",
             lambda text: text.replace(
                 "regularLimitSurfaceRowCache_.invalidate();",
@@ -555,25 +621,37 @@ class UnifiedLoopBaselineInventoryTest(unittest.TestCase):
         self.assert_text_mutation_rejected(
             "include/mesh/Mesh.hpp",
             lambda text: text.replace(
-                "\nprivate:\n    /**\n"
+                "\nprivate:\n"
+                "    friend class slimed::loop_topology::"
+                "LoopTopologyTransaction;\n\n    /**\n"
                 "     * @brief Invalidate topology-derived state",
-                "\npublic:\n    /**\n"
+                "\npublic:\n"
+                "    friend class slimed::loop_topology::"
+                "LoopTopologyTransaction;\n\n    /**\n"
                 "     * @brief Invalidate topology-derived state", 1))
         self.assert_text_mutation_rejected(
             "include/mesh/Mesh.hpp",
             lambda text: text.replace(
-                "\nprivate:\n    /**\n"
+                "\nprivate:\n"
+                "    friend class slimed::loop_topology::"
+                "LoopTopologyTransaction;\n\n    /**\n"
                 "     * @brief Invalidate topology-derived state",
                 "\npublic:\n"
+                "    friend class slimed::loop_topology::"
+                "LoopTopologyTransaction;\n"
                 "    class NestedAccessDecoy { private: int value; };\n"
                 "    /**\n"
                 "     * @brief Invalidate topology-derived state", 1))
         self.assert_text_mutation_rejected(
             "include/mesh/Mesh.hpp",
             lambda text: text.replace(
-                "\nprivate:\n    /**\n"
+                "\nprivate:\n"
+                "    friend class slimed::loop_topology::"
+                "LoopTopologyTransaction;\n\n    /**\n"
                 "     * @brief Invalidate topology-derived state",
-                "\nprotected:\n    /**\n"
+                "\nprotected:\n"
+                "    friend class slimed::loop_topology::"
+                "LoopTopologyTransaction;\n\n    /**\n"
                 "     * @brief Invalidate topology-derived state", 1))
         self.assert_text_mutation_rejected(
             "include/mesh/Mesh.hpp",

@@ -1,6 +1,11 @@
 import importlib.util
+import os
 from pathlib import Path
+import shlex
+import shutil
+import subprocess
 import sys
+import tempfile
 import unittest
 
 
@@ -26,6 +31,8 @@ class OpenSubdivRegularProductionCacheInventoryTest(unittest.TestCase):
         mesh_header = (ROOT / inventory.MESH).read_text(encoding="utf-8")
         area = (ROOT / inventory.AREA).read_text(encoding="utf-8")
         setup = (ROOT / inventory.SETUP).read_text(encoding="utf-8")
+        transaction = (ROOT / inventory.TRANSACTION).read_text(
+            encoding="utf-8")
         self.assertIn(ROOT / inventory.FORCE, inventory._other_cpp_paths())
 
         mutations = (
@@ -466,9 +473,13 @@ class OpenSubdivRegularProductionCacheInventoryTest(unittest.TestCase):
             ),
             (
                 mesh_header.replace(
-                    "\nprivate:\n    /**\n"
+                    "\nprivate:\n"
+                    "    friend class slimed::loop_topology::"
+                    "LoopTopologyTransaction;\n\n    /**\n"
                     "     * @brief Invalidate topology-derived state",
-                    "\npublic:\n    /**\n"
+                    "\npublic:\n"
+                    "    friend class slimed::loop_topology::"
+                    "LoopTopologyTransaction;\n\n    /**\n"
                     "     * @brief Invalidate topology-derived state",
                     1,
                 ),
@@ -477,9 +488,13 @@ class OpenSubdivRegularProductionCacheInventoryTest(unittest.TestCase):
             ),
             (
                 mesh_header.replace(
-                    "\nprivate:\n    /**\n"
+                    "\nprivate:\n"
+                    "    friend class slimed::loop_topology::"
+                    "LoopTopologyTransaction;\n\n    /**\n"
                     "     * @brief Invalidate topology-derived state",
                     "\npublic:\n"
+                    "    friend class slimed::loop_topology::"
+                    "LoopTopologyTransaction;\n"
                     "    class NestedAccessDecoy { private: int value; };\n"
                     "    /**\n"
                     "     * @brief Invalidate topology-derived state",
@@ -490,9 +505,13 @@ class OpenSubdivRegularProductionCacheInventoryTest(unittest.TestCase):
             ),
             (
                 mesh_header.replace(
-                    "\nprivate:\n    /**\n"
+                    "\nprivate:\n"
+                    "    friend class slimed::loop_topology::"
+                    "LoopTopologyTransaction;\n\n    /**\n"
                     "     * @brief Invalidate topology-derived state",
-                    "\nprotected:\n    /**\n"
+                    "\nprotected:\n"
+                    "    friend class slimed::loop_topology::"
+                    "LoopTopologyTransaction;\n\n    /**\n"
                     "     * @brief Invalidate topology-derived state",
                     1,
                 ),
@@ -567,7 +586,8 @@ class OpenSubdivRegularProductionCacheInventoryTest(unittest.TestCase):
             with self.subTest():
                 self.assertTrue(
                     inventory.invalidation_seam_errors_for_sources(
-                        mutated_header, mutated_area, mutated_setup
+                        mutated_header, mutated_area, mutated_setup,
+                        transaction_source=transaction
                     )
                 )
         for extra_source in (
@@ -587,9 +607,166 @@ class OpenSubdivRegularProductionCacheInventoryTest(unittest.TestCase):
             with self.subTest(extra_source=extra_source):
                 self.assertTrue(
                     inventory.invalidation_seam_errors_for_sources(
-                        mesh_header, area, setup, (extra_source,)
+                        mesh_header, area, setup, (extra_source,),
+                        transaction_source=transaction
                     )
                 )
+
+    def test_transaction_is_the_unique_reviewed_third_seam_caller(self):
+        mesh_header = (ROOT / inventory.MESH).read_text(encoding="utf-8")
+        area = (ROOT / inventory.AREA).read_text(encoding="utf-8")
+        setup = (ROOT / inventory.SETUP).read_text(encoding="utf-8")
+        transaction = (ROOT / inventory.TRANSACTION).read_text(
+            encoding="utf-8")
+
+        self.assertFalse(inventory.invalidation_seam_errors_for_sources(
+            mesh_header, area, setup, transaction_source=transaction))
+
+        transaction_mutations = (
+            transaction.replace(
+                "        mesh_.invalidate_topology_derived_state();",
+                "        // mesh_.invalidate_topology_derived_state();", 1),
+            transaction.replace(
+                "        mesh_.invalidate_topology_derived_state();",
+                "        if (false) { "
+                "mesh_.invalidate_topology_derived_state(); }", 1),
+            transaction.replace(
+                "        mesh_.invalidate_topology_derived_state();",
+                "        return result("
+                "LoopTopologyTransactionReason::none);\n"
+                "        mesh_.invalidate_topology_derived_state();", 1),
+            transaction.replace(
+                "\n    try\n    {",
+                "\n    return result("
+                "LoopTopologyTransactionReason::none);\n\n"
+                "    try\n    {", 1),
+            transaction.replace(
+                "\n    try\n    {",
+                "\n    goto after_invalidation;\n\n"
+                "    try\n    {", 1).replace(
+                    "\n    for (std::size_t face = 0;",
+                    "\nafter_invalidation:\n"
+                    "    for (std::size_t face = 0;", 1),
+            transaction.replace(
+                "        mesh_.invalidate_topology_derived_state();",
+                "#if 0\n"
+                "        mesh_.invalidate_topology_derived_state();\n"
+                "#endif", 1),
+            transaction.replace(
+                "        mesh_.invalidate_topology_derived_state();",
+                '#include "mesh/L7c_early_return.hpp"\n'
+                "        mesh_.invalidate_topology_derived_state();", 1),
+            transaction.replace(
+                "        mesh_.invalidate_topology_derived_state();",
+                "        mesh_.invalidate_topology_derived_state();\n"
+                "        mesh_.invalidate_topology_derived_state();", 1),
+            transaction.replace(
+                "LoopTopologyTransaction::commit() noexcept",
+                "LoopTopologyTransaction::unreviewed_commit() noexcept", 1),
+            transaction.replace(
+                "#include \"mesh/Mesh.hpp\"",
+                '#include "mesh/Mesh.hpp"\n'
+                '#include "mesh/L7c_shadow.hpp"', 1),
+        )
+        for mutated in transaction_mutations:
+            with self.subTest():
+                self.assertNotEqual(mutated, transaction)
+                self.assertTrue(
+                    inventory.invalidation_seam_errors_for_sources(
+                        mesh_header, area, setup,
+                        transaction_source=mutated))
+
+        for mutated_header in (
+            mesh_header.replace(
+                '#include "mesh/Loop_topology_transaction.hpp"',
+                '// transaction definition include removed', 1),
+            mesh_header.replace(
+                "    friend class slimed::loop_topology::"
+                "LoopTopologyTransaction;",
+                "    // transaction friendship removed", 1),
+            mesh_header.replace(
+                "private:\n    friend class slimed::loop_topology::"
+                "LoopTopologyTransaction;",
+                "public:\n    friend class slimed::loop_topology::"
+                "LoopTopologyTransaction;", 1),
+            mesh_header.replace(
+                "private:\n    friend class slimed::loop_topology::"
+                "LoopTopologyTransaction;",
+                "public:\n#pragma private:\n"
+                "    friend class slimed::loop_topology::"
+                "LoopTopologyTransaction;", 1),
+        ):
+            with self.subTest():
+                self.assertNotEqual(mutated_header, mesh_header)
+                self.assertTrue(
+                    inventory.invalidation_seam_errors_for_sources(
+                        mutated_header, area, setup,
+                        transaction_source=transaction))
+
+        self.assertTrue(inventory.invalidation_seam_errors_for_sources(
+            mesh_header, area, setup,
+            ("void Mesh::extra_caller() "
+             "{ invalidate_topology_derived_state(); }",),
+            transaction_source=transaction))
+
+    def test_mesh_header_claims_transaction_friend_type(self):
+        cxx_words = shlex.split(os.environ.get("CXX", ""))
+        if cxx_words:
+            compiler = shutil.which(cxx_words[0])
+            compiler_command = ([compiler] + cxx_words[1:]
+                                if compiler else [])
+        else:
+            compiler = (shutil.which("g++") or shutil.which("clang++") or
+                        shutil.which("c++"))
+            compiler_command = [compiler] if compiler else []
+        gsl_config = shutil.which("gsl-config")
+        if not compiler_command or not gsl_config:
+            self.skipTest("C++ compiler or gsl-config is unavailable")
+
+        gsl = subprocess.run(
+            [gsl_config, "--cflags"], cwd=ROOT, capture_output=True,
+            text=True, check=True, timeout=30)
+        flags = ["-std=c++17", f"-I{ROOT / 'include'}"]
+        flags.extend(shlex.split(gsl.stdout))
+        for candidate in (
+                Path("/opt/homebrew/opt/libomp/include"),
+                Path("/usr/local/opt/libomp/include")):
+            if candidate.is_dir():
+                flags.append(f"-I{candidate}")
+
+        with tempfile.TemporaryDirectory(prefix="l7c-friend-claim-") as temp:
+            temp_path = Path(temp)
+            control = temp_path / "control.cpp"
+            control.write_text(
+                '#include "mesh/Mesh.hpp"\nint main() { return 0; }\n',
+                encoding="utf-8")
+            control_result = subprocess.run(
+                compiler_command + flags + ["-fsyntax-only", str(control)],
+                cwd=ROOT, capture_output=True, text=True, timeout=60)
+            self.assertEqual(
+                control_result.returncode, 0, control_result.stderr)
+
+            probe = temp_path / "redefine_friend.cpp"
+            probe.write_text(
+                '#include "mesh/Mesh.hpp"\n'
+                'namespace slimed::loop_topology {\n'
+                'class LoopTopologyTransaction {\n'
+                'public:\n'
+                '    static void access(Mesh& mesh) {\n'
+                '        mesh.invalidate_topology_derived_state();\n'
+                '    }\n'
+                '};\n'
+                '}\n',
+                encoding="utf-8")
+            probe_result = subprocess.run(
+                compiler_command + flags + ["-fsyntax-only", str(probe)],
+                cwd=ROOT, capture_output=True, text=True, timeout=60)
+            self.assertNotEqual(probe_result.returncode, 0)
+            diagnostic = probe_result.stderr.lower()
+            self.assertTrue(
+                any(marker in diagnostic for marker in (
+                    "redefinition", "redefined", "previous definition")),
+                probe_result.stderr)
 
     def test_default_surfaces_do_not_gain_cache_dependency(self):
         result = inventory.payload()
