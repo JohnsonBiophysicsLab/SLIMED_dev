@@ -623,7 +623,7 @@ def _cpp_code(text: str) -> str:
     return _cpp_lexical_surfaces(text)[1]
 
 
-_CPP_DIRECTIVE_PREFIX = r"(?:#|%:|\?\?=)"
+_CPP_DIRECTIVE_PREFIX = r"(?:#|%:)"
 _INCLUDE_GUARD_NAME = re.compile(r"[A-Z][A-Z0-9_]*_(?:H|HPP)")
 _REVIEWED_MESH_HEADER_INCLUDES = (
     "<math.h>", "<cmath>", "<vector>", "<iostream>", "<fstream>",

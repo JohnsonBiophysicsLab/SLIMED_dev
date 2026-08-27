@@ -532,6 +532,9 @@ auto raw = LR"tag(raw // /* " bytes)tag"_suffix;
             "#if 0\n"
             "        const auto hidden = R\"tag(inactive)tag\";\n"
             "#endif\n",
+            "%:if 0\n"
+            "        faces[0].adjacentVertices.clear();\n"
+            "%:endif\n",
             "        // faces[0].oneRingVertices.clear(); "
             "\"ignored literal\" 'x' R\"(ignored raw)\"\n",
         ]
@@ -773,6 +776,21 @@ void mutate_publication_fields_before_preflight(std::vector<Face> &faces)
                 (False, False, False),
                 "potentially active conditional escaped the contract",
             )
+
+        trigraph_source = (
+            "??=if 0\n"
+            "int b0d_trigraph_hidden_but_cpp17_active = does_not_compile;\n"
+            "??=endif\n" + repaired_source)
+        self.assertNotEqual(
+            INVENTORY._reviewed_active_source_contract(trigraph_source)[1],
+            repaired_contract_sha256,
+            "C++17-active trigraph spelling escaped the source digest",
+        )
+        assert_repair_state(
+            trigraph_source,
+            (False, False, False),
+            "C++17-active trigraph spelling escaped repair state",
+        )
 
         misordered_source = classifier_source + """
 void Mesh::set_one_ring_vertices_sorted()
