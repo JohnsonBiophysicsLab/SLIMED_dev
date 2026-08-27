@@ -1,5 +1,6 @@
 #include "cuda/Cuda_mesh_state.hpp"
 #include "cuda/detail/Cuda_regular_geometry_cpu.hpp"
+#include "cuda/detail/Cuda_regular_membrane_cpu.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -60,6 +61,35 @@ struct CaseResult
     }
 };
 
+struct MembraneCaseResult
+{
+    std::string name;
+    bool created = false;
+    bool cpuParity = true;
+    bool repeatable = true;
+    bool structuredDegeneracy = true;
+    bool recoverable = true;
+    bool permutationEqual = true;
+    double maxAbsError = 0.0;
+    std::vector<double> firstValues;
+    std::vector<double> firstCanonicalForces;
+    std::uint64_t warmedAllocations = 0;
+    DeviceStateReport activeReport;
+    DeviceStateReport finalReport;
+    DeviceStateError createError;
+
+    bool pass() const
+    {
+        return created && cpuParity && repeatable && structuredDegeneracy &&
+               recoverable && permutationEqual &&
+               activeReport.phase == TransactionPhase::IdleAccepted &&
+               finalReport.phase == TransactionPhase::Closed &&
+               !finalReport.cleanupPending && finalReport.cleanupError.ok() &&
+               finalReport.residentBytes == 0 &&
+               finalReport.successfulAllocations == finalReport.successfulFrees;
+    }
+};
+
 RegularMeshPack make_pack()
 {
     RegularMeshPack pack;
@@ -106,6 +136,13 @@ RegularMeshPack make_pack()
         pack.shapeWeights[base + 26] = 1.0;
     }
     pack.parameters.kCurv = 1.0;
+    pack.parameters.uSurf = 2.0;
+    pack.parameters.uVol = 1.5;
+    pack.parameters.area0 = 1.0;
+    pack.parameters.area = 1.2;
+    pack.parameters.vol0 = 1.0;
+    pack.parameters.vol = 1.3;
+    pack.evaluatedFaceSpontaneousCurvature = {0.2};
     return pack;
 }
 
@@ -173,6 +210,14 @@ std::vector<GeometryFixture> make_fixtures()
         production.shapeWeights[base + 13] = vScale;
         production.shapeWeights[base + 24] = -wScale;
         production.shapeWeights[base + 26] = wScale;
+        production.shapeWeights[base + 3 * 12] = -0.20;
+        production.shapeWeights[base + 3 * 12 + 3] = 0.20;
+        production.shapeWeights[base + 4 * 12] = -0.15;
+        production.shapeWeights[base + 4 * 12 + 4] = 0.15;
+        production.shapeWeights[base + 5 * 12 + 1] = -0.10;
+        production.shapeWeights[base + 5 * 12 + 5] = 0.10;
+        production.shapeWeights[base + 6 * 12 + 1] = -0.10;
+        production.shapeWeights[base + 6 * 12 + 5] = 0.10;
     }
     fixtures.push_back({"production_cpu", production,
                         production.acceptedCoordinates});
@@ -201,6 +246,168 @@ bool same_bytes(const std::vector<double> &left,
     return left.size() == right.size() &&
            (left.empty() || std::memcmp(left.data(), right.data(),
                                        left.size() * sizeof(double)) == 0);
+}
+
+void append_values(std::vector<double> &destination,
+                   const std::vector<double> &source)
+{
+    destination.insert(destination.end(), source.begin(), source.end());
+}
+
+std::vector<double> membrane_values(const MembraneCandidateResult &result)
+{
+    std::vector<double> values;
+    append_values(values, result.faceAreas);
+    append_values(values, result.faceVolumes);
+    append_values(values, result.faceBendingEnergies);
+    append_values(values, result.faceMeanCurvatures);
+    append_values(values, result.faceNormals);
+    append_values(values, result.occurrenceForces);
+    append_values(values, result.sampleSurfaceMeasures);
+    append_values(values, result.sampleMeanCurvatures);
+    append_values(values, result.sampleNormals);
+    append_values(values, result.sampleBendingEnergies);
+    values.push_back(result.totalArea);
+    values.push_back(result.totalVolume);
+    return values;
+}
+
+std::vector<double> membrane_values(
+    const detail::RegularMembraneCpuResult &result)
+{
+    std::vector<double> values;
+    append_values(values, result.faceAreas);
+    append_values(values, result.faceVolumes);
+    append_values(values, result.faceBendingEnergies);
+    append_values(values, result.faceMeanCurvatures);
+    append_values(values, result.faceNormals);
+    append_values(values, result.occurrenceForces);
+    append_values(values, result.sampleSurfaceMeasures);
+    append_values(values, result.sampleMeanCurvatures);
+    append_values(values, result.sampleNormals);
+    append_values(values, result.sampleBendingEnergies);
+    values.push_back(result.totalArea);
+    values.push_back(result.totalVolume);
+    return values;
+}
+
+double max_abs_error(const std::vector<double> &actual,
+                     const std::vector<double> &expected)
+{
+    if (actual.size() != expected.size())
+        return std::numeric_limits<double>::infinity();
+    double error = 0.0;
+    for (std::size_t index = 0; index < actual.size(); ++index)
+        error = std::max(error, std::abs(actual[index] - expected[index]));
+    return error;
+}
+
+std::vector<double> canonical_occurrence_forces(
+    const RegularMeshPack &pack,
+    const std::vector<double> &occurrenceForces)
+{
+    std::vector<double> result(
+        static_cast<std::size_t>(pack.vertexCount) * 9U, 0.0);
+    for (std::size_t evaluated = 0;
+         evaluated < static_cast<std::size_t>(pack.evaluatedFaceCount);
+         ++evaluated)
+        for (std::size_t local = 0; local < kRegularControlCount; ++local)
+        {
+            const std::size_t occurrence =
+                evaluated * kRegularControlCount + local;
+            const std::size_t source = static_cast<std::size_t>(
+                pack.oneRingSourceIds[occurrence]);
+            for (std::size_t component = 0; component < 9; ++component)
+                result[source * 9U + component] =
+                    occurrenceForces[occurrence * 9U + component];
+        }
+    return result;
+}
+
+MembraneCaseResult run_membrane_case(const GeometryFixture &fixture,
+                                     int device, int iterations)
+{
+    MembraneCaseResult result;
+    result.name = fixture.name;
+    DeviceStateConfig config;
+    config.deviceOrdinal = device;
+    auto created = create_cuda_mesh_state(fixture.pack, config);
+    result.createError = created.report.error;
+    if (!created.ok())
+    {
+        result.finalReport = created.report;
+        return result;
+    }
+    result.created = true;
+    result.warmedAllocations = created.state->report().successfulAllocations;
+    const detail::RegularMembraneCpuResult expected =
+        detail::evaluate_regular_membrane_cpu(fixture.pack,
+                                              fixture.candidate);
+    const bool expectDegenerate = fixture.name == "degenerate";
+    result.structuredDegeneracy = expectDegenerate ? !expected.ok()
+                                                    : expected.ok();
+    const std::vector<double> expectedValues = membrane_values(expected);
+    for (int iteration = 0; iteration < iterations; ++iteration)
+    {
+        const std::uint64_t generation =
+            created.state->report().residentGenerations.acceptedCoordinates +
+            100U + static_cast<std::uint64_t>(iteration);
+        if (!created.state->prepare_candidate(fixture.candidate,
+                                              generation).ok())
+        {
+            result.recoverable = false;
+            break;
+        }
+        const MembraneCandidateResult membrane =
+            created.state->compute_candidate_membrane();
+        if (expectDegenerate)
+        {
+            result.structuredDegeneracy = result.structuredDegeneracy &&
+                !membrane.ok() &&
+                membrane.status == MembraneStatusCode::DegenerateSample &&
+                membrane.error.code == DeviceStateErrorCode::CandidateFailed;
+            if (!created.state->recover().ok())
+            {
+                result.recoverable = false;
+                break;
+            }
+            continue;
+        }
+        if (!membrane.ok())
+        {
+            result.cpuParity = false;
+            result.recoverable = false;
+            break;
+        }
+        const std::vector<double> actualValues = membrane_values(membrane);
+        result.maxAbsError = std::max(
+            result.maxAbsError,
+            max_abs_error(actualValues, expectedValues));
+        if (iteration == 0)
+        {
+            result.firstValues = actualValues;
+            result.firstCanonicalForces = canonical_occurrence_forces(
+                fixture.pack, membrane.occurrenceForces);
+        }
+        else
+            result.repeatable = result.repeatable &&
+                                same_bytes(result.firstValues, actualValues);
+        if (!created.state->rollback().ok())
+        {
+            result.recoverable = false;
+            break;
+        }
+    }
+    result.cpuParity = result.cpuParity &&
+        (expectDegenerate || result.maxAbsError <= kTolerance);
+    result.activeReport = created.state->report();
+    result.recoverable = result.recoverable &&
+        result.activeReport.phase == TransactionPhase::IdleAccepted &&
+        result.activeReport.successfulAllocations == result.warmedAllocations;
+    const DeviceStateError closed = created.state->close();
+    result.finalReport = created.state->report();
+    result.recoverable = result.recoverable && closed.ok();
+    return result;
 }
 
 CaseResult run_case(const GeometryFixture &fixture, int device, int iterations)
@@ -317,8 +524,9 @@ int main(int argc, char **argv)
 {
     const int device = integer_argument(argv, argc, "--device", 0);
     const int iterations = integer_argument(argv, argc, "--iterations", 20);
+    const std::vector<GeometryFixture> fixtures = make_fixtures();
     std::vector<CaseResult> cases;
-    for (const GeometryFixture &fixture : make_fixtures())
+    for (const GeometryFixture &fixture : fixtures)
     {
         cases.push_back(run_case(fixture, device, iterations));
         if (!cases.back().created)
@@ -335,6 +543,10 @@ int main(int argc, char **argv)
             return report.compiled ? 77 : 0;
         }
     }
+    std::vector<MembraneCaseResult> membraneCases;
+    for (const GeometryFixture &fixture : fixtures)
+        membraneCases.push_back(run_membrane_case(fixture, device,
+                                                  iterations));
 
     const CaseResult &natural = cases[0];
     CaseResult &permuted = cases[1];
@@ -345,6 +557,9 @@ int main(int argc, char **argv)
                     sizeof(double)) == 0 &&
         std::memcmp(&natural.firstTotalVolume, &permuted.firstTotalVolume,
                     sizeof(double)) == 0;
+    membraneCases[1].permutationEqual =
+        same_bytes(membraneCases[0].firstCanonicalForces,
+                   membraneCases[1].firstCanonicalForces);
 
     bool pass = true;
     bool geometryRepeatable = true;
@@ -354,8 +569,12 @@ int main(int argc, char **argv)
     bool closed = true;
     bool cleanupPending = false;
     double geometryMaxAbsError = 0.0;
+    double membraneMaxAbsError = 0.0;
+    bool membraneRepeatable = true;
+    bool membraneDegeneracyHandled = true;
     std::uint64_t commits = 0, rollbacks = 0, allocationEpoch = 0;
     std::uint64_t transactionEpoch = 0, warmedAllocations = 0;
+    std::uint64_t membraneTransactions = 0;
     std::uint64_t finalAllocations = 0, successfulFrees = 0;
     std::size_t residentBytes = 0, finalResidentBytes = 0;
     std::size_t memoryBudgetBytes = 0;
@@ -394,7 +613,47 @@ int main(int argc, char **argv)
             transfers[reason].completedBytes += source.completedBytes;
         }
     }
+    for (const MembraneCaseResult &item : membraneCases)
+    {
+        pass = pass && item.pass();
+        membraneRepeatable = membraneRepeatable && item.repeatable;
+        membraneDegeneracyHandled = membraneDegeneracyHandled &&
+                                    item.structuredDegeneracy;
+        membraneMaxAbsError = std::max(membraneMaxAbsError,
+                                       item.maxAbsError);
+        membraneTransactions += item.activeReport.transactionEpoch;
+        transactionEpoch += item.activeReport.transactionEpoch;
+        allocationEpoch += item.activeReport.allocationEpoch;
+        warmedAllocations += item.warmedAllocations;
+        finalAllocations += item.finalReport.successfulAllocations;
+        successfulFrees += item.finalReport.successfulFrees;
+        residentBytes = std::max(residentBytes,
+                                 item.activeReport.residentBytes);
+        finalResidentBytes += item.finalReport.residentBytes;
+        noWarmAllocations = noWarmAllocations &&
+            item.activeReport.successfulAllocations == item.warmedAllocations;
+        allocationFreeBalance = allocationFreeBalance &&
+            item.finalReport.successfulAllocations ==
+                item.finalReport.successfulFrees;
+        closed = closed &&
+                 item.finalReport.phase == TransactionPhase::Closed;
+        cleanupPending = cleanupPending ||
+                         item.finalReport.cleanupPending;
+        for (std::size_t reason = 0; reason < transfers.size(); ++reason)
+        {
+            const TransferCounter &source =
+                item.activeReport.transfers[reason];
+            transfersComplete = transfersComplete &&
+                source.attemptedOperations == source.completedOperations &&
+                source.attemptedBytes == source.completedBytes;
+            transfers[reason].completedOperations +=
+                source.completedOperations;
+            transfers[reason].completedBytes += source.completedBytes;
+        }
+    }
     pass = pass && geometryMaxAbsError <= kTolerance && geometryRepeatable &&
+           membraneMaxAbsError <= kTolerance && membraneRepeatable &&
+           membraneDegeneracyHandled &&
            transfersComplete && noWarmAllocations && allocationFreeBalance &&
            closed && !cleanupPending && finalResidentBytes == 0;
 
@@ -403,7 +662,9 @@ int main(int argc, char **argv)
               << ",\"device_ordinal\":" << device
               << ",\"iterations\":" << iterations
               << ",\"case_count\":" << cases.size()
-              << ",\"total_transactions\":" << commits + rollbacks
+              << ",\"total_transactions\":" << transactionEpoch
+              << ",\"membrane_transactions\":"
+              << membraneTransactions
               << ",\"commits\":" << commits
               << ",\"rollbacks\":" << rollbacks
               << ",\"allocation_epoch\":" << allocationEpoch
@@ -419,6 +680,12 @@ int main(int argc, char **argv)
               << geometryMaxAbsError
               << ",\"geometry_repeatable\":"
               << (geometryRepeatable ? "true" : "false")
+              << ",\"membrane_max_abs_error\":"
+              << membraneMaxAbsError
+              << ",\"membrane_repeatable\":"
+              << (membraneRepeatable ? "true" : "false")
+              << ",\"membrane_degeneracy_handled\":"
+              << (membraneDegeneracyHandled ? "true" : "false")
               << ",\"resident_bytes\":" << residentBytes
               << ",\"final_resident_bytes\":" << finalResidentBytes
               << ",\"closed\":" << (closed ? "true" : "false")
@@ -447,6 +714,26 @@ int main(int argc, char **argv)
                   << (item.degenerateZero ? "true" : "false")
                   << ",\"permutation_equal\":"
                   << (item.permutationEqual ? "true" : "false") << '}';
+    }
+    std::cout << "},\"membrane_cases\":{";
+    for (std::size_t index = 0; index < membraneCases.size(); ++index)
+    {
+        if (index)
+            std::cout << ',';
+        const MembraneCaseResult &item = membraneCases[index];
+        std::cout << json_string(item.name)
+                  << ":{\"pass\":" << (item.pass() ? "true" : "false")
+                  << ",\"cpu_parity\":"
+                  << (item.cpuParity ? "true" : "false")
+                  << ",\"repeatable\":"
+                  << (item.repeatable ? "true" : "false")
+                  << ",\"structured_degeneracy\":"
+                  << (item.structuredDegeneracy ? "true" : "false")
+                  << ",\"recoverable\":"
+                  << (item.recoverable ? "true" : "false")
+                  << ",\"permutation_equal\":"
+                  << (item.permutationEqual ? "true" : "false")
+                  << ",\"max_abs_error\":" << item.maxAbsError << '}';
     }
     std::cout << "},\"transfers\":{";
     for (std::size_t reason = 0; reason < transfers.size(); ++reason)
