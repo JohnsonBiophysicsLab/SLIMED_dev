@@ -16,6 +16,11 @@ RUNNER = ROOT / "scripts/run_bfr_qualification.py"
 SPEC = importlib.util.spec_from_file_location("run_bfr_qualification", str(RUNNER))
 MODULE = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(MODULE)
+ANCHORED_RUNNER = ROOT / "scripts/run_anchored_row_qualification.py"
+ANCHORED_SPEC = importlib.util.spec_from_file_location(
+    "run_anchored_row_qualification_for_bfr_test", str(ANCHORED_RUNNER))
+ANCHORED_MODULE = importlib.util.module_from_spec(ANCHORED_SPEC)
+ANCHORED_SPEC.loader.exec_module(ANCHORED_MODULE)
 
 
 class BfrQualificationContractTests(unittest.TestCase):
@@ -124,6 +129,7 @@ class BfrQualificationContractTests(unittest.TestCase):
                       "raw": "AC Power", "value": MODULE.EXPECTED_POWER_VALUE},
             "thermal": {"api": MODULE.EXPECTED_THERMAL_API, "query_ok": True,
                         "raw": 0, "value": MODULE.EXPECTED_THERMAL_VALUE},
+            "process_returncode": 0,
         }
         boundaries = ["primary_before", "primary_after",
                       "determinism_before", "determinism_after"]
@@ -406,6 +412,32 @@ class BfrQualificationContractTests(unittest.TestCase):
             "after_factory_or_cache_destruction": 18,
             "after_refiner_destruction": 18,
         }
+        retained_payloads = [
+            12 + 4 + 72 * count + 12 * 6 * count
+            for count in face_sample_counts]
+        rss_observations = []
+        for repeat in range(18):
+            phase = "warmup" if repeat < 3 else "measured"
+            repeat_index = repeat if repeat < 3 else repeat - 3
+            stages = [
+                ("after_refiner", None, None, None),
+                ("after_factory_cache", None, None, None)]
+            stages.extend((
+                "after_face_insert", sample["face_row"],
+                (None if sample["local_corner_or_none"] < 0 else
+                 sample["local_corner_or_none"]), sample["sample_id"])
+                for sample in samples)
+            stages.extend([
+                ("after_package_publication", None, None, None),
+                ("after_package_destruction", None, None, None),
+                ("after_factory_cache_destruction", None, None, None),
+                ("after_refiner_destruction", None, None, None)])
+            rss_observations.extend({
+                "repeat_phase": phase, "repeat_index": repeat_index,
+                "face_id": face_id, "local_corner_or_none": local_corner,
+                "sample_id": sample_id, "stage": stage,
+                "rss_bytes": 1100}
+                for stage, face_id, local_corner, sample_id in stages)
         report = {
             "schema_version": 1, "kind": "bfr_candidate_case", "status": "ok",
             "finite": True, "content_identity_key": identity,
@@ -414,9 +446,11 @@ class BfrQualificationContractTests(unittest.TestCase):
             "row_group_count": group_count,
             "row_kind_counts": {kind: group_count for kind in MODULE.ROW_ORDER},
             "source_reconstruction_complete": True, "max_row_sum_error": 0.0,
-            "retained_payload_bytes_per_face": max(
-                12 + 4 + 72 * count + 12 * 6 * count
-                for count in face_sample_counts),
+            "retained_payload_bytes_per_face": max(retained_payloads),
+            "d12_representation_workload_included": True,
+            "d12_retained_payload_bytes_by_face": retained_payloads,
+            "d12_rss_baseline_bytes": 1000,
+            "d12_rss_observations": rss_observations,
             "warmup_count": 3, "preparation_ns": list(range(15)),
             "preparation_median_ns": 7, "peak_rss_delta_bytes": 100,
             "rss_baseline_sample_count": 1,
@@ -428,6 +462,76 @@ class BfrQualificationContractTests(unittest.TestCase):
             "serialization_replay_rss_sampled": False,
         }
         return manifest, job, (identity, candidate, level, mode), report
+
+    def test_candidate_platform_probe_binds_success_process_returncode(self):
+        observed = {
+            "schema_version": 1, "kind": "bfr_platform_probe", "status": "ok",
+            "finite": True, "fingerprint_queries_ok": True,
+            "fingerprint": copy.deepcopy(MODULE.EXPECTED_PLATFORM_FINGERPRINT),
+            "power": {"api": MODULE.EXPECTED_POWER_API, "query_ok": True,
+                      "raw": "AC Power", "value": MODULE.EXPECTED_POWER_VALUE},
+            "thermal": {"api": MODULE.EXPECTED_THERMAL_API, "query_ok": True,
+                        "raw": 0, "value": MODULE.EXPECTED_THERMAL_VALUE},
+        }
+        completed = subprocess.CompletedProcess(
+            ["candidate", "--platform-probe"], 0,
+            json.dumps(observed), "")
+        with mock.patch.object(MODULE, "run", return_value=completed):
+            result = MODULE.candidate_platform_probe("candidate")
+        self.assertEqual(result, dict(observed, process_returncode=0))
+        self.assertEqual(
+            ANCHORED_MODULE._validate_d12_full_probe(result), result)
+        float_schema = dict(result, schema_version=1.0)
+        with self.assertRaises(ANCHORED_MODULE.QualificationError):
+            ANCHORED_MODULE._validate_d12_full_probe(float_schema)
+
+        forged = dict(observed, process_returncode=0)
+        completed = subprocess.CompletedProcess(
+            ["candidate", "--platform-probe"], 0,
+            json.dumps(forged), "")
+        with mock.patch.object(MODULE, "run", return_value=completed):
+            result = MODULE.candidate_platform_probe("candidate")
+        self.assertEqual(result["status"], "query_failed")
+        self.assertEqual(result["process_returncode"], 0)
+        with self.assertRaises(ANCHORED_MODULE.QualificationError):
+            ANCHORED_MODULE._validate_d12_full_probe(result)
+
+    def test_candidate_platform_probe_rejects_lossy_json(self):
+        observed = {
+            "schema_version": 1, "kind": "bfr_platform_probe", "status": "ok",
+            "finite": True, "fingerprint_queries_ok": True,
+            "fingerprint": copy.deepcopy(MODULE.EXPECTED_PLATFORM_FINGERPRINT),
+            "power": {"api": MODULE.EXPECTED_POWER_API, "query_ok": True,
+                      "raw": "AC Power", "value": MODULE.EXPECTED_POWER_VALUE},
+            "thermal": {"api": MODULE.EXPECTED_THERMAL_API, "query_ok": True,
+                        "raw": 0, "value": MODULE.EXPECTED_THERMAL_VALUE},
+        }
+        canonical = json.dumps(observed, separators=(",", ":"))
+        attacks = [
+            canonical.replace(
+                '"status":"ok"',
+                '"status":"query_failed","status":"ok"', 1),
+            canonical.replace(
+                '"query_ok":true,"raw":"AC Power"',
+                '"query_ok":false,"query_ok":true,"raw":"AC Power"', 1),
+            canonical.replace(
+                '"schema_version":1',
+                '"schema_version":1.00000000000000001', 1),
+            canonical.replace('"schema_version":1', '"schema_version":1e0', 1),
+            canonical.replace('"raw":0', '"raw":0.0', 1),
+            canonical.replace('"raw":0', '"raw":NaN', 1),
+            canonical.replace('"raw":0', '"raw":Infinity', 1),
+            canonical.replace('"raw":0', '"raw":-Infinity', 1),
+        ]
+        for raw in attacks:
+            completed = subprocess.CompletedProcess(
+                ["candidate", "--platform-probe"], 0, raw, "")
+            with mock.patch.object(MODULE, "run", return_value=completed):
+                result = MODULE.candidate_platform_probe("candidate")
+            self.assertEqual(result["status"], "query_failed")
+            self.assertEqual(result["process_returncode"], 0)
+            with self.assertRaises(ANCHORED_MODULE.QualificationError):
+                ANCHORED_MODULE._validate_d12_full_probe(result)
 
     def test_terminal_scientific_failure_schema_is_complete_and_fail_closed(self):
         valid = self._terminal_failure_evidence()
@@ -506,6 +610,10 @@ class BfrQualificationContractTests(unittest.TestCase):
         validated = MODULE.validate_candidate_case(
             report, *identity_tuple, manifest, job)
         self.assertEqual(validated["row_group_count"], report["row_group_count"])
+        self.assertTrue(any(
+            item["stage"] == "after_face_insert" and
+            item["local_corner_or_none"] is None
+            for item in report["d12_rss_observations"]))
         self.assertTrue(MODULE.validate_candidate_case(
             json.loads(json.dumps(report, sort_keys=True, allow_nan=False)),
             *identity_tuple, manifest, job))
