@@ -72,10 +72,11 @@ REVIEWED_CLASSIFIER_SENTINEL_IDENTIFIER_COUNTS = {
 }
 # SHA256 of the normalized active contents of Mesh_setup_geometry.cpp in the
 # reviewed WP1.1a source. This is a content contract, not a commit identity.
-# It includes active code and include operands after lexical masking and the
-# narrowly permitted literal-#if-0 removal performed below.
+# It includes whitespace-normalized non-literal code, active include operands,
+# and ordered exact active literal tokens after the narrowly permitted
+# literal-#if-0 removal performed below.
 REVIEWED_MESH_SETUP_GEOMETRY_ACTIVE_SOURCE_SHA256 = (
-    "d64f166ec4594561b0f3dea7ca220fc150f3cb0bc647c3d860abac678ff15abe")
+    "39d7663c5b7e232744ca0bf59ad7eacd9c2c1b39719208afb4cf119682c33552")
 
 EXPECTED_FACES = {
     "valence3_tetrahedron": [
@@ -493,76 +494,133 @@ def _all_present(text: str, anchors: list[str]) -> bool:
     return all(anchor in text for anchor in anchors)
 
 
-def _cpp_code(text: str) -> str:
-    """Mask C++ comments and ordinary/raw literals, preserving positions."""
-    text = re.sub(r"\\\r?\n", "", text)
-    masked = list(text)
+def _cpp_lexical_surfaces(
+        text: str) -> tuple[str, str, list[tuple[int, int, str]], bool]:
+    """Return spliced text, masked code, exact literals, and completeness."""
+    spliced = re.sub(r"\\\r?\n", "", text)
+    masked = list(spliced)
+    literals: list[tuple[int, int, str]] = []
+    complete = True
+
+    def mask(start: int, end: int) -> None:
+        for cursor in range(start, end):
+            if spliced[cursor] not in "\r\n":
+                masked[cursor] = " "
+
+    def identifier_suffix_end(start: int) -> int:
+        if (start >= len(spliced) or
+                not (spliced[start].isalpha() or spliced[start] == "_")):
+            return start
+        cursor = start + 1
+        while (cursor < len(spliced) and
+               (spliced[cursor].isalnum() or spliced[cursor] == "_")):
+            cursor += 1
+        return cursor
+
+    def prefix_boundary(start: int) -> bool:
+        return (start == 0 or
+                not (spliced[start - 1].isalnum() or
+                     spliced[start - 1] == "_"))
+
     index = 0
-    state = "code"
-    raw_start = re.compile(
-        r"(?:u8|[uUL])?R\"([^\s()\\]{0,16})\(")
-    while index < len(text):
-        current = text[index]
-        following = text[index + 1] if index + 1 < len(text) else ""
-        if state == "code":
-            raw = raw_start.match(text, index)
-            if raw and (index == 0 or not (text[index - 1].isalnum() or
-                                           text[index - 1] == "_")):
-                closing = ")" + raw.group(1) + '"'
-                end = text.find(closing, raw.end())
-                end = len(text) if end < 0 else end + len(closing)
-                for cursor in range(index, end):
-                    if text[cursor] != "\n":
-                        masked[cursor] = " "
-                index = end
-                continue
-            if current == "/" and following == "/":
-                masked[index] = masked[index + 1] = " "
-                index += 2
-                state = "line_comment"
-                continue
-            if current == "/" and following == "*":
-                masked[index] = masked[index + 1] = " "
-                index += 2
-                state = "block_comment"
-                continue
-            if current in ('"', "'"):
-                masked[index] = " "
-                state = "string" if current == '"' else "character"
-                index += 1
-                continue
-        elif state == "line_comment":
-            if current == "\n":
-                state = "code"
+    raw_prefixes = ("u8R\"", "uR\"", "UR\"", "LR\"", "R\"")
+    ordinary_prefixes = ("u8", "u", "U", "L", "")
+    while index < len(spliced):
+        following = spliced[index + 1] if index + 1 < len(spliced) else ""
+        if spliced[index] == "/" and following == "/":
+            end = spliced.find("\n", index + 2)
+            end = len(spliced) if end < 0 else end
+            mask(index, end)
+            index = end
+            continue
+        if spliced[index] == "/" and following == "*":
+            closing = spliced.find("*/", index + 2)
+            if closing < 0:
+                complete = False
+                end = len(spliced)
             else:
-                masked[index] = " "
-            index += 1
+                end = closing + 2
+            mask(index, end)
+            index = end
             continue
-        elif state == "block_comment":
-            if current == "*" and following == "/":
-                masked[index] = masked[index + 1] = " "
-                index += 2
-                state = "code"
+
+        raw_prefix = next(
+            (prefix for prefix in raw_prefixes
+             if spliced.startswith(prefix, index) and prefix_boundary(index)),
+            None)
+        if raw_prefix is not None:
+            delimiter_start = index + len(raw_prefix)
+            opening = spliced.find(
+                "(", delimiter_start, delimiter_start + 17)
+            delimiter = (
+                spliced[delimiter_start:opening] if opening >= 0 else "")
+            delimiter_is_valid = (
+                opening >= 0
+                and len(delimiter) <= 16
+                and not any(character.isspace() or character in "()\\"
+                            for character in delimiter))
+            if delimiter_is_valid:
+                closing_token = ")" + delimiter + '"'
+                closing = spliced.find(closing_token, opening + 1)
+                if closing < 0:
+                    complete = False
+                    literal_end = len(spliced)
+                else:
+                    literal_end = closing + len(closing_token)
+                token_end = identifier_suffix_end(literal_end)
+                literals.append(
+                    (index, token_end, spliced[index:token_end]))
+                mask(index, literal_end)
+                index = token_end
                 continue
-            if current != "\n":
-                masked[index] = " "
-            index += 1
-            continue
-        else:
-            if current != "\n":
-                masked[index] = " "
-            if current == "\\" and following:
-                if following != "\n":
-                    masked[index + 1] = " "
-                index += 2
-                continue
-            if ((state == "string" and current == '"') or
-                    (state == "character" and current == "'")):
-                state = "code"
-            index += 1
+
+        ordinary = None
+        for prefix in ordinary_prefixes:
+            quote_index = index + len(prefix)
+            if (quote_index < len(spliced)
+                    and (not prefix or spliced.startswith(prefix, index))
+                    and spliced[quote_index] in {'"', "'"}
+                    and (not prefix or prefix_boundary(index))
+                    and not (not prefix and spliced[quote_index] == "'"
+                             and quote_index > 0
+                             and quote_index + 1 < len(spliced)
+                             and spliced[quote_index - 1].isalnum()
+                             and spliced[quote_index + 1].isalnum())):
+                ordinary = (prefix, quote_index, spliced[quote_index])
+                break
+        if ordinary is not None:
+            _, quote_index, quote = ordinary
+            cursor = quote_index + 1
+            closed = False
+            while cursor < len(spliced):
+                if spliced[cursor] == "\\":
+                    cursor += 2
+                    continue
+                if spliced[cursor] == quote:
+                    cursor += 1
+                    closed = True
+                    break
+                if spliced[cursor] in "\r\n":
+                    complete = False
+                    break
+                cursor += 1
+            if not closed:
+                complete = False
+            literal_end = min(cursor, len(spliced))
+            token_end = identifier_suffix_end(literal_end)
+            literals.append((index, token_end, spliced[index:token_end]))
+            # Preserve ordinary encoding prefixes in structural code, matching
+            # the historical masker; their exact spelling is also in the token.
+            mask(quote_index, literal_end)
+            index = max(token_end, index + 1)
             continue
         index += 1
-    return "".join(masked)
+    return (spliced, "".join(masked), literals, complete)
+
+
+def _cpp_code(text: str) -> str:
+    """Mask C++ comments and ordinary/raw literals, preserving positions."""
+    return _cpp_lexical_surfaces(text)[1]
 
 
 _CPP_DIRECTIVE_PREFIX = r"(?:#|%:|\?\?=)"
@@ -737,11 +795,11 @@ def _reviewed_active_source_contract(
 
     Only balanced outer ``#if 0``/``#if (0)`` blocks without a depth-one
     alternative are ignored. All other conditionals and active macro state
-    are ambiguous. Include operands are retained separately because
-    ``_cpp_code`` deliberately masks quoted literals.
+    are ambiguous. Include operands and ordered exact literal tokens are
+    retained separately because ``_cpp_code`` deliberately masks literals.
     """
-    spliced = re.sub(r"\\\r?\n", "", text)
-    lexical = _cpp_code(text)
+    spliced, lexical, literal_tokens, lexically_complete = (
+        _cpp_lexical_surfaces(text))
     raw_lines = spliced.splitlines(keepends=True)
     code_lines = lexical.splitlines(keepends=True)
     if len(raw_lines) != len(code_lines):
@@ -753,9 +811,11 @@ def _reviewed_active_source_contract(
         r'\s*("(?:\\.|[^"\\])*"|<[^>\r\n]*>|[A-Za-z_]\w*)')
     inactive_depth = 0
     inactive_has_depth_one_alternative = False
-    unambiguous = True
+    unambiguous = lexically_complete
     active_lines: list[str] = []
     active_inclusions: list[tuple[str, str]] = []
+    inactive_spans: list[tuple[int, int]] = []
+    line_offset = 0
 
     for raw_line, code_line in zip(raw_lines, code_lines):
         match = directive.match(code_line)
@@ -775,6 +835,9 @@ def _reviewed_active_source_contract(
             active_lines.append("".join(
                 "\n" if character == "\n" else " "
                 for character in code_line))
+            inactive_spans.append(
+                (line_offset, line_offset + len(code_line)))
+            line_offset += len(code_line)
             continue
 
         if match and name == "if":
@@ -784,6 +847,9 @@ def _reviewed_active_source_contract(
                 active_lines.append("".join(
                     "\n" if character == "\n" else " "
                     for character in code_line))
+                inactive_spans.append(
+                    (line_offset, line_offset + len(code_line)))
+                line_offset += len(code_line)
                 continue
         if name in {"if", "ifdef", "ifndef", "elif", "else", "endif",
                     "define", "undef"}:
@@ -795,14 +861,22 @@ def _reviewed_active_source_contract(
             else:
                 active_inclusions.append((name, operand.group(1)))
         active_lines.append(code_line)
+        line_offset += len(code_line)
 
     if inactive_depth:
         unambiguous = False
     active = "".join(active_lines)
+    active_literals = [
+        token
+        for start, _, token in literal_tokens
+        if not any(span_start <= start < span_end
+                   for span_start, span_end in inactive_spans)
+    ]
     normalized = json.dumps({
         "code_with_normalized_whitespace": re.sub(
             r"\s+", " ", active).strip(),
         "active_inclusions": active_inclusions,
+        "active_literal_tokens": active_literals,
     }, sort_keys=True, separators=(",", ":"))
     digest = hashlib.sha256(normalized.encode("utf-8")).hexdigest()
     return (active, digest, unambiguous)

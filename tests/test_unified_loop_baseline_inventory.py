@@ -331,6 +331,9 @@ LegacyOneRingClassification Mesh::classify_legacy_one_ring(
     staged[3] = d4;
     staged[6] = d7;
     staged[7] = d8;
+    const char marker = 'R';
+    const char *rawReason =
+        R"reason(INVALID_CORNER_VERTEX_INDEX)reason";
 }
 """
         preflight_loop = """
@@ -338,7 +341,10 @@ LegacyOneRingClassification Mesh::classify_legacy_one_ring(
     {
         if (is_legacy_one_ring_rejection(classification.reasonCode))
         {
-            throw std::runtime_error(message);
+            const std::string message =
+                "Legacy one-ring setup rejected face ";
+            const char *reasonCodeName = "INVALID_CORNER_VERTEX_INDEX";
+            throw std::runtime_error(message + reasonCodeName);
         }
     }
 """
@@ -372,6 +378,21 @@ void Mesh::set_one_ring_vertices_sorted()
                     "int d4 = -1;", "intd4 = -1;", 1))[1],
             repaired_contract_sha256,
             "distinct C++ tokenization collapsed to the same source contract",
+        )
+        literal_fixture = r'''
+auto ordinary = u8"slash\\quote\"";
+auto character = U'\x5a';
+auto raw = LR"tag(raw // /* " bytes)tag"_suffix;
+// u8"comment literal"
+/* R"(block comment literal)" */
+'''
+        _, _, literal_tokens, literal_fixture_is_complete = (
+            INVENTORY._cpp_lexical_surfaces(literal_fixture))
+        self.assertTrue(literal_fixture_is_complete)
+        self.assertEqual(
+            [token for _, _, token in literal_tokens],
+            [r'u8"slash\\quote\""', r"U'\x5a'",
+             r'LR"tag(raw // /* " bytes)tag"_suffix'],
         )
 
         def collect_with_topology(source):
@@ -489,7 +510,11 @@ void Mesh::set_one_ring_vertices_sorted()
             "#if (0)\n"
             "        faces[0].adjacentVertices.clear();\n"
             "#endif\n",
-            "        // faces[0].oneRingVertices.clear();\n",
+            "#if 0\n"
+            "        const auto hidden = R\"tag(inactive)tag\";\n"
+            "#endif\n",
+            "        // faces[0].oneRingVertices.clear(); "
+            "\"ignored literal\" 'x' R\"(ignored raw)\"\n",
         ]
         for mutation in masked_mutations:
             masked_write_report = collect_with_topology(
@@ -624,6 +649,31 @@ void Mesh::set_one_ring_vertices_sorted()
                 message,
             )
             self.assertFalse(validate_topology(report))
+
+        literal_mutations = (
+            ('"Legacy one-ring setup rejected face "',
+             '"Legacy one-ring setup rejected edge "'),
+            ('"INVALID_CORNER_VERTEX_INDEX"',
+             '"INVALID_CORNER_VERTEX_ID"'),
+            ("'R'", "'S'"),
+            ('R"reason(INVALID_CORNER_VERTEX_INDEX)reason"',
+             'R"reason(INVALID_CORNER_VERTEX_ID)reason"'),
+        )
+        for old_literal, new_literal in literal_mutations:
+            literal_mutation_source = repaired_source.replace(
+                old_literal, new_literal, 1)
+            self.assertNotEqual(literal_mutation_source, repaired_source)
+            self.assertNotEqual(
+                INVENTORY._reviewed_active_source_contract(
+                    literal_mutation_source)[1],
+                repaired_contract_sha256,
+                f"active literal mutation escaped digest: {old_literal}",
+            )
+            assert_repair_state(
+                literal_mutation_source,
+                (False, False, False),
+                f"active literal mutation escaped repair state: {old_literal}",
+            )
 
         publication_signature = (
             "void Mesh::set_one_ring_vertices_sorted()\n{\n")
