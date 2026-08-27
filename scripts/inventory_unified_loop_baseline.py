@@ -744,13 +744,26 @@ def _legacy_classifier_repair_observations(text: str) -> tuple[bool, bool]:
         re.compile(rf"\bint\s+{name}\s*=\s*-\s*1\s*;")
         for name in ("d4", "d7", "d8")
     ]
+    declaration_patterns = [
+        re.compile(
+            rf"(?:^|[;{{}}(])\s*(?:for\s*\(\s*)?"
+            r"(?:(?:const|volatile|static|constexpr|register|mutable)\s+)*"
+            r"(?!(?:return|throw|goto|break|continue|case|delete|new)\b)"
+            r"(?:[A-Za-z_]\w*::)*[A-Za-z_]\w*"
+            r"(?:\s*<[^;{}()]+>)?\s+(?![=])[^;{}()]*"
+            rf"\b{name}\b(?=\s*(?:=|,|;|\[|\)))",
+            re.MULTILINE)
+        for name in ("d4", "d7", "d8")
+    ]
     sentinel_initialization_observed = False
     if classifier is not None:
         classifier_body = classifier[3]
         sentinel_initialization_observed = all(
             len(pattern.findall(active)) == 1 and
-            len(_direct_scope_matches(classifier_body, pattern)) == 1
-            for pattern in sentinel_patterns)
+            len(_direct_scope_matches(classifier_body, pattern)) == 1 and
+            len(declaration.findall(classifier_body)) == 1
+            for pattern, declaration in zip(
+                sentinel_patterns, declaration_patterns))
 
     publication = _unique_braced_scope_span(
         active,
@@ -778,6 +791,10 @@ def _legacy_classifier_repair_observations(text: str) -> tuple[bool, bool]:
             re.compile(
                 r"\bfaces\s*\[\s*faceIndex\s*\]\s*\.\s*"
                 r"oneRingVertices\s*\.\s*swap\s*\("),
+        ]
+        publication_field_patterns = [
+            re.compile(r"\badjacentVertices\b"),
+            re.compile(r"\boneRingVertices\b"),
         ]
         if preflight is not None and publication_loop is not None:
             preflight_is_direct = (
@@ -807,6 +824,8 @@ def _legacy_classifier_repair_observations(text: str) -> tuple[bool, bool]:
                 and len(direct_throws) == 1
                 and all(len(pattern.findall(active)) == 1
                         for pattern in write_patterns)
+                and all(len(pattern.findall(publication_body)) == 1
+                        for pattern in publication_field_patterns)
                 and all(len(matches) == 1 for matches in direct_writes)
                 and preflight[2] < publication_loop[0]
                 and direct_writes[0][0].start() < direct_writes[1][0].start()

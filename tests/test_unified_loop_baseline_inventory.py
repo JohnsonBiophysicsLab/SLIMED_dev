@@ -354,6 +354,60 @@ void Mesh::set_one_ring_vertices_sorted()
         self.assertFalse(
             INVENTORY.validate_inventory(repaired_report, check_adr=False))
 
+        rejection_line = (
+            "        if (is_legacy_one_ring_rejection("
+            "classification.reasonCode))")
+        publication_mutations = [
+            "faces[0].{field}.clear();",
+            "faces[0].{field}.push_back(0);",
+            "faces[0].{field} = {{}};",
+            "faces[0].{field}[0] = 0;",
+        ]
+        for field in ("adjacentVertices", "oneRingVertices"):
+            for mutation in publication_mutations:
+                extra_write_source = repaired_source.replace(
+                    rejection_line,
+                    "        " + mutation.format(field=field) + "\n" +
+                    rejection_line,
+                    1)
+                extra_write_report = collect_with_topology(extra_write_source)
+                extra_write_record = extra_write_report["D_topology_guards"] \
+                    ["legacy_11_control_predicate"] \
+                    ["wp1_1a_classifier_repair_record"]
+                self.assertEqual(
+                    (extra_write_record["sentinel_initialization_observed"],
+                     extra_write_record[
+                         "rejection_precedes_publication_observed"],
+                     extra_write_record["repair_confirmed"]),
+                    (True, False, False),
+                    f"active preflight mutation escaped: {field} {mutation}",
+                )
+                self.assertFalse(INVENTORY.validate_inventory(
+                    extra_write_report, check_adr=False))
+
+        masked_mutations = [
+            "#if 0\n"
+            "        faces[0].adjacentVertices.clear();\n"
+            "#endif\n",
+            "        // faces[0].oneRingVertices.clear();\n",
+        ]
+        for mutation in masked_mutations:
+            masked_write_report = collect_with_topology(
+                repaired_source.replace(
+                    rejection_line, mutation + rejection_line, 1))
+            masked_write_record = masked_write_report["D_topology_guards"] \
+                ["legacy_11_control_predicate"] \
+                ["wp1_1a_classifier_repair_record"]
+            self.assertEqual(
+                (masked_write_record["sentinel_initialization_observed"],
+                 masked_write_record[
+                     "rejection_precedes_publication_observed"],
+                 masked_write_record["repair_confirmed"]),
+                (True, True, True),
+            )
+            self.assertFalse(INVENTORY.validate_inventory(
+                masked_write_report, check_adr=False))
+
         duplicate_sentinel_report = collect_with_topology(
             repaired_source.replace(
                 "int d4 = -1;", "int d4 = -1;\n    int d4 = -1;", 1))
@@ -369,6 +423,29 @@ void Mesh::set_one_ring_vertices_sorted()
         )
         self.assertFalse(INVENTORY.validate_inventory(
             duplicate_sentinel_report, check_adr=False))
+
+        for name in ("d4", "d7", "d8"):
+            nested_declaration_source = repaired_source.replace(
+                f"    int {name} = -1;",
+                f"    int {name} = -1;\n"
+                f"    if (nested) {{ int spare, {name}; }}",
+                1)
+            nested_declaration_report = collect_with_topology(
+                nested_declaration_source)
+            nested_declaration_record = nested_declaration_report[
+                "D_topology_guards"]["legacy_11_control_predicate"][
+                    "wp1_1a_classifier_repair_record"]
+            self.assertEqual(
+                (nested_declaration_record[
+                     "sentinel_initialization_observed"],
+                 nested_declaration_record[
+                     "rejection_precedes_publication_observed"],
+                 nested_declaration_record["repair_confirmed"]),
+                (False, True, False),
+                f"nested declaration escaped: {name}",
+            )
+            self.assertFalse(INVENTORY.validate_inventory(
+                nested_declaration_report, check_adr=False))
 
         misordered_source = classifier_source + """
 void Mesh::set_one_ring_vertices_sorted()
