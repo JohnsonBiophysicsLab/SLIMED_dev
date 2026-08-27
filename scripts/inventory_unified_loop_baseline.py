@@ -15,6 +15,7 @@ import csv
 import hashlib
 import io
 import json
+import os
 import re
 import struct
 import subprocess
@@ -641,6 +642,34 @@ def _checkpoint_source_surface_sha256() -> str:
                 (relative, hashlib.sha256(text.encode("utf-8")).hexdigest()))
     encoded = json.dumps(surface, separators=(",", ":")).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
+
+
+def _make_override_environment_absent() -> bool:
+    """Reject makefile preloads or command-line build-entrypoint overrides."""
+    if os.environ.get("MAKEFILES", "").strip():
+        return False
+    override = re.compile(
+        r"(?:^|\s)(?:-f\S*|--file(?:=|\s)\S+|"
+        r"--makefile(?:=|\s)\S+|f(?:\s|$))")
+    return not any(override.search(os.environ.get(name, ""))
+                   for name in ("MAKEFLAGS", "GNUMAKEFLAGS"))
+
+
+def _make_entrypoint_overrides() -> list[str]:
+    """Return precedence makefiles that are not the reviewed Makefile inode."""
+    reviewed = ROOT / "Makefile"
+    overrides: list[str] = []
+    for name in ("GNUmakefile", "makefile"):
+        candidate = ROOT / name
+        if not candidate.is_file():
+            continue
+        try:
+            same_reviewed_file = candidate.samefile(reviewed)
+        except OSError:
+            same_reviewed_file = False
+        if not same_reviewed_file:
+            overrides.append(name)
+    return overrides
 
 
 def _has_unreviewed_macro_directive(code: str) -> bool:
@@ -1927,6 +1956,10 @@ def collect_inventory() -> dict[str, Any]:
                 checkpoint_writer_contract_sha256,
             "checkpoint_source_surface_sha256":
                 _checkpoint_source_surface_sha256(),
+            "checkpoint_make_entrypoint_overrides":
+                _make_entrypoint_overrides(),
+            "checkpoint_make_override_environment_absent":
+                _make_override_environment_absent(),
             "checkpoint_preprocessor_surface_locked":
                 _only_reviewed_preprocessor_includes(
                     output, _REVIEWED_CHECKPOINT_INCLUDES),
@@ -2311,6 +2344,10 @@ def validate_inventory(report: dict[str, Any], check_adr: bool = True) -> list[s
         require(j["checkpoint_source_surface_sha256"] ==
                 _REVIEWED_CHECKPOINT_SOURCE_SURFACE_SHA256,
                 "checkpoint source ownership drift")
+        require(j["checkpoint_make_entrypoint_overrides"] == [],
+                "checkpoint build entrypoint membership drift")
+        require(j["checkpoint_make_override_environment_absent"],
+                "checkpoint build entrypoint environment override")
         require(j["checkpoint_preprocessor_surface_locked"],
                 "checkpoint writer preprocessing surface drift")
         require(j["checkpoint_topology_write_interlock"],

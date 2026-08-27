@@ -1249,6 +1249,13 @@ class UnifiedLoopBaselineInventoryTest(unittest.TestCase):
         self.assert_mutation_rejected(
             lambda r: r["J_output_checkpoint"].update(
                 {"checkpoint_source_surface_sha256": "unchecked-writer"}))
+        self.assert_mutation_rejected(
+            lambda r: r["J_output_checkpoint"].update(
+                {"checkpoint_make_entrypoint_overrides":
+                    ["GNUmakefile"]}))
+        self.assert_mutation_rejected(
+            lambda r: r["J_output_checkpoint"].update(
+                {"checkpoint_make_override_environment_absent": False}))
         self.assert_text_mutation_rejected(
             "src/io/output.cpp",
             lambda text: text.replace(
@@ -1343,6 +1350,17 @@ class UnifiedLoopBaselineInventoryTest(unittest.TestCase):
             "Makefile",
             lambda text: text +
                 "\nobj/output.o: CXXFLAGS += -include include/Parameters.hpp\n")
+        for environment in (
+                {"MAKEFILES": "/tmp/l7d-preinclude.mk"},
+                {"MAKEFLAGS": "-f/tmp/l7d-override.mk"},
+                {"GNUMAKEFLAGS": "--file=/tmp/l7d-override.mk"}):
+            with self.subTest(environment=environment), mock.patch.dict(
+                    INVENTORY.os.environ, environment, clear=False):
+                candidate = INVENTORY.collect_inventory()
+                self.assertTrue(
+                    INVENTORY.validate_inventory(
+                        candidate, check_adr=False),
+                    "make override environment unexpectedly passed")
         self.assert_text_mutation_rejected(
             "src/mesh/Mesh_io.cpp",
             lambda text: text +

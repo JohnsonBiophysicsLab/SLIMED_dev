@@ -175,8 +175,10 @@ writer.
 The global claim is guarded conservatively: the fail-closed inventory hashes the
 raw Makefile, executable-entrypoint membership under `EXEs/`, and the raw
 contents and path membership of the complete compiled `src/` and `include/`
-C++/CUDA surface. Any production build or code change must explicitly refresh
-that reviewed digest. This maintenance cost is intentional; a name-, tag-, or
+C++/CUDA surface. It also requires `Makefile` to be the sole GNU Make precedence
+entrypoint and rejects `MAKEFILES`, `MAKEFLAGS -f`, and `GNUMAKEFLAGS -f`
+overrides. Any production build or code change must explicitly refresh that
+reviewed digest. This maintenance cost is intentional; a name-, tag-, or
 file-output-API heuristic could admit an alternate unchecked writer.
 
 This is deliberately negative evidence, not completion of topology-aware
