@@ -572,6 +572,20 @@ _REVIEWED_TRANSACTION_INCLUDES = (
 )
 _REVIEWED_TRANSACTION_COMMIT_SHA256 = (
     "19485b5963d97cd60472e5c66dcf5a275ad6b410fb32270beb7545cd8f4dc748")
+_REVIEWED_IMPORT_SETUP_SHA256 = (
+    "f4c489797126ea63ab7bbe1c7bfa054cef0bdd84e05e5a53f7579149d6d78d9a")
+_REVIEWED_FLAT_SETUP_SHA256 = (
+    "2a87b985a058db11429bb86c9ed49d186ed558eaf3a671fd08722e512e8586f4")
+_REVIEWED_CHECKPOINT_WRITER_SHA256 = (
+    "d0fcc2377f984854926cf35740cd0f62db9d70822d33317f8f95d697666b5446")
+_REVIEWED_CHECKPOINT_INCLUDES = (
+    ("include", '"io/io.hpp"'),
+    ("include", "<algorithm>"),
+    ("include", "<cstdio>"),
+    ("include", "<iomanip>"),
+)
+_REVIEWED_CHECKPOINT_SOURCE_SURFACE_SHA256 = (
+    "60fa90db08c25f5a3f81c7359ac6c91a5792be2452d038a6aaf8658c6a81eac0")
 _REVIEWED_OTHER_SOURCE_COUNT = 86
 _REVIEWED_OTHER_INCLUSION_SHA256 = (
     "8be98f909e50b3e463616d7b050705697a9f2baa730c2973673b166d86482817")
@@ -595,6 +609,55 @@ def _source_inclusion_surface_sha256(sources: list[str]) -> str:
     surface = [_source_inclusion_directives(source) for source in sources]
     encoded = json.dumps(surface, separators=(",", ":")).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
+
+
+def _only_reviewed_preprocessor_includes(
+        text: str,
+        reviewed: tuple[tuple[str, str], ...]) -> bool:
+    """Require an exact include surface and reject every other directive."""
+    code = _cpp_code(text)
+    directives = tuple(match.group(1) for match in re.finditer(
+        rf"^\s*{_CPP_DIRECTIVE_PREFIX}\s*([A-Za-z_]\w*)\b",
+        code, re.MULTILINE))
+    return (all(name == "include" for name in directives) and
+            _source_inclusion_directives(text) == reviewed)
+
+
+def _checkpoint_source_surface_sha256() -> str:
+    """Hash production build membership and every compiled source/header."""
+    suffixes = {
+        ".cpp", ".cc", ".cxx", ".cu", ".mm",
+        ".hpp", ".h", ".cuh", ".ipp", ".tpp", ".inl"}
+    makefile = _text("Makefile")
+    surface: list[tuple[str, str]] = [
+        ("Makefile", hashlib.sha256(makefile.encode("utf-8")).hexdigest())]
+    for base in (ROOT / "src", ROOT / "include", ROOT / "EXEs"):
+        for path in sorted(base.rglob("*")):
+            if not path.is_file() or path.suffix not in suffixes:
+                continue
+            relative = path.relative_to(ROOT).as_posix()
+            text = _text(relative)
+            surface.append(
+                (relative, hashlib.sha256(text.encode("utf-8")).hexdigest()))
+    encoded = json.dumps(surface, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _make_entrypoint_overrides() -> list[str]:
+    """Return precedence makefiles that are not the reviewed Makefile inode."""
+    reviewed = ROOT / "Makefile"
+    overrides: list[str] = []
+    for name in ("GNUmakefile", "makefile"):
+        candidate = ROOT / name
+        if not candidate.is_file():
+            continue
+        try:
+            same_reviewed_file = candidate.samefile(reviewed)
+        except OSError:
+            same_reviewed_file = False
+        if not same_reviewed_file:
+            overrides.append(name)
+    return overrides
 
 
 def _has_unreviewed_macro_directive(code: str) -> bool:
@@ -762,13 +825,22 @@ def _topology_invalidation_seam_errors(
         r"\bregularLimitSurfaceRowCache_\s*\.\s*invalidate\s*\(\s*\)\s*;")
     seam_call_pattern = re.compile(
         r"\binvalidate_topology_derived_state\s*\(\s*\)\s*;")
+    setup_generation_call_pattern = re.compile(
+        r"\bmark_topology_generation_installed_by_setup\s*"
+        r"\(\s*\)\s*;")
     transaction_seam_call_pattern = re.compile(
         r"\bmesh_\s*\.\s*invalidate_topology_derived_state\s*"
         r"\(\s*\)\s*;")
     seam_definition_pattern = re.compile(
         r"\bvoid\s+(?:Mesh::)?invalidate_topology_derived_state\s*"
         r"\(\s*\)\s*\{")
+    setup_generation_definition_pattern = re.compile(
+        r"\bvoid\s+(?:Mesh::)?"
+        r"mark_topology_generation_installed_by_setup\s*"
+        r"\(\s*\)\s*(?:noexcept\s*)?\{")
     generation_pattern = re.compile(r"\btopologyGeneration_\b")
+    setup_generation_pattern = re.compile(
+        r"\btopologyGenerationInstalledBySetup_\b")
     reviewed_seam_body_pattern = re.compile(
         r"\s*if\s*\(\s*topologyGeneration_\s*==\s*"
         r"std::numeric_limits\s*<\s*std::uint64_t\s*>\s*::\s*max\s*"
@@ -835,6 +907,49 @@ def _topology_invalidation_seam_errors(
                 errors.append("cache reset is not a direct seam statement")
             if not reviewed_seam_body_pattern.fullmatch(seam_body):
                 errors.append("topology invalidation seam body has drifted")
+        setup_generation_scope = _unique_braced_scope(
+            class_body,
+            r"\bvoid\s+mark_topology_generation_installed_by_setup\s*"
+            r"\(\s*\)\s*noexcept\s*\{")
+        if setup_generation_scope is None:
+            errors.append("unique setup-generation marker definition")
+        else:
+            marker_start, marker_body = setup_generation_scope
+            access, marker_depth = _direct_access_label(
+                class_body, marker_start)
+            if access != "private" or marker_depth != 0:
+                errors.append("setup-generation marker is not private")
+            if not re.fullmatch(
+                    r"\s*topologyGenerationInstalledBySetup_\s*=\s*"
+                    r"topologyGeneration_\s*;\s*", marker_body):
+                errors.append("setup-generation marker body has drifted")
+        setup_generation_accessor = _unique_braced_scope(
+            class_body,
+            r"\bstd::uint64_t\s+"
+            r"topology_generation_installed_by_setup\s*\(\s*\)\s*"
+            r"const\s*noexcept\s*\{")
+        if setup_generation_accessor is None:
+            errors.append("unique setup-generation accessor definition")
+        else:
+            accessor_start, accessor_body = setup_generation_accessor
+            access, accessor_depth = _direct_access_label(
+                class_body, accessor_start)
+            if access != "public" or accessor_depth != 0:
+                errors.append("setup-generation accessor is not public")
+            if not re.fullmatch(
+                    r"\s*return\s+topologyGenerationInstalledBySetup_\s*;\s*",
+                    accessor_body):
+                errors.append("setup-generation accessor body has drifted")
+        setup_generation_member = list(re.finditer(
+            r"\bstd::uint64_t\s+topologyGenerationInstalledBySetup_\s*=\s*"
+            r"0\s*;", class_body))
+        if len(setup_generation_member) != 1:
+            errors.append("setup-generation storage has drifted")
+        else:
+            access, member_depth = _direct_access_label(
+                class_body, setup_generation_member[0].start())
+            if access != "private" or member_depth != 0:
+                errors.append("setup-generation storage is not private")
         if transaction_source:
             friend_pattern = re.compile(
                 r"\bfriend\s+class\s+"
@@ -859,6 +974,14 @@ def _topology_invalidation_seam_errors(
         errors.append("import setup does not call seam exactly once")
     elif not _scope_begins_with(import_scope[1], seam_call_pattern):
         errors.append("import setup does not begin with a direct seam call")
+    if import_scope is not None:
+        if (len(setup_generation_call_pattern.findall(import_scope[1])) != 1 or
+                len(_direct_scope_matches(
+                    import_scope[1], setup_generation_call_pattern)) != 1):
+            errors.append("import setup does not mark its generation exactly once")
+        if (_scope_contract_sha256(import_scope[1]) !=
+                _REVIEWED_IMPORT_SETUP_SHA256):
+            errors.append("import setup body has drifted")
 
     flat_scope = _unique_braced_scope(
         lexical_code[2], r"\bvoid\s+Mesh::setup_flat\s*\(\s*\)\s*\{")
@@ -870,6 +993,14 @@ def _topology_invalidation_seam_errors(
         errors.append("flat setup does not call seam exactly once")
     elif not _scope_begins_with(flat_scope[1], seam_call_pattern):
         errors.append("flat setup does not begin with a direct seam call")
+    if flat_scope is not None:
+        if (len(setup_generation_call_pattern.findall(flat_scope[1])) != 1 or
+                len(_direct_scope_matches(
+                    flat_scope[1], setup_generation_call_pattern)) != 1):
+            errors.append("flat setup does not mark its generation exactly once")
+        if (_scope_contract_sha256(flat_scope[1]) !=
+                _REVIEWED_FLAT_SETUP_SHA256):
+            errors.append("flat setup body has drifted")
 
     if transaction_source:
         transaction_scope = _unique_braced_scope(
@@ -904,12 +1035,19 @@ def _topology_invalidation_seam_errors(
         errors.append("cache reset exists outside the single seam")
     if len(seam_definition_pattern.findall(all_code)) != 1:
         errors.append("topology invalidation seam has unreviewed definitions")
+    if len(setup_generation_definition_pattern.findall(all_code)) != 1:
+        errors.append("setup-generation marker has unreviewed definitions")
+    if len(setup_generation_call_pattern.findall(all_code)) != 2:
+        errors.append("setup-generation marker has unreviewed callers")
     expected_call_count = 3 if transaction_source else 2
     if len(seam_call_pattern.findall(all_code)) != expected_call_count:
         errors.append("topology invalidation seam has unreviewed callers")
-    if (len(generation_pattern.findall(header_code)) != 4 or
-            len(generation_pattern.findall(all_code)) != 4):
+    if (len(generation_pattern.findall(header_code)) != 5 or
+            len(generation_pattern.findall(all_code)) != 5):
         errors.append("topology generation has unreviewed references")
+    if (len(setup_generation_pattern.findall(header_code)) != 3 or
+            len(setup_generation_pattern.findall(all_code)) != 3):
+        errors.append("setup generation has unreviewed references")
     if any(_has_unreviewed_macro_directive(code) for code in lexical_code):
         errors.append("topology invalidation identity is macro-shadowed")
     for name, pattern in (
@@ -1098,6 +1236,12 @@ def collect_inventory() -> dict[str, Any]:
     source_keyed_hpp = _text("include/energy_force/Source_keyed_kernel_call.hpp")
     source_keyed_cpp = _text("src/energy_force/Source_keyed_kernel_call.cpp")
     output = _text("src/io/output.cpp")
+    checkpoint_writer_scope = _unique_braced_scope(
+        _cpp_code(output),
+        r"\bbool\s+write_model_restart_checkpoint\s*\([^)]*\)\s*\{")
+    checkpoint_writer_contract_sha256 = (
+        _scope_contract_sha256(checkpoint_writer_scope[1])
+        if checkpoint_writer_scope is not None else "unavailable")
     cuda_cpu = _text("src/cuda/Cuda_regular_geometry_cpu.cpp")
     cuda_device = _text("src/cuda/Cuda_mesh_state.cu")
     adaptive = _text("include/mesh/Adaptive_edge_flip_quality.hpp")
@@ -1796,6 +1940,20 @@ def collect_inventory() -> dict[str, Any]:
             "checkpoint_tag": "SLIMED_RESTART_V2",
             "checkpoint_atomic_temp_suffix": ".tmp",
             "checkpoint_atomic_rename": "std::rename(tempFilepath.c_str(), filepath.c_str())" in output,
+            "checkpoint_writer_contract_sha256":
+                checkpoint_writer_contract_sha256,
+            "checkpoint_source_surface_sha256":
+                _checkpoint_source_surface_sha256(),
+            "checkpoint_make_entrypoint_overrides":
+                _make_entrypoint_overrides(),
+            "checkpoint_preprocessor_surface_locked":
+                _only_reviewed_preprocessor_includes(
+                    output, _REVIEWED_CHECKPOINT_INCLUDES),
+            "checkpoint_topology_write_interlock": _all_present(output, [
+                "model.mesh.topology_generation() !=",
+                "model.mesh.topology_generation_installed_by_setup()",
+                "The V1/V2 restart formats do not store connectivity.",
+            ]),
             "field_order_anchor_present": _all_present(output, [
                 "energy.energyCurvature << ','", "energy.energyArea << ','",
                 "energy.energyVolume << ','", "energy.energyTotal",
@@ -2166,6 +2324,18 @@ def validate_inventory(report: dict[str, Any], check_adr: bool = True) -> list[s
                 "output precision/checkpoint tag drift")
         require(j["checkpoint_atomic_temp_suffix"] == ".tmp" and j["checkpoint_atomic_rename"],
                 "checkpoint atomic replacement drift")
+        require(j["checkpoint_writer_contract_sha256"] ==
+                _REVIEWED_CHECKPOINT_WRITER_SHA256,
+                "checkpoint writer contract drift")
+        require(j["checkpoint_source_surface_sha256"] ==
+                _REVIEWED_CHECKPOINT_SOURCE_SURFACE_SHA256,
+                "checkpoint source ownership drift")
+        require(j["checkpoint_make_entrypoint_overrides"] == [],
+                "checkpoint build entrypoint membership drift")
+        require(j["checkpoint_preprocessor_surface_locked"],
+                "checkpoint writer preprocessing surface drift")
+        require(j["checkpoint_topology_write_interlock"],
+                "checkpoint topology write interlock missing")
         require(j["field_order_anchor_present"], "output/checkpoint source anchor drift")
         require(not j["backend_or_functional_metadata_present"],
                 "false output backend/functional metadata claim")

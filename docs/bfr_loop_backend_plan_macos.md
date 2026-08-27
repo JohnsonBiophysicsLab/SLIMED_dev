@@ -1762,9 +1762,11 @@ which the unified plan's WP9 compressed away:
 4. atomic stage, validate, commit, rollback, with exact restoration on
    rejection;
 5. topology-aware checkpoint and restart: `SLIMED_RESTART_V2`
-   ([`output.cpp:225`](../src/io/output.cpp:225)) stores no connectivity, so a
+   ([`output.cpp:239`](../src/io/output.cpp:239)) stores no connectivity, so a
    run containing flips would restart on the input mesh's topology while loading
-   observables computed on a different one;
+   observables computed on a different one. Until a separate C4-reviewed schema
+   is explicitly approved, a write-side interlock must reject checkpoints after
+   a topology transaction; that interlock does not satisfy this item;
 6. periodic image pairing, since flipping one image of a periodic edge
    desynchronises the band, and insertion, material, layer, ghost, and boundary
    label transfer policy;
@@ -1960,7 +1962,7 @@ Nothing in this plan decides them.
 | KB9b | D9b Bfr production-activation acceptance on integrated-functional evidence | Deferred to after WP5.2 | Scientific + explicit user |
 | KL1 | WP1.1a merged; L1 quarantine still pending D5 | Ready now | T1, then T2 for WP1.1b |
 | KL4 | PR 185 merged, PR 176/182 closed as superseded, D0 resolved | Pending explicit user instruction | User |
-| KL7 | Topology ownership and rebuild transaction; **required before WP9** | Not started; independent of the B lane | T2 + explicit user |
+| KL7 | Topology ownership and rebuild transaction; **required before WP9** | L7a-L7c merged; L7d closes the lane with a write-side interlock. Item 5 remains explicitly open, and topology-aware restart plus items 6-7 still block WP9. | T2 + explicit user |
 | KL8 | Optional custom Bfr adapter, Phase-2 localized invalidation | Optional, strictly after KL7 | User |
 
 ## 10. What this plan does not authorize

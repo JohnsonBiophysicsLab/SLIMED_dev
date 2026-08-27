@@ -149,10 +149,56 @@ must hold exclusive access to the Mesh. It preserves non-connectivity fields by
 retaining the existing `Vertex` and `Face` objects, but that mechanical face-ID
 retention is not an approved physical insertion/material/layer label transfer
 policy. One-rings are cleared rather than evaluator-rebuilt, so a committed
-transaction is not evaluator- or science-ready. L7d checkpoint and restart,
-L7e periodic/ghost/boundary/material/label policy, L7f optimizer and dynamics
-consequences, Gate-C evaluator coverage, Gate-D science continuity, and
-production flip activation all remain separately deferred.
+transaction is not evaluator- or science-ready. Topology-aware checkpoint and
+restart, L7e periodic/ghost/boundary/material/label policy, L7f optimizer and
+dynamics consequences, Gate-C evaluator coverage, Gate-D science continuity,
+and production flip activation all remain separately deferred.
+
+## L7d restart checkpoint write interlock
+
+The V1 and V2 restart formats do not store oriented face connectivity. L7d
+therefore does not change either format or claim topology-aware restart.
+Instead, `Mesh` records the topology generation installed by the last setup
+that completed successfully. Both setup entry points refresh that marker only
+after their rebuild work completes. A committed L7c transaction advances the
+live topology generation through the existing invalidation seam but does not
+refresh the setup marker.
+
+The restart writer compares those generations before it opens the temporary
+checkpoint file. A mismatch fails the write and leaves any existing destination
+unchanged. The transaction has no production caller, so every existing workload
+continues to write the same `SLIMED_RESTART_V2` byte schema. The interlock makes
+the L7-before-WP9 ordering executable: after a committed topology transaction
+the current writer refuses until a full mesh setup reinstalls the topology and
+refreshes the marker. It is a generation comparison, not a proof of
+connectivity agreement. A caller that re-runs `setup_from_vertices_faces()`
+after a transaction re-arms the writer, and the V1/V2 schema would not record
+the difference.
+
+The global claim is guarded conservatively: the fail-closed inventory hashes the
+raw Makefile, executable-entrypoint membership under `EXEs/`, and the raw
+contents and path membership of the complete compiled `src/` and `include/`
+C++/CUDA surface. It also requires `Makefile` to be the sole GNU Make precedence
+entrypoint. Any production build or code change must explicitly refresh the
+reviewed digest. This maintenance cost is intentional; a name-, tag-, or
+file-output-API heuristic could admit an alternate unchecked writer.
+
+Every one of those checks is a function of the tree alone, so the inventory
+result is reproducible from a SHA. The inventory deliberately makes no claim
+about the environment of any build. `OPENSUBDIV_ROOT`, the `USE_OPENSUBDIV_*`
+selectors, `COVERAGE`, and `PATH` are all honored from the environment by
+`Makefile` and change the compile line, and no environment self-check can
+exclude them, because the same environment selects the compiler that would run
+the check. Build-environment provenance is a separate concern and is not
+claimed here.
+
+This is deliberately negative evidence, not completion of topology-aware
+restart. It does **not** discharge L7 item 5 in the Bfr plan or Gate E in the
+adaptive-flipping feasibility record. L7 closes with that open blocker recorded;
+WP9 remains blocked on a separate C4-reviewed, explicitly user-approved D13
+decision package for the connectivity payload, V2-as-legacy-read behavior, and
+a tag bump for every schema change. L7d neither creates nor approves that
+schema.
 
 ## Evidence contract
 

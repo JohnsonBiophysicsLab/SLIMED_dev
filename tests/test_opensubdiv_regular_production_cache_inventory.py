@@ -612,6 +612,45 @@ class OpenSubdivRegularProductionCacheInventoryTest(unittest.TestCase):
                     )
                 )
 
+    def test_setup_generation_marker_is_private_exact_and_setup_only(self):
+        mesh_header = (ROOT / inventory.MESH).read_text(encoding="utf-8")
+        area = (ROOT / inventory.AREA).read_text(encoding="utf-8")
+        setup = (ROOT / inventory.SETUP).read_text(encoding="utf-8")
+        transaction = (ROOT / inventory.TRANSACTION).read_text(
+            encoding="utf-8")
+
+        mutations = (
+            (mesh_header, area.replace(
+                "    mark_topology_generation_installed_by_setup();",
+                "    // mark_topology_generation_installed_by_setup();", 1),
+             setup, transaction),
+            (mesh_header, area, setup.replace(
+                "    mark_topology_generation_installed_by_setup();",
+                "    if (false) "
+                "mark_topology_generation_installed_by_setup();", 1),
+             transaction),
+            (mesh_header.replace(
+                "topologyGenerationInstalledBySetup_ = topologyGeneration_;",
+                "topologyGenerationInstalledBySetup_ = 0;", 1),
+             area, setup, transaction),
+            (mesh_header.replace(
+                "    void mark_topology_generation_installed_by_setup()",
+                "public:\n"
+                "    void mark_topology_generation_installed_by_setup()", 1),
+             area, setup, transaction),
+            (mesh_header, area, setup, transaction.replace(
+                "    for (std::size_t face = 0;",
+                "    mesh_.mark_topology_generation_installed_by_setup();\n"
+                "    for (std::size_t face = 0;", 1)),
+        )
+        for mutated_header, mutated_area, mutated_setup, mutated_transaction \
+                in mutations:
+            with self.subTest():
+                self.assertTrue(
+                    inventory.invalidation_seam_errors_for_sources(
+                        mutated_header, mutated_area, mutated_setup,
+                        transaction_source=mutated_transaction))
+
     def test_transaction_is_the_unique_reviewed_third_seam_caller(self):
         mesh_header = (ROOT / inventory.MESH).read_text(encoding="utf-8")
         area = (ROOT / inventory.AREA).read_text(encoding="utf-8")

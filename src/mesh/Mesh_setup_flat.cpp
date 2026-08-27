@@ -15,6 +15,7 @@ void Mesh::setup_flat()
     sort_vertices_on_faces();
     determine_ghost_vertices_faces();
     set_one_ring_vertices_sorted();
+    mark_topology_generation_installed_by_setup();
     if (param.VERBOSE_MODE)
     {
         std::cout << "[Mesh::setup_flat] Finished setting up flat membrane." << std::endl;

@@ -473,10 +473,17 @@ TEST(CheckpointOutputTest, CheckpointOutputPathRespectsParams)
     model.iteration = 2;
     model.stepSize = 0.125;
 
+    EXPECT_EQ(mesh.topology_generation_installed_by_setup(),
+              mesh.topology_generation());
     ASSERT_TRUE(write_model_restart_checkpoint(model, model.mesh.param.checkpointOutputFile, 3));
 
     EXPECT_TRUE(std::filesystem::exists(dir / "custom_restart.chk"));
     EXPECT_FALSE(std::filesystem::exists(dir / "slimed_restart.chk"));
+    std::ifstream checkpoint(dir / "custom_restart.chk");
+    ASSERT_TRUE(checkpoint.is_open());
+    std::string tag;
+    ASSERT_TRUE(static_cast<bool>(std::getline(checkpoint, tag)));
+    EXPECT_EQ(tag, "SLIMED_RESTART_V2");
 }
 
 TEST(CheckpointRestartTest, RestartReadsExpectedCheckpointFields)

@@ -2,13 +2,16 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <filesystem>
 #include <fstream>
 #include <iomanip>
+#include <iterator>
 #include <limits>
 #include <sstream>
 #include <string>
 #include <vector>
 
+#include "io/io.hpp"
 #include "mesh/Mesh.hpp"
 
 using namespace slimed::loop_topology;
@@ -353,6 +356,48 @@ TEST(LoopTopologyTransaction,
     }
     EXPECT_EQ(transaction.rollback().reason,
               LoopTopologyTransactionReason::already_finalized);
+}
+
+TEST(LoopTopologyTransaction,
+     CommitInterlocksConnectivityBlindRestartCheckpointWrite)
+{
+    const Fixture base = read_fixture(kFlipRoot + "/base");
+    const Fixture candidate = read_fixture(kFlipRoot + "/flip_000");
+    Param param = quiet_param();
+    Mesh mesh(param);
+    mesh.setup_from_vertices_faces(base.coordinates, base.faces);
+    ASSERT_EQ(mesh.topology_generation_installed_by_setup(),
+              mesh.topology_generation());
+
+    Record record(1);
+    Model model(mesh, record);
+    const std::filesystem::path directory =
+        std::filesystem::temp_directory_path() /
+        "slimed_l7d_checkpoint_write_interlock";
+    std::filesystem::remove_all(directory);
+    ASSERT_TRUE(std::filesystem::create_directories(directory));
+    const std::filesystem::path checkpoint = directory / "restart.chk";
+    const std::string sentinel = "existing-checkpoint-remains-unchanged\n";
+    {
+        std::ofstream output(checkpoint);
+        ASSERT_TRUE(output.is_open());
+        output << sentinel;
+    }
+
+    LoopTopologyTransaction transaction(mesh);
+    ASSERT_TRUE(transaction.stage(candidate.faces).accepted());
+    ASSERT_TRUE(transaction.commit().accepted());
+    ASSERT_GT(mesh.topology_generation(),
+              mesh.topology_generation_installed_by_setup());
+
+    EXPECT_FALSE(write_model_restart_checkpoint(
+        model, checkpoint.string(), 1));
+    std::ifstream input(checkpoint);
+    ASSERT_TRUE(input.is_open());
+    const std::string retained((std::istreambuf_iterator<char>(input)),
+                               std::istreambuf_iterator<char>());
+    EXPECT_EQ(retained, sentinel);
+    EXPECT_FALSE(std::filesystem::exists(checkpoint.string() + ".tmp"));
 }
 
 TEST(LoopTopologyTransaction,

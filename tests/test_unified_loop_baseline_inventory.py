@@ -747,6 +747,30 @@ class UnifiedLoopBaselineInventoryTest(unittest.TestCase):
             lambda text: text +
                 "\nvoid Mesh::invalidate_topology_derived_state() {}\n")
 
+    def test_F2_setup_generation_marker_fails_closed(self) -> None:
+        self.assert_text_mutation_rejected(
+            "src/mesh/Mesh.cpp",
+            lambda text: text.replace(
+                "    mark_topology_generation_installed_by_setup();",
+                "    // mark_topology_generation_installed_by_setup();", 1))
+        self.assert_text_mutation_rejected(
+            "src/mesh/Mesh_setup_flat.cpp",
+            lambda text: text.replace(
+                "    mark_topology_generation_installed_by_setup();",
+                "    if (false) "
+                "mark_topology_generation_installed_by_setup();", 1))
+        self.assert_text_mutation_rejected(
+            "include/mesh/Mesh.hpp",
+            lambda text: text.replace(
+                "topologyGenerationInstalledBySetup_ = topologyGeneration_;",
+                "topologyGenerationInstalledBySetup_ = 0;", 1))
+        self.assert_text_mutation_rejected(
+            "src/mesh/Loop_topology_transaction.cpp",
+            lambda text: text.replace(
+                "    for (std::size_t face = 0;",
+                "    mesh_.mark_topology_generation_installed_by_setup();\n"
+                "    for (std::size_t face = 0;", 1))
+
     def test_G_geometry_energy_force_are_independent_anchors(self) -> None:
         self.assert_mutation_rejected(
             lambda r: r["G_volume_functionals"].update(
@@ -1216,6 +1240,19 @@ class UnifiedLoopBaselineInventoryTest(unittest.TestCase):
         self.assert_mutation_rejected(
             lambda r: r["J_output_checkpoint"].update(
                 {"backend_or_functional_metadata_present": True}))
+        self.assert_mutation_rejected(
+            lambda r: r["J_output_checkpoint"].update(
+                {"checkpoint_topology_write_interlock": False}))
+        self.assert_mutation_rejected(
+            lambda r: r["J_output_checkpoint"].update(
+                {"checkpoint_preprocessor_surface_locked": False}))
+        self.assert_mutation_rejected(
+            lambda r: r["J_output_checkpoint"].update(
+                {"checkpoint_source_surface_sha256": "unchecked-writer"}))
+        self.assert_mutation_rejected(
+            lambda r: r["J_output_checkpoint"].update(
+                {"checkpoint_make_entrypoint_overrides":
+                    ["GNUmakefile"]}))
         self.assert_text_mutation_rejected(
             "src/io/output.cpp",
             lambda text: text.replace(
@@ -1223,6 +1260,104 @@ class UnifiedLoopBaselineInventoryTest(unittest.TestCase):
                 "        << energy.energyVolume << ','",
                 "        << energy.energyVolume << ','\n"
                 "        << energy.energyArea << ','", 1))
+        self.assert_text_mutation_rejected(
+            "src/io/output.cpp",
+            lambda text: text.replace(
+                "model.mesh.topology_generation() !=",
+                "model.mesh.topology_generation() ==", 1))
+        self.assert_text_mutation_rejected(
+            "src/io/output.cpp",
+            lambda text: text.replace(
+                "model.mesh.topology_generation_installed_by_setup()",
+                "model.mesh.topology_generation()", 1))
+        for directive in (
+                "#define topology_generation() "
+                "topology_generation_installed_by_setup()",
+                "%:define topology_generation() "
+                "topology_generation_installed_by_setup()",
+                "#/**/define topology_generation() "
+                "topology_generation_installed_by_setup()",
+                "#de\\\nfine topology_generation() "
+                "topology_generation_installed_by_setup()",
+                "#if 1\n#endif",
+                "#pragma push_macro(\"topology_generation\")"):
+            with self.subTest(directive=directive):
+                self.assert_text_mutation_rejected(
+                    "src/io/output.cpp",
+                    lambda text, directive=directive: text.replace(
+                        '#include "io/io.hpp"',
+                        '#include "io/io.hpp"\n' + directive, 1))
+        alternate_writers = (
+            "\nbool write_unchecked_restart_checkpoint(\n"
+            "        const Model&, const std::string& path)\n"
+            "{\n"
+            "    std::ofstream out(path);\n"
+            "    out << \"SLIMED_RESTART_V2\\n\";\n"
+            "    return static_cast<bool>(out);\n"
+            "}\n",
+            "\nbool emit_state(const Model&, const std::string& path)\n"
+            "{\n"
+            "    std::ofstream out(path);\n"
+            "    out << \"SLIMED_\" \"RESTART_V2\\n\";\n"
+            "    return static_cast<bool>(out);\n"
+            "}\n",
+            "\nbool emit_split_state(const Model&, const std::string& path)\n"
+            "{\n"
+            "    std::ofstream out(path);\n"
+            "    out << \"SLIMED_RE\" \"START_V2\\n\";\n"
+            "    return static_cast<bool>(out);\n"
+            "}\n",
+            "\nconst auto unchecked_checkpoint_lambda =\n"
+            "    [](const Model&, const std::string& path) {\n"
+            "        std::ofstream out(path);\n"
+            "        out << \"SLIMED_RESTART_V2\\n\";\n"
+            "        return static_cast<bool>(out);\n"
+            "    };\n",
+        )
+        for alternate_writer in alternate_writers:
+            with self.subTest(alternate_writer=alternate_writer):
+                self.assert_text_mutation_rejected(
+                    "src/io/output.cpp",
+                    lambda text, alternate_writer=alternate_writer:
+                        text + alternate_writer)
+        self.assert_text_mutation_rejected(
+            "src/mesh/Mesh_io.cpp",
+            lambda text: text +
+                "\nbool write_unchecked_restart_checkpoint(\n"
+                "        const std::string& path)\n"
+                "{\n"
+                "    std::ofstream out(path);\n"
+                "    out << \"SLIMED_RESTART_V2\\n\";\n"
+                "    return static_cast<bool>(out);\n"
+                "}\n")
+        self.assert_text_mutation_rejected(
+            "EXEs/continuum_membrane.cpp",
+            lambda text: text.replace(
+                "#include \"Run_simulation.hpp\"",
+                "#include \"Run_simulation.hpp\"\n#include <fstream>", 1) +
+                "\nbool emit_numeric_state(const std::string& path)\n"
+                "{\n"
+                "    const char tag[] = {83, 76, 73, 77, 69, 68, 95, 82, "
+                "69, 83, 84, 65, 82, 84, 95, 86, 50, 10};\n"
+                "    std::ofstream out(path);\n"
+                "    out.write(tag, sizeof(tag));\n"
+                "    return static_cast<bool>(out);\n"
+                "}\n")
+        self.assert_text_mutation_rejected(
+            "Makefile",
+            lambda text: text +
+                "\nobj/output.o: CXXFLAGS += -include include/Parameters.hpp\n")
+        self.assert_text_mutation_rejected(
+            "src/mesh/Mesh_io.cpp",
+            lambda text: text +
+                "\nbool emit_numeric_state(const std::string& path)\n"
+                "{\n"
+                "    const char tag[] = {83, 76, 73, 77, 69, 68, 95, 82, "
+                "69, 83, 84, 65, 82, 84, 95, 86, 50, 10};\n"
+                "    std::ofstream out(path);\n"
+                "    out.write(tag, sizeof(tag));\n"
+                "    return static_cast<bool>(out);\n"
+                "}\n")
 
     def test_K_edge_flip_proof_only_and_cuda_frozen(self) -> None:
         self.assert_mutation_rejected(
