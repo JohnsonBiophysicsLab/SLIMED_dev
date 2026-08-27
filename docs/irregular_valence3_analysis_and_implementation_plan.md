@@ -60,6 +60,33 @@ fixture now reports the canonical provider as not applicable and separately
 proves rejection. A dedicated GitHub Actions job builds stock OpenSubdiv 3.7.0
 CPU-only and runs the dependency-disabled and enabled proofs.
 
+The first Phase-2 continuation is recorded in
+`docs/irregular_valence3_phase2_mechanical_packet.md`. The real OpenSubdiv
+rows now pass per-sample and stacked transpose identities, canonical
+source-keyed preparation, production-shaped scatter, and repeated ascending
+1/2/4-buffer reductions. True net-force and net-torque checks replace the
+earlier aggregate-magnitude diagnostic: both exact tetrahedron coordinate
+sets pass, while the non-provider-applicable mixed 3/4/5 characterization
+exposes a roughly `5.20e-3` volume-force translation residual. That mixed
+residual is preserved as a dispatcher/physics blocker rather than hidden by
+a wider tolerance. The independent oracle, full energy-channel packet,
+covariance/scale studies, nested quadrature study, and scientific baseline
+decision remain open, so Phase 3 is still blocked.
+
+Phase 3 subsequently started as a guarded integration-only transaction under
+the explicit continuation direction. Its accepted scope is stock OpenSubdiv
+3.7.0, isolation level 5, the exact tetrahedron, and the existing ordered
+three-point rule. The volume-functional blocker is resolved for this lane by
+selecting the rotationally invariant full-divergence volume already
+differentiated by `element_energy_force_regular`; nonzero volume constraints
+now participate in the finite-difference and guarded-transaction proofs. The
+decision is deliberately Valence-3-specific and does not alter established
+Valence-4/5 or CUDA semantics. The transaction validates and executes the
+shared source-keyed production face loop behind
+`SLIMED_USE_OPENSUBDIV_VALENCE3_PHASE3=1`, but it does not install a default
+caller or authorize Phase 4. See
+`docs/irregular_valence3_opensubdiv_face_loop.md`.
+
 ## Executive Recommendation
 
 Implement valence 3 as a new, canonical-tetrahedron, source-keyed OpenSubdiv
@@ -261,7 +288,7 @@ Reuse these existing components unchanged wherever possible:
 - `Guarded_source_keyed_production_face_loop` validation and execution;
 - production-shaped `sourceCount * 9` thread-local buffers and ascending
   thread-index reduction;
-- current bending, area, legacy-volume, regularization, total-force,
+- current bending, area, regularization, total-force,
   total-energy, boundary, output, and checkpoint behavior; and
 - the valence-5 independent long-double replay pattern.
 
@@ -319,7 +346,7 @@ Scientific gates:
 - row invariants and duplicate mixed-row identity pass;
 - OpenSubdiv row/position results are stable across reviewed adaptive
   isolation levels;
-- area, legacy volume, mean-curvature integral, bending energy, and their
+- area, full-divergence volume, mean-curvature integral, bending energy, and their
   source gradients are characterized under nested subtriangle refinement; and
 - the team explicitly decides whether the production candidate remains the
   current `N=2` plan, uses a refined valence-3-specific integration plan, or
@@ -400,7 +427,7 @@ Scientific evidence must use both the exactly symmetric regular tetrahedron
 and a fixed asymmetric coordinate perturbation. It must include:
 
 - all ten global energy channels and all per-face energy channels;
-- per-face normal, area, legacy volume, and mean curvature;
+- per-face normal, area, full-divergence volume, and mean curvature;
 - all current per-vertex force families;
 - candidate-versus-independent-oracle agreement;
 - central finite differences of total energy against analytic forces over
@@ -458,7 +485,7 @@ The transaction must validate, before its first mesh write:
 - the exact accepted topology, sample plan, weights, source rows, and
   scientific baseline identity;
 - finite current coordinates and every production destination;
-- staged per-face area and legacy volume plus global totals;
+- staged per-face area and full-divergence volume plus global totals;
 - a complete scientific dry run; and
 - the complete four-source scatter package.
 
@@ -518,6 +545,16 @@ not weaken route preflight.
 Activation requires explicit user/scientific approval after the full default
 and OpenSubdiv-enabled serial/OpenMP suites pass.
 
+Phase 4 was subsequently implemented under that explicit continuation and
+merge direction. The exact production token is installed in the default
+evaluator, Valence 3/4/5 requests are counted before mutation, and the exact
+tetrahedron transaction uses a post-validation immutable row cache that
+excludes coordinates. The real caller is exercised at 1/2/4 OpenMP threads,
+including repeated calls, output/checkpoint round trips, dependency-disabled
+and mixed-topology rejection, and extraordinary-route conflicts. See
+`docs/irregular_valence3_phase4_activation.md` for the activation contract and
+measured cache evidence.
+
 ### Phase 5 — broader valence-3 topology (out of scope)
 
 The canonical tetrahedron route must not imply support for:
@@ -532,6 +569,14 @@ Those cases need their own representative fixtures, sample/source support,
 curvature behavior, scientific outputs, and route policy. Only after at least
 two non-isomorphic approved topologies should a generic topology-driven
 provider be considered.
+
+Phase 5 subsequently started with a proof-only closed triangular-bipyramid
+candidate. It has five sources, six `3/4/4` faces, and vertex valences
+`3,3,4,4,4`. The existing provider now requires an explicit topology selector
+and maintains separate immutable row packages for the tetrahedron and
+bipyramid; the default selector remains the tetrahedron, so the Phase-4
+production route is not broadened. See
+`docs/irregular_valence3_phase5_triangular_bipyramid.md`.
 
 ## Verification Matrix
 

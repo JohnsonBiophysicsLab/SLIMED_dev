@@ -4,7 +4,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_valence4_and_valence5_expose_the_same_canonical_route_vocabulary():
+def test_valence3_valence4_and_valence5_expose_canonical_route_vocabulary():
     caller = (
         ROOT / "src/energy_force/Compute_energy_and_force_on_mesh.cpp"
     ).read_text()
@@ -14,9 +14,14 @@ def test_valence4_and_valence5_expose_the_same_canonical_route_vocabulary():
     valence5_source = (
         ROOT / "src/energy_force/Valence5_opensubdiv_face_loop.cpp"
     ).read_text()
+    valence3_header = (
+        ROOT / "include/energy_force/Valence3_opensubdiv_production_route.hpp"
+    ).read_text()
 
     assert "Valence4_opensubdiv_production_route.hpp" in caller
     assert "Valence5_opensubdiv_production_route.hpp" in caller
+    assert "Valence3_opensubdiv_production_route.hpp" in caller
+    assert "Valence3_opensubdiv_face_loop.hpp" in valence3_header
     assert "evaluate_guarded_valence4_opensubdiv_production_route(*this)" in caller
     assert "evaluate_guarded_valence5_opensubdiv_production_route(*this)" in caller
     assert "evaluate_guarded_valence5_opensubdiv_production_route" in valence5_header

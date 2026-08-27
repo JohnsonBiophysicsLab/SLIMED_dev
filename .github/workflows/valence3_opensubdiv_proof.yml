@@ -6,9 +6,14 @@ on:
       - ".github/workflows/valence3_opensubdiv_proof.yml"
       - "data/fixtures/candidates/closed_valence3_tetrahedron/**"
       - "data/fixtures/candidates/closed_mixed_valence345/**"
+      - "data/fixtures/candidates/closed_valence3_triangular_bipyramid/**"
       - "experiments/irregular_valence3_opensubdiv_geometry_force.cpp"
+      - "experiments/irregular_valence3_opensubdiv_face_loop.cpp"
+      - "include/energy_force/Valence3_opensubdiv_face_loop.hpp"
       - "include/mesh/OpenSubdiv_valence3_row_provider.hpp"
+      - "scripts/run_irregular_valence3_opensubdiv_face_loop.py"
       - "scripts/run_irregular_valence3_opensubdiv_geometry_force.py"
+      - "src/energy_force/Valence3_opensubdiv_face_loop.cpp"
       - "src/mesh/OpenSubdiv_valence3_row_provider.cpp"
   workflow_dispatch:
 
@@ -41,6 +46,6 @@ jobs:
       - name: Run default-off and enabled Valence 3 proofs
         env:
           OPENSUBDIV_ROOT: ${{ runner.temp }}/opensubdiv-3.7.0
-        run: >-
-          python3 scripts/run_irregular_valence3_opensubdiv_geometry_force.py
-          --require-opensubdiv --json
+        run: |
+          python3 scripts/run_irregular_valence3_opensubdiv_geometry_force.py --require-opensubdiv --json
+          python3 scripts/run_irregular_valence3_opensubdiv_face_loop.py --require-opensubdiv --json

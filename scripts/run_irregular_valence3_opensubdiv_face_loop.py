@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""Build and run the proof-only Valence-3 OpenSubdiv science harness."""
+"""Build and run the guarded Valence-3 Phase-3 face-loop proof."""
 
 from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 from pathlib import Path
 import shlex
@@ -14,12 +15,9 @@ import tempfile
 
 
 ROOT = Path(__file__).resolve().parents[1]
-EXPERIMENT = ROOT / "experiments/irregular_valence3_opensubdiv_geometry_force.cpp"
+EXPERIMENT = ROOT / "experiments/irregular_valence3_opensubdiv_face_loop.cpp"
 TETRA = ROOT / "data/fixtures/candidates/closed_valence3_tetrahedron"
 MIXED = ROOT / "data/fixtures/candidates/closed_mixed_valence345"
-BIPYRAMID = (
-    ROOT / "data/fixtures/candidates/closed_valence3_triangular_bipyramid"
-)
 
 
 def run(command: list[str], env: dict[str, str]) -> subprocess.CompletedProcess[str]:
@@ -53,6 +51,8 @@ def build(binary: Path, env: dict[str, str], enabled: bool) -> None:
     command = [
         compiler,
         "-std=c++17",
+        "-fopenmp",
+        "-DOMP",
         "-Iinclude",
         "-Iinclude/energy_force",
         "-Iinclude/linalg",
@@ -62,25 +62,22 @@ def build(binary: Path, env: dict[str, str], enabled: bool) -> None:
         *gsl_flags("--cflags", env),
     ]
     if enabled:
-        root = env.get("OPENSUBDIV_ROOT")
-        if not root:
+        opensubdiv_root = env.get("OPENSUBDIV_ROOT")
+        if not opensubdiv_root:
             raise RuntimeError("OPENSUBDIV_ROOT is required for the enabled proof")
         command.extend(
-            [
-                "-DUSE_OPENSUBDIV_VALENCE3",
-                f"-I{root}/include",
-            ]
+            ["-DUSE_OPENSUBDIV_VALENCE3", f"-I{opensubdiv_root}/include"]
         )
     command.extend([str(EXPERIMENT), *(str(source) for source in sources)])
     command.extend(gsl_flags("--libs", env))
     if enabled:
-        root = env["OPENSUBDIV_ROOT"]
+        opensubdiv_root = env["OPENSUBDIV_ROOT"]
         command.extend(
             [
-                f"-L{root}/lib",
-                f"-L{root}/lib64",
-                f"-Wl,-rpath,{root}/lib",
-                f"-Wl,-rpath,{root}/lib64",
+                f"-L{opensubdiv_root}/lib",
+                f"-L{opensubdiv_root}/lib64",
+                f"-Wl,-rpath,{opensubdiv_root}/lib",
+                f"-Wl,-rpath,{opensubdiv_root}/lib64",
                 "-losdCPU",
             ]
         )
@@ -90,7 +87,11 @@ def build(binary: Path, env: dict[str, str], enabled: bool) -> None:
         raise RuntimeError(result.stderr.strip() or result.stdout.strip())
 
 
-def execute(binary: Path, env: dict[str, str]) -> dict[str, object]:
+def execute(
+    binary: Path, env: dict[str, str], thread_count: int = 1
+) -> dict[str, object]:
+    run_env = env.copy()
+    run_env["OMP_NUM_THREADS"] = str(thread_count)
     result = run(
         [
             str(binary),
@@ -98,10 +99,8 @@ def execute(binary: Path, env: dict[str, str]) -> dict[str, object]:
             str(TETRA / "faces.csv"),
             str(MIXED / "vertices.csv"),
             str(MIXED / "faces.csv"),
-            str(BIPYRAMID / "vertices.csv"),
-            str(BIPYRAMID / "faces.csv"),
         ],
-        env,
+        run_env,
     )
     if result.returncode:
         raise RuntimeError(
@@ -111,21 +110,50 @@ def execute(binary: Path, env: dict[str, str]) -> dict[str, object]:
     return json.loads(result.stdout)
 
 
+def deterministic_payload(payload: dict[str, object]) -> dict[str, object]:
+    stable = dict(payload)
+    stable.pop("uncached_transaction_microseconds", None)
+    stable.pop("cached_transaction_microseconds", None)
+    return stable
+
+
+def maximum_payload_difference(left: object, right: object) -> float:
+    if isinstance(left, bool) or isinstance(right, bool):
+        return 0.0 if left is right else math.inf
+    if isinstance(left, (int, float)) and isinstance(right, (int, float)):
+        return abs(float(left) - float(right))
+    if isinstance(left, dict) and isinstance(right, dict):
+        if left.keys() != right.keys():
+            return math.inf
+        return max(
+            (maximum_payload_difference(left[key], right[key]) for key in left),
+            default=0.0,
+        )
+    if isinstance(left, list) and isinstance(right, list):
+        if len(left) != len(right):
+            return math.inf
+        return max(
+            (maximum_payload_difference(a, b) for a, b in zip(left, right)),
+            default=0.0,
+        )
+    return 0.0 if left == right else math.inf
+
+
 def emit(payload: dict[str, object], as_json: bool) -> None:
     if as_json:
         print(json.dumps(payload, indent=2, sort_keys=True))
         return
     print(f"status: {payload['status']}")
-    if "default_off_contract" in payload:
-        print(f"default_off_contract: {payload['default_off_contract']}")
+    for key in (
+        "default_off_contract",
+        "enabled_status",
+        "production_face_loop_executed",
+        "volume_functional_decision_pending",
+    ):
+        if key in payload:
+            print(f"{key}: {payload[key]}")
     if "reason" in payload:
         print(f"reason: {payload['reason']}")
-    for fixture in payload.get("fixtures", []):
-        print(
-            f"{fixture['name']}: area={fixture['area']:.17g}, "
-            f"volume={fixture['full_divergence_volume']:.17g}, "
-            f"max_abs_force={fixture['max_abs_force']}"
-        )
 
 
 def main() -> int:
@@ -135,9 +163,9 @@ def main() -> int:
     args = parser.parse_args()
     env = os.environ.copy()
     try:
-        with tempfile.TemporaryDirectory(prefix="slimed-valence3-") as temp:
+        with tempfile.TemporaryDirectory(prefix="slimed-valence3-phase3-") as temp:
             temp_path = Path(temp)
-            default_binary = temp_path / "valence3-default"
+            default_binary = temp_path / "valence3-phase3-default"
             build(default_binary, env, enabled=False)
             default_payload = execute(default_binary, env)
             default_passed = (
@@ -151,8 +179,8 @@ def main() -> int:
                     "default_off_contract": default_passed,
                     "enabled_status": "skipped",
                     "reason": (
-                        "OPENSUBDIV_ROOT is not set; the default-off contract "
-                        "ran, while the enabled proof remains opt-in."
+                        "OPENSUBDIV_ROOT is not set; the dependency-disabled "
+                        "Phase-3 contract ran and enabled integration was skipped."
                     ),
                 }
                 emit(payload, args.json)
@@ -160,11 +188,37 @@ def main() -> int:
                     return 2
                 return 0 if default_passed else 1
 
-            enabled_binary = temp_path / "valence3-enabled"
+            enabled_binary = temp_path / "valence3-phase3-enabled"
             build(enabled_binary, env, enabled=True)
-            enabled_payload = execute(enabled_binary, env)
-        passed = enabled_payload.get("status") == "passed" and default_passed
+            enabled_runs = [
+                execute(enabled_binary, env, thread_count)
+                for thread_count in (1, 2, 4)
+                for _ in range(2)
+            ]
+            enabled_payload = enabled_runs[0]
+            serial_openmp_max_abs_difference = max(
+                maximum_payload_difference(
+                    deterministic_payload(payload),
+                    deterministic_payload(enabled_payload),
+                )
+                for payload in enabled_runs[1:]
+            )
+            serial_openmp_repeat_validated = (
+                serial_openmp_max_abs_difference <= 1.0e-10
+            )
+        passed = (
+            enabled_payload.get("status") == "passed"
+            and default_passed
+            and serial_openmp_repeat_validated
+        )
         enabled_payload["default_off_contract"] = default_passed
+        enabled_payload["serial_openmp_repeat_validated"] = (
+            serial_openmp_repeat_validated
+        )
+        enabled_payload["serial_openmp_thread_counts"] = [1, 2, 4]
+        enabled_payload["serial_openmp_max_abs_difference"] = (
+            serial_openmp_max_abs_difference
+        )
         enabled_payload["status"] = "passed" if passed else "failed"
         emit(enabled_payload, args.json)
         return 0 if passed else 1
