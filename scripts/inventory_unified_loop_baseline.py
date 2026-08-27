@@ -670,10 +670,10 @@ def _make_override_environment_absent() -> bool:
     }
     for name, reviewed in reviewed_search_roots.items():
         value = os.environ.get(name, "").strip()
-        if value and any(
-                path not in reviewed
-                for path in value.split(os.pathsep) if path):
-            return False
+        if value:
+            paths = value.split(os.pathsep)
+            if any(not path or path not in reviewed for path in paths):
+                return False
     return True
 
 

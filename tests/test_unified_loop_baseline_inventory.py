@@ -1361,6 +1361,10 @@ class UnifiedLoopBaselineInventoryTest(unittest.TestCase):
                 {"CXXFLAGS": "-include /tmp/l7d-bypass.hpp"},
                 {"CPPFLAGS": "-imacros /tmp/l7d-bypass.hpp"},
                 {"CPATH": "/tmp/l7d-shadow-headers"},
+                {"CPATH": ":"},
+                {"CPATH": ":/usr/local/include"},
+                {"CPATH": "/usr/local/include:"},
+                {"CPATH": "/usr/local/include::/usr/include"},
                 {"CPLUS_INCLUDE_PATH": "/tmp/l7d-shadow-headers"},
                 {"COMPILER_PATH": "/tmp/l7d-compiler-wrapper"}):
             with self.subTest(environment=environment), mock.patch.dict(
