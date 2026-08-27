@@ -8030,11 +8030,11 @@ def write_d12_serial_references(checkpoint, artifact_root, output_root,
                         str(row["face_row"]),
                         str(row["local_corner_or_none"]), row["sample_id"],
                         row["row_kind"], str(anchor_index),
-                        ",".join(B2A.binary64_bits_hex(value)
+                        ",".join(binary64_bits_hex(value)
                                  for value in row["coefficients"])]
                     for axis in range(3):
                         request_fields.append(",".join(
-                            B2A.binary64_bits_hex(
+                            binary64_bits_hex(
                                 fixture["vertices"][source_id][axis])
                             for source_id in row["source_ids"]))
                     require(all("\t" not in field and "\n" not in field

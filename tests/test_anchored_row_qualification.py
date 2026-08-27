@@ -1,6 +1,7 @@
 import copy
 import gzip
 import importlib.util
+import inspect
 import json
 import math
 import os
@@ -5745,6 +5746,70 @@ class AnchoredRowQualificationTests(unittest.TestCase):
             self.assertIn(anchor, source)
         for forbidden in MODULE.B2.FORBIDDEN_ORACLE_TOKENS:
             self.assertNotIn(forbidden, source)
+
+
+class D12RequestLabelByteOrderTest(unittest.TestCase):
+    """Guards the D12 representation request seam.
+
+    The request ledger is written in Python and read by
+    experiments/anchored_row_qualification/candidate.cpp, whose from_bits
+    parses each 16-hex-character label with `input >> std::hex >> bits` --
+    a numeric, most-significant-byte-first decode -- and throws
+    `nonfinite input` when the decoded exponent field is all ones.
+
+    The ledger writer must therefore emit big-endian labels. It once emitted
+    little-endian ones, which made roughly one label in 2048 decode as NaN and
+    blocked the whole D12 worker stage. The tests that exercise
+    --d12-representation-stream construct their own request lines with the
+    correct encoder, so they could not catch a defect in the writer.
+    """
+
+    READER_CONTRACT = {
+        1.0: "3ff0000000000000",
+        2.0: "4000000000000000",
+        -1.0: "bff0000000000000",
+        1048576.0: "4130000000000000",
+    }
+
+    def test_module_encoder_matches_cpp_reader_contract(self):
+        for value, label in self.READER_CONTRACT.items():
+            self.assertEqual(MODULE.binary64_bits_hex(value), label)
+
+    def test_module_encoder_round_trips_under_reader_convention(self):
+        # 1.9999999999999998 and 1.4999999999999998 are exactly the values
+        # whose little-endian labels decode to NaN big-endian; they are the
+        # regression's canaries.
+        for value in (1.9999999999999998, 1.4999999999999998, -1.0,
+                      1.618033988749895, 0.0, -0.7754235871669276):
+            label = MODULE.binary64_bits_hex(value)
+            decoded = struct.unpack(">d", bytes.fromhex(label))[0]
+            self.assertTrue(math.isfinite(decoded))
+            self.assertEqual(decoded, value)
+
+    def test_preflight_encoder_is_a_different_convention(self):
+        # B2A is the B2a-frozen preflight module and is little-endian by
+        # design. It must never be substituted for the reader-facing encoder.
+        self.assertEqual(MODULE.B2A.binary64_bits_hex(1.0),
+                         "000000000000f03f")
+        self.assertNotEqual(MODULE.B2A.binary64_bits_hex(1.0),
+                            MODULE.binary64_bits_hex(1.0))
+
+    def test_request_writer_does_not_use_the_preflight_encoder(self):
+        source = inspect.getsource(MODULE.write_d12_serial_references)
+        self.assertIn("binary64_bits_hex", source)
+        self.assertNotIn("B2A.binary64_bits_hex", source)
+
+    def test_no_emitted_label_decodes_nonfinite_for_the_reader(self):
+        # Every label the writer can emit must be finite under the reader's
+        # convention. Values whose *little-endian* label would trip the C++
+        # guard are included deliberately.
+        for value in (1.9999999999999998, 1.4999999999999998,
+                      -0.7707583181827071, 1.618033988749895, 2.0 ** 20,
+                      -(2.0 ** 20), 5e-324, 1.7976931348623157e308):
+            decoded = struct.unpack(
+                ">d", bytes.fromhex(MODULE.binary64_bits_hex(value)))[0]
+            self.assertFalse(math.isnan(decoded))
+            self.assertFalse(math.isinf(decoded))
 
 
 if __name__ == "__main__":
