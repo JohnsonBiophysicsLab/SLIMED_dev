@@ -176,10 +176,14 @@ The global claim is guarded conservatively: the fail-closed inventory hashes the
 raw Makefile, executable-entrypoint membership under `EXEs/`, and the raw
 contents and path membership of the complete compiled `src/` and `include/`
 C++/CUDA surface. It also requires `Makefile` to be the sole GNU Make precedence
-entrypoint and rejects `MAKEFILES`, `MAKEFLAGS -f`, and `GNUMAKEFLAGS -f`
-overrides. Any production build or code change must explicitly refresh that
-reviewed digest. This maintenance cost is intentional; a name-, tag-, or
-file-output-API heuristic could admit an alternate unchecked writer.
+entrypoint and requires a clean Make/compiler override environment: makefile
+preloads and flags, compiler/tool selections, build flags, object lists, and
+link inputs must all be absent while the inventory is collected. Compiler
+include/library search variables may contain only the enumerated standard
+`/usr`, `/usr/local`, or Homebrew roots; other paths fail closed. Any production
+build or code change must explicitly refresh the reviewed digest. This
+maintenance cost is intentional; a name-, tag-, or file-output-API heuristic
+could admit an alternate unchecked writer.
 
 This is deliberately negative evidence, not completion of topology-aware
 restart. It does **not** discharge L7 item 5 in the Bfr plan or Gate E in the

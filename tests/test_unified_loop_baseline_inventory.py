@@ -1353,7 +1353,16 @@ class UnifiedLoopBaselineInventoryTest(unittest.TestCase):
         for environment in (
                 {"MAKEFILES": "/tmp/l7d-preinclude.mk"},
                 {"MAKEFLAGS": "-f/tmp/l7d-override.mk"},
-                {"GNUMAKEFLAGS": "--file=/tmp/l7d-override.mk"}):
+                {"GNUMAKEFLAGS": "--file=/tmp/l7d-override.mk"},
+                {"MAKEFLAGS": "e",
+                 "CXXFLAGS": "-include /tmp/l7d-bypass.hpp"},
+                {"MAKEFLAGS":
+                    "CXXFLAGS=-include/tmp/l7d-bypass.hpp"},
+                {"CXXFLAGS": "-include /tmp/l7d-bypass.hpp"},
+                {"CPPFLAGS": "-imacros /tmp/l7d-bypass.hpp"},
+                {"CPATH": "/tmp/l7d-shadow-headers"},
+                {"CPLUS_INCLUDE_PATH": "/tmp/l7d-shadow-headers"},
+                {"COMPILER_PATH": "/tmp/l7d-compiler-wrapper"}):
             with self.subTest(environment=environment), mock.patch.dict(
                     INVENTORY.os.environ, environment, clear=False):
                 candidate = INVENTORY.collect_inventory()

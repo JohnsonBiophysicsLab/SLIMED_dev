@@ -645,14 +645,36 @@ def _checkpoint_source_surface_sha256() -> str:
 
 
 def _make_override_environment_absent() -> bool:
-    """Reject makefile preloads or command-line build-entrypoint overrides."""
-    if os.environ.get("MAKEFILES", "").strip():
+    """Require a clean make/compiler override environment for inventory."""
+    override_names = (
+        "MAKEFILES", "MAKEFLAGS", "GNUMAKEFLAGS", "MFLAGS",
+        "MAKEOVERRIDES", "CC", "CXX", "CPP", "AS", "LD", "AR",
+        "RANLIB", "NM", "STRIP", "OBJCOPY", "OBJDUMP", "CPPFLAGS",
+        "CFLAGS", "CXXFLAGS", "LDFLAGS", "LDLIBS", "DEFS", "VPATH",
+        "GPATH", "OBJS", "PLANG", "INCS", "LIBS", "EDIR", "ODIR",
+        "SDIR", "INCLUDE", "COMPILER_PATH", "GCC_EXEC_PREFIX",
+    )
+    if any(os.environ.get(name, "").strip() for name in override_names):
         return False
-    override = re.compile(
-        r"(?:^|\s)(?:-f\S*|--file(?:=|\s)\S+|"
-        r"--makefile(?:=|\s)\S+|f(?:\s|$))")
-    return not any(override.search(os.environ.get(name, ""))
-                   for name in ("MAKEFLAGS", "GNUMAKEFLAGS"))
+    reviewed_search_roots = {
+        "CPATH": {"/usr/include", "/usr/local/include",
+                  "/opt/homebrew/include"},
+        "CPLUS_INCLUDE_PATH": {"/usr/include", "/usr/local/include",
+                               "/opt/homebrew/include"},
+        "C_INCLUDE_PATH": {"/usr/include", "/usr/local/include",
+                           "/opt/homebrew/include"},
+        "OBJC_INCLUDE_PATH": {"/usr/include", "/usr/local/include",
+                              "/opt/homebrew/include"},
+        "LIBRARY_PATH": {"/usr/lib", "/usr/local/lib",
+                         "/opt/homebrew/lib"},
+    }
+    for name, reviewed in reviewed_search_roots.items():
+        value = os.environ.get(name, "").strip()
+        if value and any(
+                path not in reviewed
+                for path in value.split(os.pathsep) if path):
+            return False
+    return True
 
 
 def _make_entrypoint_overrides() -> list[str]:
