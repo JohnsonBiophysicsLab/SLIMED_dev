@@ -4808,6 +4808,89 @@ class AnchoredRowQualificationTests(unittest.TestCase):
             finally:
                 fixture["artifact"].close()
 
+    def test_d12_worker_failure_locks_namespace_and_executed_binary(self):
+        provider_source = (
+            "#!/bin/sh\nprintf 'trusted-partial'\n"
+            "printf 'trusted-fatal\\n' >&2\nexit 23\n")
+        representation_source = "#!/bin/sh\ncat >/dev/null\nexit 0\n"
+
+        # The entire output directory chain is immutable before any retained
+        # byte is written, so a descriptor-stale rename cannot escape root.
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary)
+            fixture = self._d12_failure_test_fixture(
+                root, provider_source, representation_source)
+            outside = root / "outside"
+            outside.mkdir()
+            anchored = fixture["output_root"] / "anchored-row-d12-v1"
+            failure_root = (fixture["output_root"] /
+                            MODULE._D12_WORKER_FAILURE_ROOT)
+            original_pread = MODULE.os.pread
+            rename_attempted = []
+
+            def rename_at_first_retained_executable_read(
+                    descriptor, byte_count, offset):
+                if not rename_attempted and failure_root.exists():
+                    rename_attempted.append(True)
+                    with self.assertRaises(PermissionError):
+                        anchored.rename(outside / "escaped-anchored")
+                return original_pread(descriptor, byte_count, offset)
+
+            try:
+                with mock.patch.object(
+                        MODULE.os, "pread",
+                        side_effect=rename_at_first_retained_executable_read), \
+                        self.assertRaisesRegex(
+                            MODULE.QualificationError,
+                            "retained failure artifact"):
+                    self._run_d12_failure_test_fixture(fixture)
+                self.assertTrue(rename_attempted)
+                self.assertEqual(list(outside.iterdir()), [])
+                self._validate_d12_failure_test_fixture(fixture)
+            finally:
+                fixture["artifact"].close()
+
+        # The exact executable and its parent namespace are immutable from
+        # pre-hash through Popen and retained-byte publication.
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary)
+            fixture = self._d12_failure_test_fixture(
+                root, provider_source, representation_source)
+            replacement = root / "replacement-worker"
+            replacement.write_text(
+                "#!/bin/sh\nprintf 'attacker' >&2\nexit 91\n",
+                encoding="utf-8")
+            os.chmod(replacement, 0o755)
+            original_popen = MODULE.subprocess.Popen
+            swap_attempted = []
+
+            def swap_at_popen(command, *args, **kwargs):
+                if command[0] == str(fixture["provider"].resolve()) and \
+                        not swap_attempted:
+                    swap_attempted.append(True)
+                    with self.assertRaises(PermissionError):
+                        fixture["provider"].rename(root / "trusted-aside")
+                return original_popen(command, *args, **kwargs)
+
+            try:
+                with mock.patch.object(
+                        MODULE.subprocess, "Popen", side_effect=swap_at_popen), \
+                        self.assertRaisesRegex(
+                            MODULE.QualificationError,
+                            "retained failure artifact"):
+                    self._run_d12_failure_test_fixture(fixture)
+                self.assertTrue(swap_attempted)
+                failure_root, _, record = \
+                    self._validate_d12_failure_test_fixture(fixture)
+                self.assertEqual(
+                    (failure_root / "provider.stderr.bin").read_bytes(),
+                    b"trusted-fatal\n")
+                self.assertEqual(
+                    record["processes"][0]["executable_sha256"],
+                    fixture["executable_authority"]["provider"])
+            finally:
+                fixture["artifact"].close()
+
     def test_d12_worker_failure_bundle_preserves_two_process_race_evidence(
             self):
         provider_race = (

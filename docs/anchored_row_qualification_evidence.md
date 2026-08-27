@@ -470,9 +470,33 @@ metadata drift, request drift, a partial directory, or a second publication
 fails closed. A single legitimate race and fully successful tuples retain
 their frozen pre-existing result semantics.
 
+Exact-SHA technical review of the retained-executable follow-up at
+`4fc44f2ffb3044158a5505aae52e92d2deaeaabe` found two remaining time-of-check /
+time-of-use failures. First, a parent directory could be renamed after the
+no-follow descriptors were opened; writes through the stale descriptor then
+landed outside the named evidence root before the later validator detected the
+move. Second, the runtime snapshot pathname could be replaced immediately
+before `Popen` and restored afterward, causing the bundle to retain the restored
+bytes instead of the bytes actually executed. That SHA is not admissible.
+
+The next remediation uses the frozen host's BSD `UF_IMMUTABLE` authority on
+already-open descriptors. Before any `Popen`, it opens and hashes the provider
+and representation executables, locks both leaves and their parent namespace,
+and keeps those exact descriptors open through execution and failure
+publication. Publication first exclusively creates the entire exact leaf set,
+then locks the output root and every directory down to the final bundle before
+writing any retained byte. Executable retention reads the still-open immutable
+pre-execution descriptor rather than reopening the pathname. Each completed
+leaf is fsynced and locked, the directory chain is re-proved, and standalone
+validation runs while the whole namespace remains locked. Only after that
+validation are the original BSD flags restored. Deterministic regressions now
+attempt the prior ancestor rename during retained-byte publication and the
+prior executable replacement at `Popen`; both kernel operations fail before
+the trusted worker or destination can change.
+
 ## Required next work
 
-1. Commit the descriptor-anchored TSan failure-bundle remediation and its
+1. Commit the immutable-authority TSan failure-bundle remediation and its
    provider, representation, composite-race, timeout, unexpected-stderr,
    alias, durability, metadata-authority, tamper, and success-path regressions.
 2. Run four fresh independent exact-SHA reviews and obtain PASS verdicts.

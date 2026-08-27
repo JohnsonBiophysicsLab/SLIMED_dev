@@ -10,7 +10,9 @@ or authorize production, regardless of the observed qualification verdict.
 from __future__ import print_function
 
 import argparse
+import contextlib
 import copy
+import ctypes
 import datetime
 import gzip
 import hashlib
@@ -8139,6 +8141,190 @@ def _d12_open_or_create_directory_at(parent, name):
     return descriptor
 
 
+def _d12_fchflags(descriptor, flags):
+    """Apply BSD flags to the already-open object, never to a pathname."""
+    library = ctypes.CDLL(None, use_errno=True)
+    function = library.fchflags
+    function.argtypes = [ctypes.c_int, ctypes.c_uint]
+    function.restype = ctypes.c_int
+    if function(descriptor, flags) != 0:
+        error_number = ctypes.get_errno()
+        raise QualificationError(
+            "D12 immutable authority unavailable: " +
+            os.strerror(error_number))
+
+
+def _d12_set_fd_immutable(descriptor):
+    observed = os.fstat(descriptor)
+    require(hasattr(observed, "st_flags"),
+            "D12 immutable authority is unavailable")
+    original_flags = observed.st_flags
+    _d12_fchflags(descriptor, original_flags | stat.UF_IMMUTABLE)
+    require(os.fstat(descriptor).st_flags & stat.UF_IMMUTABLE,
+            "D12 immutable authority did not take effect")
+    return original_flags
+
+
+def _d12_restore_fd_flags(descriptor, original_flags):
+    _d12_fchflags(descriptor, original_flags)
+    require(os.fstat(descriptor).st_flags == original_flags,
+            "D12 immutable authority did not restore")
+
+
+def _d12_sha256_open_file(descriptor):
+    observed = os.fstat(descriptor)
+    digest = hashlib.sha256()
+    offset = 0
+    while offset < observed.st_size:
+        block = os.pread(
+            descriptor, min(1024 * 1024, observed.st_size - offset), offset)
+        require(block, "D12 open file changed while hashing")
+        digest.update(block)
+        offset += len(block)
+    after = os.fstat(descriptor)
+    require((observed.st_dev, observed.st_ino, observed.st_size,
+             observed.st_mtime_ns, observed.st_nlink) ==
+            (after.st_dev, after.st_ino, after.st_size,
+             after.st_mtime_ns, after.st_nlink),
+            "D12 open file changed while hashing")
+    return digest.hexdigest(), observed.st_size
+
+
+@contextlib.contextmanager
+def _d12_immutable_executable_authority(executables):
+    """Lock exact executable leaves and their parent namespaces for Popen."""
+    require(set(executables) == {"provider", "representation"},
+            "D12 executable role authority")
+    directories = {}
+    authorities = {}
+    locked_files = []
+    locked_directories = []
+    cleanup_error = None
+    try:
+        for role in ("provider", "representation"):
+            supplied = pathlib.Path(executables[role])
+            require(supplied.is_absolute(),
+                    "D12 worker executable path authority")
+            resolved = supplied.resolve(strict=True)
+            parent_path = resolved.parent
+            parent_key = str(parent_path)
+            if parent_key not in directories:
+                parent_descriptor = _d12_open_directory(parent_path)
+                parent_entry = parent_path.lstat()
+                parent_observed = os.fstat(parent_descriptor)
+                require((parent_entry.st_dev, parent_entry.st_ino) ==
+                        (parent_observed.st_dev, parent_observed.st_ino),
+                        "D12 executable directory moved before binding")
+                directories[parent_key] = {
+                    "path": parent_path, "descriptor": parent_descriptor,
+                    "flags": None}
+            parent = directories[parent_key]
+            before = os.stat(
+                resolved.name, dir_fd=parent["descriptor"],
+                follow_symlinks=False)
+            descriptor = os.open(
+                resolved.name, os.O_RDONLY | os.O_NOFOLLOW,
+                dir_fd=parent["descriptor"])
+            observed = os.fstat(descriptor)
+            require(stat.S_ISREG(observed.st_mode) and
+                    observed.st_nlink == 1 and
+                    (before.st_dev, before.st_ino) ==
+                        (observed.st_dev, observed.st_ino),
+                    "D12 executable is unavailable or aliased")
+            digest, length = _d12_sha256_open_file(descriptor)
+            authorities[role] = {
+                "path": resolved, "descriptor": descriptor,
+                "sha256": digest, "byte_length": length,
+                "flags": None, "parent": parent}
+        require(authorities["provider"]["sha256"] !=
+                    authorities["representation"]["sha256"],
+                "D12 executable roles are not distinct")
+        for role in ("provider", "representation"):
+            authority = authorities[role]
+            authority["flags"] = _d12_set_fd_immutable(
+                authority["descriptor"])
+            locked_files.append(authority)
+        for parent in directories.values():
+            parent["flags"] = _d12_set_fd_immutable(parent["descriptor"])
+            locked_directories.append(parent)
+        for role in ("provider", "representation"):
+            authority = authorities[role]
+            parent = authority["parent"]
+            parent_entry = parent["path"].lstat()
+            parent_observed = os.fstat(parent["descriptor"])
+            entry = os.stat(
+                authority["path"].name, dir_fd=parent["descriptor"],
+                follow_symlinks=False)
+            observed = os.fstat(authority["descriptor"])
+            require((parent_entry.st_dev, parent_entry.st_ino) ==
+                        (parent_observed.st_dev, parent_observed.st_ino) and
+                    (entry.st_dev, entry.st_ino) ==
+                        (observed.st_dev, observed.st_ino) and
+                    observed.st_flags & stat.UF_IMMUTABLE and
+                    parent_observed.st_flags & stat.UF_IMMUTABLE,
+                    "D12 executable authority moved before execution")
+        yield authorities
+    finally:
+        for authority in reversed(locked_files):
+            try:
+                _d12_restore_fd_flags(
+                    authority["descriptor"], authority["flags"])
+            except Exception as error:  # cleanup must remain fail closed
+                cleanup_error = cleanup_error or error
+        for parent in reversed(locked_directories):
+            try:
+                _d12_restore_fd_flags(parent["descriptor"], parent["flags"])
+            except Exception as error:  # cleanup must remain fail closed
+                cleanup_error = cleanup_error or error
+        for authority in authorities.values():
+            try:
+                os.close(authority["descriptor"])
+            except OSError as error:
+                cleanup_error = cleanup_error or error
+        for parent in directories.values():
+            try:
+                os.close(parent["descriptor"])
+            except OSError as error:
+                cleanup_error = cleanup_error or error
+        if cleanup_error is not None:
+            raise cleanup_error
+
+
+def _d12_require_open_directory_chain(output_root, root, anchored=None,
+                                      failures=None, final=None):
+    """Prove every opened directory is still named below output_root."""
+    root_path = pathlib.Path(output_root)
+    try:
+        root_entry = root_path.lstat()
+    except OSError as error:
+        raise QualificationError(
+            "D12 evidence directory chain moved or aliased") from error
+    root_observed = os.fstat(root)
+    require(stat.S_ISDIR(root_entry.st_mode) and
+            (root_entry.st_dev, root_entry.st_ino) ==
+                (root_observed.st_dev, root_observed.st_ino),
+            "D12 evidence directory chain moved or aliased")
+    parent = root
+    for name, descriptor in (
+            ("anchored-row-d12-v1", anchored),
+            ("failures", failures),
+            ("first-tsan-worker-failure", final)):
+        if descriptor is None:
+            break
+        try:
+            entry = os.stat(name, dir_fd=parent, follow_symlinks=False)
+        except OSError as error:
+            raise QualificationError(
+                "D12 evidence directory chain moved or aliased") from error
+        observed = os.fstat(descriptor)
+        require(stat.S_ISDIR(entry.st_mode) and
+                (entry.st_dev, entry.st_ino) ==
+                    (observed.st_dev, observed.st_ino),
+                "D12 evidence directory chain moved or aliased")
+        parent = descriptor
+    return True
+
+
 def _d12_open_relative_file(output_root, relative_path):
     parts = pathlib.PurePosixPath(relative_path).parts
     require(parts and not pathlib.PurePosixPath(relative_path).is_absolute() and
@@ -8467,9 +8653,13 @@ def _publish_d12_worker_failure(
         output_root, tuple_record, runs, blocking_reason, environment,
         timeout_seconds, expected_executables, identities, jobs,
         references):
-    """Durably commit the first blocking TSan bundle through directory FDs."""
+    """Commit the first blocking bundle inside an immutable FD namespace."""
     root = _d12_open_directory(output_root)
     opened = [root]
+    leaves = {}
+    locked_directories = []
+    locked_leaves = []
+    cleanup_error = None
     try:
         anchored = _d12_open_or_create_directory_at(
             root, "anchored-row-d12-v1")
@@ -8485,60 +8675,98 @@ def _publish_d12_worker_failure(
             "first-tsan-worker-failure",
             os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=failures)
         opened.append(final)
+        leaf_modes = {"failure.json": 0o600}
+        for run in runs:
+            role = run["role"]
+            leaf_modes.update({
+                role + ".executable.bin": 0o500,
+                role + ".stdout.bin": 0o600,
+                role + ".stderr.bin": 0o600})
+        for name, mode in sorted(leaf_modes.items()):
+            leaves[name] = os.open(
+                name, os.O_RDWR | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                mode, dir_fd=final)
+
+        # The files already exist, so every directory can now be made
+        # immutable.  This prevents a rename/swap at every pathname boundary
+        # while the open leaves are populated and validated.
+        root_flags = _d12_set_fd_immutable(root)
+        locked_directories.append((root, root_flags))
+        _d12_require_open_directory_chain(output_root, root, anchored)
+        anchored_flags = _d12_set_fd_immutable(anchored)
+        locked_directories.append((anchored, anchored_flags))
+        _d12_require_open_directory_chain(
+            output_root, root, anchored, failures)
+        failures_flags = _d12_set_fd_immutable(failures)
+        locked_directories.append((failures, failures_flags))
+        _d12_require_open_directory_chain(
+            output_root, root, anchored, failures, final)
+        final_flags = _d12_set_fd_immutable(final)
+        locked_directories.append((final, final_flags))
+        _d12_require_open_directory_chain(
+            output_root, root, anchored, failures, final)
+
+        def finish_leaf(name):
+            descriptor = leaves[name]
+            os.fsync(descriptor)
+            flags = _d12_set_fd_immutable(descriptor)
+            locked_leaves.append((descriptor, flags))
+
         executable_descriptors = {}
         stream_descriptors = {}
         for run in runs:
             role = run["role"]
-            executable_path = pathlib.Path(run["command"][0])
-            require(executable_path.is_absolute(),
-                    "D12 worker executable path authority")
-            before = executable_path.lstat()
-            source_descriptor = os.open(
-                str(executable_path), os.O_RDONLY | os.O_NOFOLLOW)
+            authority = run["executable_authority"]
+            source_descriptor = authority["descriptor"]
             destination_name = role + ".executable.bin"
             destination_relative = (
                 _D12_WORKER_FAILURE_ROOT + "/" + destination_name)
-            destination_descriptor = os.open(
-                destination_name,
-                os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
-                0o500, dir_fd=final)
+            destination_descriptor = leaves[destination_name]
             digest = hashlib.sha256()
             length = 0
-            try:
-                observed = os.fstat(source_descriptor)
-                require(stat.S_ISREG(observed.st_mode) and
-                        observed.st_nlink == 1 and
-                        (observed.st_dev, observed.st_ino) ==
-                            (before.st_dev, before.st_ino),
-                        "D12 worker executable changed before retention")
-                with os.fdopen(
-                        destination_descriptor, "wb",
-                        closefd=False) as destination:
-                    while True:
-                        block = os.read(source_descriptor, 1024 * 1024)
-                        if not block:
-                            break
-                        destination.write(block)
-                        digest.update(block)
-                        length += len(block)
-                    destination.flush()
-                    os.fsync(destination_descriptor)
-                after = os.fstat(source_descriptor)
-                current = executable_path.lstat()
-                require((observed.st_dev, observed.st_ino,
-                         observed.st_size, observed.st_mtime_ns,
-                         observed.st_nlink) ==
-                        (after.st_dev, after.st_ino, after.st_size,
-                         after.st_mtime_ns, after.st_nlink) ==
-                        (current.st_dev, current.st_ino, current.st_size,
-                         current.st_mtime_ns, current.st_nlink) and
-                        length == after.st_size and
-                        digest.hexdigest() == run["executable_sha256"] ==
-                            expected_executables[role],
-                        "D12 worker executable changed while retaining")
-            finally:
-                os.close(source_descriptor)
-                os.close(destination_descriptor)
+            observed = os.fstat(source_descriptor)
+            parent_observed = os.fstat(authority["parent"]["descriptor"])
+            current = os.stat(
+                authority["path"].name,
+                dir_fd=authority["parent"]["descriptor"],
+                follow_symlinks=False)
+            require(stat.S_ISREG(observed.st_mode) and
+                    observed.st_nlink == 1 and
+                    observed.st_flags & stat.UF_IMMUTABLE and
+                    parent_observed.st_flags & stat.UF_IMMUTABLE and
+                    (observed.st_dev, observed.st_ino) ==
+                        (current.st_dev, current.st_ino),
+                    "D12 executed binary authority changed before retention")
+            with os.fdopen(
+                    destination_descriptor, "wb", closefd=False) as destination:
+                offset = 0
+                while offset < observed.st_size:
+                    block = os.pread(
+                        source_descriptor,
+                        min(1024 * 1024, observed.st_size - offset), offset)
+                    require(block, "D12 executed binary truncated")
+                    destination.write(block)
+                    digest.update(block)
+                    offset += len(block)
+                    length += len(block)
+                destination.flush()
+            after = os.fstat(source_descriptor)
+            current = os.stat(
+                authority["path"].name,
+                dir_fd=authority["parent"]["descriptor"],
+                follow_symlinks=False)
+            require((observed.st_dev, observed.st_ino, observed.st_size,
+                     observed.st_mtime_ns, observed.st_nlink,
+                     observed.st_flags) ==
+                    (after.st_dev, after.st_ino, after.st_size,
+                     after.st_mtime_ns, after.st_nlink, after.st_flags) and
+                    (after.st_dev, after.st_ino) ==
+                        (current.st_dev, current.st_ino) and
+                    length == after.st_size and
+                    digest.hexdigest() == run["executable_sha256"] ==
+                        expected_executables[role] == authority["sha256"],
+                    "D12 executed binary changed while retaining")
+            finish_leaf(destination_name)
             executable_descriptors[role] = {
                 "relative_path": destination_relative,
                 "byte_length": length, "sha256": digest.hexdigest()}
@@ -8547,28 +8775,23 @@ def _publish_d12_worker_failure(
                                   ("stderr", run["stderr"])):
                 name = run["role"] + "." + label + ".bin"
                 relative = _D12_WORKER_FAILURE_ROOT + "/" + name
-                descriptor = os.open(
-                    name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
-                    0o600, dir_fd=final)
+                descriptor = leaves[name]
                 digest = hashlib.sha256()
                 length = 0
-                try:
-                    with os.fdopen(descriptor, "wb", closefd=False) as destination:
-                        if label == "stdout":
-                            source.seek(0)
-                            for block in iter(
-                                    lambda: source.read(1024 * 1024), b""):
-                                destination.write(block)
-                                digest.update(block)
-                                length += len(block)
-                        else:
-                            destination.write(source)
-                            digest.update(source)
-                            length = len(source)
-                        destination.flush()
-                        os.fsync(descriptor)
-                finally:
-                    os.close(descriptor)
+                with os.fdopen(descriptor, "wb", closefd=False) as destination:
+                    if label == "stdout":
+                        source.seek(0)
+                        for block in iter(
+                                lambda: source.read(1024 * 1024), b""):
+                            destination.write(block)
+                            digest.update(block)
+                            length += len(block)
+                    else:
+                        destination.write(source)
+                        digest.update(source)
+                        length = len(source)
+                    destination.flush()
+                finish_leaf(name)
                 stream_descriptors[run["role"]][label] = {
                     "relative_path": relative, "byte_length": length,
                     "sha256": digest.hexdigest()}
@@ -8586,31 +8809,47 @@ def _publish_d12_worker_failure(
                               run, executable_descriptors, stream_descriptors)
                           for run in runs]}
         raw = jcs_bytes(record)
-        record_descriptor = os.open(
-            "failure.json",
-            os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
-            0o600, dir_fd=final)
-        try:
-            with os.fdopen(record_descriptor, "wb", closefd=False) as destination:
-                destination.write(raw)
-                destination.flush()
-                os.fsync(record_descriptor)
-        finally:
-            os.close(record_descriptor)
+        record_descriptor = leaves["failure.json"]
+        with os.fdopen(record_descriptor, "wb", closefd=False) as destination:
+            destination.write(raw)
+            destination.flush()
+        finish_leaf("failure.json")
         os.fsync(final)
         os.fsync(failures)
         os.fsync(anchored)
         os.fsync(root)
         record_sha256 = sha256_bytes(raw)
+        _d12_require_open_directory_chain(
+            output_root, root, anchored, failures, final)
+        validate_d12_worker_failure_artifact(
+            output_root, record_sha256, expected_executables, references,
+            expected_environment=environment,
+            expected_timeout_seconds=timeout_seconds,
+            expected_tuple_identities=identities, expected_jobs=jobs,
+            expected=record)
     finally:
+        for descriptor, flags in reversed(locked_leaves):
+            try:
+                _d12_restore_fd_flags(descriptor, flags)
+            except Exception as error:
+                cleanup_error = cleanup_error or error
+        for descriptor, flags in reversed(locked_directories):
+            try:
+                _d12_restore_fd_flags(descriptor, flags)
+            except Exception as error:
+                cleanup_error = cleanup_error or error
+        for descriptor in leaves.values():
+            try:
+                os.close(descriptor)
+            except OSError as error:
+                cleanup_error = cleanup_error or error
         for descriptor in reversed(opened):
-            os.close(descriptor)
-    validate_d12_worker_failure_artifact(
-        output_root, record_sha256, expected_executables, references,
-        expected_environment=environment,
-        expected_timeout_seconds=timeout_seconds,
-        expected_tuple_identities=identities, expected_jobs=jobs,
-        expected=record)
+            try:
+                os.close(descriptor)
+            except OSError as error:
+                cleanup_error = cleanup_error or error
+        if cleanup_error is not None:
+            raise cleanup_error
     return record_sha256
 
 
@@ -8620,15 +8859,29 @@ def execute_d12_worker_streams(provider_tsan_binary,
                                process_artifact,
                                instrumentation_digest,
                                timeout_seconds=3600):
-    """Execute every frozen tuple, atomically publishing only complete bytes."""
-    provider_binary = pathlib.Path(provider_tsan_binary).resolve()
-    representation_binary = pathlib.Path(
-        representation_tsan_binary).resolve()
-    require(provider_binary.is_file() and representation_binary.is_file() and
-            SHA256_RE.fullmatch(instrumentation_digest or "") is not None,
-            "D12 TSan worker executables/instrumentation unavailable")
-    provider_sha256 = sha256_file(provider_binary)
-    representation_sha256 = sha256_file(representation_binary)
+    """Execute workers while exact executable leaves cannot be swapped."""
+    require(SHA256_RE.fullmatch(instrumentation_digest or "") is not None,
+            "D12 TSan worker instrumentation unavailable")
+    executable_paths = {
+        "provider": pathlib.Path(provider_tsan_binary),
+        "representation": pathlib.Path(representation_tsan_binary)}
+    with _d12_immutable_executable_authority(
+            executable_paths) as executable_authorities:
+        return _execute_d12_worker_streams_locked(
+            checkpoint, output_root, references, process_artifact,
+            instrumentation_digest, timeout_seconds,
+            executable_authorities)
+
+
+def _execute_d12_worker_streams_locked(
+        checkpoint, output_root, references, process_artifact,
+        instrumentation_digest, timeout_seconds, executable_authorities):
+    """Internal worker execution under immutable executable authority."""
+    provider_binary = executable_authorities["provider"]["path"]
+    representation_binary = executable_authorities["representation"]["path"]
+    provider_sha256 = executable_authorities["provider"]["sha256"]
+    representation_sha256 = executable_authorities["representation"][
+        "sha256"]
     job_list = B2.valid_content_jobs(B2.load_manifest())
     jobs = {job["content_identity_key"]: job for job in job_list}
     environment = _d12_rebuild_environment()
@@ -8659,7 +8912,7 @@ def execute_d12_worker_streams(provider_tsan_binary,
             "cache_mode": cache_mode,
             "worker_count": worker_count}
 
-        def run_worker(role, executable_sha256, command, input_path=None):
+        def run_worker(role, executable_authority, command, input_path=None):
             stdout = tempfile.TemporaryFile()
             stderr_file = tempfile.TemporaryFile()
             input_stream = None
@@ -8772,7 +9025,8 @@ def execute_d12_worker_streams(provider_tsan_binary,
                 "classification": classification,
                 "returncode": returncode, "timed_out": timed_out,
                 "process": process, "command": command,
-                "executable_sha256": executable_sha256,
+                "executable_sha256": executable_authority["sha256"],
+                "executable_authority": executable_authority,
                 "stdin_descriptor": stdin_descriptor,
                 "started": started, "ended": ended}
 
@@ -8801,12 +9055,12 @@ def execute_d12_worker_streams(provider_tsan_binary,
                 retained)
 
         provider_run = run_worker(
-            "provider", provider_sha256, provider_command)
+            "provider", executable_authorities["provider"], provider_command)
         if provider_run["classification"] in blocking_classes:
             publish_and_raise([provider_run], provider_run["classification"])
         try:
             representation_run = run_worker(
-                "representation", representation_sha256,
+                "representation", executable_authorities["representation"],
                 representation_command,
                 references[(content_id, level)]["request_path"])
         except Exception:
