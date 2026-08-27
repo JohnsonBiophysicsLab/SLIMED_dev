@@ -1,9 +1,15 @@
 # B2c anchored-row qualification evidence
 
-Status: **exact-SHA review of the strict duplicate-key repair exposed a lossy
-floating-number JSON boundary; an exact-number remediation is in progress,
-qualification remains `INCOMPLETE`, and numeric D12 must be rerun only after a
-new exact-SHA gate**
+Status: **the D12 worker stage is blocked by a byte-order defect in this
+repository's own request-ledger writer, diagnosed 2026-08-27; qualification
+remains `INCOMPLETE`, and numeric D12 must be rerun only after the repair and a
+new exact-SHA gate.** The earlier exact-number remediation for the lossy
+floating-number JSON boundary is complete: it is implemented in
+`scripts/run_bfr_qualification.py` `strict_child_json` and in the exact
+`schema_version` integer checks, and the section below records that it passed
+technical, scientific, verification, and gatekeeper review at
+`fb7361ba388f00267167bae2820b4787bbaa2c92`. That item is closed and is not the
+current blocker.
 
 Candidate: `anchored_difference_rows_v1`
 
@@ -675,11 +681,11 @@ The single exception was `closed_valence5:2:cache_disabled:1`, whose
 representation process ran to completion and whose failure was instead
 `D12 worker output differs from serial reference` at
 `anchored-row-d12-v1/workers/cache_disabled/closed_valence5/level-2/workers-1/round-00/worker-0-representation.json`,
-with retention `state: UNRETAINED`. Because the probe did not use
-`--verify-derivation`, this mismatch may be a published-reference extraction
-artifact rather than a worker divergence; as recorded above, that direction
-fails closed and cannot make a broken worker appear clean. It is therefore an
-open ambiguity, not a finding.
+with retention `state: UNRETAINED`. This record originally left that case as an
+open ambiguity pending a `--verify-derivation` probe. **That characterization
+was wrong and is withdrawn.** The root cause below accounts for it exactly: it
+is the same single defect, not a published-reference extraction artifact, and
+`--verify-derivation` cannot detect it.
 
 ### Fourth branch
 
@@ -691,15 +697,98 @@ the race-marker vocabulary is not widened by this record. It is not an
 out-of-memory kill, sanitizer fatal, or plain crash, so it is not an
 infrastructure `INCOMPLETE` and not a resource-envelope fix.
 
-It is a deterministic non-finite value rejected at the representation input
-boundary, reproducible at one worker with the cache disabled, and therefore
-upstream of every concurrency mechanism the D12 threading matrix exercises.
-This disposition is `INCOMPLETE` for numeric correctness and blocking for the
-worker stage. Diagnosis and repair of the non-finite value's origin, and the
-separate resolution of the `closed_valence5` ambiguity under
-`--verify-derivation`, are prerequisites of any further D12 execution. Neither
-is authorized by this record, and neither may reuse candidate arithmetic,
-substitute Far, widen a target, or change the frozen corpus.
+It is a deterministic rejection at the representation input boundary,
+reproducible at one worker with the cache disabled, and therefore upstream of
+every concurrency mechanism the D12 threading matrix exercises. The root cause
+is now identified below: it is a byte-order defect in this repository's
+request-ledger writer, upstream of the candidate arithmetic as well. This
+disposition is `INCOMPLETE` for the harness and blocking for the worker stage.
+Repair of the request-ledger encoder is a prerequisite of any further D12
+execution. That repair is **not** authorized by this record, and it may not
+reuse candidate arithmetic, substitute Far, widen a target, or change the
+frozen corpus.
+
+### Root cause: request-ledger label byte order
+
+The rejection is not a numeric property of `anchored_difference_rows_v1` and
+is not a candidate failure. It is a byte-order convention mismatch across the
+D12 representation request seam, entirely inside this repository's harness.
+
+The writer emits little-endian bytes.
+`scripts/run_anchored_row_qualification.py:8033` and `:8037` encode the
+coefficient and fixture-source labels with `B2A.binary64_bits_hex`, which
+resolves to `scripts/run_invariant_row_representation_preflight.py:64` and
+returns `struct.pack("<d", value).hex()`.
+
+The reader decodes them as a numeric, most-significant-byte-first integer.
+`experiments/anchored_row_qualification/candidate.cpp:685` performs
+`input >> std::hex >> bits`, copies the result into a `double`, and
+`:689` throws `nonfinite input` when the decoded exponent field is all ones.
+`:3222` catches it and returns exit code 3.
+
+The same file already contains the correct big-endian encoder at
+`scripts/run_anchored_row_qualification.py:4578`
+(`struct.pack(">d", ...)`), which every other request-line writer uses.
+Lines 8033 and 8037 are the only inconsistent call sites. A label decodes
+non-finite under the reader's convention whenever its leading hex digits are
+`7ff` or `fff`.
+
+A census of all 98 published request ledgers scanned 25,099,872 labels:
+101,893 decode non-finite under the reader's big-endian convention, and **zero**
+decode non-finite under the writer's little-endian convention. The ledgers are
+therefore well-formed under the encoder that produced them; the contract
+between the two sides is what is wrong.
+
+Exactly two cells contain no non-finite-decoding label: `closed_valence5` at
+level 2 and at level 3. That accounts for the single exception above without
+residue. `closed_valence5:2` parsed every label as a byte-reversed value, ran
+to completion on those values, and diverged from the serial reference. Direct
+reproduction outside the harness showed 29,520 of 78,720 records differing,
+which is exactly the three `fixture_x/y/z` inputs times six row kinds times
+1,640 rows, while the five constant inputs — which never traverse a ledger
+label — matched bit for bit. The divergence was identical under both the TSan
+and the release binaries at one worker, confirming determinism.
+
+The representation serial reference is computed from the artifact rows rather
+than from the ledger and is not implicated.
+
+### Why the prescribed probe cannot detect this
+
+Step 4 above proposed resolving the `closed_valence5` case with
+`--verify-derivation`. That probe is structurally incapable of detecting this
+defect class. `scripts/replay_d12_tsan_tuple.py:363`, inside
+`verify_against_derivation`, re-derives through
+`RUNNER.write_d12_serial_references` — the same writer that carries the defect
+— and compares writer output against writer output. Executed on both
+`closed_valence5:2:cache_disabled:1` and `regular_all6_torus:2:cache_disabled:1`,
+it reported `independent_derivation: {"cases": 1, "state": "IDENTICAL"}` on
+input now known to be mis-encoded. That result is a false negative and must not
+be read as a clean bill of health.
+
+`request_sha256` is likewise computed from the emitted ledger at
+`scripts/run_anchored_row_qualification.py:8089` and frozen into the published
+references, so the integrity check authenticates the mis-encoded bytes. No test
+covers this seam: `write_d12_serial_references` has no occurrences in
+`tests/test_anchored_row_qualification.py`, and the tests that exercise
+`--d12-representation-stream` construct their own request lines with the
+correct big-endian encoder. Production and test therefore use different
+encoders across the same boundary, which is why prior exact-SHA review rounds
+did not surface it.
+
+### Consequences for the stop conditions
+
+`docs/bfr_loop_backend_plan_macos.md:1389` lists `nonfinite product/sum/result`
+among B2c's stop conditions. On this evidence that condition is **not** met: no
+product, sum, or result is non-finite. A finite value is misdecoded at a text
+boundary before any candidate arithmetic executes. The disposition remains a
+harness `INCOMPLETE`, not a B2c stop, and not a candidate failure. A reviewer
+who disagrees with that reading should say so explicitly, because the
+distinction governs whether B2c stops or is repaired.
+
+Repairing the two call sites changes the emitted ledger bytes and therefore
+every `request_sha256` and the derived reference set. That is a change to
+frozen inputs and requires its own authorized package and exact-SHA review. It
+is not authorized by this record.
 
 This observation does not convert the retained `fb7361ba` result into a pass,
 reopen D9a, unblock B3, select Far, or authorize production. Package 2 remains
