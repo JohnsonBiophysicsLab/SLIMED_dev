@@ -609,6 +609,9 @@ mismatch, never allow a broken worker to appear clean.
    narrow amendment to the race-marker vocabulary written against the observed
    text; and an out-of-memory kill, sanitizer fatal, or plain crash is an
    infrastructure `INCOMPLETE` and a resource-envelope fix, not an amendment.
+   The replay was executed on 2026-08-27 and showed none of those three
+   outcomes. The fourth branch it did show is defined in "Observed replay
+   disposition (2026-08-27)" below and is now the controlling branch.
 5. Only after a separately authorized reviewed-head transition, run a new full
    hosted correctness workflow and a new complete physical B2/D12 execution at
    that different exact SHA. A new execution cannot retroactively convert the
@@ -619,3 +622,85 @@ mismatch, never allow a broken worker to appear clean.
 Until those steps complete, Package 2 remains `INCOMPLETE`, D9a remains
 closed, B3 remains blocked, Far remains unselected, and production remains
 unauthorized.
+
+## Observed replay disposition (2026-08-27)
+
+This section records the step-4 diagnostic replay and adds the fourth branch
+that the step-4 list did not anticipate. It is an observation record only. It
+establishes and discharges no D12 criterion, qualifies nothing, decides no
+decision, and changes no frozen target, tolerance, manifest entry, or
+mutation.
+
+### Execution
+
+`scripts/replay_d12_tsan_tuple.py` was run on the qualified physical host
+against the retained `fb7361ba` published serial references and request
+ledgers. Every replay bound git head
+`fb7361ba388f00267167bae2820b4787bbaa2c92` and instrumentation digest
+`506135afc2e36bb995bff572b2242148b3eca4062b8be5512313df94ba1b4772`, and
+reported `environment_faithful: true` and
+`admissible_as_evidence: false`. The executed TSan binaries were provider
+`297abb9aa21dbcdb2691efd8c7f87231b38d21cd21ac5198a17ad02b2cfe14ba` and
+representation
+`0758ec2ff21d2b4841a235aad668971c7f4d29dedf22e27ae376c56de9c60aa2`. The
+retained bundle was read-only input; every replay root and artifact directory
+was disjoint from it, and no file inside `fb7361ba` was created, modified, or
+removed.
+
+Twenty-five tuples were replayed as a single-factor probe out from the first
+mandatory tuple `regular_all6_torus:2:cache_disabled:1`:
+
+- all fourteen content identities at level 2, `cache_disabled`, one worker;
+- `regular_all6_torus` at levels 3 through 8, `cache_disabled`, one worker;
+- `regular_all6_torus` at level 2 across both cache modes and workers 1, 2,
+  and 4.
+
+### Result
+
+All twenty-five tuples returned `disposition: BLOCKED`. Twenty-four returned
+`blocking_reason: NON_RACE_EXIT` with an identical process shape: provider
+`SUCCESS` with exit code 0, and representation `NON_RACE_EXIT` with exit code
+3 and the exact 16-byte stderr `nonfinite input\n`, whose SHA-256 is
+`76aa399e5c8d6eca5ab544c2844d91ecd81afc2d9da61be590e8a77a5dacbc3b`. The
+retained failure record for the first mandatory tuple has SHA-256
+`3627ff20588b58d9c53e817411721a4fd5f3f97b309e31d49ebff7e6cebbedfc`.
+
+Across all forty-eight worker processes, `race_report_detected` was false in
+every case. No TSan race report, sanitizer fatal, signal death, or timeout was
+observed anywhere in the probe. Behaviour was invariant across content
+identity, approximation level 2 through 8, both `cache_disabled` and
+`SurfaceFactoryCacheThreaded`, and worker counts 1, 2, and 4.
+
+The single exception was `closed_valence5:2:cache_disabled:1`, whose
+representation process ran to completion and whose failure was instead
+`D12 worker output differs from serial reference` at
+`anchored-row-d12-v1/workers/cache_disabled/closed_valence5/level-2/workers-1/round-00/worker-0-representation.json`,
+with retention `state: UNRETAINED`. Because the probe did not use
+`--verify-derivation`, this mismatch may be a published-reference extraction
+artifact rather than a worker divergence; as recorded above, that direction
+fails closed and cannot make a broken worker appear clean. It is therefore an
+open ambiguity, not a finding.
+
+### Fourth branch
+
+A `NON_RACE_EXIT` whose stderr is exactly `nonfinite input\n`, carrying no
+race report and no sanitizer finding, is none of the three step-4 branches. It
+is not a `SurfaceFactoryCacheThreaded` data race, so the frozen serial-only
+eligibility path is not reached. It is not another sanitizer finding kind, so
+the race-marker vocabulary is not widened by this record. It is not an
+out-of-memory kill, sanitizer fatal, or plain crash, so it is not an
+infrastructure `INCOMPLETE` and not a resource-envelope fix.
+
+It is a deterministic non-finite value rejected at the representation input
+boundary, reproducible at one worker with the cache disabled, and therefore
+upstream of every concurrency mechanism the D12 threading matrix exercises.
+This disposition is `INCOMPLETE` for numeric correctness and blocking for the
+worker stage. Diagnosis and repair of the non-finite value's origin, and the
+separate resolution of the `closed_valence5` ambiguity under
+`--verify-derivation`, are prerequisites of any further D12 execution. Neither
+is authorized by this record, and neither may reuse candidate arithmetic,
+substitute Far, widen a target, or change the frozen corpus.
+
+This observation does not convert the retained `fb7361ba` result into a pass,
+reopen D9a, unblock B3, select Far, or authorize production. Package 2 remains
+`INCOMPLETE`.
