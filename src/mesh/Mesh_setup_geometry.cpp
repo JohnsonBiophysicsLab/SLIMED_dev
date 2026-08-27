@@ -1,7 +1,5 @@
 #include "mesh/Mesh.hpp"
 
-#include <sstream>
-
 namespace
 {
 enum class OppositeNodeSearchState
@@ -602,11 +600,11 @@ void Mesh::set_one_ring_vertices_sorted()
             classifications.back();
         if (is_legacy_one_ring_rejection(classification.reasonCode))
         {
-            std::ostringstream message;
-            message << "Legacy one-ring setup rejected face " << face.index
-                    << ": "
-                    << legacy_one_ring_reason_code_name(classification.reasonCode);
-            throw std::runtime_error(message.str());
+            const std::string message =
+                "Legacy one-ring setup rejected face " +
+                std::to_string(face.index) + ": " +
+                legacy_one_ring_reason_code_name(classification.reasonCode);
+            throw std::runtime_error(message);
         }
     }
 
