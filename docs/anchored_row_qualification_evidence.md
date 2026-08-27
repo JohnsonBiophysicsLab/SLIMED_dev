@@ -449,12 +449,16 @@ writes role-specific raw stdout/stderr files, `fsync`s each file, writes the
 canonical `failure.json` commit marker last, then `fsync`s the final and every
 parent directory. It never follows or replaces an existing destination. The
 terminal error publishes the exact canonical record SHA-256 as the external
-review authority. Standalone validation requires that digest plus the frozen
-provider and representation executable paths/hashes, tuple universe, job
-grammar, closed environment, working directory, timeout, and representation
-request authority. Each process record binds its exact role, executable,
-argv, stdin or null, PID, timestamps, exit/signal/timeout state, classification,
-race-marker state, and raw-stream descriptors.
+review authority. Because the actual processes execute private runtime
+snapshots that disappear during unwind, the bundle also retains a no-follow,
+same-inode copy of each exact executed binary before that snapshot can be
+removed. Standalone validation requires the terminal record digest plus the
+frozen provider and representation executable hashes, retained executable
+bytes, tuple universe, job grammar, closed environment, working directory,
+timeout, and representation-request authority. Each process record binds its
+exact role, executable, argv, stdin or null, PID, timestamps,
+exit/signal/timeout state, classification, race-marker state, and raw-stream
+descriptors.
 
 Timeout is recorded only when the timer successfully kills the live process
 group and the observed result is `SIGKILL`. Provider race evidence is retained

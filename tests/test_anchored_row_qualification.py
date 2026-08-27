@@ -50,13 +50,10 @@ class AnchoredRowQualificationTests(unittest.TestCase):
             "LANG": "C", "LC_ALL": "C", "SOURCE_DATE_EPOCH": "0",
             "TZ": "UTC", "ZERO_AR_DATE": "1", "TMPDIR": "/tmp"}
         executable_authority = {
-            "provider": {"path": str(provider.resolve()),
-                         "sha256": MODULE.sha256_file(provider)},
-            "representation": {"path": str(representation.resolve()),
-                               "sha256": MODULE.sha256_file(representation)}}
+            "provider": MODULE.sha256_file(provider),
+            "representation": MODULE.sha256_file(representation)}
         artifact = MODULE.D12ProcessObservationArtifact(
-            output_root,
-            {item["sha256"] for item in executable_authority.values()})
+            output_root, set(executable_authority.values()))
         return {
             "provider": provider, "representation": representation,
             "output_root": output_root, "references": references,
@@ -4565,17 +4562,11 @@ class AnchoredRowQualificationTests(unittest.TestCase):
                     "request_path": str(request.resolve()),
                     "request_sha256": MODULE.sha256_file(request)})
                 expected_executables = {
-                    "provider": {
-                        "path": str(provider_binary.resolve()),
-                        "sha256": MODULE.sha256_file(provider_binary)},
-                    "representation": {
-                        "path": str(representation_binary.resolve()),
-                        "sha256": MODULE.sha256_file(
-                            representation_binary)}}
+                    "provider": MODULE.sha256_file(provider_binary),
+                    "representation": MODULE.sha256_file(
+                        representation_binary)}
                 artifact = MODULE.D12ProcessObservationArtifact(
-                    output_root,
-                    {value["sha256"] for value in
-                     expected_executables.values()})
+                    output_root, set(expected_executables.values()))
                 environment = {
                     "LANG": "C", "LC_ALL": "C",
                     "SOURCE_DATE_EPOCH": "0", "TZ": "UTC",
@@ -4614,6 +4605,13 @@ class AnchoredRowQualificationTests(unittest.TestCase):
                     self.assertIsNone(process["process"]["signal"])
                     self.assertFalse(process["process"]["timed_out"])
                     self.assertFalse(process["race_report_detected"])
+                    for retained_process in record["processes"]:
+                        retained_executable = output_root / \
+                            retained_process["executable"]["relative_path"]
+                        self.assertEqual(
+                            MODULE.sha256_file(retained_executable),
+                            expected_executables[
+                                retained_process["role"]])
                     self.assertEqual(record["tuple"], {
                         "content_identity_key": "content",
                         "approximation_level": 2,
@@ -4636,6 +4634,15 @@ class AnchoredRowQualificationTests(unittest.TestCase):
                     self.assertEqual(
                         list(output_root.glob(
                             "anchored-row-d12-worker-failure-*")), [])
+                    provider_binary.unlink()
+                    representation_binary.unlink()
+                    MODULE.validate_d12_worker_failure_artifact(
+                        output_root, failure_sha256, expected_executables,
+                        references,
+                        expected_environment=environment,
+                        expected_timeout_seconds=10,
+                        expected_tuple_identities=identities,
+                        expected_jobs=jobs)
                     stdout_path = failure_root / \
                         (failing_role + ".stdout.bin")
                     alias = failure_root / "stdout-alias.bin"
@@ -4702,15 +4709,10 @@ class AnchoredRowQualificationTests(unittest.TestCase):
                 "request_path": str(request.resolve()),
                 "request_sha256": MODULE.sha256_file(request)})
             expected_executables = {
-                "provider": {
-                    "path": str(provider_binary.resolve()),
-                    "sha256": MODULE.sha256_file(provider_binary)},
-                "representation": {
-                    "path": str(representation_binary.resolve()),
-                    "sha256": MODULE.sha256_file(representation_binary)}}
+                "provider": MODULE.sha256_file(provider_binary),
+                "representation": MODULE.sha256_file(representation_binary)}
             artifact = MODULE.D12ProcessObservationArtifact(
-                output_root,
-                {value["sha256"] for value in expected_executables.values()})
+                output_root, set(expected_executables.values()))
             try:
                 with mock.patch.object(
                         MODULE.B2, "expected_threading_identities",

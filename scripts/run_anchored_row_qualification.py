@@ -8204,11 +8204,13 @@ def _d12_failure_descriptor(relative_path, raw):
             "sha256": sha256_bytes(raw)}
 
 
-def _d12_failure_process_record(run, stream_descriptors):
+def _d12_failure_process_record(run, executable_descriptors,
+                                stream_descriptors):
     return {
         "role": run["role"],
         "classification": run["classification"],
         "executable_sha256": run["executable_sha256"],
+        "executable": copy.deepcopy(executable_descriptors[run["role"]]),
         "argv": list(run["command"]),
         "argv_sha256": sha256_bytes(jcs_bytes(run["command"])),
         "stdin": copy.deepcopy(run["stdin_descriptor"]),
@@ -8256,21 +8258,11 @@ def validate_d12_worker_failure_artifact(
     require(SHA256_RE.fullmatch(expected_record_sha256 or "") is not None and
             isinstance(expected_executables, dict) and
             set(expected_executables) == {"provider", "representation"} and
-            all(isinstance(value, dict) and set(value) == {"path", "sha256"} and
-                isinstance(value["path"], str) and
-                pathlib.Path(value["path"]).is_absolute() and
-                str(pathlib.Path(value["path"]).resolve()) == value["path"] and
-                SHA256_RE.fullmatch(value["sha256"] or "") is not None
+            all(SHA256_RE.fullmatch(value or "") is not None
                 for value in expected_executables.values()) and
+            len(set(expected_executables.values())) == 2 and
             isinstance(expected_references, dict),
             "D12 worker failure external authority")
-    for value in expected_executables.values():
-        executable = pathlib.Path(value["path"])
-        observed = executable.lstat()
-        require(stat.S_ISREG(observed.st_mode) and
-                not executable.is_symlink() and observed.st_nlink == 1 and
-                sha256_file(executable) == value["sha256"],
-                "D12 worker failure executable authority")
     environment = (_d12_rebuild_environment()
                    if expected_environment is None else expected_environment)
     identities = (B2.expected_threading_identities(B2.load_manifest())
@@ -8328,8 +8320,8 @@ def validate_d12_worker_failure_artifact(
     classifications = []
     for item in processes:
         require(isinstance(item, dict) and set(item) == {
-                    "role", "classification", "executable_sha256", "argv",
-                    "argv_sha256", "stdin", "process",
+                    "role", "classification", "executable_sha256",
+                    "executable", "argv", "argv_sha256", "stdin", "process",
                     "race_report_detected", "stdout", "stderr"},
                 "D12 worker failure process record shape")
         role = item["role"]
@@ -8337,15 +8329,28 @@ def validate_d12_worker_failure_artifact(
                     "SUCCESS", "TSAN_DATA_RACE", "NON_RACE_EXIT",
                     "PROCESS_TIMEOUT", "UNEXPECTED_SUCCESS_STDERR",
                     "INVALID_RACE_EXIT_STATUS"} and
-                item["executable_sha256"] ==
-                    expected_executables[role]["sha256"] and
+                item["executable_sha256"] == expected_executables[role] and
                 isinstance(item["argv"], list) and item["argv"] and
+                isinstance(item["argv"][0], str) and
+                pathlib.Path(item["argv"][0]).is_absolute() and
+                str(pathlib.Path(item["argv"][0]).resolve()) ==
+                    item["argv"][0] and
                 item["argv_sha256"] == sha256_bytes(jcs_bytes(item["argv"])) and
                 item["argv"] == _d12_failure_expected_command(
-                    role, expected_executables[role]["path"], tuple_record,
+                    role, item["argv"][0], tuple_record,
                     identities, jobs) and
                 type(item["race_report_detected"]) is bool,
                 "D12 worker failure role/command binding")
+        executable_relative = (
+            _D12_WORKER_FAILURE_ROOT + "/" + role + ".executable.bin")
+        executable_raw = _d12_read_relative_file(
+            output_root, executable_relative)
+        require(item["executable"] == _d12_failure_descriptor(
+                    executable_relative, executable_raw) and
+                item["executable"]["sha256"] == expected_executables[role] ==
+                    item["executable_sha256"],
+                "D12 worker failure retained executable binding")
+        observed_files.add(role + ".executable.bin")
         request_relative = (
             "anchored-row-d12-v1/requests/" +
             sha256_bytes(jcs_bytes([
@@ -8480,8 +8485,63 @@ def _publish_d12_worker_failure(
             "first-tsan-worker-failure",
             os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=failures)
         opened.append(final)
+        executable_descriptors = {}
         stream_descriptors = {}
         for run in runs:
+            role = run["role"]
+            executable_path = pathlib.Path(run["command"][0])
+            require(executable_path.is_absolute(),
+                    "D12 worker executable path authority")
+            before = executable_path.lstat()
+            source_descriptor = os.open(
+                str(executable_path), os.O_RDONLY | os.O_NOFOLLOW)
+            destination_name = role + ".executable.bin"
+            destination_relative = (
+                _D12_WORKER_FAILURE_ROOT + "/" + destination_name)
+            destination_descriptor = os.open(
+                destination_name,
+                os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                0o500, dir_fd=final)
+            digest = hashlib.sha256()
+            length = 0
+            try:
+                observed = os.fstat(source_descriptor)
+                require(stat.S_ISREG(observed.st_mode) and
+                        observed.st_nlink == 1 and
+                        (observed.st_dev, observed.st_ino) ==
+                            (before.st_dev, before.st_ino),
+                        "D12 worker executable changed before retention")
+                with os.fdopen(
+                        destination_descriptor, "wb",
+                        closefd=False) as destination:
+                    while True:
+                        block = os.read(source_descriptor, 1024 * 1024)
+                        if not block:
+                            break
+                        destination.write(block)
+                        digest.update(block)
+                        length += len(block)
+                    destination.flush()
+                    os.fsync(destination_descriptor)
+                after = os.fstat(source_descriptor)
+                current = executable_path.lstat()
+                require((observed.st_dev, observed.st_ino,
+                         observed.st_size, observed.st_mtime_ns,
+                         observed.st_nlink) ==
+                        (after.st_dev, after.st_ino, after.st_size,
+                         after.st_mtime_ns, after.st_nlink) ==
+                        (current.st_dev, current.st_ino, current.st_size,
+                         current.st_mtime_ns, current.st_nlink) and
+                        length == after.st_size and
+                        digest.hexdigest() == run["executable_sha256"] ==
+                            expected_executables[role],
+                        "D12 worker executable changed while retaining")
+            finally:
+                os.close(source_descriptor)
+                os.close(destination_descriptor)
+            executable_descriptors[role] = {
+                "relative_path": destination_relative,
+                "byte_length": length, "sha256": digest.hexdigest()}
             stream_descriptors[run["role"]] = {}
             for label, source in (("stdout", run["stdout"]),
                                   ("stderr", run["stderr"])):
@@ -8522,7 +8582,8 @@ def _publish_d12_worker_failure(
             "timeout_nanoseconds": int(timeout_seconds * 1000000000),
             "environment": copy.deepcopy(environment),
             "environment_sha256": sha256_bytes(jcs_bytes(environment)),
-            "processes": [_d12_failure_process_record(run, stream_descriptors)
+            "processes": [_d12_failure_process_record(
+                              run, executable_descriptors, stream_descriptors)
                           for run in runs]}
         raw = jcs_bytes(record)
         record_descriptor = os.open(
@@ -8716,10 +8777,8 @@ def execute_d12_worker_streams(provider_tsan_binary,
                 "started": started, "ended": ended}
 
         expected_executables = {
-            "provider": {"path": str(provider_binary),
-                         "sha256": provider_sha256},
-            "representation": {"path": str(representation_binary),
-                               "sha256": representation_sha256}}
+            "provider": provider_sha256,
+            "representation": representation_sha256}
         blocking_classes = {
             "NON_RACE_EXIT", "PROCESS_TIMEOUT",
             "UNEXPECTED_SUCCESS_STDERR", "INVALID_RACE_EXIT_STATUS"}
