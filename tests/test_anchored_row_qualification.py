@@ -24,6 +24,76 @@ SPEC.loader.exec_module(MODULE)
 
 
 class AnchoredRowQualificationTests(unittest.TestCase):
+    def _d12_failure_test_fixture(self, root, provider_source,
+                                  representation_source):
+        provider = root / "provider-worker"
+        provider.write_text(provider_source, encoding="utf-8")
+        os.chmod(provider, 0o755)
+        representation = root / "representation-worker"
+        representation.write_text(representation_source, encoding="utf-8")
+        os.chmod(representation, 0o755)
+        output_root = root / "output"
+        output_root.mkdir()
+        request = output_root / "anchored-row-d12-v1/requests" / (
+            MODULE.sha256_bytes(MODULE.jcs_bytes(["content", 2])) + ".tsv")
+        request.parent.mkdir(parents=True)
+        request.write_text("request\n", encoding="utf-8")
+        references = {("content", 2): {
+            "provider": "b" * 64, "representation": "c" * 64,
+            "provider_count": 1, "representation_count": 1,
+            "request_path": str(request.resolve()),
+            "request_sha256": MODULE.sha256_file(request)}}
+        identities = [("content", 2, "cache_disabled", 1)]
+        jobs = [{"content_identity_key": "content",
+                 "mesh_path": "unused", "mutation": "none"}]
+        environment = {
+            "LANG": "C", "LC_ALL": "C", "SOURCE_DATE_EPOCH": "0",
+            "TZ": "UTC", "ZERO_AR_DATE": "1", "TMPDIR": "/tmp"}
+        executable_authority = {
+            "provider": {"path": str(provider.resolve()),
+                         "sha256": MODULE.sha256_file(provider)},
+            "representation": {"path": str(representation.resolve()),
+                               "sha256": MODULE.sha256_file(representation)}}
+        artifact = MODULE.D12ProcessObservationArtifact(
+            output_root,
+            {item["sha256"] for item in executable_authority.values()})
+        return {
+            "provider": provider, "representation": representation,
+            "output_root": output_root, "references": references,
+            "identities": identities, "jobs": jobs,
+            "environment": environment,
+            "executable_authority": executable_authority,
+            "artifact": artifact}
+
+    def _run_d12_failure_test_fixture(self, fixture, timeout_seconds=10):
+        with mock.patch.object(
+                MODULE.B2, "expected_threading_identities",
+                return_value=fixture["identities"]), mock.patch.object(
+                    MODULE.B2, "valid_content_jobs",
+                    return_value=fixture["jobs"]), mock.patch.object(
+                        MODULE, "_d12_rebuild_environment",
+                        return_value=fixture["environment"]):
+            return MODULE.execute_d12_worker_streams(
+                fixture["provider"], fixture["representation"], {},
+                fixture["output_root"], fixture["references"],
+                fixture["artifact"], "a" * 64,
+                timeout_seconds=timeout_seconds)
+
+    def _validate_d12_failure_test_fixture(self, fixture,
+                                           timeout_seconds=10):
+        failure_root = (fixture["output_root"] /
+                        MODULE._D12_WORKER_FAILURE_ROOT)
+        digest = MODULE.sha256_file(failure_root / "failure.json")
+        record = MODULE.validate_d12_worker_failure_artifact(
+            fixture["output_root"], digest,
+            fixture["executable_authority"],
+            expected_environment=fixture["environment"],
+            expected_timeout_seconds=timeout_seconds,
+            expected_tuple_identities=fixture["identities"],
+            expected_jobs=fixture["jobs"],
+            expected_references=fixture["references"])
+        return failure_root, digest, record
+
     def present_result_artifact(self, criterion_id, digest, count):
         ordinal = MODULE.CRITERION_IDS.index(criterion_id)
         return {"availability": MODULE.availability("PRESENT", digest),
@@ -4378,11 +4448,16 @@ class AnchoredRowQualificationTests(unittest.TestCase):
             representation_binary.write_text(
                 "#!/bin/sh\ncat >/dev/null\nexit 0\n", encoding="utf-8")
             os.chmod(representation_binary, 0o755)
-            request = root / "request.tsv"
-            request.write_text("request\n", encoding="utf-8")
-            references[("content", 2)]["request_path"] = str(request)
             output_root = root / "output"
             output_root.mkdir()
+            request = output_root / "anchored-row-d12-v1/requests" / (
+                MODULE.sha256_bytes(MODULE.jcs_bytes(["content", 2])) +
+                ".tsv")
+            request.parent.mkdir(parents=True)
+            request.write_text("request\n", encoding="utf-8")
+            references[("content", 2)].update({
+                "request_path": str(request.resolve()),
+                "request_sha256": MODULE.sha256_file(request)})
             expected_executables = {
                 MODULE.sha256_file(binary),
                 MODULE.sha256_file(representation_binary)}
@@ -4479,16 +4554,28 @@ class AnchoredRowQualificationTests(unittest.TestCase):
                         "#!/bin/sh\ncat >/dev/null\nexit 0\n",
                         encoding="utf-8")
                 os.chmod(representation_binary, 0o755)
-                request = root / "request.tsv"
-                request.write_text("request\n", encoding="utf-8")
-                references[("content", 2)]["request_path"] = str(request)
                 output_root = root / "output"
                 output_root.mkdir()
+                request = output_root / "anchored-row-d12-v1/requests" / (
+                    MODULE.sha256_bytes(MODULE.jcs_bytes(["content", 2])) +
+                    ".tsv")
+                request.parent.mkdir(parents=True)
+                request.write_text("request\n", encoding="utf-8")
+                references[("content", 2)].update({
+                    "request_path": str(request.resolve()),
+                    "request_sha256": MODULE.sha256_file(request)})
                 expected_executables = {
-                    MODULE.sha256_file(provider_binary),
-                    MODULE.sha256_file(representation_binary)}
+                    "provider": {
+                        "path": str(provider_binary.resolve()),
+                        "sha256": MODULE.sha256_file(provider_binary)},
+                    "representation": {
+                        "path": str(representation_binary.resolve()),
+                        "sha256": MODULE.sha256_file(
+                            representation_binary)}}
                 artifact = MODULE.D12ProcessObservationArtifact(
-                    output_root, expected_executables)
+                    output_root,
+                    {value["sha256"] for value in
+                     expected_executables.values()})
                 environment = {
                     "LANG": "C", "LC_ALL": "C",
                     "SOURCE_DATE_EPOCH": "0", "TZ": "UTC",
@@ -4508,49 +4595,76 @@ class AnchoredRowQualificationTests(unittest.TestCase):
                                 provider_binary, representation_binary, {},
                                 output_root, references, artifact,
                                 instrumentation_digest, timeout_seconds=10)
+                    failure_root = output_root / \
+                        MODULE._D12_WORKER_FAILURE_ROOT
+                    failure_sha256 = MODULE.sha256_file(
+                        failure_root / "failure.json")
                     record = MODULE.validate_d12_worker_failure_artifact(
-                        output_root)
-                    self.assertEqual(record["failure_class"], failure_class)
-                    self.assertEqual(record["role"], failing_role)
-                    self.assertEqual(record["process"]["exit_kind"], "EXITED")
-                    self.assertEqual(record["process"]["exit_code"], exit_code)
-                    self.assertIsNone(record["process"]["signal"])
-                    self.assertFalse(record["process"]["timed_out"])
-                    self.assertFalse(record["race_report_detected"])
+                        output_root, failure_sha256, expected_executables,
+                        expected_environment=environment,
+                        expected_timeout_seconds=10,
+                        expected_tuple_identities=identities,
+                        expected_jobs=jobs, expected_references=references)
+                    self.assertEqual(record["blocking_reason"], failure_class)
+                    process = record["processes"][-1]
+                    self.assertEqual(process["classification"], failure_class)
+                    self.assertEqual(process["role"], failing_role)
+                    self.assertEqual(process["process"]["exit_kind"], "EXITED")
+                    self.assertEqual(process["process"]["exit_code"], exit_code)
+                    self.assertIsNone(process["process"]["signal"])
+                    self.assertFalse(process["process"]["timed_out"])
+                    self.assertFalse(process["race_report_detected"])
                     self.assertEqual(record["tuple"], {
                         "content_identity_key": "content",
                         "approximation_level": 2,
                         "cache_mode": "cache_disabled",
                         "worker_count": 1})
                     self.assertEqual(record["environment"], environment)
-                    failure_root = output_root / \
-                        MODULE._D12_WORKER_FAILURE_ROOT
                     self.assertIn(
-                        MODULE.sha256_file(failure_root / "failure.json"),
+                        failure_sha256,
                         str(failure.exception))
                     self.assertEqual(
-                        (failure_root / "stdout.bin").read_bytes(),
+                        (failure_root /
+                         (failing_role + ".stdout.bin")).read_bytes(),
                         expected_stdout)
                     self.assertEqual(
-                        (failure_root / "stderr.bin").read_bytes(),
+                        (failure_root /
+                         (failing_role + ".stderr.bin")).read_bytes(),
                         expected_stderr)
                     self.assertFalse((output_root /
                                       "anchored-row-d12-v1/workers").exists())
                     self.assertEqual(
                         list(output_root.glob(
                             "anchored-row-d12-worker-failure-*")), [])
+                    stdout_path = failure_root / \
+                        (failing_role + ".stdout.bin")
                     alias = failure_root / "stdout-alias.bin"
-                    os.link(failure_root / "stdout.bin", alias)
+                    os.link(stdout_path, alias)
                     with self.assertRaisesRegex(
                             MODULE.QualificationError,
-                            "failure artifact is unavailable"):
-                        MODULE.validate_d12_worker_failure_artifact(output_root)
+                            "evidence file is unavailable"):
+                        MODULE.validate_d12_worker_failure_artifact(
+                            output_root, failure_sha256,
+                            expected_executables,
+                            expected_environment=environment,
+                            expected_timeout_seconds=10,
+                            expected_tuple_identities=identities,
+                            expected_jobs=jobs,
+                            expected_references=references)
                     alias.unlink()
-                    (failure_root / "stderr.bin").write_bytes(b"tampered")
+                    (failure_root /
+                     (failing_role + ".stderr.bin")).write_bytes(b"tampered")
                     with self.assertRaisesRegex(
                             MODULE.QualificationError,
                             "failure stderr binding"):
-                        MODULE.validate_d12_worker_failure_artifact(output_root)
+                        MODULE.validate_d12_worker_failure_artifact(
+                            output_root, failure_sha256,
+                            expected_executables,
+                            expected_environment=environment,
+                            expected_timeout_seconds=10,
+                            expected_tuple_identities=identities,
+                            expected_jobs=jobs,
+                            expected_references=references)
                 finally:
                     artifact.close()
 
@@ -4577,14 +4691,26 @@ class AnchoredRowQualificationTests(unittest.TestCase):
             representation_binary.write_text(
                 "#!/bin/sh\nexit 0\n", encoding="utf-8")
             os.chmod(representation_binary, 0o755)
-            request = root / "request.tsv"
-            request.write_text("request\n", encoding="utf-8")
-            references[("content", 2)]["request_path"] = str(request)
             output_root = root / "output"
             output_root.mkdir()
+            request = output_root / "anchored-row-d12-v1/requests" / (
+                MODULE.sha256_bytes(MODULE.jcs_bytes(["content", 2])) +
+                ".tsv")
+            request.parent.mkdir(parents=True)
+            request.write_text("request\n", encoding="utf-8")
+            references[("content", 2)].update({
+                "request_path": str(request.resolve()),
+                "request_sha256": MODULE.sha256_file(request)})
+            expected_executables = {
+                "provider": {
+                    "path": str(provider_binary.resolve()),
+                    "sha256": MODULE.sha256_file(provider_binary)},
+                "representation": {
+                    "path": str(representation_binary.resolve()),
+                    "sha256": MODULE.sha256_file(representation_binary)}}
             artifact = MODULE.D12ProcessObservationArtifact(
-                output_root, {MODULE.sha256_file(provider_binary),
-                              MODULE.sha256_file(representation_binary)})
+                output_root,
+                {value["sha256"] for value in expected_executables.values()})
             try:
                 with mock.patch.object(
                         MODULE.B2, "expected_threading_identities",
@@ -4598,23 +4724,256 @@ class AnchoredRowQualificationTests(unittest.TestCase):
                                 "ZERO_AR_DATE": "1", "TMPDIR": "/tmp"}):
                     with self.assertRaisesRegex(
                             MODULE.QualificationError,
-                            "process timed out; retained failure artifact"):
+                            "blocked by PROCESS_TIMEOUT; retained failure"):
                         MODULE.execute_d12_worker_streams(
                             provider_binary, representation_binary, {},
                             output_root, references, artifact,
                             instrumentation_digest, timeout_seconds=0.1)
-                record = MODULE.validate_d12_worker_failure_artifact(output_root)
-                self.assertEqual(record["failure_class"], "PROCESS_TIMEOUT")
-                self.assertEqual(record["role"], "provider")
-                self.assertTrue(record["process"]["timed_out"])
-                self.assertEqual(record["process"]["exit_kind"], "SIGNALED")
-                self.assertEqual(record["process"]["signal"], signal.SIGKILL)
                 failure_root = output_root / MODULE._D12_WORKER_FAILURE_ROOT
+                failure_sha256 = MODULE.sha256_file(
+                    failure_root / "failure.json")
+                record = MODULE.validate_d12_worker_failure_artifact(
+                    output_root, failure_sha256, expected_executables,
+                    expected_environment={
+                        "LANG": "C", "LC_ALL": "C",
+                        "SOURCE_DATE_EPOCH": "0", "TZ": "UTC",
+                        "ZERO_AR_DATE": "1", "TMPDIR": "/tmp"},
+                    expected_timeout_seconds=0.1,
+                    expected_tuple_identities=identities,
+                    expected_jobs=jobs, expected_references=references)
+                process = record["processes"][0]
+                self.assertEqual(record["blocking_reason"], "PROCESS_TIMEOUT")
+                self.assertEqual(process["role"], "provider")
+                self.assertTrue(process["process"]["timed_out"])
+                self.assertEqual(process["process"]["exit_kind"], "SIGNALED")
+                self.assertEqual(process["process"]["signal"], signal.SIGKILL)
                 self.assertEqual(
-                    MODULE.sha256_file(failure_root / "stdout.bin"),
-                    record["stdout"]["sha256"])
+                    MODULE.sha256_file(failure_root / "provider.stdout.bin"),
+                    process["stdout"]["sha256"])
             finally:
                 artifact.close()
+
+    def test_d12_worker_failure_publication_rejects_parent_aliases_and_reuse(
+            self):
+        provider_source = (
+            "#!/bin/sh\nprintf 'partial'\nprintf 'fatal\\n' >&2\nexit 23\n")
+        representation_source = "#!/bin/sh\ncat >/dev/null\nexit 0\n"
+        for alias_parent in ("anchored", "failures"):
+            with self.subTest(alias_parent=alias_parent), \
+                    tempfile.TemporaryDirectory() as temporary:
+                root = pathlib.Path(temporary)
+                fixture = self._d12_failure_test_fixture(
+                    root, provider_source, representation_source)
+                outside = root / "outside"
+                outside.mkdir()
+                anchored = (fixture["output_root"] /
+                            "anchored-row-d12-v1")
+                if alias_parent == "anchored":
+                    anchored.rename(root / "saved-anchored")
+                    anchored.symlink_to(outside, target_is_directory=True)
+                else:
+                    (anchored / "failures").symlink_to(
+                        outside, target_is_directory=True)
+                try:
+                    with self.assertRaisesRegex(
+                            MODULE.QualificationError,
+                            "unavailable or aliased"):
+                        self._run_d12_failure_test_fixture(fixture)
+                    self.assertEqual(list(outside.iterdir()), [])
+                finally:
+                    fixture["artifact"].close()
+
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture = self._d12_failure_test_fixture(
+                pathlib.Path(temporary), provider_source,
+                representation_source)
+            try:
+                with self.assertRaisesRegex(
+                        MODULE.QualificationError,
+                        "retained failure artifact"):
+                    self._run_d12_failure_test_fixture(fixture)
+                failure_root, digest, _ = \
+                    self._validate_d12_failure_test_fixture(fixture)
+                original = (failure_root / "failure.json").read_bytes()
+                with self.assertRaisesRegex(
+                        MODULE.QualificationError,
+                        "failure artifact already exists"):
+                    self._run_d12_failure_test_fixture(fixture)
+                self.assertEqual(
+                    (failure_root / "failure.json").read_bytes(), original)
+                self.assertEqual(
+                    MODULE.sha256_file(failure_root / "failure.json"), digest)
+            finally:
+                fixture["artifact"].close()
+
+    def test_d12_worker_failure_bundle_preserves_two_process_race_evidence(
+            self):
+        provider_race = (
+            "#!/bin/sh\nprintf 'provider-partial'\n"
+            "printf 'WARNING: ThreadSanitizer: data race\\n' >&2\nexit 66\n")
+        representation_failure = (
+            "#!/bin/sh\ncat >/dev/null\nprintf 'representation-partial'\n"
+            "printf 'representation-fatal\\n' >&2\nexit 42\n")
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture = self._d12_failure_test_fixture(
+                pathlib.Path(temporary), provider_race,
+                representation_failure)
+            try:
+                with self.assertRaisesRegex(
+                        MODULE.QualificationError,
+                        "blocked by NON_RACE_EXIT"):
+                    self._run_d12_failure_test_fixture(fixture)
+                failure_root, _, record = \
+                    self._validate_d12_failure_test_fixture(fixture)
+                self.assertEqual(record["blocking_reason"], "NON_RACE_EXIT")
+                self.assertEqual(
+                    [item["classification"] for item in record["processes"]],
+                    ["TSAN_DATA_RACE", "NON_RACE_EXIT"])
+                self.assertEqual(
+                    (failure_root / "provider.stderr.bin").read_bytes(),
+                    b"WARNING: ThreadSanitizer: data race\n")
+                self.assertEqual(
+                    (failure_root /
+                     "representation.stderr.bin").read_bytes(),
+                    b"representation-fatal\n")
+                request_path = pathlib.Path(
+                    fixture["references"][("content", 2)]["request_path"])
+                request_path.write_text("drifted-request\n", encoding="utf-8")
+                with self.assertRaisesRegex(
+                        MODULE.QualificationError,
+                        "representation failure stdin binding"):
+                    self._validate_d12_failure_test_fixture(fixture)
+            finally:
+                fixture["artifact"].close()
+
+        both_race = (
+            "#!/bin/sh\ncat >/dev/null\nprintf 'partial'\n"
+            "printf 'WARNING: ThreadSanitizer: data race\\n' >&2\nexit 67\n")
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture = self._d12_failure_test_fixture(
+                pathlib.Path(temporary), provider_race, both_race)
+            try:
+                with self.assertRaisesRegex(
+                        MODULE.QualificationError,
+                        "blocked by MULTIPLE_RACE_REPORTS"):
+                    self._run_d12_failure_test_fixture(fixture)
+                _, _, record = self._validate_d12_failure_test_fixture(fixture)
+                self.assertEqual(record["blocking_reason"],
+                                 "MULTIPLE_RACE_REPORTS")
+                self.assertEqual(
+                    [item["classification"] for item in record["processes"]],
+                    ["TSAN_DATA_RACE", "TSAN_DATA_RACE"])
+            finally:
+                fixture["artifact"].close()
+
+        invalid_race_status = (
+            "#!/bin/sh\nprintf 'partial'\n"
+            "printf 'WARNING: ThreadSanitizer: data race\\n' >&2\nexit 0\n")
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture = self._d12_failure_test_fixture(
+                pathlib.Path(temporary), invalid_race_status,
+                representation_failure)
+            try:
+                with self.assertRaisesRegex(
+                        MODULE.QualificationError,
+                        "blocked by INVALID_RACE_EXIT_STATUS"):
+                    self._run_d12_failure_test_fixture(fixture)
+                _, _, record = self._validate_d12_failure_test_fixture(fixture)
+                self.assertEqual(record["processes"][0]["classification"],
+                                 "INVALID_RACE_EXIT_STATUS")
+            finally:
+                fixture["artifact"].close()
+
+    def test_d12_worker_failure_bundle_rejects_coordinated_metadata_and_aliases(
+            self):
+        provider_source = (
+            "#!/bin/sh\nprintf 'partial'\nprintf 'fatal\\n' >&2\nexit 23\n")
+        representation_source = "#!/bin/sh\ncat >/dev/null\nexit 0\n"
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture = self._d12_failure_test_fixture(
+                pathlib.Path(temporary), provider_source,
+                representation_source)
+            try:
+                with self.assertRaises(MODULE.QualificationError):
+                    self._run_d12_failure_test_fixture(fixture)
+                failure_root, digest, record = \
+                    self._validate_d12_failure_test_fixture(fixture)
+                record_path = failure_root / "failure.json"
+                original = record_path.read_bytes()
+
+                mutations = []
+                changed = copy.deepcopy(record)
+                changed["working_directory"] = "/tmp"
+                mutations.append(changed)
+                changed = copy.deepcopy(record)
+                changed["environment"]["LANG"] = "attacker"
+                changed["environment_sha256"] = MODULE.sha256_bytes(
+                    MODULE.jcs_bytes(changed["environment"]))
+                mutations.append(changed)
+                changed = copy.deepcopy(record)
+                changed["processes"][0]["argv"][0] = "/tmp/attacker"
+                changed["processes"][0]["argv_sha256"] = MODULE.sha256_bytes(
+                    MODULE.jcs_bytes(changed["processes"][0]["argv"]))
+                mutations.append(changed)
+                changed = copy.deepcopy(record)
+                changed["tuple"]["content_identity_key"] = "attacker"
+                mutations.append(changed)
+                changed = copy.deepcopy(record)
+                changed["timeout_nanoseconds"] += 1
+                mutations.append(changed)
+                changed = copy.deepcopy(record)
+                changed["blocking_reason"] = "PROCESS_TIMEOUT"
+                changed["processes"][0]["classification"] = "PROCESS_TIMEOUT"
+                changed["processes"][0]["process"]["timed_out"] = True
+                mutations.append(changed)
+                for index, changed in enumerate(mutations):
+                    with self.subTest(mutation=index):
+                        changed_raw = MODULE.jcs_bytes(changed)
+                        record_path.write_bytes(changed_raw)
+                        with self.assertRaises(MODULE.QualificationError):
+                            MODULE.validate_d12_worker_failure_artifact(
+                                fixture["output_root"],
+                                MODULE.sha256_bytes(changed_raw),
+                                fixture["executable_authority"],
+                                expected_environment=fixture["environment"],
+                                expected_timeout_seconds=10,
+                                expected_tuple_identities=fixture["identities"],
+                                expected_jobs=fixture["jobs"],
+                                expected_references=fixture["references"])
+                        record_path.write_bytes(original)
+                with self.assertRaisesRegex(
+                        MODULE.QualificationError, "external record digest"):
+                    changed = copy.deepcopy(record)
+                    changed["working_directory"] = "/tmp"
+                    record_path.write_bytes(MODULE.jcs_bytes(changed))
+                    MODULE.validate_d12_worker_failure_artifact(
+                        fixture["output_root"], digest,
+                        fixture["executable_authority"],
+                        expected_environment=fixture["environment"],
+                        expected_timeout_seconds=10,
+                        expected_tuple_identities=fixture["identities"],
+                        expected_jobs=fixture["jobs"],
+                        expected_references=fixture["references"])
+                record_path.write_bytes(original)
+
+                authority_copy = failure_root / "authority.json"
+                record_path.rename(authority_copy)
+                record_path.symlink_to("authority.json")
+                with self.assertRaisesRegex(
+                        MODULE.QualificationError,
+                        "unavailable or aliased"):
+                    MODULE.validate_d12_worker_failure_artifact(
+                        fixture["output_root"], digest,
+                        fixture["executable_authority"],
+                        expected_environment=fixture["environment"],
+                        expected_timeout_seconds=10,
+                        expected_tuple_identities=fixture["identities"],
+                        expected_jobs=fixture["jobs"],
+                        expected_references=fixture["references"])
+                record_path.unlink()
+                authority_copy.rename(record_path)
+            finally:
+                fixture["artifact"].close()
 
     def test_d12_worker_success_hashes_every_stream_and_hardlinks_equal_bytes(self):
         provider = b"provider-bytes"
@@ -4655,11 +5014,16 @@ class AnchoredRowQualificationTests(unittest.TestCase):
                 " o.write(r)\n",
                 encoding="utf-8")
             os.chmod(representation_binary, 0o755)
-            request = root / "request.tsv"
-            request.write_text("request\n", encoding="utf-8")
-            references[("content", 2)]["request_path"] = str(request)
             output_root = root / "output"
             output_root.mkdir()
+            request = output_root / "anchored-row-d12-v1/requests" / (
+                MODULE.sha256_bytes(MODULE.jcs_bytes(["content", 2])) +
+                ".tsv")
+            request.parent.mkdir(parents=True)
+            request.write_text("request\n", encoding="utf-8")
+            references[("content", 2)].update({
+                "request_path": str(request.resolve()),
+                "request_sha256": MODULE.sha256_file(request)})
             expected_executables = {
                 MODULE.sha256_file(provider_binary),
                 MODULE.sha256_file(representation_binary)}

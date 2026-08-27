@@ -432,22 +432,45 @@ candidate qualification result.
 The failing worker's stdout was held in a temporary file and stderr was read
 only into runner memory. Both were destroyed when the fail-closed exception
 unwound, so the retained bundle cannot identify the failed role, return code,
-signal, exact command, or diagnostic bytes. The proof-only follow-up therefore
-atomically publishes one immutable first-failure directory before raising. Its
-closed record binds the exact tuple and role, executable SHA-256, argv and
-closed environment with their digests, PID and timestamps, exit/signal/timeout
-state, failure class, and exact raw stdout/stderr paths, byte lengths, and
-SHA-256 values. The writer immediately revalidates the committed directory;
-the terminal failure includes the canonical record's SHA-256. Tampering, a
-partial or aliased directory, a second overwrite, noncanonical metadata, or
-descriptor drift fails closed. Genuine data-race reports retain their existing
-separate semantics and successful tuples remain unchanged.
+signal, exact command, or diagnostic bytes.
+
+The first proof-only retention implementation at
+`77e66f4078c8a0d30e3cc4e10fc4ac6553265303` was rejected by exact-SHA review.
+Its path-based publication could follow a symlinked parent outside the evidence
+root; its timeout callback could race a successful exit; a provider race could
+be discarded when the representation process then failed; both-race evidence
+was discarded; and its standalone metadata was self-authenticating. File
+`fsync` without directory `fsync` also did not establish durable publication.
+That exact SHA is not admissible and was not pushed.
+
+The follow-up uses descriptor-anchored, no-follow directory traversal from the
+already-open output root. It exclusively creates the first-failure directory,
+writes role-specific raw stdout/stderr files, `fsync`s each file, writes the
+canonical `failure.json` commit marker last, then `fsync`s the final and every
+parent directory. It never follows or replaces an existing destination. The
+terminal error publishes the exact canonical record SHA-256 as the external
+review authority. Standalone validation requires that digest plus the frozen
+provider and representation executable paths/hashes, tuple universe, job
+grammar, closed environment, working directory, timeout, and representation
+request authority. Each process record binds its exact role, executable,
+argv, stdin or null, PID, timestamps, exit/signal/timeout state, classification,
+race-marker state, and raw-stream descriptors.
+
+Timeout is recorded only when the timer successfully kills the live process
+group and the observed result is `SIGKILL`. Provider race evidence is retained
+in a two-process bundle if representation later has a non-race failure; two
+race reports retain both raw reports and block as `MULTIPLE_RACE_REPORTS`; and
+a race marker paired with exit zero blocks as `INVALID_RACE_EXIT_STATUS`.
+Tampering, hardlink/symlink aliases at any checked leaf or parent, coordinated
+metadata drift, request drift, a partial directory, or a second publication
+fails closed. A single legitimate race and fully successful tuples retain
+their frozen pre-existing result semantics.
 
 ## Required next work
 
-1. Commit the isolated TSan non-race failure-retention remediation and its
-   provider, representation, timeout, unexpected-stderr, tamper, race, and
-   success-path regressions.
+1. Commit the descriptor-anchored TSan failure-bundle remediation and its
+   provider, representation, composite-race, timeout, unexpected-stderr,
+   alias, durability, metadata-authority, tamper, and success-path regressions.
 2. Run four fresh independent exact-SHA reviews and obtain PASS verdicts.
 3. Preserve the failed `fb7361ba` physical artifact permanently. Do not retry,
    overwrite, reinterpret, or discard it.
