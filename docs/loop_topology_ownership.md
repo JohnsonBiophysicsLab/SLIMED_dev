@@ -149,10 +149,10 @@ must hold exclusive access to the Mesh. It preserves non-connectivity fields by
 retaining the existing `Vertex` and `Face` objects, but that mechanical face-ID
 retention is not an approved physical insertion/material/layer label transfer
 policy. One-rings are cleared rather than evaluator-rebuilt, so a committed
-transaction is not evaluator- or science-ready. L7d checkpoint and restart,
-L7e periodic/ghost/boundary/material/label policy, L7f optimizer and dynamics
-consequences, Gate-C evaluator coverage, Gate-D science continuity, and
-production flip activation all remain separately deferred.
+transaction is not evaluator- or science-ready. Topology-aware checkpoint and
+restart, L7e periodic/ghost/boundary/material/label policy, L7f optimizer and
+dynamics consequences, Gate-C evaluator coverage, Gate-D science continuity,
+and production flip activation all remain separately deferred.
 
 ## L7d restart checkpoint write interlock
 

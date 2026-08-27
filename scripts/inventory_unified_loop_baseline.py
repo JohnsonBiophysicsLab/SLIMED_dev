@@ -578,6 +578,12 @@ _REVIEWED_FLAT_SETUP_SHA256 = (
     "2a87b985a058db11429bb86c9ed49d186ed558eaf3a671fd08722e512e8586f4")
 _REVIEWED_CHECKPOINT_WRITER_SHA256 = (
     "d0fcc2377f984854926cf35740cd0f62db9d70822d33317f8f95d697666b5446")
+_REVIEWED_CHECKPOINT_INCLUDES = (
+    ("include", '"io/io.hpp"'),
+    ("include", "<algorithm>"),
+    ("include", "<cstdio>"),
+    ("include", "<iomanip>"),
+)
 _REVIEWED_OTHER_SOURCE_COUNT = 86
 _REVIEWED_OTHER_INCLUSION_SHA256 = (
     "8be98f909e50b3e463616d7b050705697a9f2baa730c2973673b166d86482817")
@@ -601,6 +607,18 @@ def _source_inclusion_surface_sha256(sources: list[str]) -> str:
     surface = [_source_inclusion_directives(source) for source in sources]
     encoded = json.dumps(surface, separators=(",", ":")).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
+
+
+def _only_reviewed_preprocessor_includes(
+        text: str,
+        reviewed: tuple[tuple[str, str], ...]) -> bool:
+    """Require an exact include surface and reject every other directive."""
+    code = _cpp_code(text)
+    directives = tuple(match.group(1) for match in re.finditer(
+        rf"^\s*{_CPP_DIRECTIVE_PREFIX}\s*([A-Za-z_]\w*)\b",
+        code, re.MULTILINE))
+    return (all(name == "include" for name in directives) and
+            _source_inclusion_directives(text) == reviewed)
 
 
 def _has_unreviewed_macro_directive(code: str) -> bool:
@@ -1885,6 +1903,9 @@ def collect_inventory() -> dict[str, Any]:
             "checkpoint_atomic_rename": "std::rename(tempFilepath.c_str(), filepath.c_str())" in output,
             "checkpoint_writer_contract_sha256":
                 checkpoint_writer_contract_sha256,
+            "checkpoint_preprocessor_surface_locked":
+                _only_reviewed_preprocessor_includes(
+                    output, _REVIEWED_CHECKPOINT_INCLUDES),
             "checkpoint_topology_write_interlock": _all_present(output, [
                 "model.mesh.topology_generation() !=",
                 "model.mesh.topology_generation_installed_by_setup()",
@@ -2263,6 +2284,8 @@ def validate_inventory(report: dict[str, Any], check_adr: bool = True) -> list[s
         require(j["checkpoint_writer_contract_sha256"] ==
                 _REVIEWED_CHECKPOINT_WRITER_SHA256,
                 "checkpoint writer contract drift")
+        require(j["checkpoint_preprocessor_surface_locked"],
+                "checkpoint writer preprocessing surface drift")
         require(j["checkpoint_topology_write_interlock"],
                 "checkpoint topology write interlock missing")
         require(j["field_order_anchor_present"], "output/checkpoint source anchor drift")

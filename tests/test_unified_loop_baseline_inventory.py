@@ -1243,6 +1243,9 @@ class UnifiedLoopBaselineInventoryTest(unittest.TestCase):
         self.assert_mutation_rejected(
             lambda r: r["J_output_checkpoint"].update(
                 {"checkpoint_topology_write_interlock": False}))
+        self.assert_mutation_rejected(
+            lambda r: r["J_output_checkpoint"].update(
+                {"checkpoint_preprocessor_surface_locked": False}))
         self.assert_text_mutation_rejected(
             "src/io/output.cpp",
             lambda text: text.replace(
@@ -1260,6 +1263,23 @@ class UnifiedLoopBaselineInventoryTest(unittest.TestCase):
             lambda text: text.replace(
                 "model.mesh.topology_generation_installed_by_setup()",
                 "model.mesh.topology_generation()", 1))
+        for directive in (
+                "#define topology_generation() "
+                "topology_generation_installed_by_setup()",
+                "%:define topology_generation() "
+                "topology_generation_installed_by_setup()",
+                "#/**/define topology_generation() "
+                "topology_generation_installed_by_setup()",
+                "#de\\\nfine topology_generation() "
+                "topology_generation_installed_by_setup()",
+                "#if 1\n#endif",
+                "#pragma push_macro(\"topology_generation\")"):
+            with self.subTest(directive=directive):
+                self.assert_text_mutation_rejected(
+                    "src/io/output.cpp",
+                    lambda text, directive=directive: text.replace(
+                        '#include "io/io.hpp"',
+                        '#include "io/io.hpp"\n' + directive, 1))
 
     def test_K_edge_flip_proof_only_and_cuda_frozen(self) -> None:
         self.assert_mutation_rejected(
