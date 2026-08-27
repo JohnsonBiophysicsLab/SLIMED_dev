@@ -51,6 +51,38 @@ using namespace std;
 
 struct OpenSubdivRegularProductionParityRecheck;
 
+enum class LegacyOneRingReasonCode
+{
+    ReadyRegular,
+    ReadyAllValenceFiveAliased,
+    SkippedGhostFace,
+    UnsupportedCornerValence,
+    InvalidFaceCornerCount,
+    InvalidCornerVertexIndex,
+    NoAdjacentFaceCountMatch,
+    AmbiguousAdjacentFaceCountMatch,
+    AdjacentVertexFaceCardinalityMismatch,
+    InvalidAdjacentVertexIndex,
+    OppositeNodeMissing,
+    OppositeNodeAmbiguous
+};
+
+const char *legacy_one_ring_reason_code_name(LegacyOneRingReasonCode code);
+
+struct LegacyOneRingClassification
+{
+    LegacyOneRingReasonCode reasonCode =
+        LegacyOneRingReasonCode::UnsupportedCornerValence;
+    std::array<std::size_t, 3> cornerValences{{0, 0, 0}};
+    std::array<std::size_t, 3> adjacentFaceCardinalities{{0, 0, 0}};
+    std::vector<int> extraordinaryCornerCandidates;
+    int candidateExtraordinaryCorner = -1;
+    std::vector<int> duplicateSourceIds;
+    bool everyRequiredIndexAssignedUniquely = false;
+    std::vector<int> orientedFaceVertices;
+    std::vector<int> assembledOneRing;
+};
+
 /**
  * @brief A class representing a triangular mesh that defines a
  * limit surface.
@@ -299,6 +331,15 @@ public:
      * @return int vertex index
      */
     int find_opposite_node_index(const int &node1, const int &node2, const int &node3);
+
+    /**
+     * @brief Observe the legacy 11/12-control setup state for one face.
+     *
+     * This classifier does not mutate the mesh or the supplied face. Its
+     * structured result distinguishes unsupported faces from malformed legacy
+     * candidates and carries any completely staged orientation and one-ring.
+     */
+    LegacyOneRingClassification classify_legacy_one_ring(const Face &face) const;
 
     /**
      * @brief find out the one-ring vertices aound face_i. It should be 12 for the flat surface because we set it up only with regular patch.
