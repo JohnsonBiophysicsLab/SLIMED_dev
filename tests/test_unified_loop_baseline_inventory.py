@@ -807,6 +807,12 @@ class UnifiedLoopBaselineInventoryTest(unittest.TestCase):
         self.assert_mutation_rejected(
             lambda r: r["I_tolerances_fixtures"]["fixture_sha256"]
             .update({fixture: "0" * 64}))
+        archived_fixture = (
+            "data/fixtures/candidates/asymmetric_valence3_triangular_bipyramid/"
+            "vertices.csv")
+        self.assert_mutation_rejected(
+            lambda r: r["I_tolerances_fixtures"]["fixture_sha256"]
+            .update({archived_fixture: "0" * 64}))
 
     def test_I3_B2p_inputs_fail_closed_on_required_mutations(self) -> None:
         fixture = next(iter(INVENTORY.EXPECTED_B2P_FIXTURE_HASHES))
