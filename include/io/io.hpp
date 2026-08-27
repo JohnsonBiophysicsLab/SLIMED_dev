@@ -200,7 +200,8 @@ bool write_energy_force_data_to_csv(const Model &model, const std::string &filep
  * V2 checkpoints store the iteration to run next, optimization state, mesh
  * coordinates, every current/previous/NCG force family, face observables and
  * energies, scaffold state, and record history needed to continue a Slurm job
- * after a walltime stop.
+ * after a walltime stop. Because V1/V2 store no connectivity, the write is
+ * rejected when the mesh topology generation has advanced since setup.
  */
 bool write_model_restart_checkpoint(const Model &model,
                                     const std::string &filepath,

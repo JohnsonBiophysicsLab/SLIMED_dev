@@ -241,6 +241,10 @@ _REVIEWED_TRANSACTION_INCLUDES = (
 )
 _REVIEWED_TRANSACTION_COMMIT_SHA256 = (
     "19485b5963d97cd60472e5c66dcf5a275ad6b410fb32270beb7545cd8f4dc748")
+_REVIEWED_IMPORT_SETUP_SHA256 = (
+    "f4c489797126ea63ab7bbe1c7bfa054cef0bdd84e05e5a53f7579149d6d78d9a")
+_REVIEWED_FLAT_SETUP_SHA256 = (
+    "2a87b985a058db11429bb86c9ed49d186ed558eaf3a671fd08722e512e8586f4")
 _REVIEWED_OTHER_SOURCE_COUNT = 86
 _REVIEWED_OTHER_INCLUSION_SHA256 = (
     "8be98f909e50b3e463616d7b050705697a9f2baa730c2973673b166d86482817")
@@ -425,13 +429,22 @@ def invalidation_seam_errors_for_sources(
         r"\bregularLimitSurfaceRowCache_\s*\.\s*invalidate\s*\(\s*\)\s*;")
     seam_call_pattern = re.compile(
         r"\binvalidate_topology_derived_state\s*\(\s*\)\s*;")
+    setup_generation_call_pattern = re.compile(
+        r"\bmark_topology_generation_installed_by_setup\s*"
+        r"\(\s*\)\s*;")
     transaction_seam_call_pattern = re.compile(
         r"\bmesh_\s*\.\s*invalidate_topology_derived_state\s*"
         r"\(\s*\)\s*;")
     seam_definition_pattern = re.compile(
         r"\bvoid\s+(?:Mesh::)?invalidate_topology_derived_state\s*"
         r"\(\s*\)\s*\{")
+    setup_generation_definition_pattern = re.compile(
+        r"\bvoid\s+(?:Mesh::)?"
+        r"mark_topology_generation_installed_by_setup\s*"
+        r"\(\s*\)\s*(?:noexcept\s*)?\{")
     generation_pattern = re.compile(r"\btopologyGeneration_\b")
+    setup_generation_pattern = re.compile(
+        r"\btopologyGenerationInstalledBySetup_\b")
     reviewed_seam_body_pattern = re.compile(
         r"\s*if\s*\(\s*topologyGeneration_\s*==\s*"
         r"std::numeric_limits\s*<\s*std::uint64_t\s*>\s*::\s*max\s*"
@@ -498,6 +511,49 @@ def invalidation_seam_errors_for_sources(
                 errors.append("cache reset is not a direct seam statement")
             if not reviewed_seam_body_pattern.fullmatch(seam_body):
                 errors.append("topology invalidation seam body has drifted")
+        setup_generation_scope = _unique_braced_scope(
+            class_body,
+            r"\bvoid\s+mark_topology_generation_installed_by_setup\s*"
+            r"\(\s*\)\s*noexcept\s*\{")
+        if setup_generation_scope is None:
+            errors.append("unique setup-generation marker definition")
+        else:
+            marker_start, marker_body = setup_generation_scope
+            access, marker_depth = _direct_access_label(
+                class_body, marker_start)
+            if access != "private" or marker_depth != 0:
+                errors.append("setup-generation marker is not private")
+            if not re.fullmatch(
+                    r"\s*topologyGenerationInstalledBySetup_\s*=\s*"
+                    r"topologyGeneration_\s*;\s*", marker_body):
+                errors.append("setup-generation marker body has drifted")
+        setup_generation_accessor = _unique_braced_scope(
+            class_body,
+            r"\bstd::uint64_t\s+"
+            r"topology_generation_installed_by_setup\s*\(\s*\)\s*"
+            r"const\s*noexcept\s*\{")
+        if setup_generation_accessor is None:
+            errors.append("unique setup-generation accessor definition")
+        else:
+            accessor_start, accessor_body = setup_generation_accessor
+            access, accessor_depth = _direct_access_label(
+                class_body, accessor_start)
+            if access != "public" or accessor_depth != 0:
+                errors.append("setup-generation accessor is not public")
+            if not re.fullmatch(
+                    r"\s*return\s+topologyGenerationInstalledBySetup_\s*;\s*",
+                    accessor_body):
+                errors.append("setup-generation accessor body has drifted")
+        setup_generation_member = list(re.finditer(
+            r"\bstd::uint64_t\s+topologyGenerationInstalledBySetup_\s*=\s*"
+            r"0\s*;", class_body))
+        if len(setup_generation_member) != 1:
+            errors.append("setup-generation storage has drifted")
+        else:
+            access, member_depth = _direct_access_label(
+                class_body, setup_generation_member[0].start())
+            if access != "private" or member_depth != 0:
+                errors.append("setup-generation storage is not private")
         if transaction_source:
             friend_pattern = re.compile(
                 r"\bfriend\s+class\s+"
@@ -522,6 +578,14 @@ def invalidation_seam_errors_for_sources(
         errors.append("import setup does not call seam exactly once")
     elif not _scope_begins_with(import_scope[1], seam_call_pattern):
         errors.append("import setup does not begin with a direct seam call")
+    if import_scope is not None:
+        if (len(setup_generation_call_pattern.findall(import_scope[1])) != 1 or
+                len(_direct_scope_matches(
+                    import_scope[1], setup_generation_call_pattern)) != 1):
+            errors.append("import setup does not mark its generation exactly once")
+        if (_scope_contract_sha256(import_scope[1]) !=
+                _REVIEWED_IMPORT_SETUP_SHA256):
+            errors.append("import setup body has drifted")
 
     flat_scope = _unique_braced_scope(
         lexical_code[2], r"\bvoid\s+Mesh::setup_flat\s*\(\s*\)\s*\{")
@@ -533,6 +597,14 @@ def invalidation_seam_errors_for_sources(
         errors.append("flat setup does not call seam exactly once")
     elif not _scope_begins_with(flat_scope[1], seam_call_pattern):
         errors.append("flat setup does not begin with a direct seam call")
+    if flat_scope is not None:
+        if (len(setup_generation_call_pattern.findall(flat_scope[1])) != 1 or
+                len(_direct_scope_matches(
+                    flat_scope[1], setup_generation_call_pattern)) != 1):
+            errors.append("flat setup does not mark its generation exactly once")
+        if (_scope_contract_sha256(flat_scope[1]) !=
+                _REVIEWED_FLAT_SETUP_SHA256):
+            errors.append("flat setup body has drifted")
 
     if transaction_source:
         transaction_scope = _unique_braced_scope(
@@ -567,12 +639,19 @@ def invalidation_seam_errors_for_sources(
         errors.append("cache reset exists outside the single seam")
     if len(seam_definition_pattern.findall(all_code)) != 1:
         errors.append("topology invalidation seam has unreviewed definitions")
+    if len(setup_generation_definition_pattern.findall(all_code)) != 1:
+        errors.append("setup-generation marker has unreviewed definitions")
+    if len(setup_generation_call_pattern.findall(all_code)) != 2:
+        errors.append("setup-generation marker has unreviewed callers")
     expected_call_count = 3 if transaction_source else 2
     if len(seam_call_pattern.findall(all_code)) != expected_call_count:
         errors.append("topology invalidation seam has unreviewed callers")
-    if (len(generation_pattern.findall(header_code)) != 4 or
-            len(generation_pattern.findall(all_code)) != 4):
+    if (len(generation_pattern.findall(header_code)) != 5 or
+            len(generation_pattern.findall(all_code)) != 5):
         errors.append("topology generation has unreviewed references")
+    if (len(setup_generation_pattern.findall(header_code)) != 3 or
+            len(setup_generation_pattern.findall(all_code)) != 3):
+        errors.append("setup generation has unreviewed references")
     if any(_has_unreviewed_macro_directive(code) for code in lexical_code):
         errors.append("topology invalidation identity is macro-shadowed")
     for name, pattern in (

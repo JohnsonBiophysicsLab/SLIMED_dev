@@ -209,6 +209,19 @@ public:
     }
 
     /**
+     * @brief Return the topology generation installed by the last completed
+     * mesh setup.
+     *
+     * A later topology transaction advances topology_generation() without
+     * changing this value. Restart checkpoint writes must reject that state
+     * until a topology-aware checkpoint format is separately approved.
+     */
+    std::uint64_t topology_generation_installed_by_setup() const noexcept
+    {
+        return topologyGenerationInstalledBySetup_;
+    }
+
+    /**
      * @brief Divide x,y axis to nx*dx (number of faces times length of
      * each face) and ny*dy based on X, Y side length of the mesh and
      * side length of faces in parameter. Note:
@@ -851,6 +864,19 @@ private:
         ++topologyGeneration_;
     }
 
+    /**
+     * @brief Mark a successfully completed setup as restart-write compatible.
+     *
+     * This marker is deliberately separate from the invalidation seam: a
+     * committed topology transaction advances the topology generation but
+     * must not make the connectivity-blind V1/V2 checkpoint format eligible.
+     */
+    void mark_topology_generation_installed_by_setup() noexcept
+    {
+        topologyGenerationInstalledBySetup_ = topologyGeneration_;
+    }
+
     std::uint64_t topologyGeneration_ = 0;
+    std::uint64_t topologyGenerationInstalledBySetup_ = 0;
     mutable RegularLimitSurfaceRowCache regularLimitSurfaceRowCache_;
 };

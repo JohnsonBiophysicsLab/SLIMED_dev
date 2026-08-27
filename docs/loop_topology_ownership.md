@@ -154,6 +154,32 @@ L7e periodic/ghost/boundary/material/label policy, L7f optimizer and dynamics
 consequences, Gate-C evaluator coverage, Gate-D science continuity, and
 production flip activation all remain separately deferred.
 
+## L7d restart checkpoint write interlock
+
+The V1 and V2 restart formats do not store oriented face connectivity. L7d
+therefore does not change either format or claim topology-aware restart.
+Instead, `Mesh` records the topology generation installed by the last setup
+that completed successfully. Both setup entry points refresh that marker only
+after their rebuild work completes. A committed L7c transaction advances the
+live topology generation through the existing invalidation seam but does not
+refresh the setup marker.
+
+The restart writer compares those generations before it opens the temporary
+checkpoint file. A mismatch fails the write and leaves any existing destination
+unchanged. The transaction has no production caller, so every existing workload
+continues to write the same `SLIMED_RESTART_V2` byte schema. The interlock makes
+the L7-before-WP9 ordering executable: a future caller cannot commit a topology
+transaction and then emit a connectivity-blind checkpoint through the current
+writer.
+
+This is deliberately negative evidence, not completion of topology-aware
+restart. It does **not** discharge L7 item 5 in the Bfr plan or Gate E in the
+adaptive-flipping feasibility record. L7 closes with that open blocker recorded;
+WP9 remains blocked on a separate C4-reviewed, explicitly user-approved D13
+decision package for the connectivity payload, V2-as-legacy-read behavior, and
+a tag bump for every schema change. L7d neither creates nor approves that
+schema.
+
 ## Evidence contract
 
 The ownership test checks the five declared closed fixture families,

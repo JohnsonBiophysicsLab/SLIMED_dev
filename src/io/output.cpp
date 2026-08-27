@@ -212,6 +212,20 @@ bool write_model_restart_checkpoint(const Model &model,
         return false;
     }
 
+    if (model.mesh.topology_generation() !=
+        model.mesh.topology_generation_installed_by_setup())
+    {
+        std::cerr
+            << "[write_model_restart_checkpoint] Refusing to write "
+            << filepath << ": topology generation "
+            << model.mesh.topology_generation()
+            << " no longer matches the generation installed by mesh setup ("
+            << model.mesh.topology_generation_installed_by_setup()
+            << "). The V1/V2 restart formats do not store connectivity."
+            << std::endl;
+        return false;
+    }
+
     const std::string tempFilepath = filepath + ".tmp";
     std::ofstream outfile(tempFilepath);
     if (!outfile.is_open())

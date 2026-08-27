@@ -747,6 +747,30 @@ class UnifiedLoopBaselineInventoryTest(unittest.TestCase):
             lambda text: text +
                 "\nvoid Mesh::invalidate_topology_derived_state() {}\n")
 
+    def test_F2_setup_generation_marker_fails_closed(self) -> None:
+        self.assert_text_mutation_rejected(
+            "src/mesh/Mesh.cpp",
+            lambda text: text.replace(
+                "    mark_topology_generation_installed_by_setup();",
+                "    // mark_topology_generation_installed_by_setup();", 1))
+        self.assert_text_mutation_rejected(
+            "src/mesh/Mesh_setup_flat.cpp",
+            lambda text: text.replace(
+                "    mark_topology_generation_installed_by_setup();",
+                "    if (false) "
+                "mark_topology_generation_installed_by_setup();", 1))
+        self.assert_text_mutation_rejected(
+            "include/mesh/Mesh.hpp",
+            lambda text: text.replace(
+                "topologyGenerationInstalledBySetup_ = topologyGeneration_;",
+                "topologyGenerationInstalledBySetup_ = 0;", 1))
+        self.assert_text_mutation_rejected(
+            "src/mesh/Loop_topology_transaction.cpp",
+            lambda text: text.replace(
+                "    for (std::size_t face = 0;",
+                "    mesh_.mark_topology_generation_installed_by_setup();\n"
+                "    for (std::size_t face = 0;", 1))
+
     def test_G_geometry_energy_force_are_independent_anchors(self) -> None:
         self.assert_mutation_rejected(
             lambda r: r["G_volume_functionals"].update(
@@ -1216,6 +1240,9 @@ class UnifiedLoopBaselineInventoryTest(unittest.TestCase):
         self.assert_mutation_rejected(
             lambda r: r["J_output_checkpoint"].update(
                 {"backend_or_functional_metadata_present": True}))
+        self.assert_mutation_rejected(
+            lambda r: r["J_output_checkpoint"].update(
+                {"checkpoint_topology_write_interlock": False}))
         self.assert_text_mutation_rejected(
             "src/io/output.cpp",
             lambda text: text.replace(
@@ -1223,6 +1250,16 @@ class UnifiedLoopBaselineInventoryTest(unittest.TestCase):
                 "        << energy.energyVolume << ','",
                 "        << energy.energyVolume << ','\n"
                 "        << energy.energyArea << ','", 1))
+        self.assert_text_mutation_rejected(
+            "src/io/output.cpp",
+            lambda text: text.replace(
+                "model.mesh.topology_generation() !=",
+                "model.mesh.topology_generation() ==", 1))
+        self.assert_text_mutation_rejected(
+            "src/io/output.cpp",
+            lambda text: text.replace(
+                "model.mesh.topology_generation_installed_by_setup()",
+                "model.mesh.topology_generation()", 1))
 
     def test_K_edge_flip_proof_only_and_cuda_frozen(self) -> None:
         self.assert_mutation_rejected(
