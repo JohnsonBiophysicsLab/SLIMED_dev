@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 import importlib.util
 import math
+import re
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -281,6 +282,11 @@ class UnifiedLoopBaselineInventoryTest(unittest.TestCase):
             lambda r: r["D_topology_guards"]["legacy_11_control_predicate"]
             ["wp1_1a_classifier_repair_record"]
             .update({"defect_confirmed": True}))
+        self.assert_mutation_rejected(
+            lambda r: r["D_topology_guards"]
+            ["legacy_11_control_predicate"]
+            ["wp1_1a_classifier_repair_record"]
+            .update({"required_active_source_contract_sha256": "0" * 64}))
 
         current_repair = self.baseline["D_topology_guards"] \
             ["legacy_11_control_predicate"] \
@@ -344,12 +350,29 @@ LegacyOneRingClassification Mesh::classify_legacy_one_ring(
         faces[faceIndex].oneRingVertices.swap(assembledOneRing);
     }
 """
-        repaired_source = classifier_source + """
+        repaired_source = '#include "mesh/Mesh.hpp"\n' + classifier_source + """
 void Mesh::set_one_ring_vertices_sorted()
 {
 """ + preflight_loop + publication_loop + """
 }
 """
+        _, repaired_contract_sha256, repaired_contract_is_unambiguous = (
+            INVENTORY._reviewed_active_source_contract(repaired_source))
+        self.assertTrue(repaired_contract_is_unambiguous)
+        self.assertEqual(
+            INVENTORY._reviewed_active_source_contract(
+                repaired_source.replace(
+                    "int d4 = -1;", "int   d4 = -1;", 1))[1],
+            repaired_contract_sha256,
+            "whitespace-only formatting changed the source contract",
+        )
+        self.assertNotEqual(
+            INVENTORY._reviewed_active_source_contract(
+                repaired_source.replace(
+                    "int d4 = -1;", "intd4 = -1;", 1))[1],
+            repaired_contract_sha256,
+            "distinct C++ tokenization collapsed to the same source contract",
+        )
 
         def collect_with_topology(source):
             def source_text(path):
@@ -361,8 +384,26 @@ void Mesh::set_one_ring_vertices_sorted()
                     INVENTORY, "_text", side_effect=source_text), \
                     mock.patch.object(
                         INVENTORY, "_topology_invalidation_seam_errors",
-                        return_value=[]):
+                        return_value=[]), \
+                    mock.patch.object(
+                        INVENTORY,
+                        "REVIEWED_MESH_SETUP_GEOMETRY_ACTIVE_SOURCE_SHA256",
+                        repaired_contract_sha256):
                 return INVENTORY.collect_inventory()
+
+        def validate_topology(report):
+            with mock.patch.object(
+                    INVENTORY,
+                    "REVIEWED_MESH_SETUP_GEOMETRY_ACTIVE_SOURCE_SHA256",
+                    repaired_contract_sha256):
+                return INVENTORY.validate_inventory(report, check_adr=False)
+
+        def observe_topology(source):
+            with mock.patch.object(
+                    INVENTORY,
+                    "REVIEWED_MESH_SETUP_GEOMETRY_ACTIVE_SOURCE_SHA256",
+                    repaired_contract_sha256):
+                return INVENTORY._legacy_classifier_repair_observations(source)
 
         repaired_report = collect_with_topology(repaired_source)
         repaired_record = repaired_report["D_topology_guards"] \
@@ -374,13 +415,36 @@ void Mesh::set_one_ring_vertices_sorted()
              repaired_record["repair_confirmed"]),
             (True, True, True),
         )
-        self.assertFalse(
-            INVENTORY.validate_inventory(repaired_report, check_adr=False))
+        self.assertFalse(validate_topology(repaired_report))
         self.assertEqual(
             repaired_record[
                 "required_active_classifier_identifier_occurrences"],
             {"d4": 6, "d7": 7, "d8": 7},
         )
+        self.assertEqual(
+            repaired_record["required_active_source_contract_sha256"],
+            repaired_contract_sha256,
+        )
+        tampered_contract = copy.deepcopy(repaired_report)
+        tampered_contract["D_topology_guards"] \
+            ["legacy_11_control_predicate"] \
+            ["wp1_1a_classifier_repair_record"] \
+            ["required_active_source_contract_sha256"] = "0" * 64
+        self.assertTrue(validate_topology(tampered_contract))
+        include_drift_report = collect_with_topology(
+            repaired_source.replace(
+                '"mesh/Mesh.hpp"', '"mesh/Other.hpp"', 1))
+        include_drift_record = include_drift_report["D_topology_guards"] \
+            ["legacy_11_control_predicate"] \
+            ["wp1_1a_classifier_repair_record"]
+        self.assertEqual(
+            (include_drift_record["sentinel_initialization_observed"],
+             include_drift_record[
+                 "rejection_precedes_publication_observed"],
+             include_drift_record["repair_confirmed"]),
+            (False, False, False),
+        )
+        self.assertFalse(validate_topology(include_drift_report))
         self.assert_mutation_rejected(
             lambda r: r["D_topology_guards"]
             ["legacy_11_control_predicate"]
@@ -413,14 +477,16 @@ void Mesh::set_one_ring_vertices_sorted()
                      extra_write_record[
                          "rejection_precedes_publication_observed"],
                      extra_write_record["repair_confirmed"]),
-                    (True, False, False),
+                    (False, False, False),
                     f"active preflight mutation escaped: {field} {mutation}",
                 )
-                self.assertFalse(INVENTORY.validate_inventory(
-                    extra_write_report, check_adr=False))
+                self.assertFalse(validate_topology(extra_write_report))
 
         masked_mutations = [
             "#if 0\n"
+            "        faces[0].adjacentVertices.clear();\n"
+            "#endif\n",
+            "#if (0)\n"
             "        faces[0].adjacentVertices.clear();\n"
             "#endif\n",
             "        // faces[0].oneRingVertices.clear();\n",
@@ -439,8 +505,7 @@ void Mesh::set_one_ring_vertices_sorted()
                  masked_write_record["repair_confirmed"]),
                 (True, True, True),
             )
-            self.assertFalse(INVENTORY.validate_inventory(
-                masked_write_report, check_adr=False))
+            self.assertFalse(validate_topology(masked_write_report))
 
         duplicate_sentinel_report = collect_with_topology(
             repaired_source.replace(
@@ -453,10 +518,9 @@ void Mesh::set_one_ring_vertices_sorted()
              duplicate_sentinel_record[
                  "rejection_precedes_publication_observed"],
              duplicate_sentinel_record["repair_confirmed"]),
-            (False, True, False),
+            (False, False, False),
         )
-        self.assertFalse(INVENTORY.validate_inventory(
-            duplicate_sentinel_report, check_adr=False))
+        self.assertFalse(validate_topology(duplicate_sentinel_report))
 
         for name in ("d4", "d7", "d8"):
             nested_declaration_source = repaired_source.replace(
@@ -475,11 +539,10 @@ void Mesh::set_one_ring_vertices_sorted()
                  nested_declaration_record[
                      "rejection_precedes_publication_observed"],
                  nested_declaration_record["repair_confirmed"]),
-                (False, True, False),
+                (False, False, False),
                 f"nested declaration escaped: {name}",
             )
-            self.assertFalse(INVENTORY.validate_inventory(
-                nested_declaration_report, check_adr=False))
+            self.assertFalse(validate_topology(nested_declaration_report))
 
             for declaration in (
                     f"int {name}(0);",
@@ -493,9 +556,8 @@ void Mesh::set_one_ring_vertices_sorted()
                     f"    if (nested) {{ {declaration} }}",
                     1)
                 self.assertEqual(
-                    INVENTORY._legacy_classifier_repair_observations(
-                        extra_identifier_source),
-                    (False, True),
+                    observe_topology(extra_identifier_source),
+                    (False, False),
                     f"active extra identifier escaped: {declaration}",
                 )
 
@@ -513,8 +575,7 @@ void Mesh::set_one_ring_vertices_sorted()
             )
             for masked_identifier_source in masked_identifier_sources:
                 self.assertEqual(
-                    INVENTORY._legacy_classifier_repair_observations(
-                        masked_identifier_source),
+                    observe_topology(masked_identifier_source),
                     (True, True),
                     f"masked identifier affected observation: {name}",
                 )
@@ -539,17 +600,92 @@ void Mesh::set_one_ring_vertices_sorted()
              macro_alias_record["repair_confirmed"]),
             (False, False, False),
         )
-        self.assertFalse(INVENTORY.validate_inventory(
-            macro_alias_report, check_adr=False))
+        self.assertFalse(validate_topology(macro_alias_report))
 
         for masked_macro_prefix in (
                 "// #define ADJACENT_FIELD adjacentVertices\n",
                 "#if 0\n#define ADJACENT_FIELD adjacentVertices\n#endif\n"):
             self.assertEqual(
-                INVENTORY._legacy_classifier_repair_observations(
-                    masked_macro_prefix + repaired_source),
+                observe_topology(masked_macro_prefix + repaired_source),
                 (True, True),
                 "masked macro directive affected repair observation",
+            )
+
+        def assert_repair_state(source, expected, message):
+            report = collect_with_topology(source)
+            record = report["D_topology_guards"] \
+                ["legacy_11_control_predicate"] \
+                ["wp1_1a_classifier_repair_record"]
+            self.assertEqual(
+                (record["sentinel_initialization_observed"],
+                 record["rejection_precedes_publication_observed"],
+                 record["repair_confirmed"]),
+                expected,
+                message,
+            )
+            self.assertFalse(validate_topology(report))
+
+        publication_signature = (
+            "void Mesh::set_one_ring_vertices_sorted()\n{\n")
+        out_of_scope_helper_source = """
+void mutate_publication_fields_before_preflight(std::vector<Face> &faces)
+{
+    faces[0].adjacentVertices.clear();
+    faces[0].oneRingVertices.clear();
+}
+""" + repaired_source.replace(
+            publication_signature,
+            publication_signature +
+            "    mutate_publication_fields_before_preflight(faces);\n",
+            1)
+        assert_repair_state(
+            out_of_scope_helper_source,
+            (False, False, False),
+            "out-of-scope publication helper escaped the source contract",
+        )
+
+        count_preserving_source = repaired_source.replace(
+            "    staged[3] = d4;",
+            "    { int d4; staged[3] = 0; }",
+            1)
+        count_preserving_active = (
+            INVENTORY._reviewed_active_source_contract(
+                count_preserving_source)[0])
+        count_preserving_classifier = INVENTORY._unique_braced_scope_span(
+            count_preserving_active,
+            r"\bLegacyOneRingClassification\s+"
+            r"Mesh::classify_legacy_one_ring\s*"
+            r"\(\s*const\s+Face\s*&\s*face\s*\)\s*const\s*\{")
+        self.assertIsNotNone(count_preserving_classifier)
+        self.assertEqual(
+            len(re.findall(
+                r"\bd4\b", count_preserving_classifier[3])),
+            6,
+            "adversary did not preserve the reviewed d4 token count",
+        )
+        assert_repair_state(
+            count_preserving_source,
+            (False, False, False),
+            "count-preserving nested d4 declaration escaped the contract",
+        )
+
+        ambiguous_conditionals = (
+            "#if 1\nint conditionally_active_helper = 0;\n#endif\n",
+            "#if 0\nint inactive_helper = 0;\n"
+            "#else\nint potentially_active_helper = 0;\n#endif\n",
+            "#endif\n",
+        )
+        for conditional_prefix in ambiguous_conditionals:
+            conditional_source = conditional_prefix + repaired_source
+            self.assertFalse(
+                INVENTORY._reviewed_active_source_contract(
+                    conditional_source)[2],
+                "potentially active conditional was not ambiguous",
+            )
+            assert_repair_state(
+                conditional_source,
+                (False, False, False),
+                "potentially active conditional escaped the contract",
             )
 
         misordered_source = classifier_source + """
@@ -566,10 +702,9 @@ void Mesh::set_one_ring_vertices_sorted()
             (misordered_record["sentinel_initialization_observed"],
              misordered_record["rejection_precedes_publication_observed"],
              misordered_record["repair_confirmed"]),
-            (True, False, False),
+            (False, False, False),
         )
-        self.assertFalse(INVENTORY.validate_inventory(
-            misordered_report, check_adr=False))
+        self.assertFalse(validate_topology(misordered_report))
 
         inactive_fake_report = collect_with_topology(
             "#if 0\n" + repaired_source + "#endif\n" +
@@ -584,8 +719,7 @@ void Mesh::set_one_ring_vertices_sorted()
              inactive_fake_record["repair_confirmed"]),
             (False, False, False),
         )
-        self.assertFalse(INVENTORY.validate_inventory(
-            inactive_fake_report, check_adr=False))
+        self.assertFalse(validate_topology(inactive_fake_report))
 
         detached_preflight = preflight_loop.replace(
             "        {\n"
@@ -609,10 +743,9 @@ void Mesh::set_one_ring_vertices_sorted()
              detached_throw_record[
                  "rejection_precedes_publication_observed"],
              detached_throw_record["repair_confirmed"]),
-            (True, False, False),
+            (False, False, False),
         )
-        self.assertFalse(INVENTORY.validate_inventory(
-            detached_throw_report, check_adr=False))
+        self.assertFalse(validate_topology(detached_throw_report))
 
         inconsistent_current = copy.deepcopy(self.baseline)
         inconsistent_current["D_topology_guards"] \
@@ -626,8 +759,7 @@ void Mesh::set_one_ring_vertices_sorted()
             ["legacy_11_control_predicate"] \
             ["wp1_1a_classifier_repair_record"] \
             ["repair_confirmed"] = False
-        self.assertTrue(INVENTORY.validate_inventory(
-            inconsistent_repaired, check_adr=False))
+        self.assertTrue(validate_topology(inconsistent_repaired))
         non_boolean = copy.deepcopy(self.baseline)
         non_boolean["D_topology_guards"] \
             ["legacy_11_control_predicate"] \

@@ -70,6 +70,12 @@ REVIEWED_CLASSIFIER_SENTINEL_IDENTIFIER_COUNTS = {
     "d7": 7,
     "d8": 7,
 }
+# SHA256 of the normalized active contents of Mesh_setup_geometry.cpp in the
+# reviewed WP1.1a source. This is a content contract, not a commit identity.
+# It includes active code and include operands after lexical masking and the
+# narrowly permitted literal-#if-0 removal performed below.
+REVIEWED_MESH_SETUP_GEOMETRY_ACTIVE_SOURCE_SHA256 = (
+    "d64f166ec4594561b0f3dea7ca220fc150f3cb0bc647c3d860abac678ff15abe")
 
 EXPECTED_FACES = {
     "valence3_tetrahedron": [
@@ -725,6 +731,83 @@ def _mask_cpp_conditionals(code: str) -> str:
     return "".join(masked)
 
 
+def _reviewed_active_source_contract(
+        text: str) -> tuple[str, str, bool]:
+    """Normalize the reviewed C++ source and report contract ambiguity.
+
+    Only balanced outer ``#if 0``/``#if (0)`` blocks without a depth-one
+    alternative are ignored. All other conditionals and active macro state
+    are ambiguous. Include operands are retained separately because
+    ``_cpp_code`` deliberately masks quoted literals.
+    """
+    spliced = re.sub(r"\\\r?\n", "", text)
+    lexical = _cpp_code(text)
+    raw_lines = spliced.splitlines(keepends=True)
+    code_lines = lexical.splitlines(keepends=True)
+    if len(raw_lines) != len(code_lines):
+        return ("", hashlib.sha256(b"").hexdigest(), False)
+
+    directive = re.compile(
+        rf"^\s*{_CPP_DIRECTIVE_PREFIX}\s*([A-Za-z_]\w*)\b")
+    include_operand = re.compile(
+        r'\s*("(?:\\.|[^"\\])*"|<[^>\r\n]*>|[A-Za-z_]\w*)')
+    inactive_depth = 0
+    inactive_has_depth_one_alternative = False
+    unambiguous = True
+    active_lines: list[str] = []
+    active_inclusions: list[tuple[str, str]] = []
+
+    for raw_line, code_line in zip(raw_lines, code_lines):
+        match = directive.match(code_line)
+        name = match.group(1) if match else None
+        if inactive_depth:
+            if name in {"if", "ifdef", "ifndef"}:
+                inactive_depth += 1
+            elif name in {"elif", "else"} and inactive_depth == 1:
+                inactive_has_depth_one_alternative = True
+            elif name == "endif":
+                inactive_depth -= 1
+                if inactive_depth == 0:
+                    unambiguous = (
+                        unambiguous
+                        and not inactive_has_depth_one_alternative)
+                    inactive_has_depth_one_alternative = False
+            active_lines.append("".join(
+                "\n" if character == "\n" else " "
+                for character in code_line))
+            continue
+
+        if match and name == "if":
+            expression = code_line[match.end():].strip()
+            if re.fullmatch(r"(?:0|\(\s*0\s*\))", expression):
+                inactive_depth = 1
+                active_lines.append("".join(
+                    "\n" if character == "\n" else " "
+                    for character in code_line))
+                continue
+        if name in {"if", "ifdef", "ifndef", "elif", "else", "endif",
+                    "define", "undef"}:
+            unambiguous = False
+        if match and name in {"include", "include_next", "import"}:
+            operand = include_operand.match(raw_line[match.end():])
+            if operand is None:
+                unambiguous = False
+            else:
+                active_inclusions.append((name, operand.group(1)))
+        active_lines.append(code_line)
+
+    if inactive_depth:
+        unambiguous = False
+    active = "".join(active_lines)
+    normalized = json.dumps({
+        "code_with_normalized_whitespace": re.sub(
+            r"\s+", " ", active).strip(),
+        "active_inclusions": active_inclusions,
+    }, sort_keys=True, separators=(",", ":"))
+    digest = hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+    return (active, digest, unambiguous)
+
+
 def _direct_access_label(code: str, position: int):
     depth = 0
     access = None
@@ -780,7 +863,12 @@ def _direct_scope_matches(code: str, pattern: re.Pattern[str]):
 def _legacy_classifier_repair_observations(text: str) -> tuple[bool, bool]:
     """Observe the active, structurally scoped WP1.1a classifier repair."""
     lexical = _cpp_code(text)
-    active = _mask_cpp_conditionals(lexical)
+    active, active_source_sha256, source_contract_is_unambiguous = (
+        _reviewed_active_source_contract(text))
+    active_source_contract_matches = (
+        source_contract_is_unambiguous
+        and active_source_sha256 ==
+        REVIEWED_MESH_SETUP_GEOMETRY_ACTIVE_SOURCE_SHA256)
     macro_state_is_unambiguous = not (
         _has_active_define_or_undef_directive(lexical))
     classifier = _unique_braced_scope_span(
@@ -795,7 +883,8 @@ def _legacy_classifier_repair_observations(text: str) -> tuple[bool, bool]:
     if classifier is not None:
         classifier_body = classifier[3]
         sentinel_initialization_observed = (
-            macro_state_is_unambiguous
+            active_source_contract_matches
+            and macro_state_is_unambiguous
             and all(
                 len(pattern.findall(active)) == 1
                 and len(_direct_scope_matches(classifier_body, pattern)) == 1
@@ -857,7 +946,8 @@ def _legacy_classifier_repair_observations(text: str) -> tuple[bool, bool]:
                 for pattern in write_patterns
             ]
             rejection_precedes_publication_observed = (
-                macro_state_is_unambiguous
+                active_source_contract_matches
+                and macro_state_is_unambiguous
                 and preflight_is_direct
                 and publication_loop_is_direct
                 and rejection_is_direct
@@ -1697,6 +1787,8 @@ def collect_inventory() -> dict[str, Any]:
                 },
                 "required_active_classifier_identifier_occurrences":
                     REVIEWED_CLASSIFIER_SENTINEL_IDENTIFIER_COUNTS,
+                "required_active_source_contract_sha256":
+                    REVIEWED_MESH_SETUP_GEOMETRY_ACTIVE_SOURCE_SHA256,
                 "required_rejection_precedes_writes_to": [
                     "face.adjacentVertices",
                     "face.oneRingVertices",
@@ -2159,6 +2251,7 @@ def validate_inventory(report: dict[str, Any], check_adr: bool = True) -> list[s
                     "source_path",
                     "required_sentinel_initializers",
                     "required_active_classifier_identifier_occurrences",
+                    "required_active_source_contract_sha256",
                     "required_rejection_precedes_writes_to",
                     "sentinel_initialization_observed",
                     "rejection_precedes_publication_observed",
@@ -2173,6 +2266,8 @@ def validate_inventory(report: dict[str, Any], check_adr: bool = True) -> list[s
                 classifier_repair[
                     "required_active_classifier_identifier_occurrences"] ==
                 REVIEWED_CLASSIFIER_SENTINEL_IDENTIFIER_COUNTS and
+                classifier_repair["required_active_source_contract_sha256"] ==
+                REVIEWED_MESH_SETUP_GEOMETRY_ACTIVE_SOURCE_SHA256 and
                 classifier_repair[
                     "required_rejection_precedes_writes_to"] == [
                         "face.adjacentVertices",
