@@ -7944,9 +7944,26 @@ def execute_d12_numeric_criteria(process_artifact, output_root,
     return result
 
 
-def write_d12_serial_references(checkpoint, artifact_root, output_root):
-    """Independently publish the exact 98-case serial reference bytes."""
+def write_d12_serial_references(checkpoint, artifact_root, output_root,
+                                selected_cases=None):
+    """Independently publish the exact 98-case serial reference bytes.
+
+    ``selected_cases`` restricts the derivation to a subset of
+    ``(content_identity_key, approximation_level)`` pairs.  It defaults to
+    ``None``, which reproduces the frozen 98-case production derivation
+    byte-for-byte.  A restricted derivation retains every per-case authority
+    check but is a diagnostic replay input only; it is never admissible as
+    qualification evidence.
+    """
     output_root = pathlib.Path(output_root).resolve()
+    selected = None
+    if selected_cases is not None:
+        selected = set()
+        for content_id, level in selected_cases:
+            require(isinstance(content_id, str) and type(level) is int,
+                    "D12 serial reference selection identity")
+            selected.add((content_id, level))
+        require(selected, "D12 serial reference selection is empty")
     provider_relative = (
         "anchored-row-d12-v1/serial/provider-rows.b2rowv1")
     representation_relative = (
@@ -7979,6 +7996,10 @@ def write_d12_serial_references(checkpoint, artifact_root, output_root):
         for case in _ordered_d12_cases(checkpoint):
             if normalized_cache_mode(case["applicable_mode"]) != \
                     "cache_disabled":
+                continue
+            if selected is not None and (
+                    case["content_identity_key"],
+                    case["approximation_level"]) not in selected:
                 continue
             report = _artifact_report(artifact_root, case)
             fixture = fixtures[case["content_identity_key"]]
@@ -8068,9 +8089,14 @@ def write_d12_serial_references(checkpoint, artifact_root, output_root):
                 "request_sha256": sha256_file(request_path)}
         representation_stream.write(b"]")
         representation_digest.update(b"]")
-    require(len(references) == 98 and provider_count == 693000 and
-            representation_count == 5544000,
-            "D12 serial reference cardinality")
+    if selected is None:
+        require(len(references) == 98 and provider_count == 693000 and
+                representation_count == 5544000,
+                "D12 serial reference cardinality")
+    else:
+        require(set(references) == selected and provider_count > 0 and
+                representation_count == provider_count * 8,
+                "D12 selected serial reference cardinality")
 
     def descriptor(relative_path, path, count, digest):
         value = {
@@ -8878,8 +8904,15 @@ def execute_d12_worker_streams(provider_tsan_binary,
                                output_root, references,
                                process_artifact,
                                instrumentation_digest,
-                               timeout_seconds=3600):
-    """Execute workers while exact executable leaves cannot be swapped."""
+                               timeout_seconds=3600,
+                               selected_tuple_identities=None):
+    """Execute workers while exact executable leaves cannot be swapped.
+
+    ``selected_tuple_identities`` restricts execution to a subset of the
+    frozen threading universe.  It defaults to ``None``, which executes the
+    complete frozen universe unchanged.  A restricted execution is a
+    diagnostic replay only and is never admissible as qualification evidence.
+    """
     require(SHA256_RE.fullmatch(instrumentation_digest or "") is not None,
             "D12 TSan worker instrumentation unavailable")
     executable_paths = {
@@ -8890,12 +8923,13 @@ def execute_d12_worker_streams(provider_tsan_binary,
         return _execute_d12_worker_streams_locked(
             checkpoint, output_root, references, process_artifact,
             instrumentation_digest, timeout_seconds,
-            executable_authorities)
+            executable_authorities, selected_tuple_identities)
 
 
 def _execute_d12_worker_streams_locked(
         checkpoint, output_root, references, process_artifact,
-        instrumentation_digest, timeout_seconds, executable_authorities):
+        instrumentation_digest, timeout_seconds, executable_authorities,
+        selected_tuple_identities=None):
     """Internal worker execution under immutable executable authority."""
     provider_binary = executable_authorities["provider"]["path"]
     representation_binary = executable_authorities["representation"]["path"]
@@ -8909,7 +8943,18 @@ def _execute_d12_worker_streams_locked(
     aborts = {}
     published_content_files = {}
     tuple_count = 0
-    tuple_identities = B2.expected_threading_identities(B2.load_manifest())
+    frozen_identities = B2.expected_threading_identities(B2.load_manifest())
+    if selected_tuple_identities is None:
+        tuple_identities = frozen_identities
+    else:
+        frozen_universe = set(frozen_identities)
+        tuple_identities = [tuple(identity)
+                            for identity in selected_tuple_identities]
+        require(tuple_identities and
+                len(set(tuple_identities)) == len(tuple_identities) and
+                all(identity in frozen_universe
+                    for identity in tuple_identities),
+                "D12 selected worker tuple is not frozen")
     expected_descriptor_count = sum(
         40 * worker_count for _, _, _, worker_count in tuple_identities)
     for content_id, level, mode, worker_count in tuple_identities:

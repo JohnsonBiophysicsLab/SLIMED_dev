@@ -514,6 +514,73 @@ and size before the first write. Regressions perform the prior same-inode
 executable change and the prior pre-lock retained-leaf move; both now fail
 before a worker starts or a retained byte can escape.
 
+## Standalone TSan worker replay against the published serial references
+
+Diagnosing the retained `fb7361ba` failure through a full
+`--produce-d12-evidence` run costs one complete physical cycle per
+observation. That run spends approximately three hours and 48 minutes on the
+4,189,640-record numeric process ledger and the 98-case serial derivation
+before the first mandatory TSan tuple executes at all. An unknown intermittent
+worker failure cannot be diagnosed at that cadence.
+
+Both serial references and all 98 request ledgers are published before the
+worker stage begins, and they survive the fail-closed unwind, so the exact
+inputs to the failing stage already exist and are addressable.
+`scripts/replay_d12_tsan_tuple.py` replays the worker stage directly against
+those published bytes for a selected subset of the frozen 588-tuple universe.
+The first mandatory tuple is `regular_all6_torus:2:cache_disabled:1`.
+
+The harness binds its inputs before executing anything. It parses the
+published provider reference record by record, slices it by the frozen
+checkpoint row-kind counts, and requires every one of the 98 case slices to
+equal that case's `canonical_rows_sha256`, with no trailing bytes; the
+published provider reference is therefore cryptographically bound to the
+frozen checkpoint in full. For each selected case it locates the canonical
+representation slice by its exact record prefix, requires comma-adjacent
+slice boundaries, re-encodes the parsed slice and requires JCS identity, and
+requires the frozen record grammar: case identity, row kind, the exact
+eight-input JCS-sorted cycle, and a binary64 token. It copies each published
+request ledger into the isolated replay root, requires byte identity, and
+requires the ledger row count to equal the provider case slice. `--verify-derivation`
+additionally re-derives the selected cases with the frozen production
+derivation and requires exact identity for every digest, count, and request
+byte.
+
+Execution is environment-faithful. The replay reuses the frozen closed build
+environment, the frozen argv grammar, the immutable executable authority, the
+private runtime snapshot, the retention bundle, and the classifier without
+alteration. It never sets `TSAN_OPTIONS`, because that would change the frozen
+D12 execution environment, which is itself a D12 input. When the published
+bundle retains a failure, the replay requires its own executables to equal the
+retained executed bytes. It writes only into an empty replay root that is
+required to be disjoint from both the repository and the published bundle, so
+the retained `fb7361ba` artifact cannot be mutated. On a blocking
+classification it independently revalidates the retained bundle through
+`validate_d12_worker_failure_artifact` and reports the failed role, exact
+classification, exit code or signal, timeout state, race-marker state, argv,
+and the retained stdout/stderr bytes.
+
+The replay publishes a `d12_tsan_worker_replay_v1` marker recording
+`admissible_as_evidence: false`. It is a diagnostic observation only. It
+cannot establish or discharge any D12 criterion, cannot substitute for a
+complete physical execution, and cannot convert the retained `fb7361ba` result
+into a pass.
+
+Two default-preserving scope parameters support it in the runner:
+`write_d12_serial_references(..., selected_cases=None)` and
+`execute_d12_worker_streams(..., selected_tuple_identities=None)`. Both default
+to the complete frozen universe and leave the production path byte-identical;
+a restricted selection must be a duplicate-free subset of the frozen universe
+or it fails closed.
+
+One authority limit is recorded explicitly. The checkpoint carries a per-case
+provider digest but no per-case representation digest, so the published
+representation reference is bound structurally rather than cryptographically
+unless `--verify-derivation` is used. This fails closed in the correct
+direction: the worker stage compares each worker's output against the
+reference, so a corrupted representation reference can only cause a spurious
+mismatch, never allow a broken worker to appear clean.
+
 ## Required next work
 
 1. Commit the immutable-authority TSan failure-bundle remediation and its
@@ -522,11 +589,20 @@ before a worker starts or a retained byte can escape.
 2. Run four fresh independent exact-SHA reviews and obtain PASS verdicts.
 3. Preserve the failed `fb7361ba` physical artifact permanently. Do not retry,
    overwrite, reinterpret, or discard it.
-4. Only after a separately authorized reviewed-head transition, run a new full
+4. On the qualified physical host, replay the first mandatory TSan tuple
+   against the retained `fb7361ba` published serial references to obtain the
+   first real failure stderr, without mutating that artifact. Branch on what it
+   shows: a genuine `SurfaceFactoryCacheThreaded` data race needs no amendment,
+   because B2b already froze the later-decision-only serial-only eligibility
+   after a detected threaded-cache race; another sanitizer finding kind needs a
+   narrow amendment to the race-marker vocabulary written against the observed
+   text; and an out-of-memory kill, sanitizer fatal, or plain crash is an
+   infrastructure `INCOMPLETE` and a resource-envelope fix, not an amendment.
+5. Only after a separately authorized reviewed-head transition, run a new full
    hosted correctness workflow and a new complete physical B2/D12 execution at
    that different exact SHA. A new execution cannot retroactively convert the
    retained `fb7361ba` result into a pass.
-5. Submit any newly produced exact physical-host artifact for independent
+6. Submit any newly produced exact physical-host artifact for independent
    technical and scientific review before any qualification decision.
 
 Until those steps complete, Package 2 remains `INCOMPLETE`, D9a remains
