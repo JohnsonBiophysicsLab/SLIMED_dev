@@ -1327,6 +1327,23 @@ class UnifiedLoopBaselineInventoryTest(unittest.TestCase):
                 "    return static_cast<bool>(out);\n"
                 "}\n")
         self.assert_text_mutation_rejected(
+            "EXEs/continuum_membrane.cpp",
+            lambda text: text.replace(
+                "#include \"Run_simulation.hpp\"",
+                "#include \"Run_simulation.hpp\"\n#include <fstream>", 1) +
+                "\nbool emit_numeric_state(const std::string& path)\n"
+                "{\n"
+                "    const char tag[] = {83, 76, 73, 77, 69, 68, 95, 82, "
+                "69, 83, 84, 65, 82, 84, 95, 86, 50, 10};\n"
+                "    std::ofstream out(path);\n"
+                "    out.write(tag, sizeof(tag));\n"
+                "    return static_cast<bool>(out);\n"
+                "}\n")
+        self.assert_text_mutation_rejected(
+            "Makefile",
+            lambda text: text +
+                "\nobj/output.o: CXXFLAGS += -include include/Parameters.hpp\n")
+        self.assert_text_mutation_rejected(
             "src/mesh/Mesh_io.cpp",
             lambda text: text +
                 "\nbool emit_numeric_state(const std::string& path)\n"

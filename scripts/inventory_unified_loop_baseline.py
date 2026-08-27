@@ -585,7 +585,7 @@ _REVIEWED_CHECKPOINT_INCLUDES = (
     ("include", "<iomanip>"),
 )
 _REVIEWED_CHECKPOINT_SOURCE_SURFACE_SHA256 = (
-    "f8ea626690bd1801e1f212f6642fe44a15ceb14278a521216817bfa6b8a4d3fc")
+    "60fa90db08c25f5a3f81c7359ac6c91a5792be2452d038a6aaf8658c6a81eac0")
 _REVIEWED_OTHER_SOURCE_COUNT = 86
 _REVIEWED_OTHER_INCLUSION_SHA256 = (
     "8be98f909e50b3e463616d7b050705697a9f2baa730c2973673b166d86482817")
@@ -624,12 +624,14 @@ def _only_reviewed_preprocessor_includes(
 
 
 def _checkpoint_source_surface_sha256() -> str:
-    """Hash the complete compiled corpus that could add a checkpoint route."""
+    """Hash production build membership and every compiled source/header."""
     suffixes = {
         ".cpp", ".cc", ".cxx", ".cu", ".mm",
         ".hpp", ".h", ".cuh", ".ipp", ".tpp", ".inl"}
-    surface: list[tuple[str, str]] = []
-    for base in (ROOT / "src", ROOT / "include"):
+    makefile = _text("Makefile")
+    surface: list[tuple[str, str]] = [
+        ("Makefile", hashlib.sha256(makefile.encode("utf-8")).hexdigest())]
+    for base in (ROOT / "src", ROOT / "include", ROOT / "EXEs"):
         for path in sorted(base.rglob("*")):
             if not path.is_file() or path.suffix not in suffixes:
                 continue
