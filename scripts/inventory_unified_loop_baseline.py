@@ -72,11 +72,11 @@ REVIEWED_CLASSIFIER_SENTINEL_IDENTIFIER_COUNTS = {
 }
 # SHA256 of the normalized active contents of Mesh_setup_geometry.cpp in the
 # reviewed WP1.1a source. This is a content contract, not a commit identity.
-# It includes whitespace-normalized non-literal code, active include operands,
-# and ordered exact active literal tokens after the narrowly permitted
-# literal-#if-0 removal performed below.
+# It includes whitespace-normalized non-literal code, ordered active directive
+# logical lines, active include operands, and ordered exact active literal
+# tokens after the narrowly permitted literal-#if-0 removal performed below.
 REVIEWED_MESH_SETUP_GEOMETRY_ACTIVE_SOURCE_SHA256 = (
-    "39d7663c5b7e232744ca0bf59ad7eacd9c2c1b39719208afb4cf119682c33552")
+    "619271edae30ea94c2778a7571e8d420290f8b6587ac1f673b9193c2813ce4b7")
 
 EXPECTED_FACES = {
     "valence3_tetrahedron": [
@@ -795,8 +795,9 @@ def _reviewed_active_source_contract(
 
     Only balanced outer ``#if 0``/``#if (0)`` blocks without a depth-one
     alternative are ignored. All other conditionals and active macro state
-    are ambiguous. Include operands and ordered exact literal tokens are
-    retained separately because ``_cpp_code`` deliberately masks literals.
+    are ambiguous. Directive logical lines, include operands, and ordered
+    exact literal tokens are retained separately because the general code
+    normalization deliberately erases line boundaries and masks literals.
     """
     spliced, lexical, literal_tokens, lexically_complete = (
         _cpp_lexical_surfaces(text))
@@ -807,6 +808,8 @@ def _reviewed_active_source_contract(
 
     directive = re.compile(
         rf"^\s*{_CPP_DIRECTIVE_PREFIX}\s*([A-Za-z_]\w*)\b")
+    directive_start = re.compile(
+        rf"^\s*{_CPP_DIRECTIVE_PREFIX}")
     include_operand = re.compile(
         r'\s*("(?:\\.|[^"\\])*"|<[^>\r\n]*>|[A-Za-z_]\w*)')
     inactive_depth = 0
@@ -814,6 +817,7 @@ def _reviewed_active_source_contract(
     unambiguous = lexically_complete
     active_lines: list[str] = []
     active_inclusions: list[tuple[str, str]] = []
+    active_directives: list[str] = []
     inactive_spans: list[tuple[int, int]] = []
     line_offset = 0
 
@@ -854,6 +858,11 @@ def _reviewed_active_source_contract(
         if name in {"if", "ifdef", "ifndef", "elif", "else", "endif",
                     "define", "undef"}:
             unambiguous = False
+        if directive_start.match(code_line):
+            directive_code = code_line.rstrip("\r\n")
+            active_directives.append(
+                re.sub(r"[ \t\f\v]+", " ", directive_code).strip(
+                    " \t\f\v"))
         if match and name in {"include", "include_next", "import"}:
             operand = include_operand.match(raw_line[match.end():])
             if operand is None:
@@ -876,6 +885,7 @@ def _reviewed_active_source_contract(
         "code_with_normalized_whitespace": re.sub(
             r"\s+", " ", active).strip(),
         "active_inclusions": active_inclusions,
+        "active_preprocessor_directives": active_directives,
         "active_literal_tokens": active_literals,
     }, sort_keys=True, separators=(",", ":"))
     digest = hashlib.sha256(normalized.encode("utf-8")).hexdigest()

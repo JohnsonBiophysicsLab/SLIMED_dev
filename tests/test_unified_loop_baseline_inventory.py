@@ -356,12 +356,15 @@ LegacyOneRingClassification Mesh::classify_legacy_one_ring(
         faces[faceIndex].oneRingVertices.swap(assembledOneRing);
     }
 """
-        repaired_source = '#include "mesh/Mesh.hpp"\n' + classifier_source + """
+        repaired_source = (
+            '#include "mesh/Mesh.hpp"\n\n'
+            'namespace repaired_fixture\n{\n}\n' + classifier_source + """
 void Mesh::set_one_ring_vertices_sorted()
 {
 """ + preflight_loop + publication_loop + """
 }
 """
+        )
         _, repaired_contract_sha256, repaired_contract_is_unambiguous = (
             INVENTORY._reviewed_active_source_contract(repaired_source))
         self.assertTrue(repaired_contract_is_unambiguous)
@@ -379,6 +382,22 @@ void Mesh::set_one_ring_vertices_sorted()
             repaired_contract_sha256,
             "distinct C++ tokenization collapsed to the same source contract",
         )
+        for equivalent_directive_source in (
+                repaired_source.replace(
+                    '#include "mesh/Mesh.hpp"',
+                    '#include    "mesh/Mesh.hpp"', 1),
+                repaired_source.replace(
+                    '#include "mesh/Mesh.hpp"',
+                    '#include "mesh/Mesh.hpp" // trailing comment', 1),
+                repaired_source.replace(
+                    '#include "mesh/Mesh.hpp"',
+                    '#include \\\n    "mesh/Mesh.hpp"', 1)):
+            self.assertEqual(
+                INVENTORY._reviewed_active_source_contract(
+                    equivalent_directive_source)[1],
+                repaired_contract_sha256,
+                "semantically equivalent directive formatting changed digest",
+            )
         literal_fixture = r'''
 auto ordinary = u8"slash\\quote\"";
 auto character = U'\x5a';
@@ -674,6 +693,23 @@ auto raw = LR"tag(raw // /* " bytes)tag"_suffix;
                 (False, False, False),
                 f"active literal mutation escaped repair state: {old_literal}",
             )
+
+        joined_directive_source = repaired_source.replace(
+            '#include "mesh/Mesh.hpp"\n\nnamespace',
+            '#include "mesh/Mesh.hpp" namespace',
+            1)
+        self.assertNotEqual(joined_directive_source, repaired_source)
+        self.assertNotEqual(
+            INVENTORY._reviewed_active_source_contract(
+                joined_directive_source)[1],
+            repaired_contract_sha256,
+            "directive/code line-boundary mutation escaped digest",
+        )
+        assert_repair_state(
+            joined_directive_source,
+            (False, False, False),
+            "directive/code line-boundary mutation escaped repair state",
+        )
 
         publication_signature = (
             "void Mesh::set_one_ring_vertices_sorted()\n{\n")
