@@ -34,6 +34,8 @@ WP0_REVIEWED_ENDPOINT_SHA = "f8e76ea5bb444ba447a5ae9178a309545f2533ba"
 PR176_SHA = "46c06080fb663bcb43f38cf32fc1b45daa8732e8"
 PR182_SHA = "9587e3dce4509029e611e2937bac570b410193c3"
 PR182_MERGE_BASE = "6d9213e260c90c74c72e831deab1a2ec2d67e1d3"
+WP1_1A_REPAIR_COMMIT_SHA = "5187bdecd928538d82ed4733cea11f997bf22ad4"
+WP1_1A_REVIEWED_HEAD_SHA = "291dca5a7a91045a47c92c6d807c4d15d9a0b5b1"
 MAINLINE_REF = "origin/main"
 
 EXPECTED_BUILD_FLAGS = [
@@ -1093,8 +1095,41 @@ def collect_inventory() -> dict[str, Any]:
     v5 = _text("src/mesh/OpenSubdiv_valence5_row_provider.cpp")
     v5_loop = _text("src/energy_force/Valence5_opensubdiv_face_loop.cpp")
     geometry = _text("src/mesh/Mesh.cpp")
-    legacy_topology = _text("src/mesh/Mesh_setup_geometry.cpp")
     legacy_matrix = _text("src/mesh/Gauss_quadrature.cpp")
+    wp1_1a_repair_source = _git_output(
+        "show", f"{WP1_1A_REPAIR_COMMIT_SHA}:src/mesh/Mesh_setup_geometry.cpp")
+    try:
+        wp1_1a_publication_block = _cpp_block_after(
+            wp1_1a_repair_source, "void Mesh::set_one_ring_vertices_sorted()")
+    except ValueError:
+        wp1_1a_publication_block = ""
+    wp1_1a_sentinel_declarations = [
+        "int d4 = -1;",
+        "int d7 = -1;",
+        "int d8 = -1;",
+    ]
+    wp1_1a_publication_order = [
+        "if (is_legacy_one_ring_rejection(classification.reasonCode))",
+        "throw std::runtime_error(message.str());",
+        "faces[faceIndex].adjacentVertices.swap(",
+        "faces[faceIndex].oneRingVertices.swap(",
+    ]
+    wp1_1a_publication_offsets = [
+        wp1_1a_publication_block.find(anchor)
+        for anchor in wp1_1a_publication_order
+    ]
+    wp1_1a_repair_commit_is_ancestor = _git_success(
+        "merge-base", "--is-ancestor",
+        WP1_1A_REPAIR_COMMIT_SHA, WP1_1A_REVIEWED_HEAD_SHA)
+    wp1_1a_repair_confirmed = (
+        all(wp1_1a_repair_source.count(declaration) == 1
+            for declaration in wp1_1a_sentinel_declarations)
+        and all(wp1_1a_publication_block.count(anchor) == 1
+                for anchor in wp1_1a_publication_order)
+        and all(left < right for left, right in zip(
+            wp1_1a_publication_offsets, wp1_1a_publication_offsets[1:]))
+        and wp1_1a_repair_commit_is_ancestor
+    )
     source_keyed_hpp = _text("include/energy_force/Source_keyed_kernel_call.hpp")
     source_keyed_cpp = _text("src/energy_force/Source_keyed_kernel_call.cpp")
     output = _text("src/io/output.cpp")
@@ -1517,15 +1552,39 @@ def collect_inventory() -> dict[str, Any]:
         "legacy_11_control_predicate": {
             "admitted_corner_valences": [5, 5, 5],
             "matrix_intended_corner_valences": [5, 6, 6],
-            "defect_confirmed": _all_present(legacy_topology, [
-                "vertices[node0].adjacentVertices.size() == 5",
-                "vertices[node1].adjacentVertices.size() == 5",
-                "vertices[node2].adjacentVertices.size() == 5",
-                "int d4, d7, d8;",
-            ]) and _all_present(legacy_matrix, [
-                "const int N = 6;", "const int N1 = 5;",
-                "std::vector<std::vector<double>> SM4(11",
-            ]),
+            "legacy_11_control_matrix_defect_assertion": {
+                "owner": "D5",
+                "lifecycle": "retained_defect_witness",
+                "source_path": "src/mesh/Gauss_quadrature.cpp",
+                "required_witness_literals": [
+                    "const int N = 6;",
+                    "const int N1 = 5;",
+                    "std::vector<std::vector<double>> SM4(11",
+                ],
+                "defect_confirmed": _all_present(legacy_matrix, [
+                    "const int N = 6;", "const int N1 = 5;",
+                    "std::vector<std::vector<double>> SM4(11",
+                ]),
+            },
+            "wp1_1a_classifier_repair_record": {
+                "owner": "WP1.1a",
+                "lifecycle": "repaired_at_commit",
+                "source_path": "src/mesh/Mesh_setup_geometry.cpp",
+                "wp1_1a_repair_commit": WP1_1A_REPAIR_COMMIT_SHA,
+                "wp1_1a_reviewed_head": WP1_1A_REVIEWED_HEAD_SHA,
+                "repair_commit_is_ancestor_of_reviewed_head":
+                    wp1_1a_repair_commit_is_ancestor,
+                "sentinel_initialized_locals": {
+                    "d4": -1,
+                    "d7": -1,
+                    "d8": -1,
+                },
+                "rejection_precedes_writes_to": [
+                    "face.adjacentVertices",
+                    "face.oneRingVertices",
+                ],
+                "repair_confirmed": wp1_1a_repair_confirmed,
+            },
         },
     }
 
@@ -1946,12 +2005,50 @@ def validate_inventory(report: dict[str, Any], check_adr: bool = True) -> list[s
                  d["valence5_icosahedron"]["faces"],
                  d["valence5_icosahedron"]["valence"]) == (12, 20, 5),
                 "valence5 topology summary drift")
-        require(d["legacy_11_control_predicate"]["admitted_corner_valences"] == [5, 5, 5],
+        legacy_11_control = d["legacy_11_control_predicate"]
+        require(set(legacy_11_control) == {
+                    "admitted_corner_valences",
+                    "matrix_intended_corner_valences",
+                    "legacy_11_control_matrix_defect_assertion",
+                    "wp1_1a_classifier_repair_record",
+                }, "legacy 11-control owner/lifecycle split schema drift")
+        require(legacy_11_control["admitted_corner_valences"] == [5, 5, 5],
                 "legacy predicate classification drift")
-        require(d["legacy_11_control_predicate"]["matrix_intended_corner_valences"] == [5, 6, 6],
+        require(legacy_11_control["matrix_intended_corner_valences"] == [5, 6, 6],
                 "legacy matrix classification drift")
-        require(d["legacy_11_control_predicate"]["defect_confirmed"],
-                "legacy 11-control defect anchor missing")
+        matrix_defect = legacy_11_control[
+            "legacy_11_control_matrix_defect_assertion"]
+        require(matrix_defect == {
+                    "owner": "D5",
+                    "lifecycle": "retained_defect_witness",
+                    "source_path": "src/mesh/Gauss_quadrature.cpp",
+                    "required_witness_literals": [
+                        "const int N = 6;",
+                        "const int N1 = 5;",
+                        "std::vector<std::vector<double>> SM4(11",
+                    ],
+                    "defect_confirmed": True,
+                }, "legacy 11-control matrix defect witness drift")
+        classifier_repair = legacy_11_control[
+            "wp1_1a_classifier_repair_record"]
+        require(classifier_repair == {
+                    "owner": "WP1.1a",
+                    "lifecycle": "repaired_at_commit",
+                    "source_path": "src/mesh/Mesh_setup_geometry.cpp",
+                    "wp1_1a_repair_commit": WP1_1A_REPAIR_COMMIT_SHA,
+                    "wp1_1a_reviewed_head": WP1_1A_REVIEWED_HEAD_SHA,
+                    "repair_commit_is_ancestor_of_reviewed_head": True,
+                    "sentinel_initialized_locals": {
+                        "d4": -1,
+                        "d7": -1,
+                        "d8": -1,
+                    },
+                    "rejection_precedes_writes_to": [
+                        "face.adjacentVertices",
+                        "face.oneRingVertices",
+                    ],
+                    "repair_confirmed": True,
+                }, "WP1.1a legacy classifier repair record drift")
         require(d["valence5_icosahedron"]["face_source_mapping_sha256"] ==
                 EXPECTED_VALENCE5_FACE_SOURCE_MAPPING_SHA256,
                 "valence5 exact face-source mapping drift")

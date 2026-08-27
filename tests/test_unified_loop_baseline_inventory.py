@@ -273,6 +273,53 @@ class UnifiedLoopBaselineInventoryTest(unittest.TestCase):
         self.assert_mutation_rejected(
             lambda r: r["D_topology_guards"]["legacy_11_control_predicate"]
             .update({"admitted_corner_valences": [5, 6, 6]}))
+        self.assert_mutation_rejected(
+            lambda r: r["D_topology_guards"]["legacy_11_control_predicate"]
+            ["legacy_11_control_matrix_defect_assertion"]
+            .update({"defect_confirmed": False}))
+        self.assert_mutation_rejected(
+            lambda r: r["D_topology_guards"]["legacy_11_control_predicate"]
+            ["wp1_1a_classifier_repair_record"]
+            .update({"repair_confirmed": False}))
+        self.assert_mutation_rejected(
+            lambda r: r["D_topology_guards"]["legacy_11_control_predicate"]
+            ["wp1_1a_classifier_repair_record"]
+            .update({"repair_commit_is_ancestor_of_reviewed_head": False}))
+        self.assert_mutation_rejected(
+            lambda r: r["D_topology_guards"]["legacy_11_control_predicate"]
+            ["wp1_1a_classifier_repair_record"]
+            .update({"defect_confirmed": True}))
+
+        repair_query = (
+            "show",
+            f"{INVENTORY.WP1_1A_REPAIR_COMMIT_SHA}:"
+            "src/mesh/Mesh_setup_geometry.cpp",
+        )
+        repair_source = INVENTORY._git_output(*repair_query)
+        self.assertNotEqual(repair_source, "unavailable")
+        self.assert_git_output_mutation_rejected(
+            lambda arguments: arguments == repair_query,
+            repair_source.replace("int d4 = -1;", "int d4;", 1),
+        )
+        rejection = (
+            "if (is_legacy_one_ring_rejection(classification.reasonCode))")
+        delayed_rejection = repair_source.replace(
+            rejection, "if (false)", 1).replace(
+                "faces[faceIndex].adjacentVertices.swap(",
+                rejection + "\n        "
+                "faces[faceIndex].adjacentVertices.swap(", 1)
+        self.assert_git_output_mutation_rejected(
+            lambda arguments: arguments == repair_query,
+            delayed_rejection,
+        )
+
+        def collapse_legacy_11_control_split(report) -> None:
+            legacy = report["D_topology_guards"]["legacy_11_control_predicate"]
+            legacy.pop("legacy_11_control_matrix_defect_assertion")
+            legacy.pop("wp1_1a_classifier_repair_record")
+            legacy["defect_confirmed"] = True
+
+        self.assert_mutation_rejected(collapse_legacy_11_control_split)
 
     def test_E_scheme_boundary_and_version_policy(self) -> None:
         self.assert_mutation_rejected(
