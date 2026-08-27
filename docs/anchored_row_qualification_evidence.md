@@ -778,12 +778,20 @@ did not surface it.
 ### Consequences for the stop conditions
 
 `docs/bfr_loop_backend_plan_macos.md:1389` lists `nonfinite product/sum/result`
-among B2c's stop conditions. On this evidence that condition is **not** met: no
-product, sum, or result is non-finite. A finite value is misdecoded at a text
-boundary before any candidate arithmetic executes. The disposition remains a
-harness `INCOMPLETE`, not a B2c stop, and not a candidate failure. A reviewer
-who disagrees with that reading should say so explicitly, because the
-distinction governs whether B2c stops or is repaired.
+among the stop conditions of `### B2a - invariant-preserving row-representation
+architecture preflight`, whose heading is at
+`docs/bfr_loop_backend_plan_macos.md:1343` and whose section ends where
+`### B2b` begins at `:1404`. That plan defines no B2c stop-condition list: it
+carries no B2c heading, and B2c appears in it only as prose references and the
+`KB2c` readiness row at `:1958`. An earlier revision of this record attributed
+line 1389 to B2c; that attribution was wrong and is corrected here.
+
+On this evidence that condition is **not** met: no product, sum, or result is
+non-finite. A finite value is misdecoded at a text boundary before any
+candidate arithmetic executes. The disposition remains a harness `INCOMPLETE`,
+not a B2c stop, and not a candidate failure. A reviewer who disagrees with that
+reading should say so explicitly, because the distinction governs whether B2c
+stops or is repaired.
 
 Repairing the two call sites changes the emitted ledger bytes and therefore
 every `request_sha256` and the derived reference set. That is a change to
