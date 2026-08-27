@@ -1,5 +1,125 @@
 #include "mesh/Mesh.hpp"
 
+namespace
+{
+enum class OppositeNodeSearchState
+{
+    Unique,
+    Missing,
+    Ambiguous,
+    InvalidVertexIndex
+};
+
+struct OppositeNodeSearchResult
+{
+    OppositeNodeSearchState state = OppositeNodeSearchState::Missing;
+    int vertex = -1;
+};
+
+OppositeNodeSearchResult find_unique_opposite_node_index(
+    const std::vector<Vertex> &vertices,
+    const int node1,
+    const int node2,
+    const int node3)
+{
+    const auto valid_vertex_index = [&vertices](const int vertex) {
+        return vertex >= 0 &&
+               static_cast<std::size_t>(vertex) < vertices.size();
+    };
+    if (!valid_vertex_index(node1) || !valid_vertex_index(node2) ||
+        !valid_vertex_index(node3))
+    {
+        return {OppositeNodeSearchState::InvalidVertexIndex, -1};
+    }
+
+    std::vector<int> candidates;
+    for (int i = 0; i < vertices[node1].adjacentVertices.size(); ++i)
+    {
+        const int candidate1 = vertices[node1].adjacentVertices[i];
+        for (int j = 0; j < vertices[node2].adjacentVertices.size(); ++j)
+        {
+            const int candidate2 = vertices[node2].adjacentVertices[j];
+            if (candidate1 == candidate2 && candidate1 != node3)
+            {
+                if (!valid_vertex_index(candidate1))
+                {
+                    return {OppositeNodeSearchState::InvalidVertexIndex, -1};
+                }
+                if (std::find(candidates.begin(), candidates.end(), candidate1) ==
+                    candidates.end())
+                {
+                    candidates.push_back(candidate1);
+                }
+            }
+        }
+    }
+
+    if (candidates.empty())
+    {
+        return {OppositeNodeSearchState::Missing, -1};
+    }
+    if (candidates.size() != 1u)
+    {
+        return {OppositeNodeSearchState::Ambiguous, -1};
+    }
+    return {OppositeNodeSearchState::Unique, candidates.front()};
+}
+
+bool is_legacy_one_ring_rejection(const LegacyOneRingReasonCode code)
+{
+    switch (code)
+    {
+    case LegacyOneRingReasonCode::ReadyRegular:
+    case LegacyOneRingReasonCode::ReadyAllValenceFiveAliased:
+    case LegacyOneRingReasonCode::AdjacentVertexFaceCardinalityMismatch:
+    case LegacyOneRingReasonCode::SkippedGhostFace:
+    case LegacyOneRingReasonCode::UnsupportedCornerValence:
+        return false;
+    case LegacyOneRingReasonCode::InvalidFaceCornerCount:
+    case LegacyOneRingReasonCode::InvalidCornerVertexIndex:
+    case LegacyOneRingReasonCode::NoAdjacentFaceCountMatch:
+    case LegacyOneRingReasonCode::AmbiguousAdjacentFaceCountMatch:
+    case LegacyOneRingReasonCode::InvalidAdjacentVertexIndex:
+    case LegacyOneRingReasonCode::OppositeNodeMissing:
+    case LegacyOneRingReasonCode::OppositeNodeAmbiguous:
+        return true;
+    }
+    return true;
+}
+} // namespace
+
+const char *legacy_one_ring_reason_code_name(const LegacyOneRingReasonCode code)
+{
+    switch (code)
+    {
+    case LegacyOneRingReasonCode::ReadyRegular:
+        return "READY_REGULAR";
+    case LegacyOneRingReasonCode::ReadyAllValenceFiveAliased:
+        return "READY_ALL_VALENCE_FIVE_ALIASED";
+    case LegacyOneRingReasonCode::SkippedGhostFace:
+        return "SKIPPED_GHOST_FACE";
+    case LegacyOneRingReasonCode::UnsupportedCornerValence:
+        return "UNSUPPORTED_CORNER_VALENCE";
+    case LegacyOneRingReasonCode::InvalidFaceCornerCount:
+        return "INVALID_FACE_CORNER_COUNT";
+    case LegacyOneRingReasonCode::InvalidCornerVertexIndex:
+        return "INVALID_CORNER_VERTEX_INDEX";
+    case LegacyOneRingReasonCode::NoAdjacentFaceCountMatch:
+        return "NO_ADJACENT_FACE_COUNT_MATCH";
+    case LegacyOneRingReasonCode::AmbiguousAdjacentFaceCountMatch:
+        return "AMBIGUOUS_ADJACENT_FACE_COUNT_MATCH";
+    case LegacyOneRingReasonCode::AdjacentVertexFaceCardinalityMismatch:
+        return "ADJACENT_VERTEX_FACE_CARDINALITY_MISMATCH";
+    case LegacyOneRingReasonCode::InvalidAdjacentVertexIndex:
+        return "INVALID_ADJACENT_VERTEX_INDEX";
+    case LegacyOneRingReasonCode::OppositeNodeMissing:
+        return "OPPOSITE_NODE_MISSING";
+    case LegacyOneRingReasonCode::OppositeNodeAmbiguous:
+        return "OPPOSITE_NODE_AMBIGUOUS";
+    }
+    return "UNKNOWN_LEGACY_ONE_RING_REASON";
+}
+
 
 void Mesh::set_adjacent_faces_of_vertices_sorted()
 {
@@ -192,10 +312,12 @@ int Mesh::find_opposite_node_index(const int &node1, const int &node2, const int
     }
     if (node == -1)
     {
-        if (param.VERBOSE_MODE) {
-
+        if (param.VERBOSE_MODE)
+        {
+            cout << "No efficent oneRingVerticesIndex is found! Node1 = "
+                 << node1 << ", Node2 = " << node2 << ", Node3 = " << node3
+                 << endl;
         }
-        cout << "No efficent oneRingVerticesIndex is found! Node1 = " << node1 << ", Node2 = " << node2 << ", Node3 = " << node3 << endl;
     }
     return node;
 }
@@ -274,114 +396,237 @@ void Mesh::sort_vertices_on_faces()
     }
 }
 
-// To find out the one-ring vertices aound face_i. It should be 12 for the flat surface because we set it up only with regular patch.
-// The boundary faces do not have complete one-ring, neither it will be called in the code, so no need to store their one-ring-vertex
+LegacyOneRingClassification Mesh::classify_legacy_one_ring(const Face &face) const
+{
+    LegacyOneRingClassification result;
+
+    if (face.isGhost)
+    {
+        result.reasonCode = LegacyOneRingReasonCode::SkippedGhostFace;
+        return result;
+    }
+    if (face.adjacentVertices.size() != 3u)
+    {
+        result.reasonCode = LegacyOneRingReasonCode::InvalidFaceCornerCount;
+        return result;
+    }
+
+    const auto valid_vertex_index = [this](const int vertex) {
+        return vertex >= 0 &&
+               static_cast<std::size_t>(vertex) < vertices.size();
+    };
+    for (int corner = 0; corner < 3; ++corner)
+    {
+        const int vertex = face.adjacentVertices[corner];
+        if (!valid_vertex_index(vertex))
+        {
+            result.reasonCode = LegacyOneRingReasonCode::InvalidCornerVertexIndex;
+            return result;
+        }
+        result.cornerValences[corner] = vertices[vertex].adjacentVertices.size();
+        result.adjacentFaceCardinalities[corner] =
+            vertices[vertex].adjacentFaces.size();
+        if (result.adjacentFaceCardinalities[corner] == 5u)
+        {
+            result.extraordinaryCornerCandidates.push_back(corner);
+        }
+    }
+    if (result.extraordinaryCornerCandidates.size() == 1u)
+    {
+        result.candidateExtraordinaryCorner =
+            result.extraordinaryCornerCandidates.front();
+    }
+
+    const bool regular = std::all_of(
+        result.cornerValences.begin(),
+        result.cornerValences.end(),
+        [](const std::size_t valence) { return valence == 6u; });
+    const bool allValenceFive = std::all_of(
+        result.cornerValences.begin(),
+        result.cornerValences.end(),
+        [](const std::size_t valence) { return valence == 5u; });
+    if (!regular && !allValenceFive)
+    {
+        result.reasonCode = LegacyOneRingReasonCode::UnsupportedCornerValence;
+        return result;
+    }
+
+    int d4 = -1;
+    int d7 = -1;
+    int d8 = -1;
+    bool hasCardinalityMismatch = false;
+    if (regular)
+    {
+        d4 = face.adjacentVertices[0];
+        d7 = face.adjacentVertices[1];
+        d8 = face.adjacentVertices[2];
+    }
+    else
+    {
+        if (result.extraordinaryCornerCandidates.empty())
+        {
+            result.reasonCode =
+                LegacyOneRingReasonCode::NoAdjacentFaceCountMatch;
+            return result;
+        }
+        if (result.extraordinaryCornerCandidates.size() == 2u)
+        {
+            result.reasonCode =
+                LegacyOneRingReasonCode::AmbiguousAdjacentFaceCountMatch;
+            return result;
+        }
+        if (result.extraordinaryCornerCandidates.size() == 1u)
+        {
+            const int candidate = result.extraordinaryCornerCandidates.front();
+            hasCardinalityMismatch = true;
+            d4 = face.adjacentVertices[candidate];
+            d7 = face.adjacentVertices[(candidate + 1) % 3];
+            d8 = face.adjacentVertices[(candidate + 2) % 3];
+        }
+        else
+        {
+            // The accepted all-valence-5 fixture makes all three corners match.
+            // Preserve the historical first-branch choice and report the
+            // aliasing; D5, not WP1.1a, governs quarantining that behavior.
+            result.candidateExtraordinaryCorner = 0;
+            d4 = face.adjacentVertices[0];
+            d7 = face.adjacentVertices[1];
+            d8 = face.adjacentVertices[2];
+        }
+    }
+
+    const Matrix coord4 = vertices[face.adjacentVertices[0]].coord;
+    const Matrix coord7 = vertices[face.adjacentVertices[1]].coord;
+    const Matrix coord8 = vertices[face.adjacentVertices[2]].coord;
+    const Matrix center = 1.0 / 3.0 * (coord4 + coord7 + coord8);
+    result.orientedFaceVertices = face.adjacentVertices;
+    if (dot_col(center, cross_col(coord7 - coord4, coord8 - coord4)) < 0)
+    {
+        std::swap(d7, d8);
+        result.orientedFaceVertices = {d4, d7, d8};
+    }
+
+    std::array<int, 12> staged{{-1, -1, -1, -1, -1, -1,
+                                -1, -1, -1, -1, -1, -1}};
+    staged[3] = d4;
+    staged[6] = d7;
+    staged[7] = d8;
+    const auto assign_opposite = [this, &result, &staged](
+                                     const int slot,
+                                     const int node1,
+                                     const int node2,
+                                     const int node3) {
+        const OppositeNodeSearchResult search =
+            find_unique_opposite_node_index(vertices, node1, node2, node3);
+        switch (search.state)
+        {
+        case OppositeNodeSearchState::Unique:
+            staged[slot] = search.vertex;
+            return true;
+        case OppositeNodeSearchState::Missing:
+            result.reasonCode = LegacyOneRingReasonCode::OppositeNodeMissing;
+            return false;
+        case OppositeNodeSearchState::Ambiguous:
+            result.reasonCode = LegacyOneRingReasonCode::OppositeNodeAmbiguous;
+            return false;
+        case OppositeNodeSearchState::InvalidVertexIndex:
+            result.reasonCode =
+                LegacyOneRingReasonCode::InvalidAdjacentVertexIndex;
+            return false;
+        }
+        result.reasonCode = LegacyOneRingReasonCode::OppositeNodeMissing;
+        return false;
+    };
+
+    if (!assign_opposite(2, staged[3], staged[6], staged[7]) ||
+        !assign_opposite(10, staged[6], staged[7], staged[3]) ||
+        !assign_opposite(4, staged[3], staged[7], staged[6]) ||
+        !assign_opposite(0, staged[2], staged[3], staged[6]) ||
+        !assign_opposite(1, staged[3], staged[4], staged[7]) ||
+        !assign_opposite(5, staged[2], staged[6], staged[3]) ||
+        !assign_opposite(8, staged[7], staged[4], staged[3]) ||
+        !assign_opposite(9, staged[6], staged[10], staged[7]) ||
+        !assign_opposite(11, staged[7], staged[10], staged[6]))
+    {
+        result.orientedFaceVertices.clear();
+        return result;
+    }
+
+    if (regular)
+    {
+        result.assembledOneRing.assign(staged.begin(), staged.end());
+        result.reasonCode = LegacyOneRingReasonCode::ReadyRegular;
+    }
+    else
+    {
+        result.assembledOneRing.assign(staged.begin() + 1, staged.end());
+        result.reasonCode = hasCardinalityMismatch
+                                ? LegacyOneRingReasonCode::
+                                      AdjacentVertexFaceCardinalityMismatch
+                                : LegacyOneRingReasonCode::
+                                      ReadyAllValenceFiveAliased;
+    }
+
+    for (std::size_t index = 0; index < result.assembledOneRing.size(); ++index)
+    {
+        const int source = result.assembledOneRing[index];
+        const bool seenEarlier =
+            std::find(result.assembledOneRing.begin(),
+                      result.assembledOneRing.begin() + index,
+                      source) != result.assembledOneRing.begin() + index;
+        const bool alreadyReported =
+            std::find(result.duplicateSourceIds.begin(),
+                      result.duplicateSourceIds.end(),
+                      source) != result.duplicateSourceIds.end();
+        if (seenEarlier && !alreadyReported)
+        {
+            result.duplicateSourceIds.push_back(source);
+        }
+    }
+    result.everyRequiredIndexAssignedUniquely = true;
+    return result;
+}
+
+// Stage every supported face first. A malformed legacy candidate therefore
+// rejects before any face orientation or one-ring publication.
 void Mesh::set_one_ring_vertices_sorted()
 {
-// two types of patch: 1. regular patch with 12 one-ring vertices, each vertex has 6 closest nodes
-//                     2. irregular patch with 11 one-ring vertices, one vertex has 5 closest-nodes
-#pragma omp parallel for
-    for (Face& face : faces)
+    std::vector<LegacyOneRingClassification> classifications;
+    classifications.reserve(faces.size());
+    for (const Face &face : faces)
     {
-        // skip for ghost faces -> not enough neighboring mesh triangles!
-        if (face.isGhost)
+        classifications.push_back(classify_legacy_one_ring(face));
+        const LegacyOneRingClassification &classification =
+            classifications.back();
+        if (is_legacy_one_ring_rejection(classification.reasonCode))
+        {
+            const std::string message =
+                "Legacy one-ring setup rejected face " +
+                std::to_string(face.index) + ": " +
+                legacy_one_ring_reason_code_name(classification.reasonCode);
+            throw std::runtime_error(message);
+        }
+    }
+
+    for (std::size_t faceIndex = 0; faceIndex < faces.size(); ++faceIndex)
+    {
+        LegacyOneRingClassification &classification = classifications[faceIndex];
+        if (classification.reasonCode != LegacyOneRingReasonCode::ReadyRegular &&
+            classification.reasonCode !=
+                LegacyOneRingReasonCode::ReadyAllValenceFiveAliased &&
+            classification.reasonCode !=
+                LegacyOneRingReasonCode::AdjacentVertexFaceCardinalityMismatch)
         {
             continue;
         }
-
-        // int d1, d2, d3, d5, d6, d9, d10, d11, d12
-        int node0 = face.adjacentVertices[0];
-        int node1 = face.adjacentVertices[1];
-        int node2 = face.adjacentVertices[2];
-        // regular patch, all three nodes have 6 neighbor faces or vertices.
-        if (vertices[node0].adjacentVertices.size() == 6 &&
-            vertices[node1].adjacentVertices.size() == 6 &&
-            vertices[node2].adjacentVertices.size() == 6)
-        {
-            // make sure d4, d7, d8 are in anti-clock-wise order
-            int d4 = node0;
-            int d7 = node1;
-            int d8 = node2;
-            //
-            Matrix coord4 = vertices[node0].coord;
-            Matrix coord7 = vertices[node1].coord;
-            Matrix coord8 = vertices[node2].coord;
-            // calculate CoM of the triangle
-            Matrix center = 1.0 / 3.0 * (coord4 + coord7 + coord8);
-            if (dot_col(center, cross_col(coord7 - coord4, coord8 - coord4)) < 0)
-            { // switch d7 and d8 position
-                d7 = face.adjacentVertices[2];
-                d8 = face.adjacentVertices[1];
-                face.adjacentVertices[1] = d7;
-                face.adjacentVertices[2] = d8;
-            }
-            int d3 = find_opposite_node_index(d4, d7, d8);
-            int d11 = find_opposite_node_index(d7, d8, d4);
-            int d5 = find_opposite_node_index(d4, d8, d7);
-            int d1 = find_opposite_node_index(d3, d4, d7);
-            int d2 = find_opposite_node_index(d4, d5, d8);
-            int d6 = find_opposite_node_index(d3, d7, d4);
-            int d9 = find_opposite_node_index(d8, d5, d4);
-            int d10 = find_opposite_node_index(d7, d11, d8);
-            int d12 = find_opposite_node_index(d8, d11, d7);
-            face.oneRingVertices = vector<int>{d1, d2, d3, d4, d5, d6, d7, d8, d9, d10, d11, d12};
-            
-            // irregular patch, one node has 5 neighbors and the other two nodes have 6 neighbors.
-        }
-        else if (vertices[node0].adjacentVertices.size() == 5 &&
-                 vertices[node1].adjacentVertices.size() == 5 &&
-                 vertices[node2].adjacentVertices.size() == 5)
-        {
-            int d4, d7, d8;
-            // make sure d4 is the one has 5 neighbors, and d4-d7-d8 are in anti-clock-wise order
-            if (vertices[node0].adjacentFaces.size() == 5)
-            {
-                d4 = node0;
-                d7 = node1;
-                d8 = node2;
-            }
-            else if (vertices[node1].adjacentFaces.size() == 5)
-            {
-                d4 = node1;
-                d7 = node2;
-                d8 = node0;
-            }
-            else if (vertices[node2].adjacentFaces.size() == 5)
-            {
-                d4 = node2;
-                d7 = node0;
-                d8 = node1;
-            }
-            //
-            Matrix coord4 = vertices[node0].coord;
-            Matrix coord7 = vertices[node1].coord;
-            Matrix coord8 = vertices[node2].coord;
-            // calculate CoM of the triangle
-            Matrix center = 1.0 / 3.0 * (coord4 + coord7 + coord8);
-            if (dot_col(center, cross_col(coord7 - coord4, coord8 - coord4)) < 0)
-            { // switch d7 and d8 position
-                int nodetmp = d7;
-                d7 = d8;
-                d8 = nodetmp;
-                face.adjacentVertices[0] = d4;
-                face.adjacentVertices[1] = d7;
-                face.adjacentVertices[2] = d8;
-            }
-            int d3 = find_opposite_node_index(d4, d7, d8);
-            int d11 = find_opposite_node_index(d7, d8, d4);
-            int d5 = find_opposite_node_index(d4, d8, d7);
-            int d1 = find_opposite_node_index(d3, d4, d7);
-            int d2 = find_opposite_node_index(d4, d5, d8);
-            int d6 = find_opposite_node_index(d3, d7, d4);
-            int d9 = find_opposite_node_index(d8, d5, d4);
-            int d10 = find_opposite_node_index(d7, d11, d8);
-            int d12 = find_opposite_node_index(d8, d11, d7);
-            vector<int> v{d2, d3, d4, d5, d6, d7, d8, d9, d10, d11, d12};
-            face.oneRingVertices = v;
-        }
+        faces[faceIndex].adjacentVertices.swap(
+            classification.orientedFaceVertices);
+        faces[faceIndex].oneRingVertices.swap(classification.assembledOneRing);
     }
+
     if (param.VERBOSE_MODE)
     {
-        std::cout << "[Mesh::set_one_ring_vertices_sorted] One ring vertices set." << std::endl;
+        std::cout << "[Mesh::set_one_ring_vertices_sorted] One ring vertices set."
+                  << std::endl;
     }
 }
