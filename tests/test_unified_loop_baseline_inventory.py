@@ -1246,6 +1246,9 @@ class UnifiedLoopBaselineInventoryTest(unittest.TestCase):
         self.assert_mutation_rejected(
             lambda r: r["J_output_checkpoint"].update(
                 {"checkpoint_preprocessor_surface_locked": False}))
+        self.assert_mutation_rejected(
+            lambda r: r["J_output_checkpoint"].update(
+                {"checkpoint_source_surface_sha256": "unchecked-writer"}))
         self.assert_text_mutation_rejected(
             "src/io/output.cpp",
             lambda text: text.replace(
@@ -1280,6 +1283,43 @@ class UnifiedLoopBaselineInventoryTest(unittest.TestCase):
                     lambda text, directive=directive: text.replace(
                         '#include "io/io.hpp"',
                         '#include "io/io.hpp"\n' + directive, 1))
+        alternate_writers = (
+            "\nbool write_unchecked_restart_checkpoint(\n"
+            "        const Model&, const std::string& path)\n"
+            "{\n"
+            "    std::ofstream out(path);\n"
+            "    out << \"SLIMED_RESTART_V2\\n\";\n"
+            "    return static_cast<bool>(out);\n"
+            "}\n",
+            "\nbool emit_state(const Model&, const std::string& path)\n"
+            "{\n"
+            "    std::ofstream out(path);\n"
+            "    out << \"SLIMED_\" \"RESTART_V2\\n\";\n"
+            "    return static_cast<bool>(out);\n"
+            "}\n",
+            "\nconst auto unchecked_checkpoint_lambda =\n"
+            "    [](const Model&, const std::string& path) {\n"
+            "        std::ofstream out(path);\n"
+            "        out << \"SLIMED_RESTART_V2\\n\";\n"
+            "        return static_cast<bool>(out);\n"
+            "    };\n",
+        )
+        for alternate_writer in alternate_writers:
+            with self.subTest(alternate_writer=alternate_writer):
+                self.assert_text_mutation_rejected(
+                    "src/io/output.cpp",
+                    lambda text, alternate_writer=alternate_writer:
+                        text + alternate_writer)
+        self.assert_text_mutation_rejected(
+            "src/mesh/Mesh_io.cpp",
+            lambda text: text +
+                "\nbool write_unchecked_restart_checkpoint(\n"
+                "        const std::string& path)\n"
+                "{\n"
+                "    std::ofstream out(path);\n"
+                "    out << \"SLIMED_RESTART_V2\\n\";\n"
+                "    return static_cast<bool>(out);\n"
+                "}\n")
 
     def test_K_edge_flip_proof_only_and_cuda_frozen(self) -> None:
         self.assert_mutation_rejected(

@@ -584,6 +584,8 @@ _REVIEWED_CHECKPOINT_INCLUDES = (
     ("include", "<cstdio>"),
     ("include", "<iomanip>"),
 )
+_REVIEWED_CHECKPOINT_SOURCE_SURFACE_SHA256 = (
+    "ca5a8f2f9894d9c349c4f66a4461d52094663db2572ff31d487d8b00d4caf361")
 _REVIEWED_OTHER_SOURCE_COUNT = 86
 _REVIEWED_OTHER_INCLUSION_SHA256 = (
     "8be98f909e50b3e463616d7b050705697a9f2baa730c2973673b166d86482817")
@@ -619,6 +621,28 @@ def _only_reviewed_preprocessor_includes(
         code, re.MULTILINE))
     return (all(name == "include" for name in directives) and
             _source_inclusion_directives(text) == reviewed)
+
+
+def _checkpoint_source_surface_sha256() -> str:
+    """Hash every compiled source/header whose text owns restart semantics."""
+    suffixes = {
+        ".cpp", ".cc", ".cxx", ".cu", ".mm",
+        ".hpp", ".h", ".cuh", ".ipp", ".tpp", ".inl"}
+    surface: list[tuple[str, str]] = []
+    for base in (ROOT / "src", ROOT / "include"):
+        for path in sorted(base.rglob("*")):
+            if not path.is_file() or path.suffix not in suffixes:
+                continue
+            relative = path.relative_to(ROOT).as_posix()
+            text = _text(relative)
+            if not re.search(
+                    r"checkpoint|restart|SLIMED_RESTART", text,
+                    re.IGNORECASE):
+                continue
+            surface.append(
+                (relative, _scope_contract_sha256(_cpp_code(text))))
+    encoded = json.dumps(surface, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
 
 
 def _has_unreviewed_macro_directive(code: str) -> bool:
@@ -1903,6 +1927,8 @@ def collect_inventory() -> dict[str, Any]:
             "checkpoint_atomic_rename": "std::rename(tempFilepath.c_str(), filepath.c_str())" in output,
             "checkpoint_writer_contract_sha256":
                 checkpoint_writer_contract_sha256,
+            "checkpoint_source_surface_sha256":
+                _checkpoint_source_surface_sha256(),
             "checkpoint_preprocessor_surface_locked":
                 _only_reviewed_preprocessor_includes(
                     output, _REVIEWED_CHECKPOINT_INCLUDES),
@@ -2284,6 +2310,9 @@ def validate_inventory(report: dict[str, Any], check_adr: bool = True) -> list[s
         require(j["checkpoint_writer_contract_sha256"] ==
                 _REVIEWED_CHECKPOINT_WRITER_SHA256,
                 "checkpoint writer contract drift")
+        require(j["checkpoint_source_surface_sha256"] ==
+                _REVIEWED_CHECKPOINT_SOURCE_SURFACE_SHA256,
+                "checkpoint source ownership drift")
         require(j["checkpoint_preprocessor_surface_locked"],
                 "checkpoint writer preprocessing surface drift")
         require(j["checkpoint_topology_write_interlock"],
