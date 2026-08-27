@@ -560,6 +560,17 @@ classification it independently revalidates the retained bundle through
 classification, exit code or signal, timeout state, race-marker state, argv,
 and the retained stdout/stderr bytes.
 
+The three outcomes are reported distinctly, because step 4 below branches on
+exactly that distinction. A clean tuple is `REPRODUCED_CLEAN` and exits `0`; a
+reproduced sanitizer data race is `REPRODUCED_RACE` and exits `3`, since a
+single race is a legitimate frozen outcome that the worker stage returns
+normally rather than blocking on, and is never reported as a clean run; a
+blocking classification is `BLOCKED` and exits `1`. Any harness or input
+failure exits `2`. If the retained bundle fails independent validation, the
+replay downgrades to `RETAINED_UNVALIDATED` and still reports the retained
+stdout/stderr paths and bytes together with the validation error, because
+discarding the diagnostic bytes would defeat the purpose of the replay.
+
 The replay publishes a `d12_tsan_worker_replay_v1` marker recording
 `admissible_as_evidence: false`. It is a diagnostic observation only. It
 cannot establish or discharge any D12 criterion, cannot substitute for a

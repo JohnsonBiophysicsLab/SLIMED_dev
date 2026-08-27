@@ -62,6 +62,13 @@ FROZEN_PROVIDER_RECORDS = 693000
 FROZEN_REPRESENTATION_RECORDS = 5544000
 REQUEST_FIELD_COUNT = 11
 STDERR_PREVIEW_BYTES = 8192
+# A single sanitizer abort is a legitimate frozen outcome rather than a block,
+# so the worker stage returns normally for it.  It is also the outcome that
+# decides whether an amendment is needed at all, so it never reports clean.
+EXIT_CODES = {"REPRODUCED_CLEAN": 0, "BLOCKED": 1, "REPRODUCED_RACE": 3}
+REQUIRED_REPLAY_INPUTS = ("checkpoint", "published_bundle", "replay_root",
+                          "provider_tsan_binary",
+                          "representation_tsan_binary")
 BINARY64_TOKEN_RE = RUNNER.re.compile(r"^[0-9a-f]{16}$")
 # The frozen derivation emits, per provider row, exactly these eight inputs in
 # this exact JCS-sorted order.  The published slice must repeat that cycle.
@@ -139,15 +146,18 @@ def bind_published_provider_reference(published_root, cases):
     slices = {}
     whole = hashlib.sha256()
     with path.open("rb") as stream:
-        with mmap.mmap(stream.fileno(), 0, access=mmap.ACCESS_READ) as view:
-            limit = len(view)
-            whole.update(view)
+        with mmap.mmap(stream.fileno(), 0,
+                       access=mmap.ACCESS_READ) as view, \
+                memoryview(view) as data:
+            limit = len(data)
+            whole.update(data)
             offset = 0
             for case, count in zip(cases, counts):
                 start = offset
                 for _ in range(count):
-                    offset += _provider_record_length(view, offset, limit)
-                digest = hashlib.sha256(view[start:offset]).hexdigest()
+                    offset += _provider_record_length(data, offset, limit)
+                # Hash the memoryview slice so no case slice is copied out.
+                digest = hashlib.sha256(data[start:offset]).hexdigest()
                 require(digest == case["canonical_rows_sha256"],
                         "published provider case slice differs from the "
                         "frozen checkpoint digest: " +
@@ -193,11 +203,15 @@ def bind_published_representation_reference(published_root, cases, selected,
                     "published representation reference is not a JSON array")
             if whole_file_digest:
                 whole = hashlib.sha256(view).hexdigest()
-            for identity in selected:
+            # Cases occupy the stream in `cases` order, so walking the
+            # selection in that order lets one cursor advance monotonically
+            # instead of rescanning the whole reference for every case.
+            cursor = 1
+            for identity in sorted(selected, key=order.__getitem__):
                 index = order[identity]
                 case = cases[index]
                 marker = _representation_marker(case)
-                start = view.find(marker, 1)
+                start = view.find(marker, cursor)
                 require(start > 0,
                         "published representation reference lacks case " +
                         repr(identity))
@@ -238,6 +252,7 @@ def bind_published_representation_reference(published_root, cases, selected,
                     "byte_offset": start, "byte_length": end - start,
                     "record_count": len(records),
                     "sha256": sha256_bytes(encoded)}
+                cursor = end + 1
     return {
         "relative_path": REPRESENTATION_RELATIVE,
         "byte_length": path.stat().st_size,
@@ -412,11 +427,18 @@ def resolve_selection(args, universe):
 def load_checkpoint(path, expected_head=None):
     checkpoint = RUNNER.strict_json_bytes(
         pathlib.Path(path).resolve().read_bytes())
+    require(isinstance(checkpoint, dict),
+            "replay checkpoint is not a JSON object")
     require(checkpoint.get("schema_version") == 2 and
             checkpoint.get("kind") == "bfr_release_matrix_checkpoint" and
             checkpoint.get("complete") is True,
             "replay requires a complete release matrix checkpoint")
-    binding = checkpoint.get("binding", {}).get("git_head")
+    # A present-but-null binding must not fall through to a get() default.
+    binding_record = checkpoint.get("binding")
+    require(binding_record is None or isinstance(binding_record, dict),
+            "replay checkpoint binding is not a JSON object")
+    binding = (None if binding_record is None else
+               binding_record.get("git_head"))
     if expected_head is not None:
         require(binding == expected_head,
                 "replay checkpoint/head binding drift")
@@ -447,16 +469,22 @@ def bind_retained_executables(published_root, expected_executables):
     if not failure_root.is_dir():
         return None
     observed = {}
+    missing = []
     for role, digest in sorted(expected_executables.items()):
         retained = failure_root / (role + ".executable.bin")
         if not retained.is_file():
-            return {"state": "PARTIAL", "sha256": observed}
+            missing.append(role)
+            continue
         retained_sha256 = sha256_file(retained)
         require(retained_sha256 == digest,
                 "replay " + role + " executable differs from the executable "
                 "retained by the published failure")
         observed[role] = retained_sha256
-    return {"state": "IDENTICAL", "sha256": observed}
+    if missing:
+        return {"state": "PARTIAL", "sha256": observed,
+                "unverified_roles": sorted(missing)}
+    return {"state": "IDENTICAL", "sha256": observed,
+            "unverified_roles": []}
 
 
 def replay_instrumentation_digest(expected_executables, supplied=None):
@@ -469,6 +497,47 @@ def replay_instrumentation_digest(expected_executables, supplied=None):
         expected_executables["representation"]]))
 
 
+def _retained_streams(failure_root, role):
+    """The raw retained streams for one role, read straight off disk."""
+    stdout_path = failure_root / (role + ".stdout.bin")
+    stderr_path = failure_root / (role + ".stderr.bin")
+    stderr_raw = stderr_path.read_bytes() if stderr_path.is_file() else b""
+    return {
+        "stdout_bytes": (stdout_path.stat().st_size
+                         if stdout_path.is_file() else None),
+        "stdout_path": str(stdout_path),
+        "stderr_bytes": len(stderr_raw),
+        "stderr_path": str(stderr_path),
+        "stderr_sha256": sha256_bytes(stderr_raw),
+        "stderr_preview": stderr_raw[:STDERR_PREVIEW_BYTES].decode(
+            "utf-8", "replace")}
+
+
+def _unvalidated_failure(failure_root, record_sha256, validation_error,
+                         error):
+    """Surface the retained bytes even when the bundle fails validation.
+
+    The diagnostic bytes are the entire point of the replay, so a validation
+    mismatch must never discard them; it downgrades the state instead.
+    """
+    roles = sorted(path.name[:-len(".stderr.bin")]
+                   for path in failure_root.glob("*.stderr.bin"))
+    processes = []
+    for role in roles:
+        process = {"role": role, "classification": None}
+        process.update(_retained_streams(failure_root, role))
+        processes.append(process)
+    return {
+        "state": "RETAINED_UNVALIDATED",
+        "blocking_reason": None,
+        "record_sha256": record_sha256,
+        "root": str(failure_root),
+        "tuple": None,
+        "processes": processes,
+        "validation_error": str(validation_error),
+        "error": str(error)}
+
+
 def summarize_failure(replay_root, expected_executables, references,
                       environment, timeout_seconds, selected, job_list,
                       error):
@@ -477,33 +546,28 @@ def summarize_failure(replay_root, expected_executables, references,
     if not (failure_root / "failure.json").is_file():
         return {"state": "UNRETAINED", "error": str(error)}
     record_sha256 = sha256_file(failure_root / "failure.json")
-    record = RUNNER.validate_d12_worker_failure_artifact(
-        replay_root, record_sha256, expected_executables, references,
-        expected_environment=environment,
-        expected_timeout_seconds=timeout_seconds,
-        expected_tuple_identities=selected, expected_jobs=job_list)
+    try:
+        record = RUNNER.validate_d12_worker_failure_artifact(
+            replay_root, record_sha256, expected_executables, references,
+            expected_environment=environment,
+            expected_timeout_seconds=timeout_seconds,
+            expected_tuple_identities=selected, expected_jobs=job_list)
+    except QualificationError as validation_error:
+        return _unvalidated_failure(
+            failure_root, record_sha256, validation_error, error)
     processes = []
     for item in record["processes"]:
-        role = item["role"]
-        stderr_path = failure_root / (role + ".stderr.bin")
-        stdout_path = failure_root / (role + ".stdout.bin")
-        stderr_raw = stderr_path.read_bytes()
-        processes.append({
-            "role": role,
+        process = {
+            "role": item["role"],
             "classification": item["classification"],
             "exit_kind": item["process"]["exit_kind"],
             "exit_code": item["process"]["exit_code"],
             "signal": item["process"]["signal"],
             "timed_out": item["process"]["timed_out"],
             "race_report_detected": item["race_report_detected"],
-            "argv": item["argv"],
-            "stdout_bytes": stdout_path.stat().st_size,
-            "stdout_path": str(stdout_path),
-            "stderr_bytes": len(stderr_raw),
-            "stderr_path": str(stderr_path),
-            "stderr_sha256": sha256_bytes(stderr_raw),
-            "stderr_preview": stderr_raw[:STDERR_PREVIEW_BYTES].decode(
-                "utf-8", "replace")})
+            "argv": item["argv"]}
+        process.update(_retained_streams(failure_root, item["role"]))
+        processes.append(process)
     return {
         "state": "RETAINED",
         "blocking_reason": record["blocking_reason"],
@@ -511,6 +575,7 @@ def summarize_failure(replay_root, expected_executables, references,
         "root": str(failure_root),
         "tuple": record["tuple"],
         "processes": processes,
+        "validation_error": None,
         "error": str(error)}
 
 
@@ -619,7 +684,8 @@ def replay(args):
                     error)
                 report["ended_utc"] = RUNNER.iso_utc_now()
                 return report
-        report["disposition"] = "REPRODUCED_CLEAN"
+        report["disposition"] = ("REPRODUCED_RACE" if aborts
+                                else "REPRODUCED_CLEAN")
         report["worker_sidecar_count"] = len(sidecars)
         report["sanitizer_aborts"] = [
             {"content_identity_key": key[0], "approximation_level": key[1],
@@ -683,7 +749,12 @@ def render(report, stream):
     if failure is None:
         line("  sidecars         : {}".format(
             report.get("worker_sidecar_count", 0)))
-        for abort in report.get("sanitizer_aborts", []):
+        aborts = report.get("sanitizer_aborts", [])
+        if aborts:
+            line("  finding          : {} reproduced sanitizer data "
+                 "race(s); this is a real finding, not a clean run".format(
+                     len(aborts)))
+        for abort in aborts:
             line("  sanitizer abort  : {} level {} {} workers {} -> {}".format(
                 abort["content_identity_key"], abort["approximation_level"],
                 abort["cache_mode"], abort["worker_count"],
@@ -693,18 +764,24 @@ def render(report, stream):
         line("  retention        : NONE")
         line("  error            : " + failure["error"])
         return
-    line("  blocking reason  : " + failure["blocking_reason"])
+    if failure["state"] == "RETAINED_UNVALIDATED":
+        line("  retention        : RETAINED, BUT FAILED VALIDATION")
+        line("  validation error : " + failure["validation_error"])
+    else:
+        line("  blocking reason  : " + str(failure["blocking_reason"]))
     line("  failure.json     : {} ({})".format(
         failure["root"] + "/failure.json", failure["record_sha256"]))
     for process in failure["processes"]:
-        line("  --- {} : {}".format(process["role"],
-                                    process["classification"]))
-        line("      exit         : {} code={} signal={} timed_out={}".format(
-            process["exit_kind"], process["exit_code"], process["signal"],
-            process["timed_out"]))
-        line("      race marker  : {}".format(
-            process["race_report_detected"]))
-        line("      argv         : " + " ".join(process["argv"]))
+        line("  --- {} : {}".format(
+            process["role"], process.get("classification") or "UNKNOWN"))
+        if process.get("exit_kind") is not None:
+            line("      exit         : {} code={} signal={} "
+                 "timed_out={}".format(
+                     process["exit_kind"], process["exit_code"],
+                     process["signal"], process["timed_out"]))
+            line("      race marker  : {}".format(
+                process["race_report_detected"]))
+            line("      argv         : " + " ".join(process["argv"]))
         line("      stdout       : {} bytes at {}".format(
             process["stdout_bytes"], process["stdout_path"]))
         line("      stderr       : {} bytes at {}".format(
@@ -717,14 +794,14 @@ def render(report, stream):
 
 def parse_args(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--checkpoint", required=True)
-    parser.add_argument("--published-bundle", required=True,
+    parser.add_argument("--checkpoint")
+    parser.add_argument("--published-bundle",
                         help="existing D12 output root holding the published "
                              "serial references and request ledgers")
-    parser.add_argument("--replay-root", required=True,
+    parser.add_argument("--replay-root",
                         help="empty directory, disjoint from the bundle")
-    parser.add_argument("--provider-tsan-binary", required=True)
-    parser.add_argument("--representation-tsan-binary", required=True)
+    parser.add_argument("--provider-tsan-binary")
+    parser.add_argument("--representation-tsan-binary")
     parser.add_argument("--tuple", action="append", default=[],
                         metavar="CONTENT:LEVEL:MODE:WORKERS")
     parser.add_argument("--first-tuple", action="store_true")
@@ -745,14 +822,16 @@ def parse_args(argv=None):
 
 
 def main(argv=None):
-    if argv is None:
-        argv = sys.argv[1:]
-    if "--list-tuples" in argv:
-        for identity in frozen_tuple_universe():
-            sys.stdout.write("{}:{}:{}:{}\n".format(*identity))
-        return 0
     args = parse_args(argv)
     try:
+        if args.list_tuples:
+            for identity in frozen_tuple_universe():
+                sys.stdout.write("{}:{}:{}:{}\n".format(*identity))
+            return 0
+        missing = [name for name in REQUIRED_REPLAY_INPUTS
+                   if not getattr(args, name)]
+        require(not missing, "replay requires " + ", ".join(
+            "--" + name.replace("_", "-") for name in missing))
         require(args.timeout_seconds > 0, "replay timeout must be positive")
         require(not args.verify_derivation or args.artifact_dir,
                 "--verify-derivation requires --artifact-dir")
@@ -761,18 +840,21 @@ def main(argv=None):
                 "--expected-representation-serial-sha256 requires "
                 "--digest-published-references")
         report = replay(args)
+        # The marker is the only durable record of the run, so failing to
+        # publish it must fail closed rather than escape as a traceback.
+        write_marker(report)
     except (ReplayError, QualificationError, RUNNER.B2A.PreflightError,
-            B2.QualificationError, OSError, ValueError, KeyError) as error:
+            B2.QualificationError, AttributeError, OSError, ValueError,
+            KeyError) as error:
         sys.stderr.write(json.dumps(
             {"kind": REPLAY_KIND, "status": "harness_failed",
              "error": str(error)}, sort_keys=True) + "\n")
         return 2
-    write_marker(report)
     if args.json:
         sys.stdout.buffer.write(jcs_bytes(report) + b"\n")
     else:
         render(report, sys.stdout)
-    return 0 if report["disposition"] == "REPRODUCED_CLEAN" else 1
+    return EXIT_CODES[report["disposition"]]
 
 
 if __name__ == "__main__":

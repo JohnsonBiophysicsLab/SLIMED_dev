@@ -1,9 +1,12 @@
 """Tests for the standalone D12 TSan worker replay harness."""
 
 import hashlib
+import io
+import json
 import importlib.util
 import os
 import pathlib
+import sys
 import tempfile
 import unittest
 from unittest import mock
@@ -131,8 +134,14 @@ class ReplayFixture(object):
 def contextlib_exit_stack(patches):
     import contextlib
     stack = contextlib.ExitStack()
-    for patch in patches:
-        stack.enter_context(patch)
+    try:
+        for patch in patches:
+            stack.enter_context(patch)
+    except BaseException:
+        # Never leave a half-entered set of patches applied to the shared
+        # runner module; that would silently corrupt every later test.
+        stack.close()
+        raise
     return stack
 
 
@@ -613,3 +622,251 @@ class EndToEndReplayTests(unittest.TestCase):
         self.assertIn("NON_RACE_EXIT", rendered)
         self.assertIn("unexpected memory mapping", rendered)
         self.assertIn("not admissible as qualification evidence", rendered)
+
+
+class ReproducedRaceTests(EndToEndReplayTests):
+    """A reproduced data race is a finding, never a clean run."""
+
+    PROVIDER = ("#!/bin/sh\n"
+                "echo 'WARNING: ThreadSanitizer: data race (pid=1)' >&2\n"
+                "exit 66\n")
+    REPRESENTATION = "#!/bin/sh\ncat >/dev/null\nexit 0\n"
+
+    def test_race_gets_its_own_disposition(self):
+        report = self.run_replay()
+        self.assertEqual(report["disposition"], "REPRODUCED_RACE")
+        self.assertEqual(len(report["sanitizer_aborts"]), 1)
+        self.assertNotIn("failure", report)
+
+    def test_race_does_not_exit_zero(self):
+        report = self.run_replay()
+        self.assertEqual(REPLAY.EXIT_CODES[report["disposition"]], 3)
+        self.assertEqual(REPLAY.EXIT_CODES["REPRODUCED_CLEAN"], 0)
+        self.assertEqual(REPLAY.EXIT_CODES["BLOCKED"], 1)
+
+    def test_race_is_rendered_as_a_finding(self):
+        import io
+        stream = io.StringIO()
+        REPLAY.render(self.run_replay(), stream)
+        rendered = stream.getvalue()
+        self.assertIn("REPRODUCED_RACE", rendered)
+        self.assertIn("not a clean run", rendered)
+        self.assertIn("sanitizer abort", rendered)
+
+    # Inherited end-to-end assertions describe a blocking failure, so they do
+    # not apply to the race fixture.
+    test_failing_worker_is_replayed_classified_and_retained = None
+    test_replay_marker_is_written_and_rendered = None
+
+
+class MalformedCheckpointTests(unittest.TestCase):
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory(prefix="d12-replay-ckpt-")
+        self.addCleanup(self.temporary.cleanup)
+        self.root = pathlib.Path(self.temporary.name)
+
+    def write(self, raw):
+        path = self.root / "checkpoint.json"
+        path.write_bytes(raw)
+        return str(path)
+
+    def test_non_object_checkpoint_fails_closed(self):
+        with self.assertRaisesRegex(RUNNER.QualificationError,
+                                    "not a JSON object"):
+            REPLAY.load_checkpoint(self.write(b"[]"))
+
+    def test_null_binding_fails_closed(self):
+        raw = (b'{"schema_version":2,"kind":"bfr_release_matrix_checkpoint",'
+               b'"complete":true,"binding":null}')
+        checkpoint, binding = REPLAY.load_checkpoint(self.write(raw))
+        self.assertIsNone(binding)
+        with self.assertRaisesRegex(RUNNER.QualificationError,
+                                    "head binding drift"):
+            REPLAY.load_checkpoint(self.write(raw), expected_head="f" * 40)
+
+    def test_non_object_binding_fails_closed(self):
+        raw = (b'{"schema_version":2,"kind":"bfr_release_matrix_checkpoint",'
+               b'"complete":true,"binding":["f"]}')
+        with self.assertRaisesRegex(RUNNER.QualificationError,
+                                    "binding is not a JSON object"):
+            REPLAY.load_checkpoint(self.write(raw))
+
+    def test_absent_binding_is_accepted_as_unknown(self):
+        raw = (b'{"schema_version":2,"kind":"bfr_release_matrix_checkpoint",'
+               b'"complete":true}')
+        _, binding = REPLAY.load_checkpoint(self.write(raw))
+        self.assertIsNone(binding)
+
+
+class RetainedExecutableBindingTests(unittest.TestCase):
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory(prefix="d12-replay-exe-")
+        self.addCleanup(self.temporary.cleanup)
+        self.bundle = pathlib.Path(self.temporary.name) / "bundle"
+        self.failure_root = self.bundle / RUNNER._D12_WORKER_FAILURE_ROOT
+        self.failure_root.mkdir(parents=True)
+        self.expected = {"provider": RUNNER.sha256_bytes(b"provider-bytes"),
+                         "representation":
+                             RUNNER.sha256_bytes(b"representation-bytes")}
+
+    def retain(self, role, payload):
+        (self.failure_root / (role + ".executable.bin")).write_bytes(payload)
+
+    def test_absent_failure_bundle_is_unbound(self):
+        empty = pathlib.Path(self.temporary.name) / "empty"
+        empty.mkdir()
+        self.assertIsNone(
+            REPLAY.bind_retained_executables(empty, self.expected))
+
+    def test_every_present_role_is_verified(self):
+        self.retain("provider", b"provider-bytes")
+        self.retain("representation", b"representation-bytes")
+        binding = REPLAY.bind_retained_executables(self.bundle, self.expected)
+        self.assertEqual(binding["state"], "IDENTICAL")
+        self.assertEqual(binding["unverified_roles"], [])
+
+    def test_missing_provider_still_verifies_representation(self):
+        self.retain("representation", b"tampered-representation-bytes")
+        with self.assertRaisesRegex(
+                RUNNER.QualificationError,
+                "representation executable differs"):
+            REPLAY.bind_retained_executables(self.bundle, self.expected)
+
+    def test_partial_binding_names_the_unverified_role(self):
+        self.retain("provider", b"provider-bytes")
+        binding = REPLAY.bind_retained_executables(self.bundle, self.expected)
+        self.assertEqual(binding["state"], "PARTIAL")
+        self.assertEqual(binding["sha256"], {
+            "provider": self.expected["provider"]})
+        self.assertEqual(binding["unverified_roles"], ["representation"])
+
+
+class UnvalidatedRetentionTests(EndToEndReplayTests):
+    """A validation mismatch must never discard the diagnostic bytes."""
+
+    def test_validation_failure_still_surfaces_the_stderr(self):
+        broken = mock.patch.object(
+            RUNNER, "validate_d12_worker_failure_artifact",
+            side_effect=RUNNER.QualificationError("synthetic validator drift"))
+        with broken:
+            report = self.run_replay()
+        failure = report["failure"]
+        self.assertEqual(report["disposition"], "BLOCKED")
+        self.assertEqual(failure["state"], "RETAINED_UNVALIDATED")
+        self.assertEqual(failure["validation_error"],
+                         "synthetic validator drift")
+        self.assertEqual([item["role"] for item in failure["processes"]],
+                         ["provider"])
+        process = failure["processes"][0]
+        self.assertIn("unexpected memory mapping", process["stderr_preview"])
+        self.assertTrue(pathlib.Path(process["stderr_path"]).is_file())
+        self.assertIsNone(process["classification"])
+
+    def test_unvalidated_retention_is_rendered_with_its_bytes(self):
+        import io
+        broken = mock.patch.object(
+            RUNNER, "validate_d12_worker_failure_artifact",
+            side_effect=RUNNER.QualificationError("synthetic validator drift"))
+        with broken:
+            report = self.run_replay()
+        stream = io.StringIO()
+        REPLAY.render(report, stream)
+        rendered = stream.getvalue()
+        self.assertIn("FAILED VALIDATION", rendered)
+        self.assertIn("synthetic validator drift", rendered)
+        self.assertIn("unexpected memory mapping", rendered)
+
+    test_failing_worker_is_replayed_classified_and_retained = None
+    test_independent_derivation_cross_check_passes = None
+    test_replay_marker_is_written_and_rendered = None
+
+
+class SelectionOrderTests(SerialReferenceReadbackTests):
+    """Slice extraction must not depend on the caller's selection order."""
+
+    def test_reverse_order_selection_extracts_the_same_slices(self):
+        forward = self.fixture.identities()
+        reverse = list(reversed(forward))
+        references, published = self.read(reverse)
+        self.assertEqual(set(references), set(forward))
+        for identity in forward:
+            self.assertEqual(references[identity]["representation"],
+                             self.derived[identity]["representation"])
+            self.assertEqual(references[identity]["provider"],
+                             self.derived[identity]["provider"])
+        self.assertEqual(
+            [case["content_identity_key"] for case in published["cases"]],
+            [identity[0] for identity in reverse])
+
+    def test_interleaved_subset_extracts_the_same_slices(self):
+        forward = self.fixture.identities()
+        subset = [forward[-1], forward[0], forward[len(forward) // 2]]
+        references, _ = self.read(subset)
+        self.assertEqual(set(references), set(subset))
+        for identity in subset:
+            self.assertEqual(references[identity]["representation"],
+                             self.derived[identity]["representation"])
+
+
+class MainEntryPointTests(unittest.TestCase):
+    UNIVERSE = [("content-a", 2, "cache_disabled", 1)]
+
+    def test_list_tuples_needs_no_other_input(self):
+        import io
+        buffer = io.StringIO()
+        with mock.patch.object(REPLAY, "frozen_tuple_universe",
+                               return_value=self.UNIVERSE), \
+                mock.patch.object(sys, "stdout", buffer):
+            self.assertEqual(REPLAY.main(["--list-tuples"]), 0)
+        self.assertEqual(buffer.getvalue(), "content-a:2:cache_disabled:1\n")
+
+    def test_list_tuples_is_not_triggered_by_a_flag_shaped_value(self):
+        # Argparse now owns the flag, so a bare "--tuple --list-tuples" is
+        # rejected outright instead of silently listing the universe.
+        listed = io.StringIO()
+        with mock.patch.object(REPLAY, "frozen_tuple_universe",
+                               return_value=self.UNIVERSE), \
+                mock.patch.object(sys, "stdout", listed), \
+                mock.patch.object(sys, "stderr", io.StringIO()):
+            with self.assertRaises(SystemExit) as raised:
+                REPLAY.main(["--tuple", "--list-tuples"])
+        self.assertEqual(raised.exception.code, 2)
+        self.assertEqual(listed.getvalue(), "")
+
+    def test_list_tuples_supplied_as_a_tuple_value_is_not_a_listing(self):
+        listed = io.StringIO()
+        stream = io.StringIO()
+        with mock.patch.object(REPLAY, "frozen_tuple_universe",
+                               return_value=self.UNIVERSE), \
+                mock.patch.object(sys, "stdout", listed), \
+                mock.patch.object(sys, "stderr", stream):
+            self.assertEqual(REPLAY.main(["--tuple=--list-tuples"]), 2)
+        self.assertEqual(listed.getvalue(), "")
+        self.assertEqual(json.loads(stream.getvalue())["status"],
+                         "harness_failed")
+
+    def test_missing_required_inputs_fail_closed(self):
+        stream = io.StringIO()
+        with mock.patch.object(sys, "stderr", stream):
+            self.assertEqual(REPLAY.main(["--checkpoint", "x"]), 2)
+        failure = json.loads(stream.getvalue())
+        self.assertEqual(failure["status"], "harness_failed")
+        for flag in ("--published-bundle", "--replay-root",
+                     "--provider-tsan-binary",
+                     "--representation-tsan-binary"):
+            self.assertIn(flag, failure["error"])
+        self.assertNotIn("--checkpoint", failure["error"])
+
+    def test_marker_publication_failure_fails_closed(self):
+        stream = io.StringIO()
+        report = {"disposition": "REPRODUCED_CLEAN", "replay_root": "/nope"}
+        with mock.patch.object(REPLAY, "replay", return_value=report), \
+                mock.patch.object(REPLAY, "write_marker",
+                                  side_effect=OSError("read-only root")), \
+                mock.patch.object(sys, "stderr", stream):
+            self.assertEqual(REPLAY.main([
+                "--checkpoint", "c", "--published-bundle", "b",
+                "--replay-root", "r", "--provider-tsan-binary", "p",
+                "--representation-tsan-binary", "q"]), 2)
+        self.assertEqual(json.loads(stream.getvalue())["status"],
+                         "harness_failed")
