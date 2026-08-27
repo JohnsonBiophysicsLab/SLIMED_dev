@@ -295,23 +295,38 @@ class UnifiedLoopBaselineInventoryTest(unittest.TestCase):
             INVENTORY.validate_inventory(self.baseline, check_adr=False))
 
         original_text = INVENTORY._text
-        repaired_source = """
-void classify_legacy_one_ring()
+        classifier_source = """
+LegacyOneRingClassification Mesh::classify_legacy_one_ring(
+    const Face &face) const
 {
     int d4 = -1;
     int d7 = -1;
     int d8 = -1;
 }
+"""
+        preflight_loop = """
+    for (const Face &face : faces)
+    {
+        if (is_legacy_one_ring_rejection(classification.reasonCode))
+        {
+            throw std::runtime_error(message);
+        }
+    }
+"""
+        publication_loop = """
+    for (std::size_t faceIndex = 0;
+         faceIndex < faces.size(); ++faceIndex)
+    {
+        faces[faceIndex].adjacentVertices.swap(orientedFaceVertices);
+        faces[faceIndex].oneRingVertices.swap(assembledOneRing);
+    }
+"""
+        repaired_source = classifier_source + """
 void Mesh::set_one_ring_vertices_sorted()
 {
-    if (is_legacy_one_ring_rejection(classification.reasonCode))
-    {
-        throw std::runtime_error(message);
-    }
-    faces[faceIndex].adjacentVertices.swap(orientedFaceVertices);
-    faces[faceIndex].oneRingVertices.swap(assembledOneRing);
+""" + preflight_loop + publication_loop + """
 }
-""" + original_text("src/mesh/Mesh_setup_geometry.cpp")
+"""
 
         def collect_with_topology(source):
             def source_text(path):
@@ -320,7 +335,10 @@ void Mesh::set_one_ring_vertices_sorted()
                 return original_text(path)
 
             with mock.patch.object(
-                    INVENTORY, "_text", side_effect=source_text):
+                    INVENTORY, "_text", side_effect=source_text), \
+                    mock.patch.object(
+                        INVENTORY, "_topology_invalidation_seam_errors",
+                        return_value=[]):
                 return INVENTORY.collect_inventory()
 
         repaired_report = collect_with_topology(repaired_source)
@@ -352,14 +370,12 @@ void Mesh::set_one_ring_vertices_sorted()
         self.assertFalse(INVENTORY.validate_inventory(
             duplicate_sentinel_report, check_adr=False))
 
-        misordered_source = repaired_source.replace(
-            "        throw std::runtime_error(message);\n"
-            "    }\n"
-            "    faces[faceIndex].adjacentVertices.swap(orientedFaceVertices);",
-            "        faces[faceIndex].adjacentVertices.swap("
-            "orientedFaceVertices);\n"
-            "        throw std::runtime_error(message);\n"
-            "    }", 1)
+        misordered_source = classifier_source + """
+void Mesh::set_one_ring_vertices_sorted()
+{
+""" + publication_loop + preflight_loop + """
+}
+"""
         misordered_report = collect_with_topology(misordered_source)
         misordered_record = misordered_report["D_topology_guards"] \
             ["legacy_11_control_predicate"] \
@@ -372,6 +388,49 @@ void Mesh::set_one_ring_vertices_sorted()
         )
         self.assertFalse(INVENTORY.validate_inventory(
             misordered_report, check_adr=False))
+
+        inactive_fake_report = collect_with_topology(
+            "#if 0\n" + repaired_source + "#endif\n" +
+            original_text("src/mesh/Mesh_setup_geometry.cpp"))
+        inactive_fake_record = inactive_fake_report["D_topology_guards"] \
+            ["legacy_11_control_predicate"] \
+            ["wp1_1a_classifier_repair_record"]
+        self.assertEqual(
+            (inactive_fake_record["sentinel_initialization_observed"],
+             inactive_fake_record[
+                 "rejection_precedes_publication_observed"],
+             inactive_fake_record["repair_confirmed"]),
+            (False, False, False),
+        )
+        self.assertFalse(INVENTORY.validate_inventory(
+            inactive_fake_report, check_adr=False))
+
+        detached_preflight = preflight_loop.replace(
+            "        {\n"
+            "            throw std::runtime_error(message);\n"
+            "        }",
+            "        {\n"
+            "        }\n"
+            "        throw std::runtime_error(message);", 1)
+        detached_throw_source = classifier_source + """
+void Mesh::set_one_ring_vertices_sorted()
+{
+""" + detached_preflight + publication_loop + """
+}
+"""
+        detached_throw_report = collect_with_topology(detached_throw_source)
+        detached_throw_record = detached_throw_report["D_topology_guards"] \
+            ["legacy_11_control_predicate"] \
+            ["wp1_1a_classifier_repair_record"]
+        self.assertEqual(
+            (detached_throw_record["sentinel_initialization_observed"],
+             detached_throw_record[
+                 "rejection_precedes_publication_observed"],
+             detached_throw_record["repair_confirmed"]),
+            (True, False, False),
+        )
+        self.assertFalse(INVENTORY.validate_inventory(
+            detached_throw_report, check_adr=False))
 
         inconsistent_current = copy.deepcopy(self.baseline)
         inconsistent_current["D_topology_guards"] \

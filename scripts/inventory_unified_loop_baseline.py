@@ -695,7 +695,7 @@ def _direct_access_label(code: str, position: int):
     return access, depth
 
 
-def _unique_braced_scope(code: str, signature_pattern: str):
+def _unique_braced_scope_span(code: str, signature_pattern: str):
     matches = list(re.finditer(
         signature_pattern, code, re.MULTILINE | re.DOTALL))
     if len(matches) != 1:
@@ -714,7 +714,13 @@ def _unique_braced_scope(code: str, signature_pattern: str):
         cursor += 1
     if depth:
         return None
-    return signature.start(), code[opening + 1:cursor - 1]
+    return (signature.start(), opening + 1, cursor - 1,
+            code[opening + 1:cursor - 1])
+
+
+def _unique_braced_scope(code: str, signature_pattern: str):
+    scope = _unique_braced_scope_span(code, signature_pattern)
+    return None if scope is None else (scope[0], scope[3])
 
 
 def _direct_scope_matches(code: str, pattern: re.Pattern[str]):
@@ -725,6 +731,88 @@ def _direct_scope_matches(code: str, pattern: re.Pattern[str]):
         if prefix.count("{") == prefix.count("}"):
             direct.append(match)
     return direct
+
+
+def _legacy_classifier_repair_observations(text: str) -> tuple[bool, bool]:
+    """Observe the active, structurally scoped WP1.1a classifier repair."""
+    active = _mask_cpp_conditionals(_cpp_code(text))
+    classifier = _unique_braced_scope_span(
+        active,
+        r"\bLegacyOneRingClassification\s+Mesh::classify_legacy_one_ring\s*"
+        r"\(\s*const\s+Face\s*&\s*face\s*\)\s*const\s*\{")
+    sentinel_patterns = [
+        re.compile(rf"\bint\s+{name}\s*=\s*-\s*1\s*;")
+        for name in ("d4", "d7", "d8")
+    ]
+    sentinel_initialization_observed = False
+    if classifier is not None:
+        classifier_body = classifier[3]
+        sentinel_initialization_observed = all(
+            len(pattern.findall(active)) == 1 and
+            len(_direct_scope_matches(classifier_body, pattern)) == 1
+            for pattern in sentinel_patterns)
+
+    publication = _unique_braced_scope_span(
+        active,
+        r"\bvoid\s+Mesh::set_one_ring_vertices_sorted\s*\(\s*\)\s*\{")
+    rejection_precedes_publication_observed = False
+    if publication is not None:
+        publication_body = publication[3]
+        preflight = _unique_braced_scope_span(
+            publication_body,
+            r"\bfor\s*\(\s*const\s+Face\s*&\s*face\s*:\s*faces\s*\)\s*\{")
+        publication_loop = _unique_braced_scope_span(
+            publication_body,
+            r"\bfor\s*\(\s*std::size_t\s+faceIndex\s*=\s*0\s*;\s*"
+            r"faceIndex\s*<\s*faces\s*\.\s*size\s*\(\s*\)\s*;\s*"
+            r"\+\+\s*faceIndex\s*\)\s*\{")
+        rejection_pattern = re.compile(
+            r"\bif\s*\(\s*is_legacy_one_ring_rejection\s*\(\s*"
+            r"classification\s*\.\s*reasonCode\s*\)\s*\)\s*\{")
+        throw_pattern = re.compile(
+            r"\bthrow\s+std::runtime_error\s*\([^;]+\)\s*;")
+        write_patterns = [
+            re.compile(
+                r"\bfaces\s*\[\s*faceIndex\s*\]\s*\.\s*"
+                r"adjacentVertices\s*\.\s*swap\s*\("),
+            re.compile(
+                r"\bfaces\s*\[\s*faceIndex\s*\]\s*\.\s*"
+                r"oneRingVertices\s*\.\s*swap\s*\("),
+        ]
+        if preflight is not None and publication_loop is not None:
+            preflight_is_direct = (
+                publication_body[:preflight[0]].count("{") ==
+                publication_body[:preflight[0]].count("}"))
+            publication_loop_is_direct = (
+                publication_body[:publication_loop[0]].count("{") ==
+                publication_body[:publication_loop[0]].count("}"))
+            rejection = _unique_braced_scope_span(
+                preflight[3], rejection_pattern.pattern)
+            rejection_is_direct = (
+                rejection is not None and
+                preflight[3][:rejection[0]].count("{") ==
+                preflight[3][:rejection[0]].count("}"))
+            direct_throws = ([] if rejection is None else
+                             _direct_scope_matches(rejection[3], throw_pattern))
+            direct_writes = [
+                _direct_scope_matches(publication_loop[3], pattern)
+                for pattern in write_patterns
+            ]
+            rejection_precedes_publication_observed = (
+                preflight_is_direct
+                and publication_loop_is_direct
+                and rejection_is_direct
+                and len(rejection_pattern.findall(publication_body)) == 1
+                and len(throw_pattern.findall(publication_body)) == 1
+                and len(direct_throws) == 1
+                and all(len(pattern.findall(active)) == 1
+                        for pattern in write_patterns)
+                and all(len(matches) == 1 for matches in direct_writes)
+                and preflight[2] < publication_loop[0]
+                and direct_writes[0][0].start() < direct_writes[1][0].start()
+            )
+    return (sentinel_initialization_observed,
+            rejection_precedes_publication_observed)
 
 
 def _scope_begins_with(code: str, pattern: re.Pattern[str]) -> bool:
@@ -1095,38 +1183,9 @@ def collect_inventory() -> dict[str, Any]:
     geometry = _text("src/mesh/Mesh.cpp")
     legacy_topology = _text("src/mesh/Mesh_setup_geometry.cpp")
     legacy_matrix = _text("src/mesh/Gauss_quadrature.cpp")
-    try:
-        legacy_publication_block = _cpp_block_after(
-            legacy_topology, "void Mesh::set_one_ring_vertices_sorted()")
-    except ValueError:
-        legacy_publication_block = ""
-    required_sentinel_declarations = [
-        "int d4 = -1;",
-        "int d7 = -1;",
-        "int d8 = -1;",
-    ]
-    rejection_anchor = (
-        "if (is_legacy_one_ring_rejection(classification.reasonCode))")
-    publication_write_anchors = [
-        "faces[faceIndex].adjacentVertices.swap(",
-        "faces[faceIndex].oneRingVertices.swap(",
-    ]
-    throw_matches = list(re.finditer(
-        r"\bthrow\s+std::runtime_error\s*\([^;]+\);",
-        legacy_publication_block))
-    sentinel_initialization_observed = all(
-        legacy_topology.count(declaration) == 1
-        for declaration in required_sentinel_declarations)
-    rejection_precedes_publication_observed = (
-        legacy_publication_block.count(rejection_anchor) == 1
-        and len(throw_matches) == 1
-        and all(legacy_publication_block.count(anchor) == 1
-                for anchor in publication_write_anchors)
-        and legacy_publication_block.find(rejection_anchor)
-        < throw_matches[0].start()
-        < legacy_publication_block.find(publication_write_anchors[0])
-        < legacy_publication_block.find(publication_write_anchors[1])
-    )
+    (sentinel_initialization_observed,
+     rejection_precedes_publication_observed) = (
+        _legacy_classifier_repair_observations(legacy_topology))
     classifier_repair_confirmed = (
         sentinel_initialization_observed
         and rejection_precedes_publication_observed)
