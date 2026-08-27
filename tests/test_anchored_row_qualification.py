@@ -4891,6 +4891,81 @@ class AnchoredRowQualificationTests(unittest.TestCase):
             finally:
                 fixture["artifact"].close()
 
+    def test_d12_worker_failure_rehashes_lock_and_rebinds_leaves(self):
+        provider_source = (
+            "#!/bin/sh\nprintf 'trusted-partial'\n"
+            "printf 'trusted-fatal\\n' >&2\nexit 23\n")
+        representation_source = "#!/bin/sh\ncat >/dev/null\nexit 0\n"
+
+        # A same-inode byte change after the first hash but before the BSD
+        # lock must be detected by the authoritative post-lock rehash.
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary)
+            fixture = self._d12_failure_test_fixture(
+                root, provider_source, representation_source)
+            original_set_immutable = MODULE._d12_set_fd_immutable
+            mutation_attempted = []
+
+            def mutate_before_first_lock(descriptor):
+                if not mutation_attempted:
+                    mutation_attempted.append(True)
+                    fixture["provider"].write_text(
+                        "#!/bin/sh\nprintf 'changed'\nexit 0\n",
+                        encoding="utf-8")
+                    os.chmod(fixture["provider"], 0o755)
+                return original_set_immutable(descriptor)
+
+            try:
+                with mock.patch.object(
+                        MODULE, "_d12_set_fd_immutable",
+                        side_effect=mutate_before_first_lock), \
+                        self.assertRaisesRegex(
+                            MODULE.QualificationError,
+                            "changed before immutable binding"):
+                    self._run_d12_failure_test_fixture(fixture)
+                self.assertTrue(mutation_attempted)
+                self.assertFalse(
+                    (fixture["output_root"] /
+                     MODULE._D12_WORKER_FAILURE_ROOT).exists())
+            finally:
+                fixture["artifact"].close()
+
+        # A precreated leaf moved before the directory lock is rebound by
+        # device/inode, link count, size, mode, and exact inventory before any
+        # retained byte can be written through its stale descriptor.
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary)
+            fixture = self._d12_failure_test_fixture(
+                root, provider_source, representation_source)
+            outside = root / "outside"
+            outside.mkdir()
+            failure_root = (fixture["output_root"] /
+                            MODULE._D12_WORKER_FAILURE_ROOT)
+            original_set_immutable = MODULE._d12_set_fd_immutable
+            leaf_swap_attempted = []
+
+            def move_leaf_before_directory_lock(descriptor):
+                leaf = failure_root / "provider.executable.bin"
+                if leaf.exists() and not leaf_swap_attempted:
+                    leaf_swap_attempted.append(True)
+                    leaf.rename(outside / "escaped-executable.bin")
+                    leaf.write_bytes(b"decoy")
+                return original_set_immutable(descriptor)
+
+            try:
+                with mock.patch.object(
+                        MODULE, "_d12_set_fd_immutable",
+                        side_effect=move_leaf_before_directory_lock), \
+                        self.assertRaisesRegex(
+                            MODULE.QualificationError,
+                            "leaf moved or aliased"):
+                    self._run_d12_failure_test_fixture(fixture)
+                self.assertTrue(leaf_swap_attempted)
+                self.assertEqual(
+                    (outside / "escaped-executable.bin").read_bytes(), b"")
+            finally:
+                fixture["artifact"].close()
+
     def test_d12_worker_failure_bundle_preserves_two_process_race_evidence(
             self):
         provider_race = (

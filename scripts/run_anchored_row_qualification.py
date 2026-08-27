@@ -8234,11 +8234,9 @@ def _d12_immutable_executable_authority(executables):
             digest, length = _d12_sha256_open_file(descriptor)
             authorities[role] = {
                 "path": resolved, "descriptor": descriptor,
-                "sha256": digest, "byte_length": length,
+                "prelock_sha256": digest, "sha256": None,
+                "byte_length": length,
                 "flags": None, "parent": parent}
-        require(authorities["provider"]["sha256"] !=
-                    authorities["representation"]["sha256"],
-                "D12 executable roles are not distinct")
         for role in ("provider", "representation"):
             authority = authorities[role]
             authority["flags"] = _d12_set_fd_immutable(
@@ -8263,6 +8261,15 @@ def _d12_immutable_executable_authority(executables):
                     observed.st_flags & stat.UF_IMMUTABLE and
                     parent_observed.st_flags & stat.UF_IMMUTABLE,
                     "D12 executable authority moved before execution")
+            locked_digest, locked_length = _d12_sha256_open_file(
+                authority["descriptor"])
+            require(locked_digest == authority["prelock_sha256"] and
+                    locked_length == authority["byte_length"],
+                    "D12 executable changed before immutable binding")
+            authority["sha256"] = locked_digest
+        require(authorities["provider"]["sha256"] !=
+                    authorities["representation"]["sha256"],
+                "D12 executable roles are not distinct")
         yield authorities
     finally:
         for authority in reversed(locked_files):
@@ -8705,6 +8712,19 @@ def _publish_d12_worker_failure(
         locked_directories.append((final, final_flags))
         _d12_require_open_directory_chain(
             output_root, root, anchored, failures, final)
+        require(set(os.listdir(final)) == set(leaves),
+                "D12 worker failure leaf inventory drift")
+        for name, descriptor in leaves.items():
+            entry = os.stat(name, dir_fd=final, follow_symlinks=False)
+            observed = os.fstat(descriptor)
+            require(stat.S_ISREG(entry.st_mode) and
+                    stat.S_ISREG(observed.st_mode) and
+                    entry.st_nlink == observed.st_nlink == 1 and
+                    (entry.st_dev, entry.st_ino) ==
+                        (observed.st_dev, observed.st_ino) and
+                    entry.st_size == observed.st_size == 0 and
+                    stat.S_IMODE(observed.st_mode) == leaf_modes[name],
+                    "D12 worker failure leaf moved or aliased")
 
         def finish_leaf(name):
             descriptor = leaves[name]

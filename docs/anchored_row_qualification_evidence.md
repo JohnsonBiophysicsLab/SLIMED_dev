@@ -494,6 +494,26 @@ attempt the prior ancestor rename during retained-byte publication and the
 prior executable replacement at `Popen`; both kernel operations fail before
 the trusted worker or destination can change.
 
+Fresh review of that implementation at
+`447533d5b3673127c75592025d135c757c7177c3` found two earlier lock-boundary
+gaps. The first executable digest was computed before the immutable flag took
+effect, so a same-inode write in that interval could make the recorded digest
+differ from the executed bytes. In addition, the precreated retained-file
+descriptors were not rebound to their names after the final directory became
+immutable, so a leaf moved before the lock could receive bytes through a stale
+descriptor outside the root before final validation failed. That SHA is not
+admissible.
+
+The follow-up retains the pre-lock digest only as a drift sentinel, rehashes the
+same open executable descriptor after both its leaf and parent namespace are
+immutable, requires equality, and uses only that locked digest as authority.
+After the complete publication directory chain is immutable and re-proved, it
+also requires the exact retained-leaf inventory and binds every name back to
+its open regular single-link, zero-length descriptor by device, inode, mode,
+and size before the first write. Regressions perform the prior same-inode
+executable change and the prior pre-lock retained-leaf move; both now fail
+before a worker starts or a retained byte can escape.
+
 ## Required next work
 
 1. Commit the immutable-authority TSan failure-bundle remediation and its
