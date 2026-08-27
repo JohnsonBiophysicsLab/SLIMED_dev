@@ -122,13 +122,14 @@ how the primary workload crosses the eventual generic production seam.
 The legacy 11-control setup predicate admits faces whose three corner valences
 are 5/5/5. The matrix construction describes one valence-5 corner and two
 valence-6 corners (5/6/6); that retained matrix mismatch remains a confirmed
-defect witness owned by D5. WP1.1a repair commit
-`5187bdecd928538d82ed4733cea11f997bf22ad4` separately made `d4`, `d7`, and
-`d8` total with sentinel initialization and made rejection precede writes to
-`face.adjacentVertices` or `face.oneRingVertices`. The reviewed WP1.1a head is
-`291dca5a7a91045a47c92c6d807c4d15d9a0b5b1`. This repair record neither
-quarantines the accepted all-Valence-5 fixture nor changes the matrix; D5 still
-governs those decisions.
+defect witness owned by D5. The classifier repair is owned separately by
+WP1.1a. The inventory records whether the checked-out
+`src/mesh/Mesh_setup_geometry.cpp` has total sentinel initialization for `d4`,
+`d7`, and `d8` and whether rejection and its throw precede publication to
+`face.adjacentVertices` and `face.oneRingVertices`; it does not treat an
+unmerged branch object as current-tree state. The classifier repair record
+neither quarantines the accepted all-Valence-5 fixture nor changes the matrix;
+D5 still governs those decisions.
 
 ### OpenSubdiv provider policy
 

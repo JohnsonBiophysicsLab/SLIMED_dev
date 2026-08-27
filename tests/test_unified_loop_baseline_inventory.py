@@ -280,38 +280,120 @@ class UnifiedLoopBaselineInventoryTest(unittest.TestCase):
         self.assert_mutation_rejected(
             lambda r: r["D_topology_guards"]["legacy_11_control_predicate"]
             ["wp1_1a_classifier_repair_record"]
-            .update({"repair_confirmed": False}))
-        self.assert_mutation_rejected(
-            lambda r: r["D_topology_guards"]["legacy_11_control_predicate"]
-            ["wp1_1a_classifier_repair_record"]
-            .update({"repair_commit_is_ancestor_of_reviewed_head": False}))
-        self.assert_mutation_rejected(
-            lambda r: r["D_topology_guards"]["legacy_11_control_predicate"]
-            ["wp1_1a_classifier_repair_record"]
             .update({"defect_confirmed": True}))
 
-        repair_query = (
-            "show",
-            f"{INVENTORY.WP1_1A_REPAIR_COMMIT_SHA}:"
-            "src/mesh/Mesh_setup_geometry.cpp",
+        current_repair = self.baseline["D_topology_guards"] \
+            ["legacy_11_control_predicate"] \
+            ["wp1_1a_classifier_repair_record"]
+        self.assertEqual(
+            (current_repair["sentinel_initialization_observed"],
+             current_repair["rejection_precedes_publication_observed"],
+             current_repair["repair_confirmed"]),
+            (False, False, False),
         )
-        repair_source = INVENTORY._git_output(*repair_query)
-        self.assertNotEqual(repair_source, "unavailable")
-        self.assert_git_output_mutation_rejected(
-            lambda arguments: arguments == repair_query,
-            repair_source.replace("int d4 = -1;", "int d4;", 1),
+        self.assertFalse(
+            INVENTORY.validate_inventory(self.baseline, check_adr=False))
+
+        original_text = INVENTORY._text
+        repaired_source = """
+void classify_legacy_one_ring()
+{
+    int d4 = -1;
+    int d7 = -1;
+    int d8 = -1;
+}
+void Mesh::set_one_ring_vertices_sorted()
+{
+    if (is_legacy_one_ring_rejection(classification.reasonCode))
+    {
+        throw std::runtime_error(message);
+    }
+    faces[faceIndex].adjacentVertices.swap(orientedFaceVertices);
+    faces[faceIndex].oneRingVertices.swap(assembledOneRing);
+}
+""" + original_text("src/mesh/Mesh_setup_geometry.cpp")
+
+        def collect_with_topology(source):
+            def source_text(path):
+                if path == "src/mesh/Mesh_setup_geometry.cpp":
+                    return source
+                return original_text(path)
+
+            with mock.patch.object(
+                    INVENTORY, "_text", side_effect=source_text):
+                return INVENTORY.collect_inventory()
+
+        repaired_report = collect_with_topology(repaired_source)
+        repaired_record = repaired_report["D_topology_guards"] \
+            ["legacy_11_control_predicate"] \
+            ["wp1_1a_classifier_repair_record"]
+        self.assertEqual(
+            (repaired_record["sentinel_initialization_observed"],
+             repaired_record["rejection_precedes_publication_observed"],
+             repaired_record["repair_confirmed"]),
+            (True, True, True),
         )
-        rejection = (
-            "if (is_legacy_one_ring_rejection(classification.reasonCode))")
-        delayed_rejection = repair_source.replace(
-            rejection, "if (false)", 1).replace(
-                "faces[faceIndex].adjacentVertices.swap(",
-                rejection + "\n        "
-                "faces[faceIndex].adjacentVertices.swap(", 1)
-        self.assert_git_output_mutation_rejected(
-            lambda arguments: arguments == repair_query,
-            delayed_rejection,
+        self.assertFalse(
+            INVENTORY.validate_inventory(repaired_report, check_adr=False))
+
+        duplicate_sentinel_report = collect_with_topology(
+            repaired_source.replace(
+                "int d4 = -1;", "int d4 = -1;\n    int d4 = -1;", 1))
+        duplicate_sentinel_record = duplicate_sentinel_report[
+            "D_topology_guards"]["legacy_11_control_predicate"][
+                "wp1_1a_classifier_repair_record"]
+        self.assertEqual(
+            (duplicate_sentinel_record["sentinel_initialization_observed"],
+             duplicate_sentinel_record[
+                 "rejection_precedes_publication_observed"],
+             duplicate_sentinel_record["repair_confirmed"]),
+            (False, True, False),
         )
+        self.assertFalse(INVENTORY.validate_inventory(
+            duplicate_sentinel_report, check_adr=False))
+
+        misordered_source = repaired_source.replace(
+            "        throw std::runtime_error(message);\n"
+            "    }\n"
+            "    faces[faceIndex].adjacentVertices.swap(orientedFaceVertices);",
+            "        faces[faceIndex].adjacentVertices.swap("
+            "orientedFaceVertices);\n"
+            "        throw std::runtime_error(message);\n"
+            "    }", 1)
+        misordered_report = collect_with_topology(misordered_source)
+        misordered_record = misordered_report["D_topology_guards"] \
+            ["legacy_11_control_predicate"] \
+            ["wp1_1a_classifier_repair_record"]
+        self.assertEqual(
+            (misordered_record["sentinel_initialization_observed"],
+             misordered_record["rejection_precedes_publication_observed"],
+             misordered_record["repair_confirmed"]),
+            (True, False, False),
+        )
+        self.assertFalse(INVENTORY.validate_inventory(
+            misordered_report, check_adr=False))
+
+        inconsistent_current = copy.deepcopy(self.baseline)
+        inconsistent_current["D_topology_guards"] \
+            ["legacy_11_control_predicate"] \
+            ["wp1_1a_classifier_repair_record"] \
+            ["repair_confirmed"] = True
+        self.assertTrue(INVENTORY.validate_inventory(
+            inconsistent_current, check_adr=False))
+        inconsistent_repaired = copy.deepcopy(repaired_report)
+        inconsistent_repaired["D_topology_guards"] \
+            ["legacy_11_control_predicate"] \
+            ["wp1_1a_classifier_repair_record"] \
+            ["repair_confirmed"] = False
+        self.assertTrue(INVENTORY.validate_inventory(
+            inconsistent_repaired, check_adr=False))
+        non_boolean = copy.deepcopy(self.baseline)
+        non_boolean["D_topology_guards"] \
+            ["legacy_11_control_predicate"] \
+            ["wp1_1a_classifier_repair_record"] \
+            ["sentinel_initialization_observed"] = "false"
+        self.assertTrue(INVENTORY.validate_inventory(
+            non_boolean, check_adr=False))
 
         def collapse_legacy_11_control_split(report) -> None:
             legacy = report["D_topology_guards"]["legacy_11_control_predicate"]
