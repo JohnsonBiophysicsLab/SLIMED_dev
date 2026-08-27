@@ -585,7 +585,7 @@ _REVIEWED_CHECKPOINT_INCLUDES = (
     ("include", "<iomanip>"),
 )
 _REVIEWED_CHECKPOINT_SOURCE_SURFACE_SHA256 = (
-    "ca5a8f2f9894d9c349c4f66a4461d52094663db2572ff31d487d8b00d4caf361")
+    "f8ea626690bd1801e1f212f6642fe44a15ceb14278a521216817bfa6b8a4d3fc")
 _REVIEWED_OTHER_SOURCE_COUNT = 86
 _REVIEWED_OTHER_INCLUSION_SHA256 = (
     "8be98f909e50b3e463616d7b050705697a9f2baa730c2973673b166d86482817")
@@ -624,7 +624,7 @@ def _only_reviewed_preprocessor_includes(
 
 
 def _checkpoint_source_surface_sha256() -> str:
-    """Hash every compiled source/header whose text owns restart semantics."""
+    """Hash the complete compiled corpus that could add a checkpoint route."""
     suffixes = {
         ".cpp", ".cc", ".cxx", ".cu", ".mm",
         ".hpp", ".h", ".cuh", ".ipp", ".tpp", ".inl"}
@@ -635,12 +635,8 @@ def _checkpoint_source_surface_sha256() -> str:
                 continue
             relative = path.relative_to(ROOT).as_posix()
             text = _text(relative)
-            if not re.search(
-                    r"checkpoint|restart|SLIMED_RESTART", text,
-                    re.IGNORECASE):
-                continue
             surface.append(
-                (relative, _scope_contract_sha256(_cpp_code(text))))
+                (relative, hashlib.sha256(text.encode("utf-8")).hexdigest()))
     encoded = json.dumps(surface, separators=(",", ":")).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
 

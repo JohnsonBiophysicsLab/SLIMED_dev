@@ -1297,6 +1297,12 @@ class UnifiedLoopBaselineInventoryTest(unittest.TestCase):
             "    out << \"SLIMED_\" \"RESTART_V2\\n\";\n"
             "    return static_cast<bool>(out);\n"
             "}\n",
+            "\nbool emit_split_state(const Model&, const std::string& path)\n"
+            "{\n"
+            "    std::ofstream out(path);\n"
+            "    out << \"SLIMED_RE\" \"START_V2\\n\";\n"
+            "    return static_cast<bool>(out);\n"
+            "}\n",
             "\nconst auto unchecked_checkpoint_lambda =\n"
             "    [](const Model&, const std::string& path) {\n"
             "        std::ofstream out(path);\n"
@@ -1318,6 +1324,17 @@ class UnifiedLoopBaselineInventoryTest(unittest.TestCase):
                 "{\n"
                 "    std::ofstream out(path);\n"
                 "    out << \"SLIMED_RESTART_V2\\n\";\n"
+                "    return static_cast<bool>(out);\n"
+                "}\n")
+        self.assert_text_mutation_rejected(
+            "src/mesh/Mesh_io.cpp",
+            lambda text: text +
+                "\nbool emit_numeric_state(const std::string& path)\n"
+                "{\n"
+                "    const char tag[] = {83, 76, 73, 77, 69, 68, 95, 82, "
+                "69, 83, 84, 65, 82, 84, 95, 86, 50, 10};\n"
+                "    std::ofstream out(path);\n"
+                "    out.write(tag, sizeof(tag));\n"
                 "    return static_cast<bool>(out);\n"
                 "}\n")
 
