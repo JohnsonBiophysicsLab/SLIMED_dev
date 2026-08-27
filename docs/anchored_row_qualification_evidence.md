@@ -391,19 +391,72 @@ at the child boundary because the platform-probe grammar is integer/string/bool
 only, and independently requires `schema_version` to have exact integer type
 when persisted evidence is revalidated.
 
+Exact-SHA review of the exact-number follow-up at
+`fb7361ba388f00267167bae2820b4787bbaa2c92` passed technical, scientific,
+verification, and gatekeeper review. The exact head was pushed unchanged and
+the mandatory hosted `macos-26` workflow completed successfully as run
+`32906285607`. As required, that hosted result established correctness and
+provisioning but made no qualified numeric claim.
+
+## Retained physical B2/D12 execution at `fb7361ba`
+
+The authorized physical execution used a fresh external root while the
+repository remained clean at exact SHA
+`fb7361ba388f00267167bae2820b4787bbaa2c92`. The machine matched the frozen
+macOS `26.5.1`/`25F80`, `Mac17,2`, Apple M5, memory, CPU, architecture, and
+Apple Clang fingerprint. It remained on AC power with nominal thermal probes.
+No failed repeat was discarded or selectively rerun.
+
+The fresh B2 matrix completed all 294 cases and all 1,176 process-boundary
+probes on a `QUALIFIED` platform. Its complete checkpoint SHA-256 is
+`f0b658f690bf5861b53d23c34525cfa6e94ca9efce5f7b3df56d72f440b1a25b`;
+its B2 evidence SHA-256 is
+`0f4564fdd44b3fe047e50ca9c6ed9f766e4f370792c2c6079dcddd3ca6e62a1d`.
+The inherited numeric D12 summary was `PASS` with zero exceeded cases: maximum
+median `68,868,708` ns, maximum single run `94,450,042` ns, maximum RSS delta
+`16,662,528` bytes, and maximum retained payload `82,720` bytes per face.
+
+Package 2 D12 then ran uninterrupted for approximately three hours and
+48 minutes. It published all 98 request ledgers and both serial references
+before the first mandatory TSan tuple could be atomically published. The
+provider serial reference is 102,170,376 bytes with SHA-256
+`750391e177588fe25dc27dacacd9099da87cfd9685d3c29943d6ed52966ebbfc`;
+the representation serial reference is 500,818,417 bytes with SHA-256
+`4fa9f44188ce0e0a38d3b6c474f0184d54ca78cb6f97557cd4a1910de1e4ff28`.
+The runner then exited `1` with
+`D12 TSan worker failed without a sanitizer data-race report`. Zero worker
+sidecars and no final `d12-evidence.json` were published. This is a blocking,
+incomplete D12 result, not a race-only serial-support disposition and not a
+candidate qualification result.
+
+The failing worker's stdout was held in a temporary file and stderr was read
+only into runner memory. Both were destroyed when the fail-closed exception
+unwound, so the retained bundle cannot identify the failed role, return code,
+signal, exact command, or diagnostic bytes. The proof-only follow-up therefore
+atomically publishes one immutable first-failure directory before raising. Its
+closed record binds the exact tuple and role, executable SHA-256, argv and
+closed environment with their digests, PID and timestamps, exit/signal/timeout
+state, failure class, and exact raw stdout/stderr paths, byte lengths, and
+SHA-256 values. The writer immediately revalidates the committed directory;
+the terminal failure includes the canonical record's SHA-256. Tampering, a
+partial or aliased directory, a second overwrite, noncanonical metadata, or
+descriptor drift fails closed. Genuine data-race reports retain their existing
+separate semantics and successful tuples remain unchanged.
+
 ## Required next work
 
-1. Commit the exact-number child-JSON remediation and its rounded-decimal,
-   exponent, nested-float, and non-standard-constant regressions.
+1. Commit the isolated TSan non-race failure-retention remediation and its
+   provider, representation, timeout, unexpected-stderr, tamper, race, and
+   success-path regressions.
 2. Run four fresh independent exact-SHA reviews and obtain PASS verdicts.
-3. Push the reviewed head, rerun the hosted `macos-26` workflow, and retain its
-   exact-head artifact.
-4. On the frozen physical host, confirm the worktree is empty, AC power and
-   nominal thermal state are continuously observed, then perform a fresh
-   complete B2 matrix and Package 2 numeric D12 execution without selective
-   reruns or discarded repeats.
-5. Submit the exact physical-host artifact for independent technical and
-   scientific review before any qualification decision.
+3. Preserve the failed `fb7361ba` physical artifact permanently. Do not retry,
+   overwrite, reinterpret, or discard it.
+4. Only after a separately authorized reviewed-head transition, run a new full
+   hosted correctness workflow and a new complete physical B2/D12 execution at
+   that different exact SHA. A new execution cannot retroactively convert the
+   retained `fb7361ba` result into a pass.
+5. Submit any newly produced exact physical-host artifact for independent
+   technical and scientific review before any qualification decision.
 
 Until those steps complete, Package 2 remains `INCOMPLETE`, D9a remains
 closed, B3 remains blocked, Far remains unselected, and production remains

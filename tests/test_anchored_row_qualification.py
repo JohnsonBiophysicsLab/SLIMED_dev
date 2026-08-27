@@ -5,6 +5,7 @@ import json
 import math
 import os
 import pathlib
+import signal
 import struct
 import subprocess
 import sys
@@ -4420,6 +4421,198 @@ class AnchoredRowQualificationTests(unittest.TestCase):
                 self.assertEqual(
                     report_path.read_bytes(),
                     b"WARNING: ThreadSanitizer: data race\n")
+            finally:
+                artifact.close()
+
+    def test_d12_non_race_worker_failures_persist_exact_process_bytes(self):
+        instrumentation_digest = "a" * 64
+        identities = [("content", 2, "cache_disabled", 1)]
+        jobs = [{"content_identity_key": "content",
+                 "mesh_path": "unused", "mutation": "none"}]
+        references = {
+            ("content", 2): {
+                "provider": "b" * 64, "representation": "c" * 64,
+                "provider_count": 1, "representation_count": 1}}
+        scenarios = (
+            ("provider-exit", "provider", 23, "NON_RACE_EXIT",
+             b"provider-partial", b"provider-fatal\n"),
+            ("provider-stderr", "provider", 0,
+             "UNEXPECTED_SUCCESS_STDERR", b"provider-partial",
+             b"provider-warning\n"),
+            ("representation-exit", "representation", 42,
+             "NON_RACE_EXIT", b"representation-partial",
+             b"representation-fatal\n"),
+        )
+        for scenario, failing_role, exit_code, failure_class, \
+                expected_stdout, expected_stderr in scenarios:
+            with self.subTest(scenario=scenario), \
+                    tempfile.TemporaryDirectory() as temporary:
+                root = pathlib.Path(temporary)
+                provider_binary = root / "provider-worker"
+                if scenario == "provider-exit":
+                    provider_binary.write_text(
+                        "#!/bin/sh\n"
+                        "printf 'provider-partial'\n"
+                        "printf 'provider-fatal\\n' >&2\n"
+                        "exit 23\n", encoding="utf-8")
+                elif scenario == "provider-stderr":
+                    provider_binary.write_text(
+                        "#!/bin/sh\n"
+                        "printf 'provider-partial'\n"
+                        "printf 'provider-warning\\n' >&2\n"
+                        "exit 0\n", encoding="utf-8")
+                else:
+                    provider_binary.write_text(
+                        "#!/bin/sh\nprintf 'provider-success'\nexit 0\n",
+                        encoding="utf-8")
+                os.chmod(provider_binary, 0o755)
+                representation_binary = root / "representation-worker"
+                if failing_role == "representation":
+                    representation_binary.write_text(
+                        "#!/bin/sh\n"
+                        "cat >/dev/null\n"
+                        "printf 'representation-partial'\n"
+                        "printf 'representation-fatal\\n' >&2\n"
+                        "exit 42\n", encoding="utf-8")
+                else:
+                    representation_binary.write_text(
+                        "#!/bin/sh\ncat >/dev/null\nexit 0\n",
+                        encoding="utf-8")
+                os.chmod(representation_binary, 0o755)
+                request = root / "request.tsv"
+                request.write_text("request\n", encoding="utf-8")
+                references[("content", 2)]["request_path"] = str(request)
+                output_root = root / "output"
+                output_root.mkdir()
+                expected_executables = {
+                    MODULE.sha256_file(provider_binary),
+                    MODULE.sha256_file(representation_binary)}
+                artifact = MODULE.D12ProcessObservationArtifact(
+                    output_root, expected_executables)
+                environment = {
+                    "LANG": "C", "LC_ALL": "C",
+                    "SOURCE_DATE_EPOCH": "0", "TZ": "UTC",
+                    "ZERO_AR_DATE": "1", "TMPDIR": "/tmp"}
+                try:
+                    with mock.patch.object(
+                            MODULE.B2, "expected_threading_identities",
+                            return_value=identities), mock.patch.object(
+                                MODULE.B2, "valid_content_jobs",
+                                return_value=jobs), mock.patch.object(
+                                MODULE, "_d12_rebuild_environment",
+                                return_value=environment):
+                        with self.assertRaisesRegex(
+                                MODULE.QualificationError,
+                                "retained failure artifact") as failure:
+                            MODULE.execute_d12_worker_streams(
+                                provider_binary, representation_binary, {},
+                                output_root, references, artifact,
+                                instrumentation_digest, timeout_seconds=10)
+                    record = MODULE.validate_d12_worker_failure_artifact(
+                        output_root)
+                    self.assertEqual(record["failure_class"], failure_class)
+                    self.assertEqual(record["role"], failing_role)
+                    self.assertEqual(record["process"]["exit_kind"], "EXITED")
+                    self.assertEqual(record["process"]["exit_code"], exit_code)
+                    self.assertIsNone(record["process"]["signal"])
+                    self.assertFalse(record["process"]["timed_out"])
+                    self.assertFalse(record["race_report_detected"])
+                    self.assertEqual(record["tuple"], {
+                        "content_identity_key": "content",
+                        "approximation_level": 2,
+                        "cache_mode": "cache_disabled",
+                        "worker_count": 1})
+                    self.assertEqual(record["environment"], environment)
+                    failure_root = output_root / \
+                        MODULE._D12_WORKER_FAILURE_ROOT
+                    self.assertIn(
+                        MODULE.sha256_file(failure_root / "failure.json"),
+                        str(failure.exception))
+                    self.assertEqual(
+                        (failure_root / "stdout.bin").read_bytes(),
+                        expected_stdout)
+                    self.assertEqual(
+                        (failure_root / "stderr.bin").read_bytes(),
+                        expected_stderr)
+                    self.assertFalse((output_root /
+                                      "anchored-row-d12-v1/workers").exists())
+                    self.assertEqual(
+                        list(output_root.glob(
+                            "anchored-row-d12-worker-failure-*")), [])
+                    alias = failure_root / "stdout-alias.bin"
+                    os.link(failure_root / "stdout.bin", alias)
+                    with self.assertRaisesRegex(
+                            MODULE.QualificationError,
+                            "failure artifact is unavailable"):
+                        MODULE.validate_d12_worker_failure_artifact(output_root)
+                    alias.unlink()
+                    (failure_root / "stderr.bin").write_bytes(b"tampered")
+                    with self.assertRaisesRegex(
+                            MODULE.QualificationError,
+                            "failure stderr binding"):
+                        MODULE.validate_d12_worker_failure_artifact(output_root)
+                finally:
+                    artifact.close()
+
+    def test_d12_worker_timeout_persists_blocking_failure(self):
+        instrumentation_digest = "a" * 64
+        identities = [("content", 2, "cache_disabled", 1)]
+        jobs = [{"content_identity_key": "content",
+                 "mesh_path": "unused", "mutation": "none"}]
+        references = {
+            ("content", 2): {
+                "provider": "b" * 64, "representation": "c" * 64,
+                "provider_count": 1, "representation_count": 1}}
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary)
+            provider_binary = root / "timeout-worker"
+            provider_binary.write_text(
+                "#!/usr/bin/python3\n"
+                "import sys,time\n"
+                "sys.stdout.buffer.write(b'before-timeout')\n"
+                "sys.stdout.buffer.flush()\n"
+                "time.sleep(60)\n", encoding="utf-8")
+            os.chmod(provider_binary, 0o755)
+            representation_binary = root / "unused-representation-worker"
+            representation_binary.write_text(
+                "#!/bin/sh\nexit 0\n", encoding="utf-8")
+            os.chmod(representation_binary, 0o755)
+            request = root / "request.tsv"
+            request.write_text("request\n", encoding="utf-8")
+            references[("content", 2)]["request_path"] = str(request)
+            output_root = root / "output"
+            output_root.mkdir()
+            artifact = MODULE.D12ProcessObservationArtifact(
+                output_root, {MODULE.sha256_file(provider_binary),
+                              MODULE.sha256_file(representation_binary)})
+            try:
+                with mock.patch.object(
+                        MODULE.B2, "expected_threading_identities",
+                        return_value=identities), mock.patch.object(
+                            MODULE.B2, "valid_content_jobs",
+                            return_value=jobs), mock.patch.object(
+                            MODULE, "_d12_rebuild_environment",
+                            return_value={
+                                "LANG": "C", "LC_ALL": "C",
+                                "SOURCE_DATE_EPOCH": "0", "TZ": "UTC",
+                                "ZERO_AR_DATE": "1", "TMPDIR": "/tmp"}):
+                    with self.assertRaisesRegex(
+                            MODULE.QualificationError,
+                            "process timed out; retained failure artifact"):
+                        MODULE.execute_d12_worker_streams(
+                            provider_binary, representation_binary, {},
+                            output_root, references, artifact,
+                            instrumentation_digest, timeout_seconds=0.1)
+                record = MODULE.validate_d12_worker_failure_artifact(output_root)
+                self.assertEqual(record["failure_class"], "PROCESS_TIMEOUT")
+                self.assertEqual(record["role"], "provider")
+                self.assertTrue(record["process"]["timed_out"])
+                self.assertEqual(record["process"]["exit_kind"], "SIGNALED")
+                self.assertEqual(record["process"]["signal"], signal.SIGKILL)
+                failure_root = output_root / MODULE._D12_WORKER_FAILURE_ROOT
+                self.assertEqual(
+                    MODULE.sha256_file(failure_root / "stdout.bin"),
+                    record["stdout"]["sha256"])
             finally:
                 artifact.close()
 

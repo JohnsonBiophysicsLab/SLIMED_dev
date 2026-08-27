@@ -8102,6 +8102,195 @@ def _copy_d12_stream_bytes(source, destination, byte_count):
     return digest.hexdigest()
 
 
+_D12_WORKER_FAILURE_ROOT = (
+    "anchored-row-d12-v1/failures/first-tsan-worker-failure")
+
+
+def _d12_worker_failure_stream_descriptor(relative_path, path):
+    path = pathlib.Path(path)
+    return {
+        "relative_path": relative_path,
+        "byte_length": path.stat().st_size,
+        "sha256": sha256_file(path)}
+
+
+def validate_d12_worker_failure_artifact(output_root, expected=None):
+    """Validate the atomically retained first non-race TSan failure."""
+    output_root = pathlib.Path(output_root).resolve()
+    failure_root = output_root / _D12_WORKER_FAILURE_ROOT
+    record_path = failure_root / "failure.json"
+    require(failure_root.is_dir() and not failure_root.is_symlink() and
+            record_path.is_file() and not record_path.is_symlink() and
+            record_path.stat().st_nlink == 1 and
+            {item.name for item in failure_root.iterdir()} == {
+                "failure.json", "stdout.bin", "stderr.bin"},
+            "D12 TSan worker failure artifact is unavailable")
+    record_raw = record_path.read_bytes()
+    record = strict_json_bytes(record_raw)
+    require(isinstance(record, dict) and set(record) == {
+                "schema_version", "kind", "disposition", "failure_class",
+                "tuple", "role", "executable_sha256", "argv",
+                "argv_sha256", "environment", "environment_sha256",
+                "process", "race_report_detected", "stdout", "stderr"} and
+            record["schema_version"] == 1 and
+            type(record["schema_version"]) is int and
+            record["kind"] == "d12_tsan_worker_failure_v1" and
+            record["disposition"] == "BLOCKING" and
+            record["failure_class"] in {
+                "NON_RACE_EXIT", "PROCESS_TIMEOUT",
+                "UNEXPECTED_SUCCESS_STDERR"} and
+            record["role"] in {"provider", "representation"} and
+            SHA256_RE.fullmatch(record["executable_sha256"] or "") is not None and
+            type(record["race_report_detected"]) is bool and
+            record_raw == jcs_bytes(record),
+            "D12 TSan worker failure record shape")
+    tuple_record = record["tuple"]
+    require(isinstance(tuple_record, dict) and set(tuple_record) == {
+                "content_identity_key", "approximation_level", "cache_mode",
+                "worker_count"} and
+            isinstance(tuple_record["content_identity_key"], str) and
+            tuple_record["content_identity_key"] and
+            type(tuple_record["approximation_level"]) is int and
+            tuple_record["approximation_level"] >= 0 and
+            tuple_record["cache_mode"] in {
+                "cache_disabled", "threaded_cache"} and
+            type(tuple_record["worker_count"]) is int and
+            tuple_record["worker_count"] in {1, 2, 4},
+            "D12 TSan worker failure tuple shape")
+    require(isinstance(record["argv"], list) and record["argv"] and
+            all(isinstance(item, str) for item in record["argv"]) and
+            record["argv_sha256"] == sha256_bytes(jcs_bytes(record["argv"])) and
+            isinstance(record["environment"], dict) and
+            all(isinstance(key, str) and isinstance(value, str)
+                for key, value in record["environment"].items()) and
+            record["environment_sha256"] ==
+                sha256_bytes(jcs_bytes(record["environment"])),
+            "D12 TSan worker failure command binding")
+    process = record["process"]
+    require(isinstance(process, dict) and set(process) == {
+                "pid", "start_utc", "end_utc", "exit_kind", "exit_code",
+                "signal", "timed_out"} and
+            type(process["pid"]) is int and process["pid"] > 0 and
+            isinstance(process["start_utc"], str) and
+            isinstance(process["end_utc"], str) and
+            process["exit_kind"] in {"EXITED", "SIGNALED"} and
+            type(process["timed_out"]) is bool and
+            ((process["exit_kind"] == "EXITED" and
+              type(process["exit_code"]) is int and
+              process["signal"] is None) or
+             (process["exit_kind"] == "SIGNALED" and
+              process["exit_code"] is None and
+              type(process["signal"]) is int and process["signal"] > 0)) and
+            (record["failure_class"] == "PROCESS_TIMEOUT") ==
+                process["timed_out"] and
+            not (record["failure_class"] == "NON_RACE_EXIT" and
+                 process["exit_kind"] == "EXITED" and
+                 process["exit_code"] == 0) and
+            not (record["failure_class"] == "UNEXPECTED_SUCCESS_STDERR" and
+                 not (process["exit_kind"] == "EXITED" and
+                      process["exit_code"] == 0)),
+            "D12 TSan worker failure process binding")
+    try:
+        start_time = datetime.datetime.fromisoformat(
+            process["start_utc"].replace("Z", "+00:00"))
+        end_time = datetime.datetime.fromisoformat(
+            process["end_utc"].replace("Z", "+00:00"))
+    except ValueError as error:
+        raise QualificationError(
+            "D12 TSan worker failure timestamp binding") from error
+    require(process["start_utc"].endswith("Z") and
+            process["end_utc"].endswith("Z") and
+            start_time.tzinfo is not None and end_time.tzinfo is not None and
+            start_time <= end_time and
+            (record["failure_class"] != "NON_RACE_EXIT" or
+             record["race_report_detected"] is False),
+            "D12 TSan worker failure timestamp/race binding")
+    for label in ("stdout", "stderr"):
+        descriptor = record[label]
+        relative_path = _D12_WORKER_FAILURE_ROOT + "/" + label + ".bin"
+        path = output_root / relative_path
+        require(isinstance(descriptor, dict) and set(descriptor) == {
+                    "relative_path", "byte_length", "sha256"} and
+                descriptor["relative_path"] == relative_path and
+                type(descriptor["byte_length"]) is int and
+                descriptor["byte_length"] >= 0 and
+                SHA256_RE.fullmatch(descriptor["sha256"] or "") is not None and
+                path.is_file() and not path.is_symlink() and
+                path.stat().st_nlink == 1 and
+                path.stat().st_size == descriptor["byte_length"] and
+                sha256_file(path) == descriptor["sha256"],
+                "D12 TSan worker failure {} binding".format(label))
+    require(record["failure_class"] != "UNEXPECTED_SUCCESS_STDERR" or
+            record["stderr"]["byte_length"] > 0,
+            "D12 successful TSan worker failure lacks stderr")
+    if expected is not None:
+        require(record == expected,
+                "D12 TSan worker failure writer/validator drift")
+    return record
+
+
+def _publish_d12_worker_failure(output_root, role, tuple_record,
+                                executable_sha256, command, environment,
+                                process, started, ended, returncode, timed_out,
+                                stdout, stderr, failure_class,
+                                race_report_detected):
+    """Atomically retain exact bytes before a non-race worker failure raises."""
+    output_root = pathlib.Path(output_root).resolve()
+    final_root = output_root / _D12_WORKER_FAILURE_ROOT
+    require(not final_root.exists(),
+            "D12 TSan worker failure artifact already exists")
+    final_root.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(
+            prefix="anchored-row-d12-worker-failure-",
+            dir=str(output_root)) as temporary:
+        temporary_root = pathlib.Path(temporary)
+        staged_root = temporary_root / _D12_WORKER_FAILURE_ROOT
+        staged_root.mkdir(parents=True)
+        stdout_path = staged_root / "stdout.bin"
+        stderr_path = staged_root / "stderr.bin"
+        stdout.seek(0)
+        with stdout_path.open("xb") as destination:
+            shutil.copyfileobj(stdout, destination, 1024 * 1024)
+            destination.flush()
+            os.fsync(destination.fileno())
+        with stderr_path.open("xb") as destination:
+            destination.write(stderr)
+            destination.flush()
+            os.fsync(destination.fileno())
+        exit_kind = "SIGNALED" if returncode < 0 else "EXITED"
+        record = {
+            "schema_version": 1,
+            "kind": "d12_tsan_worker_failure_v1",
+            "disposition": "BLOCKING",
+            "failure_class": failure_class,
+            "tuple": copy.deepcopy(tuple_record),
+            "role": role,
+            "executable_sha256": executable_sha256,
+            "argv": list(command),
+            "argv_sha256": sha256_bytes(jcs_bytes(list(command))),
+            "environment": copy.deepcopy(environment),
+            "environment_sha256": sha256_bytes(jcs_bytes(environment)),
+            "process": {
+                "pid": process.pid, "start_utc": started,
+                "end_utc": ended, "exit_kind": exit_kind,
+                "exit_code": None if returncode < 0 else returncode,
+                "signal": -returncode if returncode < 0 else None,
+                "timed_out": timed_out},
+            "race_report_detected": race_report_detected,
+            "stdout": _d12_worker_failure_stream_descriptor(
+                _D12_WORKER_FAILURE_ROOT + "/stdout.bin", stdout_path),
+            "stderr": _d12_worker_failure_stream_descriptor(
+                _D12_WORKER_FAILURE_ROOT + "/stderr.bin", stderr_path)}
+        record_path = staged_root / "failure.json"
+        with record_path.open("xb") as destination:
+            destination.write(jcs_bytes(record))
+            destination.flush()
+            os.fsync(destination.fileno())
+        staged_root.replace(final_root)
+    validate_d12_worker_failure_artifact(output_root, expected=record)
+    return sha256_file(final_root / "failure.json")
+
+
 def execute_d12_worker_streams(provider_tsan_binary,
                                representation_tsan_binary, checkpoint,
                                output_root, references,
@@ -8141,7 +8330,13 @@ def execute_d12_worker_streams(provider_tsan_binary,
             str(representation_binary), "--d12-representation-stream",
             str(worker_count)]
 
-        def run_worker(command, input_path=None):
+        tuple_record = {
+            "content_identity_key": content_id,
+            "approximation_level": level,
+            "cache_mode": cache_mode,
+            "worker_count": worker_count}
+
+        def run_worker(role, executable_sha256, command, input_path=None):
             stdout = tempfile.TemporaryFile()
             stderr_file = tempfile.TemporaryFile()
             input_stream = (pathlib.Path(input_path).open("rb")
@@ -8178,22 +8373,54 @@ def execute_d12_worker_streams(provider_tsan_binary,
             stderr_file.seek(0)
             stderr = stderr_file.read()
             stderr_file.close()
-            require(not expired, "D12 TSan worker process timed out")
             lower_stderr = stderr.lower()
-            race = (returncode != 0 and
-                    b"threadsanitizer: data race" in lower_stderr)
-            require(returncode == 0 or race,
+            race_report_detected = (
+                b"threadsanitizer: data race" in lower_stderr)
+            race = returncode != 0 and race_report_detected
+            failure_class = None
+            if expired:
+                failure_class = "PROCESS_TIMEOUT"
+            elif returncode != 0 and not race:
+                failure_class = "NON_RACE_EXIT"
+            elif returncode == 0 and stderr:
+                failure_class = "UNEXPECTED_SUCCESS_STDERR"
+            if failure_class is not None:
+                try:
+                    failure_record_sha256 = _publish_d12_worker_failure(
+                        output_root, role, tuple_record, executable_sha256,
+                        command, environment, process, started, ended,
+                        returncode, bool(expired), stdout, stderr,
+                        failure_class, race_report_detected)
+                finally:
+                    stdout.close()
+                retained = ("; retained failure artifact: " +
+                            _D12_WORKER_FAILURE_ROOT +
+                            "; failure.json sha256: " +
+                            failure_record_sha256)
+                if expired:
+                    raise QualificationError(
+                        "D12 TSan worker process timed out" + retained)
+                if failure_class == "UNEXPECTED_SUCCESS_STDERR":
+                    raise QualificationError(
+                        "D12 successful TSan worker emitted stderr" + retained)
+                raise QualificationError(
                     "D12 TSan worker failed without a sanitizer data-race "
-                    "report")
+                    "report" + retained)
             stdout.seek(0)
             return {"stdout": stdout, "stderr": stderr, "race": race,
                     "returncode": returncode, "process": process,
                     "command": command, "started": started, "ended": ended}
 
-        provider_run = run_worker(provider_command)
-        representation_run = run_worker(
-            representation_command,
-            references[(content_id, level)]["request_path"])
+        provider_run = run_worker(
+            "provider", provider_sha256, provider_command)
+        try:
+            representation_run = run_worker(
+                "representation", representation_sha256,
+                representation_command,
+                references[(content_id, level)]["request_path"])
+        except Exception:
+            provider_run["stdout"].close()
+            raise
         try:
             race = provider_run["race"] or representation_run["race"]
             require(not (provider_run["race"] and
