@@ -1253,9 +1253,6 @@ class UnifiedLoopBaselineInventoryTest(unittest.TestCase):
             lambda r: r["J_output_checkpoint"].update(
                 {"checkpoint_make_entrypoint_overrides":
                     ["GNUmakefile"]}))
-        self.assert_mutation_rejected(
-            lambda r: r["J_output_checkpoint"].update(
-                {"checkpoint_make_override_environment_absent": False}))
         self.assert_text_mutation_rejected(
             "src/io/output.cpp",
             lambda text: text.replace(
@@ -1350,30 +1347,6 @@ class UnifiedLoopBaselineInventoryTest(unittest.TestCase):
             "Makefile",
             lambda text: text +
                 "\nobj/output.o: CXXFLAGS += -include include/Parameters.hpp\n")
-        for environment in (
-                {"MAKEFILES": "/tmp/l7d-preinclude.mk"},
-                {"MAKEFLAGS": "-f/tmp/l7d-override.mk"},
-                {"GNUMAKEFLAGS": "--file=/tmp/l7d-override.mk"},
-                {"MAKEFLAGS": "e",
-                 "CXXFLAGS": "-include /tmp/l7d-bypass.hpp"},
-                {"MAKEFLAGS":
-                    "CXXFLAGS=-include/tmp/l7d-bypass.hpp"},
-                {"CXXFLAGS": "-include /tmp/l7d-bypass.hpp"},
-                {"CPPFLAGS": "-imacros /tmp/l7d-bypass.hpp"},
-                {"CPATH": "/tmp/l7d-shadow-headers"},
-                {"CPATH": ":"},
-                {"CPATH": ":/usr/local/include"},
-                {"CPATH": "/usr/local/include:"},
-                {"CPATH": "/usr/local/include::/usr/include"},
-                {"CPLUS_INCLUDE_PATH": "/tmp/l7d-shadow-headers"},
-                {"COMPILER_PATH": "/tmp/l7d-compiler-wrapper"}):
-            with self.subTest(environment=environment), mock.patch.dict(
-                    INVENTORY.os.environ, environment, clear=False):
-                candidate = INVENTORY.collect_inventory()
-                self.assertTrue(
-                    INVENTORY.validate_inventory(
-                        candidate, check_adr=False),
-                    "make override environment unexpectedly passed")
         self.assert_text_mutation_rejected(
             "src/mesh/Mesh_io.cpp",
             lambda text: text +

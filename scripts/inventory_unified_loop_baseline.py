@@ -15,7 +15,6 @@ import csv
 import hashlib
 import io
 import json
-import os
 import re
 import struct
 import subprocess
@@ -642,39 +641,6 @@ def _checkpoint_source_surface_sha256() -> str:
                 (relative, hashlib.sha256(text.encode("utf-8")).hexdigest()))
     encoded = json.dumps(surface, separators=(",", ":")).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
-
-
-def _make_override_environment_absent() -> bool:
-    """Require a clean make/compiler override environment for inventory."""
-    override_names = (
-        "MAKEFILES", "MAKEFLAGS", "GNUMAKEFLAGS", "MFLAGS",
-        "MAKEOVERRIDES", "CC", "CXX", "CPP", "AS", "LD", "AR",
-        "RANLIB", "NM", "STRIP", "OBJCOPY", "OBJDUMP", "CPPFLAGS",
-        "CFLAGS", "CXXFLAGS", "LDFLAGS", "LDLIBS", "DEFS", "VPATH",
-        "GPATH", "OBJS", "PLANG", "INCS", "LIBS", "EDIR", "ODIR",
-        "SDIR", "INCLUDE", "COMPILER_PATH", "GCC_EXEC_PREFIX",
-    )
-    if any(os.environ.get(name, "").strip() for name in override_names):
-        return False
-    reviewed_search_roots = {
-        "CPATH": {"/usr/include", "/usr/local/include",
-                  "/opt/homebrew/include"},
-        "CPLUS_INCLUDE_PATH": {"/usr/include", "/usr/local/include",
-                               "/opt/homebrew/include"},
-        "C_INCLUDE_PATH": {"/usr/include", "/usr/local/include",
-                           "/opt/homebrew/include"},
-        "OBJC_INCLUDE_PATH": {"/usr/include", "/usr/local/include",
-                              "/opt/homebrew/include"},
-        "LIBRARY_PATH": {"/usr/lib", "/usr/local/lib",
-                         "/opt/homebrew/lib"},
-    }
-    for name, reviewed in reviewed_search_roots.items():
-        value = os.environ.get(name, "").strip()
-        if value:
-            paths = value.split(os.pathsep)
-            if any(not path or path not in reviewed for path in paths):
-                return False
-    return True
 
 
 def _make_entrypoint_overrides() -> list[str]:
@@ -1980,8 +1946,6 @@ def collect_inventory() -> dict[str, Any]:
                 _checkpoint_source_surface_sha256(),
             "checkpoint_make_entrypoint_overrides":
                 _make_entrypoint_overrides(),
-            "checkpoint_make_override_environment_absent":
-                _make_override_environment_absent(),
             "checkpoint_preprocessor_surface_locked":
                 _only_reviewed_preprocessor_includes(
                     output, _REVIEWED_CHECKPOINT_INCLUDES),
@@ -2368,8 +2332,6 @@ def validate_inventory(report: dict[str, Any], check_adr: bool = True) -> list[s
                 "checkpoint source ownership drift")
         require(j["checkpoint_make_entrypoint_overrides"] == [],
                 "checkpoint build entrypoint membership drift")
-        require(j["checkpoint_make_override_environment_absent"],
-                "checkpoint build entrypoint environment override")
         require(j["checkpoint_preprocessor_surface_locked"],
                 "checkpoint writer preprocessing surface drift")
         require(j["checkpoint_topology_write_interlock"],

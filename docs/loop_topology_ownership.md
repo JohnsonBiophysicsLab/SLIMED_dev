@@ -168,22 +168,29 @@ The restart writer compares those generations before it opens the temporary
 checkpoint file. A mismatch fails the write and leaves any existing destination
 unchanged. The transaction has no production caller, so every existing workload
 continues to write the same `SLIMED_RESTART_V2` byte schema. The interlock makes
-the L7-before-WP9 ordering executable: a future caller cannot commit a topology
-transaction and then emit a connectivity-blind checkpoint through the current
-writer.
+the L7-before-WP9 ordering executable: after a committed topology transaction
+the current writer refuses until a full mesh setup reinstalls the topology and
+refreshes the marker. It is a generation comparison, not a proof of
+connectivity agreement. A caller that re-runs `setup_from_vertices_faces()`
+after a transaction re-arms the writer, and the V1/V2 schema would not record
+the difference.
 
 The global claim is guarded conservatively: the fail-closed inventory hashes the
 raw Makefile, executable-entrypoint membership under `EXEs/`, and the raw
 contents and path membership of the complete compiled `src/` and `include/`
 C++/CUDA surface. It also requires `Makefile` to be the sole GNU Make precedence
-entrypoint and requires a clean Make/compiler override environment: makefile
-preloads and flags, compiler/tool selections, build flags, object lists, and
-link inputs must all be absent while the inventory is collected. Compiler
-include/library search variables may contain only the enumerated standard
-`/usr`, `/usr/local`, or Homebrew roots; other paths fail closed. Any production
-build or code change must explicitly refresh the reviewed digest. This
-maintenance cost is intentional; a name-, tag-, or file-output-API heuristic
-could admit an alternate unchecked writer.
+entrypoint. Any production build or code change must explicitly refresh the
+reviewed digest. This maintenance cost is intentional; a name-, tag-, or
+file-output-API heuristic could admit an alternate unchecked writer.
+
+Every one of those checks is a function of the tree alone, so the inventory
+result is reproducible from a SHA. The inventory deliberately makes no claim
+about the environment of any build. `OPENSUBDIV_ROOT`, the `USE_OPENSUBDIV_*`
+selectors, `COVERAGE`, and `PATH` are all honored from the environment by
+`Makefile` and change the compile line, and no environment self-check can
+exclude them, because the same environment selects the compiler that would run
+the check. Build-environment provenance is a separate concern and is not
+claimed here.
 
 This is deliberately negative evidence, not completion of topology-aware
 restart. It does **not** discharge L7 item 5 in the Bfr plan or Gate E in the
