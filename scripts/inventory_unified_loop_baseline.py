@@ -60,6 +60,17 @@ EXPECTED_WP0_PATHS = [
 EXPECTED_VALENCE5_FACE_SOURCE_MAPPING_SHA256 = (
     "9f5fe4e76a9815a806970164d4a5e02771c4350a6c1047ceb7ce3e86cd2acd1a")
 
+# Reviewed active-token shape of the WP1.1a classifier: each count includes
+# the one direct sentinel declaration plus every later use in the function.
+# Exact cardinality is intentional and fail-closed: any additional active
+# occurrence of one of these identifiers invalidates the observation without
+# trying to recognize the full C++ declaration grammar.
+REVIEWED_CLASSIFIER_SENTINEL_IDENTIFIER_COUNTS = {
+    "d4": 6,
+    "d7": 7,
+    "d8": 7,
+}
+
 EXPECTED_FACES = {
     "valence3_tetrahedron": [
         [0, 2, 1], [0, 1, 3], [0, 3, 2], [1, 2, 3]
@@ -647,6 +658,39 @@ def _has_preprocessor_directive(code: str) -> bool:
         code, re.MULTILINE))
 
 
+def _has_active_define_or_undef_directive(code: str) -> bool:
+    """Report macro state unless it is inside a provable ``#if 0`` arm."""
+    inactive_frames: list[tuple[bool, bool]] = []
+    directive = re.compile(
+        rf"^\s*{_CPP_DIRECTIVE_PREFIX}\s*([A-Za-z_]\w*)\b")
+    for line in code.splitlines():
+        match = directive.match(line)
+        if not match:
+            continue
+        name = match.group(1)
+        if name in {"if", "ifdef", "ifndef"}:
+            parent_inactive = (
+                inactive_frames[-1][1] if inactive_frames else False)
+            expression = line[match.end():].strip()
+            definitely_zero = (
+                name == "if"
+                and bool(re.fullmatch(r"(?:0|\(\s*0\s*\))", expression)))
+            inactive_frames.append(
+                (parent_inactive, parent_inactive or definitely_zero))
+        elif name in {"elif", "else"} and inactive_frames:
+            parent_inactive, _ = inactive_frames[-1]
+            # Anything except the initial literal-#if-0 arm is potentially
+            # active; fail closed instead of evaluating preprocessor state.
+            inactive_frames[-1] = (parent_inactive, parent_inactive)
+        elif name == "endif":
+            if inactive_frames:
+                inactive_frames.pop()
+        elif (name in {"define", "undef"}
+              and not (inactive_frames and inactive_frames[-1][1])):
+            return True
+    return False
+
+
 def _has_nested_source_inclusion(code: str) -> bool:
     """Reject fragment expansion inside any scanned brace scope."""
     directive = re.compile(
@@ -735,7 +779,10 @@ def _direct_scope_matches(code: str, pattern: re.Pattern[str]):
 
 def _legacy_classifier_repair_observations(text: str) -> tuple[bool, bool]:
     """Observe the active, structurally scoped WP1.1a classifier repair."""
-    active = _mask_cpp_conditionals(_cpp_code(text))
+    lexical = _cpp_code(text)
+    active = _mask_cpp_conditionals(lexical)
+    macro_state_is_unambiguous = not (
+        _has_active_define_or_undef_directive(lexical))
     classifier = _unique_braced_scope_span(
         active,
         r"\bLegacyOneRingClassification\s+Mesh::classify_legacy_one_ring\s*"
@@ -744,26 +791,20 @@ def _legacy_classifier_repair_observations(text: str) -> tuple[bool, bool]:
         re.compile(rf"\bint\s+{name}\s*=\s*-\s*1\s*;")
         for name in ("d4", "d7", "d8")
     ]
-    declaration_patterns = [
-        re.compile(
-            rf"(?:^|[;{{}}(])\s*(?:for\s*\(\s*)?"
-            r"(?:(?:const|volatile|static|constexpr|register|mutable)\s+)*"
-            r"(?!(?:return|throw|goto|break|continue|case|delete|new)\b)"
-            r"(?:[A-Za-z_]\w*::)*[A-Za-z_]\w*"
-            r"(?:\s*<[^;{}()]+>)?\s+(?![=])[^;{}()]*"
-            rf"\b{name}\b(?=\s*(?:=|,|;|\[|\)))",
-            re.MULTILINE)
-        for name in ("d4", "d7", "d8")
-    ]
     sentinel_initialization_observed = False
     if classifier is not None:
         classifier_body = classifier[3]
-        sentinel_initialization_observed = all(
-            len(pattern.findall(active)) == 1 and
-            len(_direct_scope_matches(classifier_body, pattern)) == 1 and
-            len(declaration.findall(classifier_body)) == 1
-            for pattern, declaration in zip(
-                sentinel_patterns, declaration_patterns))
+        sentinel_initialization_observed = (
+            macro_state_is_unambiguous
+            and all(
+                len(pattern.findall(active)) == 1
+                and len(_direct_scope_matches(classifier_body, pattern)) == 1
+                and len(re.findall(rf"\b{re.escape(name)}\b",
+                                   classifier_body)) ==
+                REVIEWED_CLASSIFIER_SENTINEL_IDENTIFIER_COUNTS[name]
+                for name, pattern in zip(
+                    ("d4", "d7", "d8"), sentinel_patterns))
+        )
 
     publication = _unique_braced_scope_span(
         active,
@@ -816,7 +857,8 @@ def _legacy_classifier_repair_observations(text: str) -> tuple[bool, bool]:
                 for pattern in write_patterns
             ]
             rejection_precedes_publication_observed = (
-                preflight_is_direct
+                macro_state_is_unambiguous
+                and preflight_is_direct
                 and publication_loop_is_direct
                 and rejection_is_direct
                 and len(rejection_pattern.findall(publication_body)) == 1
@@ -1653,6 +1695,8 @@ def collect_inventory() -> dict[str, Any]:
                     "d7": -1,
                     "d8": -1,
                 },
+                "required_active_classifier_identifier_occurrences":
+                    REVIEWED_CLASSIFIER_SENTINEL_IDENTIFIER_COUNTS,
                 "required_rejection_precedes_writes_to": [
                     "face.adjacentVertices",
                     "face.oneRingVertices",
@@ -2114,6 +2158,7 @@ def validate_inventory(report: dict[str, Any], check_adr: bool = True) -> list[s
                     "lifecycle",
                     "source_path",
                     "required_sentinel_initializers",
+                    "required_active_classifier_identifier_occurrences",
                     "required_rejection_precedes_writes_to",
                     "sentinel_initialization_observed",
                     "rejection_precedes_publication_observed",
@@ -2125,6 +2170,9 @@ def validate_inventory(report: dict[str, Any], check_adr: bool = True) -> list[s
                 "src/mesh/Mesh_setup_geometry.cpp" and
                 classifier_repair["required_sentinel_initializers"] == {
                     "d4": -1, "d7": -1, "d8": -1} and
+                classifier_repair[
+                    "required_active_classifier_identifier_occurrences"] ==
+                REVIEWED_CLASSIFIER_SENTINEL_IDENTIFIER_COUNTS and
                 classifier_repair[
                     "required_rejection_precedes_writes_to"] == [
                         "face.adjacentVertices",

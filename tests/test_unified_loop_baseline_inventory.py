@@ -302,6 +302,29 @@ LegacyOneRingClassification Mesh::classify_legacy_one_ring(
     int d4 = -1;
     int d7 = -1;
     int d8 = -1;
+    if (regular)
+    {
+        d4 = face.adjacentVertices[0];
+        d7 = face.adjacentVertices[1];
+        d8 = face.adjacentVertices[2];
+    }
+    else if (candidate)
+    {
+        d4 = face.adjacentVertices[0];
+        d7 = face.adjacentVertices[1];
+        d8 = face.adjacentVertices[2];
+    }
+    else
+    {
+        d4 = face.adjacentVertices[0];
+        d7 = face.adjacentVertices[1];
+        d8 = face.adjacentVertices[2];
+    }
+    result.orientedFaceVertices = {d4, d7, d8};
+    std::swap(d7, d8);
+    staged[3] = d4;
+    staged[6] = d7;
+    staged[7] = d8;
 }
 """
         preflight_loop = """
@@ -353,6 +376,17 @@ void Mesh::set_one_ring_vertices_sorted()
         )
         self.assertFalse(
             INVENTORY.validate_inventory(repaired_report, check_adr=False))
+        self.assertEqual(
+            repaired_record[
+                "required_active_classifier_identifier_occurrences"],
+            {"d4": 6, "d7": 7, "d8": 7},
+        )
+        self.assert_mutation_rejected(
+            lambda r: r["D_topology_guards"]
+            ["legacy_11_control_predicate"]
+            ["wp1_1a_classifier_repair_record"]
+            ["required_active_classifier_identifier_occurrences"]
+            .update({"d4": 7}))
 
         rejection_line = (
             "        if (is_legacy_one_ring_rejection("
@@ -446,6 +480,77 @@ void Mesh::set_one_ring_vertices_sorted()
             )
             self.assertFalse(INVENTORY.validate_inventory(
                 nested_declaration_report, check_adr=False))
+
+            for declaration in (
+                    f"int {name}(0);",
+                    f"int {name}{{0}};",
+                    f"decltype(0) {name};",
+                    f"auto [{name}, spare] = pair;",
+                    f"using {name} = int;"):
+                extra_identifier_source = repaired_source.replace(
+                    f"    int {name} = -1;",
+                    f"    int {name} = -1;\n"
+                    f"    if (nested) {{ {declaration} }}",
+                    1)
+                self.assertEqual(
+                    INVENTORY._legacy_classifier_repair_observations(
+                        extra_identifier_source),
+                    (False, True),
+                    f"active extra identifier escaped: {declaration}",
+                )
+
+            masked_identifier_sources = (
+                repaired_source.replace(
+                    f"    int {name} = -1;",
+                    f"    int {name} = -1;\n"
+                    f"    // int {name}(0);",
+                    1),
+                repaired_source.replace(
+                    f"    int {name} = -1;",
+                    f"    int {name} = -1;\n"
+                    f"#if 0\n    int {name}(0);\n#endif",
+                    1),
+            )
+            for masked_identifier_source in masked_identifier_sources:
+                self.assertEqual(
+                    INVENTORY._legacy_classifier_repair_observations(
+                        masked_identifier_source),
+                    (True, True),
+                    f"masked identifier affected observation: {name}",
+                )
+
+        macro_alias_source = (
+            "#define ADJACENT_FIELD adjacentVertices\n"
+            "#define ONE_RING_FIELD oneRingVertices\n" +
+            repaired_source.replace(
+                rejection_line,
+                "        faces[0].ADJACENT_FIELD.clear();\n"
+                "        faces[0].ONE_RING_FIELD.clear();\n" +
+                rejection_line,
+                1))
+        macro_alias_report = collect_with_topology(macro_alias_source)
+        macro_alias_record = macro_alias_report["D_topology_guards"] \
+            ["legacy_11_control_predicate"] \
+            ["wp1_1a_classifier_repair_record"]
+        self.assertEqual(
+            (macro_alias_record["sentinel_initialization_observed"],
+             macro_alias_record[
+                 "rejection_precedes_publication_observed"],
+             macro_alias_record["repair_confirmed"]),
+            (False, False, False),
+        )
+        self.assertFalse(INVENTORY.validate_inventory(
+            macro_alias_report, check_adr=False))
+
+        for masked_macro_prefix in (
+                "// #define ADJACENT_FIELD adjacentVertices\n",
+                "#if 0\n#define ADJACENT_FIELD adjacentVertices\n#endif\n"):
+            self.assertEqual(
+                INVENTORY._legacy_classifier_repair_observations(
+                    masked_macro_prefix + repaired_source),
+                (True, True),
+                "masked macro directive affected repair observation",
+            )
 
         misordered_source = classifier_source + """
 void Mesh::set_one_ring_vertices_sorted()
