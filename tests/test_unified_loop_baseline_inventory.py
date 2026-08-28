@@ -714,6 +714,88 @@ auto raw = LR"tag(raw // /* " bytes)tag"_suffix;
             "directive/code line-boundary mutation escaped repair state",
         )
 
+        for horizontal_line_character in ("\v", "\f"):
+            horizontal_join_source = repaired_source.replace(
+                '#include "mesh/Mesh.hpp"\n\nnamespace',
+                '#include "mesh/Mesh.hpp"' +
+                horizontal_line_character + "namespace",
+                1)
+            self.assertNotEqual(
+                INVENTORY._reviewed_active_source_contract(
+                    horizontal_join_source)[1],
+                repaired_contract_sha256,
+                "VT/FF incorrectly split a directive logical line",
+            )
+            assert_repair_state(
+                horizontal_join_source,
+                (False, False, False),
+                "VT/FF directive-boundary mutation escaped repair state",
+            )
+
+        unicode_whitespace_source = repaired_source.replace(
+            "int d4 = -1;", "int\u00a0d4 = -1;", 1)
+        self.assertNotEqual(
+            INVENTORY._reviewed_active_source_contract(
+                unicode_whitespace_source)[1],
+            repaired_contract_sha256,
+            "Unicode whitespace collapsed with ASCII C++ whitespace",
+        )
+        assert_repair_state(
+            unicode_whitespace_source,
+            (False, False, False),
+            "Unicode whitespace mutation escaped repair state",
+        )
+
+        unicode_boundary_sources = (
+            "\u00a0" + repaired_source,
+            repaired_source + "\u00a0",
+        )
+        for unicode_boundary_source in unicode_boundary_sources:
+            self.assertNotEqual(
+                INVENTORY._reviewed_active_source_contract(
+                    unicode_boundary_source)[1],
+                repaired_contract_sha256,
+                "leading/trailing Unicode whitespace escaped digest",
+            )
+            assert_repair_state(
+                unicode_boundary_source,
+                (False, False, False),
+                "leading/trailing Unicode whitespace escaped repair state",
+            )
+
+        unicode_directive_sources = (
+            "#if\u00a00\nint hidden_by_nbsp = does_not_compile;\n"
+            "#endif\n" + repaired_source,
+            "#\u00a0if 0\nint hidden_by_nbsp = does_not_compile;\n"
+            "#endif\n" + repaired_source,
+        )
+        for unicode_directive_source in unicode_directive_sources:
+            self.assertNotEqual(
+                INVENTORY._reviewed_active_source_contract(
+                    unicode_directive_source)[1],
+                repaired_contract_sha256,
+                "Unicode directive whitespace escaped digest",
+            )
+            assert_repair_state(
+                unicode_directive_source,
+                (False, False, False),
+                "Unicode directive whitespace escaped repair state",
+            )
+
+        for newline in ("\r\n", "\r"):
+            equivalent_newlines_source = repaired_source.replace("\n", newline)
+            self.assertEqual(
+                INVENTORY._reviewed_active_source_contract(
+                    equivalent_newlines_source)[1],
+                repaired_contract_sha256,
+                "equivalent C++ new-line spelling changed digest",
+            )
+            assert_repair_state(
+                equivalent_newlines_source,
+                (True, True, True),
+                "equivalent C++ new-line spelling changed repair state",
+            )
+
         publication_signature = (
             "void Mesh::set_one_ring_vertices_sorted()\n{\n")
         out_of_scope_helper_source = """

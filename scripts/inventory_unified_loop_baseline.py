@@ -497,7 +497,8 @@ def _all_present(text: str, anchors: list[str]) -> bool:
 def _cpp_lexical_surfaces(
         text: str) -> tuple[str, str, list[tuple[int, int, str]], bool]:
     """Return spliced text, masked code, exact literals, and completeness."""
-    spliced = re.sub(r"\\\r?\n", "", text)
+    phase_one = text.replace("\r\n", "\n").replace("\r", "\n")
+    spliced = phase_one.replace("\\\n", "")
     masked = list(spliced)
     literals: list[tuple[int, int, str]] = []
     complete = True
@@ -801,17 +802,25 @@ def _reviewed_active_source_contract(
     """
     spliced, lexical, literal_tokens, lexically_complete = (
         _cpp_lexical_surfaces(text))
-    raw_lines = spliced.splitlines(keepends=True)
-    code_lines = lexical.splitlines(keepends=True)
+    def split_lf_lines(source: str) -> list[str]:
+        pieces = source.split("\n")
+        return ([piece + "\n" for piece in pieces[:-1]] +
+                ([pieces[-1]] if pieces[-1] else []))
+
+    raw_lines = split_lf_lines(spliced)
+    code_lines = split_lf_lines(lexical)
     if len(raw_lines) != len(code_lines):
         return ("", hashlib.sha256(b"").hexdigest(), False)
 
+    horizontal_whitespace = r"[ \t\v\f]"
     directive = re.compile(
-        rf"^\s*{_CPP_DIRECTIVE_PREFIX}\s*([A-Za-z_]\w*)\b")
+        rf"^{horizontal_whitespace}*{_CPP_DIRECTIVE_PREFIX}"
+        rf"{horizontal_whitespace}*([A-Za-z_]\w*)\b")
     directive_start = re.compile(
-        rf"^\s*{_CPP_DIRECTIVE_PREFIX}")
+        rf"^{horizontal_whitespace}*{_CPP_DIRECTIVE_PREFIX}")
     include_operand = re.compile(
-        r'\s*("(?:\\.|[^"\\])*"|<[^>\r\n]*>|[A-Za-z_]\w*)')
+        rf'{horizontal_whitespace}*'
+        r'("(?:\\.|[^"\\])*"|<[^>\r\n]*>|[A-Za-z_]\w*)')
     inactive_depth = 0
     inactive_has_depth_one_alternative = False
     unambiguous = lexically_complete
@@ -845,8 +854,11 @@ def _reviewed_active_source_contract(
             continue
 
         if match and name == "if":
-            expression = code_line[match.end():].strip()
-            if re.fullmatch(r"(?:0|\(\s*0\s*\))", expression):
+            expression = code_line[match.end():].rstrip("\n").strip(
+                " \t\v\f")
+            if re.fullmatch(
+                    r"(?:0|\([ \t\v\f]*0[ \t\v\f]*\))",
+                    expression):
                 inactive_depth = 1
                 active_lines.append("".join(
                     "\n" if character == "\n" else " "
@@ -883,7 +895,8 @@ def _reviewed_active_source_contract(
     ]
     normalized = json.dumps({
         "code_with_normalized_whitespace": re.sub(
-            r"\s+", " ", active).strip(),
+            r"[ \t\v\f\r\n]+", " ", active).strip(
+                " \t\v\f\r\n"),
         "active_inclusions": active_inclusions,
         "active_preprocessor_directives": active_directives,
         "active_literal_tokens": active_literals,
