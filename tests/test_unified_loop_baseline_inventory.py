@@ -533,6 +533,12 @@ auto raw = LR"tag(raw // /* " bytes)tag"_suffix;
             "#if (0)\n"
             "        faces[0].adjacentVertices.clear();\n"
             "#endif\n",
+            "#if 0 /* reviewed inactive comment */\n"
+            "        faces[0].adjacentVertices.clear();\n"
+            "#endif\n",
+            "#if ( /* reviewed inactive comment */ 0 )\n"
+            "        faces[0].adjacentVertices.clear();\n"
+            "#endif\n",
             "#if 0\n"
             "        const auto hidden = R\"tag(inactive)tag\";\n"
             "#endif\n",
@@ -675,6 +681,26 @@ auto raw = LR"tag(raw // /* " bytes)tag"_suffix;
                 message,
             )
             self.assertFalse(validate_topology(report))
+
+        for invalid_if_literal in (
+                '"b0d_invalid_pp_expression"',
+                "'x'",
+                'R"tag(b0d_invalid_pp_expression)tag"'):
+            masked_if_expression_source = (
+                f"#if 0 {invalid_if_literal}\n"
+                "int b0d_hidden = does_not_compile;\n"
+                "#endif\n" + repaired_source)
+            self.assertNotEqual(
+                INVENTORY._reviewed_active_source_contract(
+                    masked_if_expression_source)[1],
+                repaired_contract_sha256,
+                "literal-bearing #if expression escaped digest",
+            )
+            assert_repair_state(
+                masked_if_expression_source,
+                (False, False, False),
+                "literal-bearing #if expression escaped repair state",
+            )
 
         literal_mutations = (
             ('"Legacy one-ring setup rejected face "',

@@ -891,7 +891,7 @@ def _reviewed_active_source_contract(
             continue
 
         if match and name == "if":
-            expression = code_line[match.end():].rstrip("\n").strip(
+            expression = raw_line[match.end():].rstrip("\n").strip(
                 " \t\v\f")
             if re.fullmatch(
                     r"(?:0|\([ \t\v\f]*0[ \t\v\f]*\))",
