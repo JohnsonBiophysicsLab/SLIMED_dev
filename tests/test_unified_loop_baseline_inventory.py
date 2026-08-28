@@ -539,6 +539,13 @@ auto raw = LR"tag(raw // /* " bytes)tag"_suffix;
             "#if ( /* reviewed inactive comment */ 0 )\n"
             "        faces[0].adjacentVertices.clear();\n"
             "#endif\n",
+            "  #  if ( 0 )\n"
+            "        faces[0].adjacentVertices.clear();\n"
+            "  #  endif\n",
+            "#if \\\n"
+            "    0\n"
+            "        faces[0].adjacentVertices.clear();\n"
+            "#endif\n",
             "#if 0\n"
             "        const auto hidden = R\"tag(inactive)tag\";\n"
             "#endif\n",
@@ -700,6 +707,26 @@ auto raw = LR"tag(raw // /* " bytes)tag"_suffix;
                 masked_if_expression_source,
                 (False, False, False),
                 "literal-bearing #if expression escaped repair state",
+            )
+
+        for invalid_if_prefix_literal in (
+                '"prefix"',
+                "'x'",
+                'R"tag(prefix)tag"'):
+            fabricated_if_source = (
+                f"{invalid_if_prefix_literal} #if 0\n"
+                "int b0d_active_breakage = does_not_compile;\n"
+                "#endif\n" + repaired_source)
+            self.assertNotEqual(
+                INVENTORY._reviewed_active_source_contract(
+                    fabricated_if_source)[1],
+                repaired_contract_sha256,
+                "prefix literal fabricated an inactive directive in digest",
+            )
+            assert_repair_state(
+                fabricated_if_source,
+                (False, False, False),
+                "prefix literal fabricated an inactive directive",
             )
 
         literal_mutations = (

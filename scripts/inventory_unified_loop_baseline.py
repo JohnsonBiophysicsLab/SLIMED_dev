@@ -868,7 +868,17 @@ def _reviewed_active_source_contract(
     line_offset = 0
 
     for raw_line, code_line in zip(raw_lines, code_lines):
-        match = directive.match(code_line)
+        code_match = directive.match(code_line)
+        raw_match = directive.match(raw_line)
+        directive_matches_agree = (
+            code_match is not None
+            and raw_match is not None
+            and code_match.span() == raw_match.span()
+            and code_match.group(1) == raw_match.group(1))
+        if ((code_match is not None or raw_match is not None)
+                and not directive_matches_agree):
+            unambiguous = False
+        match = code_match if directive_matches_agree else None
         name = match.group(1) if match else None
         if inactive_depth:
             if name in {"if", "ifdef", "ifndef"}:
@@ -907,7 +917,17 @@ def _reviewed_active_source_contract(
         if name in {"if", "ifdef", "ifndef", "elif", "else", "endif",
                     "define", "undef"}:
             unambiguous = False
-        if directive_start.match(code_line):
+        code_directive_start = directive_start.match(code_line)
+        raw_directive_start = directive_start.match(raw_line)
+        directive_starts_agree = (
+            code_directive_start is not None
+            and raw_directive_start is not None
+            and code_directive_start.span() == raw_directive_start.span())
+        if ((code_directive_start is not None or
+             raw_directive_start is not None)
+                and not directive_starts_agree):
+            unambiguous = False
+        if directive_starts_agree:
             directive_code = code_line.rstrip("\r\n")
             active_directives.append(
                 re.sub(r"[ \t\f\v]+", " ", directive_code).strip(
