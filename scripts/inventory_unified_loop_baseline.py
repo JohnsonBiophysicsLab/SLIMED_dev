@@ -73,10 +73,11 @@ REVIEWED_CLASSIFIER_SENTINEL_IDENTIFIER_COUNTS = {
 # SHA256 of the normalized active contents of Mesh_setup_geometry.cpp in the
 # reviewed WP1.1a source. This is a content contract, not a commit identity.
 # It includes whitespace-normalized non-literal code, ordered active directive
-# logical lines, active include operands, and ordered exact active literal
-# tokens after the narrowly permitted literal-#if-0 removal performed below.
+# logical lines, active include operands, ordered exact active literal tokens,
+# and their canonical placement among non-literal segments after the narrowly
+# permitted literal-#if-0 removal performed below.
 REVIEWED_MESH_SETUP_GEOMETRY_ACTIVE_SOURCE_SHA256 = (
-    "619271edae30ea94c2778a7571e8d420290f8b6587ac1f673b9193c2813ce4b7")
+    "ad05d22b1d0fcadb1d1f4a80e7f4d49cbcc38dd66b9914a340229d88ef391e98")
 
 EXPECTED_FACES = {
     "valence3_tetrahedron": [
@@ -832,8 +833,9 @@ def _reviewed_active_source_contract(
     Only balanced outer ``#if 0``/``#if (0)`` blocks without a depth-one
     alternative are ignored. All other conditionals and active macro state
     are ambiguous. Directive logical lines, include operands, and ordered
-    exact literal tokens are retained separately because the general code
-    normalization deliberately erases line boundaries and masks literals.
+    exact literal tokens and their canonical placement among non-literal code
+    segments are retained because the general code normalization deliberately
+    erases line boundaries and masks literals.
     """
     spliced, _, literal_tokens, lexically_complete, lexical = (
         _cpp_lexical_surfaces(text))
@@ -922,12 +924,38 @@ def _reviewed_active_source_contract(
     if inactive_depth:
         unambiguous = False
     active = "".join(active_lines)
-    active_literals = [
-        token
-        for start, _, token in literal_tokens
+    active_literal_spans = [
+        (start, end, token)
+        for start, end, token in literal_tokens
         if not any(span_start <= start < span_end
                    for span_start, span_end in inactive_spans)
     ]
+    active_literals = [token for _, _, token in active_literal_spans]
+    literal_placement_surface: list[list[str]] = []
+    literal_cursor = 0
+    for start, end, token in active_literal_spans:
+        if (start < literal_cursor or end < start or end > len(active) or
+                spliced[start:end] != token):
+            unambiguous = False
+            continue
+        literal_placement_surface.append([
+            "code",
+            re.sub(r"[ \t\v\f\r\n]+", " ",
+                   active[literal_cursor:start]),
+        ])
+        literal_placement_surface.append(["literal", token])
+        literal_cursor = end
+    literal_placement_surface.append([
+        "code",
+        re.sub(r"[ \t\v\f\r\n]+", " ", active[literal_cursor:]),
+    ])
+    # Preserve empty versus one normalized whitespace character at every
+    # literal boundary. Only whitespace outside the complete source surface is
+    # irrelevant to the contract.
+    literal_placement_surface[0][1] = (
+        literal_placement_surface[0][1].lstrip(" \t\v\f\r\n"))
+    literal_placement_surface[-1][1] = (
+        literal_placement_surface[-1][1].rstrip(" \t\v\f\r\n"))
     normalized = json.dumps({
         "code_with_normalized_whitespace": re.sub(
             r"[ \t\v\f\r\n]+", " ", active).strip(
@@ -935,6 +963,7 @@ def _reviewed_active_source_contract(
         "active_inclusions": active_inclusions,
         "active_preprocessor_directives": active_directives,
         "active_literal_tokens": active_literals,
+        "active_literal_placement_surface": literal_placement_surface,
     }, sort_keys=True, separators=(",", ":"))
     digest = hashlib.sha256(normalized.encode("utf-8")).hexdigest()
     return (active, digest, unambiguous)

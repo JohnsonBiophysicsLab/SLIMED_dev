@@ -358,7 +358,11 @@ LegacyOneRingClassification Mesh::classify_legacy_one_ring(
 """
         repaired_source = (
             '#include "mesh/Mesh.hpp"\n\n'
-            'namespace repaired_fixture\n{\n}\n' + classifier_source + """
+            'namespace repaired_fixture\n{\n}\n'
+            'const char *reviewed_ready_state()\n'
+            '{\n'
+            '    return "READY_REGULAR";\n'
+            '}\n' + classifier_source + """
 void Mesh::set_one_ring_vertices_sorted()
 {
 """ + preflight_loop + publication_loop + """
@@ -695,6 +699,77 @@ auto raw = LR"tag(raw // /* " bytes)tag"_suffix;
                 literal_mutation_source,
                 (False, False, False),
                 f"active literal mutation escaped repair state: {old_literal}",
+            )
+
+        literal_relocations = (
+            ('return "READY_REGULAR";',
+             '"READY_REGULAR" return ;',
+             "ordinary string"),
+            ("const char marker = 'R';",
+             "'R' const char marker = ;",
+             "character"),
+            ('const char *rawReason =\n'
+             '        R"reason(INVALID_CORNER_VERTEX_INDEX)reason";',
+             'R"reason(INVALID_CORNER_VERTEX_INDEX)reason" '
+             'const char *rawReason =\n'
+             '        ;',
+             "raw string"),
+        )
+        for reviewed_literal_statement, relocated_statement, label in (
+                literal_relocations):
+            relocated_source = repaired_source.replace(
+                reviewed_literal_statement, relocated_statement, 1)
+            self.assertNotEqual(relocated_source, repaired_source)
+            self.assertNotEqual(
+                INVENTORY._reviewed_active_source_contract(
+                    relocated_source)[1],
+                repaired_contract_sha256,
+                f"{label} relocation escaped literal placement digest",
+            )
+            assert_repair_state(
+                relocated_source,
+                (False, False, False),
+                f"{label} relocation escaped repair state",
+            )
+
+        for equivalent_literal_spacing_source in (
+                repaired_source.replace(
+                    'return "READY_REGULAR";',
+                    'return    "READY_REGULAR";', 1),
+                repaired_source.replace(
+                    'return "READY_REGULAR";',
+                    'return/* comment\n\nspacing */"READY_REGULAR";', 1)):
+            self.assertEqual(
+                INVENTORY._reviewed_active_source_contract(
+                    equivalent_literal_spacing_source)[1],
+                repaired_contract_sha256,
+                "equivalent literal spacing changed placement digest",
+            )
+            self.assertEqual(
+                observe_topology(equivalent_literal_spacing_source),
+                (True, True),
+                "equivalent literal spacing changed repair observations",
+            )
+
+        literal_attachment_fixture = (
+            'auto encoding = u8"ready";\n'
+            'auto raw = LR"tag(raw bytes)tag"_suffix;\n'
+            'auto adjacent = "left""right";\n')
+        attachment_contract_sha256 = (
+            INVENTORY._reviewed_active_source_contract(
+                literal_attachment_fixture)[1])
+        for attachment_mutation in (
+                literal_attachment_fixture.replace(
+                    'u8"ready"', 'u"ready"', 1),
+                literal_attachment_fixture.replace(
+                    'tag"_suffix', 'tag" _suffix', 1),
+                literal_attachment_fixture.replace(
+                    '"left""right"', '"left" "right"', 1)):
+            self.assertNotEqual(
+                INVENTORY._reviewed_active_source_contract(
+                    attachment_mutation)[1],
+                attachment_contract_sha256,
+                "literal prefix/suffix/adjacency mutation escaped digest",
             )
 
         joined_directive_source = repaired_source.replace(
