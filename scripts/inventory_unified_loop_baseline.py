@@ -495,12 +495,14 @@ def _all_present(text: str, anchors: list[str]) -> bool:
 
 
 def _cpp_lexical_surfaces(
-        text: str) -> tuple[str, str, list[tuple[int, int, str]], bool]:
-    """Return spliced text, masked code, exact literals, and completeness."""
+        text: str, build_phase_three: bool = True
+        ) -> tuple[str, str, list[tuple[int, int, str]], bool, str]:
+    """Return phase-3 source, stable code, literals, status, and phase-3 code."""
     phase_one = text.replace("\r\n", "\n").replace("\r", "\n")
     spliced = phase_one.replace("\\\n", "")
     masked = list(spliced)
     literals: list[tuple[int, int, str]] = []
+    comment_spans: list[tuple[int, int]] = []
     complete = True
 
     def mask(start: int, end: int) -> None:
@@ -531,6 +533,7 @@ def _cpp_lexical_surfaces(
         if spliced[index] == "/" and following == "/":
             end = spliced.find("\n", index + 2)
             end = len(spliced) if end < 0 else end
+            comment_spans.append((index, end))
             mask(index, end)
             index = end
             continue
@@ -541,6 +544,7 @@ def _cpp_lexical_surfaces(
                 end = len(spliced)
             else:
                 end = closing + 2
+            comment_spans.append((index, end))
             mask(index, end)
             index = end
             continue
@@ -616,12 +620,43 @@ def _cpp_lexical_surfaces(
             index = max(token_end, index + 1)
             continue
         index += 1
-    return (spliced, "".join(masked), literals, complete)
+    stable_code = "".join(masked)
+    if not build_phase_three:
+        return (spliced, stable_code, literals, complete, stable_code)
+
+    def phase_three_comments(source: str) -> str:
+        pieces: list[str] = []
+        cursor = 0
+        for start, end in comment_spans:
+            pieces.extend((source[cursor:start], " "))
+            cursor = end
+        pieces.append(source[cursor:])
+        return "".join(pieces)
+
+    def phase_three_offset(position: int) -> int:
+        removed = 0
+        for start, end in comment_spans:
+            if end > position:
+                break
+            removed += end - start - 1
+        return position - removed
+
+    phase_three_literals = [
+        (phase_three_offset(start), phase_three_offset(end), token)
+        for start, end, token in literals
+    ]
+    return (
+        phase_three_comments(spliced),
+        stable_code,
+        phase_three_literals,
+        complete,
+        phase_three_comments(stable_code),
+    )
 
 
 def _cpp_code(text: str) -> str:
     """Mask C++ comments and ordinary/raw literals, preserving positions."""
-    return _cpp_lexical_surfaces(text)[1]
+    return _cpp_lexical_surfaces(text, build_phase_three=False)[1]
 
 
 _CPP_DIRECTIVE_PREFIX = r"(?:#|%:)"
@@ -800,7 +835,7 @@ def _reviewed_active_source_contract(
     exact literal tokens are retained separately because the general code
     normalization deliberately erases line boundaries and masks literals.
     """
-    spliced, lexical, literal_tokens, lexically_complete = (
+    spliced, _, literal_tokens, lexically_complete, lexical = (
         _cpp_lexical_surfaces(text))
     def split_lf_lines(source: str) -> list[str]:
         pieces = source.split("\n")

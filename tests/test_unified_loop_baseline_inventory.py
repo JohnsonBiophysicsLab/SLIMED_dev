@@ -405,7 +405,7 @@ auto raw = LR"tag(raw // /* " bytes)tag"_suffix;
 // u8"comment literal"
 /* R"(block comment literal)" */
 '''
-        _, _, literal_tokens, literal_fixture_is_complete = (
+        _, _, literal_tokens, literal_fixture_is_complete, _ = (
             INVENTORY._cpp_lexical_surfaces(literal_fixture))
         self.assertTrue(literal_fixture_is_complete)
         self.assertEqual(
@@ -712,6 +712,88 @@ auto raw = LR"tag(raw // /* " bytes)tag"_suffix;
             joined_directive_source,
             (False, False, False),
             "directive/code line-boundary mutation escaped repair state",
+        )
+
+        block_comment_join_source = repaired_source.replace(
+            '#include "mesh/Mesh.hpp"\n\nnamespace',
+            '#include "mesh/Mesh.hpp" /*\n*/ namespace',
+            1)
+        self.assertNotEqual(block_comment_join_source, repaired_source)
+        self.assertNotEqual(
+            INVENTORY._reviewed_active_source_contract(
+                block_comment_join_source)[1],
+            repaired_contract_sha256,
+            "multiline block comment preserved a directive boundary",
+        )
+        assert_repair_state(
+            block_comment_join_source,
+            (False, False, False),
+            "multiline block-comment join escaped repair state",
+        )
+
+        block_comment_join_variants = (
+            '#include "mesh/Mesh.hpp" /*\n\n\n*/ namespace',
+            '#include "mesh/Mesh.hpp" /*\\\n\n*/ namespace',
+        )
+        for joined_include in block_comment_join_variants:
+            joined_source = repaired_source.replace(
+                '#include "mesh/Mesh.hpp"\n\nnamespace',
+                joined_include,
+                1)
+            self.assertNotEqual(
+                INVENTORY._reviewed_active_source_contract(joined_source)[1],
+                repaired_contract_sha256,
+                "block-comment newline family escaped phase-3 digest",
+            )
+            self.assertEqual(
+                observe_topology(joined_source),
+                (False, False),
+                "block-comment newline family escaped observations",
+            )
+
+        safe_block_comment_sources = (
+            repaired_source.replace(
+                "int d4 = -1;",
+                "int/* first comment line\n\nthird comment line */d4 = -1;",
+                1),
+            "/* standalone comment\n\nwith multiple new-lines */\n" +
+            repaired_source,
+            repaired_source +
+            "\n/* trailing standalone\n\nblock comment */",
+            repaired_source.replace(
+                "int d4 = -1;",
+                "int/* multiline\nblock comment */ // real line boundary\n"
+                "d4 = -1;",
+                1),
+        )
+        for safe_block_comment_source in safe_block_comment_sources:
+            self.assertEqual(
+                INVENTORY._reviewed_active_source_contract(
+                    safe_block_comment_source)[1],
+                repaired_contract_sha256,
+                "safe multiline block comment changed phase-3 digest",
+            )
+            assert_repair_state(
+                safe_block_comment_source,
+                (True, True, True),
+                "safe multiline block comment changed repair state",
+            )
+
+        pragma_control = (
+            "int b0d_before_pragma = 0;\n#pragma b0d_probe\n" +
+            repaired_source)
+        pragma_join = (
+            "int b0d_before_pragma = 0; /*\n*/ #pragma b0d_probe\n" +
+            repaired_source)
+        self.assertNotEqual(
+            INVENTORY._reviewed_active_source_contract(pragma_join)[1],
+            INVENTORY._reviewed_active_source_contract(pragma_control)[1],
+            "ordinary-code/#pragma phase-3 join preserved digest",
+        )
+        self.assertEqual(
+            observe_topology(pragma_join),
+            (False, False),
+            "ordinary-code/#pragma phase-3 join escaped observations",
         )
 
         for horizontal_line_character in ("\v", "\f"):
