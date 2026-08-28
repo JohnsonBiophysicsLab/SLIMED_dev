@@ -60,6 +60,25 @@ EXPECTED_WP0_PATHS = [
 EXPECTED_VALENCE5_FACE_SOURCE_MAPPING_SHA256 = (
     "9f5fe4e76a9815a806970164d4a5e02771c4350a6c1047ceb7ce3e86cd2acd1a")
 
+# Reviewed active-token shape of the WP1.1a classifier: each count includes
+# the one direct sentinel declaration plus every later use in the function.
+# Exact cardinality is intentional and fail-closed: any additional active
+# occurrence of one of these identifiers invalidates the observation without
+# trying to recognize the full C++ declaration grammar.
+REVIEWED_CLASSIFIER_SENTINEL_IDENTIFIER_COUNTS = {
+    "d4": 6,
+    "d7": 7,
+    "d8": 7,
+}
+# SHA256 of the normalized active contents of Mesh_setup_geometry.cpp in the
+# reviewed WP1.1a source. This is a content contract, not a commit identity.
+# It includes whitespace-normalized non-literal code, ordered active directive
+# logical lines, active include operands, ordered exact active literal tokens,
+# and their canonical placement among non-literal segments after the narrowly
+# permitted literal-#if-0 removal performed below.
+REVIEWED_MESH_SETUP_GEOMETRY_ACTIVE_SOURCE_SHA256 = (
+    "ad05d22b1d0fcadb1d1f4a80e7f4d49cbcc38dd66b9914a340229d88ef391e98")
+
 EXPECTED_FACES = {
     "valence3_tetrahedron": [
         [0, 2, 1], [0, 1, 3], [0, 3, 2], [1, 2, 3]
@@ -476,79 +495,172 @@ def _all_present(text: str, anchors: list[str]) -> bool:
     return all(anchor in text for anchor in anchors)
 
 
-def _cpp_code(text: str) -> str:
-    """Mask C++ comments and ordinary/raw literals, preserving positions."""
-    text = re.sub(r"\\\r?\n", "", text)
-    masked = list(text)
+def _cpp_lexical_surfaces(
+        text: str, build_phase_three: bool = True
+        ) -> tuple[str, str, list[tuple[int, int, str]], bool, str]:
+    """Return phase-3 source, stable code, literals, status, and phase-3 code."""
+    phase_one = text.replace("\r\n", "\n").replace("\r", "\n")
+    spliced = phase_one.replace("\\\n", "")
+    masked = list(spliced)
+    literals: list[tuple[int, int, str]] = []
+    comment_spans: list[tuple[int, int]] = []
+    complete = True
+
+    def mask(start: int, end: int) -> None:
+        for cursor in range(start, end):
+            if spliced[cursor] not in "\r\n":
+                masked[cursor] = " "
+
+    def identifier_suffix_end(start: int) -> int:
+        if (start >= len(spliced) or
+                not (spliced[start].isalpha() or spliced[start] == "_")):
+            return start
+        cursor = start + 1
+        while (cursor < len(spliced) and
+               (spliced[cursor].isalnum() or spliced[cursor] == "_")):
+            cursor += 1
+        return cursor
+
+    def prefix_boundary(start: int) -> bool:
+        return (start == 0 or
+                not (spliced[start - 1].isalnum() or
+                     spliced[start - 1] == "_"))
+
     index = 0
-    state = "code"
-    raw_start = re.compile(
-        r"(?:u8|[uUL])?R\"([^\s()\\]{0,16})\(")
-    while index < len(text):
-        current = text[index]
-        following = text[index + 1] if index + 1 < len(text) else ""
-        if state == "code":
-            raw = raw_start.match(text, index)
-            if raw and (index == 0 or not (text[index - 1].isalnum() or
-                                           text[index - 1] == "_")):
-                closing = ")" + raw.group(1) + '"'
-                end = text.find(closing, raw.end())
-                end = len(text) if end < 0 else end + len(closing)
-                for cursor in range(index, end):
-                    if text[cursor] != "\n":
-                        masked[cursor] = " "
-                index = end
-                continue
-            if current == "/" and following == "/":
-                masked[index] = masked[index + 1] = " "
-                index += 2
-                state = "line_comment"
-                continue
-            if current == "/" and following == "*":
-                masked[index] = masked[index + 1] = " "
-                index += 2
-                state = "block_comment"
-                continue
-            if current in ('"', "'"):
-                masked[index] = " "
-                state = "string" if current == '"' else "character"
-                index += 1
-                continue
-        elif state == "line_comment":
-            if current == "\n":
-                state = "code"
+    raw_prefixes = ("u8R\"", "uR\"", "UR\"", "LR\"", "R\"")
+    ordinary_prefixes = ("u8", "u", "U", "L", "")
+    while index < len(spliced):
+        following = spliced[index + 1] if index + 1 < len(spliced) else ""
+        if spliced[index] == "/" and following == "/":
+            end = spliced.find("\n", index + 2)
+            end = len(spliced) if end < 0 else end
+            comment_spans.append((index, end))
+            mask(index, end)
+            index = end
+            continue
+        if spliced[index] == "/" and following == "*":
+            closing = spliced.find("*/", index + 2)
+            if closing < 0:
+                complete = False
+                end = len(spliced)
             else:
-                masked[index] = " "
-            index += 1
+                end = closing + 2
+            comment_spans.append((index, end))
+            mask(index, end)
+            index = end
             continue
-        elif state == "block_comment":
-            if current == "*" and following == "/":
-                masked[index] = masked[index + 1] = " "
-                index += 2
-                state = "code"
+
+        raw_prefix = next(
+            (prefix for prefix in raw_prefixes
+             if spliced.startswith(prefix, index) and prefix_boundary(index)),
+            None)
+        if raw_prefix is not None:
+            delimiter_start = index + len(raw_prefix)
+            opening = spliced.find(
+                "(", delimiter_start, delimiter_start + 17)
+            delimiter = (
+                spliced[delimiter_start:opening] if opening >= 0 else "")
+            delimiter_is_valid = (
+                opening >= 0
+                and len(delimiter) <= 16
+                and not any(character.isspace() or character in "()\\"
+                            for character in delimiter))
+            if delimiter_is_valid:
+                closing_token = ")" + delimiter + '"'
+                closing = spliced.find(closing_token, opening + 1)
+                if closing < 0:
+                    complete = False
+                    literal_end = len(spliced)
+                else:
+                    literal_end = closing + len(closing_token)
+                token_end = identifier_suffix_end(literal_end)
+                literals.append(
+                    (index, token_end, spliced[index:token_end]))
+                mask(index, literal_end)
+                index = token_end
                 continue
-            if current != "\n":
-                masked[index] = " "
-            index += 1
-            continue
-        else:
-            if current != "\n":
-                masked[index] = " "
-            if current == "\\" and following:
-                if following != "\n":
-                    masked[index + 1] = " "
-                index += 2
-                continue
-            if ((state == "string" and current == '"') or
-                    (state == "character" and current == "'")):
-                state = "code"
-            index += 1
+
+        ordinary = None
+        for prefix in ordinary_prefixes:
+            quote_index = index + len(prefix)
+            if (quote_index < len(spliced)
+                    and (not prefix or spliced.startswith(prefix, index))
+                    and spliced[quote_index] in {'"', "'"}
+                    and (not prefix or prefix_boundary(index))
+                    and not (not prefix and spliced[quote_index] == "'"
+                             and quote_index > 0
+                             and quote_index + 1 < len(spliced)
+                             and spliced[quote_index - 1].isalnum()
+                             and spliced[quote_index + 1].isalnum())):
+                ordinary = (prefix, quote_index, spliced[quote_index])
+                break
+        if ordinary is not None:
+            _, quote_index, quote = ordinary
+            cursor = quote_index + 1
+            closed = False
+            while cursor < len(spliced):
+                if spliced[cursor] == "\\":
+                    cursor += 2
+                    continue
+                if spliced[cursor] == quote:
+                    cursor += 1
+                    closed = True
+                    break
+                if spliced[cursor] in "\r\n":
+                    complete = False
+                    break
+                cursor += 1
+            if not closed:
+                complete = False
+            literal_end = min(cursor, len(spliced))
+            token_end = identifier_suffix_end(literal_end)
+            literals.append((index, token_end, spliced[index:token_end]))
+            # Preserve ordinary encoding prefixes in structural code, matching
+            # the historical masker; their exact spelling is also in the token.
+            mask(quote_index, literal_end)
+            index = max(token_end, index + 1)
             continue
         index += 1
-    return "".join(masked)
+    stable_code = "".join(masked)
+    if not build_phase_three:
+        return (spliced, stable_code, literals, complete, stable_code)
+
+    def phase_three_comments(source: str) -> str:
+        pieces: list[str] = []
+        cursor = 0
+        for start, end in comment_spans:
+            pieces.extend((source[cursor:start], " "))
+            cursor = end
+        pieces.append(source[cursor:])
+        return "".join(pieces)
+
+    def phase_three_offset(position: int) -> int:
+        removed = 0
+        for start, end in comment_spans:
+            if end > position:
+                break
+            removed += end - start - 1
+        return position - removed
+
+    phase_three_literals = [
+        (phase_three_offset(start), phase_three_offset(end), token)
+        for start, end, token in literals
+    ]
+    return (
+        phase_three_comments(spliced),
+        stable_code,
+        phase_three_literals,
+        complete,
+        phase_three_comments(stable_code),
+    )
 
 
-_CPP_DIRECTIVE_PREFIX = r"(?:#|%:|\?\?=)"
+def _cpp_code(text: str) -> str:
+    """Mask C++ comments and ordinary/raw literals, preserving positions."""
+    return _cpp_lexical_surfaces(text, build_phase_three=False)[1]
+
+
+_CPP_DIRECTIVE_PREFIX = r"(?:#|%:)"
 _INCLUDE_GUARD_NAME = re.compile(r"[A-Z][A-Z0-9_]*_(?:H|HPP)")
 _REVIEWED_MESH_HEADER_INCLUDES = (
     "<math.h>", "<cmath>", "<vector>", "<iostream>", "<fstream>",
@@ -647,6 +759,39 @@ def _has_preprocessor_directive(code: str) -> bool:
         code, re.MULTILINE))
 
 
+def _has_active_define_or_undef_directive(code: str) -> bool:
+    """Report macro state unless it is inside a provable ``#if 0`` arm."""
+    inactive_frames: list[tuple[bool, bool]] = []
+    directive = re.compile(
+        rf"^\s*{_CPP_DIRECTIVE_PREFIX}\s*([A-Za-z_]\w*)\b")
+    for line in code.splitlines():
+        match = directive.match(line)
+        if not match:
+            continue
+        name = match.group(1)
+        if name in {"if", "ifdef", "ifndef"}:
+            parent_inactive = (
+                inactive_frames[-1][1] if inactive_frames else False)
+            expression = line[match.end():].strip()
+            definitely_zero = (
+                name == "if"
+                and bool(re.fullmatch(r"(?:0|\(\s*0\s*\))", expression)))
+            inactive_frames.append(
+                (parent_inactive, parent_inactive or definitely_zero))
+        elif name in {"elif", "else"} and inactive_frames:
+            parent_inactive, _ = inactive_frames[-1]
+            # Anything except the initial literal-#if-0 arm is potentially
+            # active; fail closed instead of evaluating preprocessor state.
+            inactive_frames[-1] = (parent_inactive, parent_inactive)
+        elif name == "endif":
+            if inactive_frames:
+                inactive_frames.pop()
+        elif (name in {"define", "undef"}
+              and not (inactive_frames and inactive_frames[-1][1])):
+            return True
+    return False
+
+
 def _has_nested_source_inclusion(code: str) -> bool:
     """Reject fragment expansion inside any scanned brace scope."""
     directive = re.compile(
@@ -681,6 +826,169 @@ def _mask_cpp_conditionals(code: str) -> str:
     return "".join(masked)
 
 
+def _reviewed_active_source_contract(
+        text: str) -> tuple[str, str, bool]:
+    """Normalize the reviewed C++ source and report contract ambiguity.
+
+    Only balanced outer ``#if 0``/``#if (0)`` blocks without a depth-one
+    alternative are ignored. All other conditionals and active macro state
+    are ambiguous. Directive logical lines, include operands, and ordered
+    exact literal tokens and their canonical placement among non-literal code
+    segments are retained because the general code normalization deliberately
+    erases line boundaries and masks literals.
+    """
+    spliced, _, literal_tokens, lexically_complete, lexical = (
+        _cpp_lexical_surfaces(text))
+    def split_lf_lines(source: str) -> list[str]:
+        pieces = source.split("\n")
+        return ([piece + "\n" for piece in pieces[:-1]] +
+                ([pieces[-1]] if pieces[-1] else []))
+
+    raw_lines = split_lf_lines(spliced)
+    code_lines = split_lf_lines(lexical)
+    if len(raw_lines) != len(code_lines):
+        return ("", hashlib.sha256(b"").hexdigest(), False)
+
+    horizontal_whitespace = r"[ \t\v\f]"
+    directive = re.compile(
+        rf"^{horizontal_whitespace}*{_CPP_DIRECTIVE_PREFIX}"
+        rf"{horizontal_whitespace}*([A-Za-z_]\w*)\b")
+    directive_start = re.compile(
+        rf"^{horizontal_whitespace}*{_CPP_DIRECTIVE_PREFIX}")
+    include_operand = re.compile(
+        rf'{horizontal_whitespace}*'
+        r'("(?:\\.|[^"\\])*"|<[^>\r\n]*>|[A-Za-z_]\w*)')
+    inactive_depth = 0
+    inactive_has_depth_one_alternative = False
+    unambiguous = lexically_complete
+    active_lines: list[str] = []
+    active_inclusions: list[tuple[str, str]] = []
+    active_directives: list[str] = []
+    inactive_spans: list[tuple[int, int]] = []
+    line_offset = 0
+
+    for raw_line, code_line in zip(raw_lines, code_lines):
+        code_match = directive.match(code_line)
+        raw_match = directive.match(raw_line)
+        directive_matches_agree = (
+            code_match is not None
+            and raw_match is not None
+            and code_match.span() == raw_match.span()
+            and code_match.group(1) == raw_match.group(1))
+        if ((code_match is not None or raw_match is not None)
+                and not directive_matches_agree):
+            unambiguous = False
+        match = code_match if directive_matches_agree else None
+        name = match.group(1) if match else None
+        if inactive_depth:
+            if name in {"if", "ifdef", "ifndef"}:
+                inactive_depth += 1
+            elif name in {"elif", "else"} and inactive_depth == 1:
+                inactive_has_depth_one_alternative = True
+            elif name == "endif":
+                inactive_depth -= 1
+                if inactive_depth == 0:
+                    unambiguous = (
+                        unambiguous
+                        and not inactive_has_depth_one_alternative)
+                    inactive_has_depth_one_alternative = False
+            active_lines.append("".join(
+                "\n" if character == "\n" else " "
+                for character in code_line))
+            inactive_spans.append(
+                (line_offset, line_offset + len(code_line)))
+            line_offset += len(code_line)
+            continue
+
+        if match and name == "if":
+            expression = raw_line[match.end():].rstrip("\n").strip(
+                " \t\v\f")
+            if re.fullmatch(
+                    r"(?:0|\([ \t\v\f]*0[ \t\v\f]*\))",
+                    expression):
+                inactive_depth = 1
+                active_lines.append("".join(
+                    "\n" if character == "\n" else " "
+                    for character in code_line))
+                inactive_spans.append(
+                    (line_offset, line_offset + len(code_line)))
+                line_offset += len(code_line)
+                continue
+        if name in {"if", "ifdef", "ifndef", "elif", "else", "endif",
+                    "define", "undef"}:
+            unambiguous = False
+        code_directive_start = directive_start.match(code_line)
+        raw_directive_start = directive_start.match(raw_line)
+        directive_starts_agree = (
+            code_directive_start is not None
+            and raw_directive_start is not None
+            and code_directive_start.span() == raw_directive_start.span())
+        if ((code_directive_start is not None or
+             raw_directive_start is not None)
+                and not directive_starts_agree):
+            unambiguous = False
+        if directive_starts_agree:
+            directive_code = code_line.rstrip("\r\n")
+            active_directives.append(
+                re.sub(r"[ \t\f\v]+", " ", directive_code).strip(
+                    " \t\f\v"))
+        if match and name in {"include", "include_next", "import"}:
+            operand = include_operand.match(raw_line[match.end():])
+            if operand is None:
+                unambiguous = False
+            else:
+                active_inclusions.append((name, operand.group(1)))
+        active_lines.append(code_line)
+        line_offset += len(code_line)
+
+    if inactive_depth:
+        unambiguous = False
+    active = "".join(active_lines)
+    active_literal_spans = [
+        (start, end, token)
+        for start, end, token in literal_tokens
+        if not any(span_start <= start < span_end
+                   for span_start, span_end in inactive_spans)
+    ]
+    active_literals = [token for _, _, token in active_literal_spans]
+    literal_placement_surface: list[list[str]] = []
+    literal_cursor = 0
+    for start, end, token in active_literal_spans:
+        if (start < literal_cursor or end < start or end > len(active) or
+                spliced[start:end] != token):
+            unambiguous = False
+            continue
+        literal_placement_surface.append([
+            "code",
+            re.sub(r"[ \t\v\f\r\n]+", " ",
+                   active[literal_cursor:start]),
+        ])
+        literal_placement_surface.append(["literal", token])
+        literal_cursor = end
+    literal_placement_surface.append([
+        "code",
+        re.sub(r"[ \t\v\f\r\n]+", " ", active[literal_cursor:]),
+    ])
+    # Preserve empty versus one normalized whitespace character at every
+    # literal boundary. Only whitespace outside the complete source surface is
+    # irrelevant to the contract.
+    literal_placement_surface[0][1] = (
+        literal_placement_surface[0][1].lstrip(" \t\v\f\r\n"))
+    literal_placement_surface[-1][1] = (
+        literal_placement_surface[-1][1].rstrip(" \t\v\f\r\n"))
+    normalized = json.dumps({
+        "code_with_normalized_whitespace": re.sub(
+            r"[ \t\v\f\r\n]+", " ", active).strip(
+                " \t\v\f\r\n"),
+        "active_inclusions": active_inclusions,
+        "active_preprocessor_directives": active_directives,
+        "active_literal_tokens": active_literals,
+        "active_literal_placement_surface": literal_placement_surface,
+    }, sort_keys=True, separators=(",", ":"))
+    digest = hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+    return (active, digest, unambiguous)
+
+
 def _direct_access_label(code: str, position: int):
     depth = 0
     access = None
@@ -695,7 +1003,7 @@ def _direct_access_label(code: str, position: int):
     return access, depth
 
 
-def _unique_braced_scope(code: str, signature_pattern: str):
+def _unique_braced_scope_span(code: str, signature_pattern: str):
     matches = list(re.finditer(
         signature_pattern, code, re.MULTILINE | re.DOTALL))
     if len(matches) != 1:
@@ -714,7 +1022,13 @@ def _unique_braced_scope(code: str, signature_pattern: str):
         cursor += 1
     if depth:
         return None
-    return signature.start(), code[opening + 1:cursor - 1]
+    return (signature.start(), opening + 1, cursor - 1,
+            code[opening + 1:cursor - 1])
+
+
+def _unique_braced_scope(code: str, signature_pattern: str):
+    scope = _unique_braced_scope_span(code, signature_pattern)
+    return None if scope is None else (scope[0], scope[3])
 
 
 def _direct_scope_matches(code: str, pattern: re.Pattern[str]):
@@ -725,6 +1039,112 @@ def _direct_scope_matches(code: str, pattern: re.Pattern[str]):
         if prefix.count("{") == prefix.count("}"):
             direct.append(match)
     return direct
+
+
+def _legacy_classifier_repair_observations(text: str) -> tuple[bool, bool]:
+    """Observe the active, structurally scoped WP1.1a classifier repair."""
+    lexical = _cpp_code(text)
+    active, active_source_sha256, source_contract_is_unambiguous = (
+        _reviewed_active_source_contract(text))
+    active_source_contract_matches = (
+        source_contract_is_unambiguous
+        and active_source_sha256 ==
+        REVIEWED_MESH_SETUP_GEOMETRY_ACTIVE_SOURCE_SHA256)
+    macro_state_is_unambiguous = not (
+        _has_active_define_or_undef_directive(lexical))
+    classifier = _unique_braced_scope_span(
+        active,
+        r"\bLegacyOneRingClassification\s+Mesh::classify_legacy_one_ring\s*"
+        r"\(\s*const\s+Face\s*&\s*face\s*\)\s*const\s*\{")
+    sentinel_patterns = [
+        re.compile(rf"\bint\s+{name}\s*=\s*-\s*1\s*;")
+        for name in ("d4", "d7", "d8")
+    ]
+    sentinel_initialization_observed = False
+    if classifier is not None:
+        classifier_body = classifier[3]
+        sentinel_initialization_observed = (
+            active_source_contract_matches
+            and macro_state_is_unambiguous
+            and all(
+                len(pattern.findall(active)) == 1
+                and len(_direct_scope_matches(classifier_body, pattern)) == 1
+                and len(re.findall(rf"\b{re.escape(name)}\b",
+                                   classifier_body)) ==
+                REVIEWED_CLASSIFIER_SENTINEL_IDENTIFIER_COUNTS[name]
+                for name, pattern in zip(
+                    ("d4", "d7", "d8"), sentinel_patterns))
+        )
+
+    publication = _unique_braced_scope_span(
+        active,
+        r"\bvoid\s+Mesh::set_one_ring_vertices_sorted\s*\(\s*\)\s*\{")
+    rejection_precedes_publication_observed = False
+    if publication is not None:
+        publication_body = publication[3]
+        preflight = _unique_braced_scope_span(
+            publication_body,
+            r"\bfor\s*\(\s*const\s+Face\s*&\s*face\s*:\s*faces\s*\)\s*\{")
+        publication_loop = _unique_braced_scope_span(
+            publication_body,
+            r"\bfor\s*\(\s*std::size_t\s+faceIndex\s*=\s*0\s*;\s*"
+            r"faceIndex\s*<\s*faces\s*\.\s*size\s*\(\s*\)\s*;\s*"
+            r"\+\+\s*faceIndex\s*\)\s*\{")
+        rejection_pattern = re.compile(
+            r"\bif\s*\(\s*is_legacy_one_ring_rejection\s*\(\s*"
+            r"classification\s*\.\s*reasonCode\s*\)\s*\)\s*\{")
+        throw_pattern = re.compile(
+            r"\bthrow\s+std::runtime_error\s*\([^;]+\)\s*;")
+        write_patterns = [
+            re.compile(
+                r"\bfaces\s*\[\s*faceIndex\s*\]\s*\.\s*"
+                r"adjacentVertices\s*\.\s*swap\s*\("),
+            re.compile(
+                r"\bfaces\s*\[\s*faceIndex\s*\]\s*\.\s*"
+                r"oneRingVertices\s*\.\s*swap\s*\("),
+        ]
+        publication_field_patterns = [
+            re.compile(r"\badjacentVertices\b"),
+            re.compile(r"\boneRingVertices\b"),
+        ]
+        if preflight is not None and publication_loop is not None:
+            preflight_is_direct = (
+                publication_body[:preflight[0]].count("{") ==
+                publication_body[:preflight[0]].count("}"))
+            publication_loop_is_direct = (
+                publication_body[:publication_loop[0]].count("{") ==
+                publication_body[:publication_loop[0]].count("}"))
+            rejection = _unique_braced_scope_span(
+                preflight[3], rejection_pattern.pattern)
+            rejection_is_direct = (
+                rejection is not None and
+                preflight[3][:rejection[0]].count("{") ==
+                preflight[3][:rejection[0]].count("}"))
+            direct_throws = ([] if rejection is None else
+                             _direct_scope_matches(rejection[3], throw_pattern))
+            direct_writes = [
+                _direct_scope_matches(publication_loop[3], pattern)
+                for pattern in write_patterns
+            ]
+            rejection_precedes_publication_observed = (
+                active_source_contract_matches
+                and macro_state_is_unambiguous
+                and preflight_is_direct
+                and publication_loop_is_direct
+                and rejection_is_direct
+                and len(rejection_pattern.findall(publication_body)) == 1
+                and len(throw_pattern.findall(publication_body)) == 1
+                and len(direct_throws) == 1
+                and all(len(pattern.findall(active)) == 1
+                        for pattern in write_patterns)
+                and all(len(pattern.findall(publication_body)) == 1
+                        for pattern in publication_field_patterns)
+                and all(len(matches) == 1 for matches in direct_writes)
+                and preflight[2] < publication_loop[0]
+                and direct_writes[0][0].start() < direct_writes[1][0].start()
+            )
+    return (sentinel_initialization_observed,
+            rejection_precedes_publication_observed)
 
 
 def _scope_begins_with(code: str, pattern: re.Pattern[str]) -> bool:
@@ -1095,6 +1515,12 @@ def collect_inventory() -> dict[str, Any]:
     geometry = _text("src/mesh/Mesh.cpp")
     legacy_topology = _text("src/mesh/Mesh_setup_geometry.cpp")
     legacy_matrix = _text("src/mesh/Gauss_quadrature.cpp")
+    (sentinel_initialization_observed,
+     rejection_precedes_publication_observed) = (
+        _legacy_classifier_repair_observations(legacy_topology))
+    classifier_repair_confirmed = (
+        sentinel_initialization_observed
+        and rejection_precedes_publication_observed)
     source_keyed_hpp = _text("include/energy_force/Source_keyed_kernel_call.hpp")
     source_keyed_cpp = _text("src/energy_force/Source_keyed_kernel_call.cpp")
     output = _text("src/io/output.cpp")
@@ -1517,15 +1943,43 @@ def collect_inventory() -> dict[str, Any]:
         "legacy_11_control_predicate": {
             "admitted_corner_valences": [5, 5, 5],
             "matrix_intended_corner_valences": [5, 6, 6],
-            "defect_confirmed": _all_present(legacy_topology, [
-                "vertices[node0].adjacentVertices.size() == 5",
-                "vertices[node1].adjacentVertices.size() == 5",
-                "vertices[node2].adjacentVertices.size() == 5",
-                "int d4, d7, d8;",
-            ]) and _all_present(legacy_matrix, [
-                "const int N = 6;", "const int N1 = 5;",
-                "std::vector<std::vector<double>> SM4(11",
-            ]),
+            "legacy_11_control_matrix_defect_assertion": {
+                "owner": "D5",
+                "lifecycle": "retained_defect_witness",
+                "source_path": "src/mesh/Gauss_quadrature.cpp",
+                "required_witness_literals": [
+                    "const int N = 6;",
+                    "const int N1 = 5;",
+                    "std::vector<std::vector<double>> SM4(11",
+                ],
+                "defect_confirmed": _all_present(legacy_matrix, [
+                    "const int N = 6;", "const int N1 = 5;",
+                    "std::vector<std::vector<double>> SM4(11",
+                ]),
+            },
+            "wp1_1a_classifier_repair_record": {
+                "owner": "WP1.1a",
+                "lifecycle": "current_tree_observation",
+                "source_path": "src/mesh/Mesh_setup_geometry.cpp",
+                "required_sentinel_initializers": {
+                    "d4": -1,
+                    "d7": -1,
+                    "d8": -1,
+                },
+                "required_active_classifier_identifier_occurrences":
+                    REVIEWED_CLASSIFIER_SENTINEL_IDENTIFIER_COUNTS,
+                "required_active_source_contract_sha256":
+                    REVIEWED_MESH_SETUP_GEOMETRY_ACTIVE_SOURCE_SHA256,
+                "required_rejection_precedes_writes_to": [
+                    "face.adjacentVertices",
+                    "face.oneRingVertices",
+                ],
+                "sentinel_initialization_observed":
+                    sentinel_initialization_observed,
+                "rejection_precedes_publication_observed":
+                    rejection_precedes_publication_observed,
+                "repair_confirmed": classifier_repair_confirmed,
+            },
         },
     }
 
@@ -1946,12 +2400,75 @@ def validate_inventory(report: dict[str, Any], check_adr: bool = True) -> list[s
                  d["valence5_icosahedron"]["faces"],
                  d["valence5_icosahedron"]["valence"]) == (12, 20, 5),
                 "valence5 topology summary drift")
-        require(d["legacy_11_control_predicate"]["admitted_corner_valences"] == [5, 5, 5],
+        legacy_11_control = d["legacy_11_control_predicate"]
+        require(set(legacy_11_control) == {
+                    "admitted_corner_valences",
+                    "matrix_intended_corner_valences",
+                    "legacy_11_control_matrix_defect_assertion",
+                    "wp1_1a_classifier_repair_record",
+                }, "legacy 11-control owner/lifecycle split schema drift")
+        require(legacy_11_control["admitted_corner_valences"] == [5, 5, 5],
                 "legacy predicate classification drift")
-        require(d["legacy_11_control_predicate"]["matrix_intended_corner_valences"] == [5, 6, 6],
+        require(legacy_11_control["matrix_intended_corner_valences"] == [5, 6, 6],
                 "legacy matrix classification drift")
-        require(d["legacy_11_control_predicate"]["defect_confirmed"],
-                "legacy 11-control defect anchor missing")
+        matrix_defect = legacy_11_control[
+            "legacy_11_control_matrix_defect_assertion"]
+        require(matrix_defect == {
+                    "owner": "D5",
+                    "lifecycle": "retained_defect_witness",
+                    "source_path": "src/mesh/Gauss_quadrature.cpp",
+                    "required_witness_literals": [
+                        "const int N = 6;",
+                        "const int N1 = 5;",
+                        "std::vector<std::vector<double>> SM4(11",
+                    ],
+                    "defect_confirmed": True,
+                }, "legacy 11-control matrix defect witness drift")
+        classifier_repair = legacy_11_control[
+            "wp1_1a_classifier_repair_record"]
+        require(set(classifier_repair) == {
+                    "owner",
+                    "lifecycle",
+                    "source_path",
+                    "required_sentinel_initializers",
+                    "required_active_classifier_identifier_occurrences",
+                    "required_active_source_contract_sha256",
+                    "required_rejection_precedes_writes_to",
+                    "sentinel_initialization_observed",
+                    "rejection_precedes_publication_observed",
+                    "repair_confirmed",
+                }, "WP1.1a legacy classifier repair schema drift")
+        require(classifier_repair["owner"] == "WP1.1a" and
+                classifier_repair["lifecycle"] == "current_tree_observation" and
+                classifier_repair["source_path"] ==
+                "src/mesh/Mesh_setup_geometry.cpp" and
+                classifier_repair["required_sentinel_initializers"] == {
+                    "d4": -1, "d7": -1, "d8": -1} and
+                classifier_repair[
+                    "required_active_classifier_identifier_occurrences"] ==
+                REVIEWED_CLASSIFIER_SENTINEL_IDENTIFIER_COUNTS and
+                classifier_repair["required_active_source_contract_sha256"] ==
+                REVIEWED_MESH_SETUP_GEOMETRY_ACTIVE_SOURCE_SHA256 and
+                classifier_repair[
+                    "required_rejection_precedes_writes_to"] == [
+                        "face.adjacentVertices",
+                        "face.oneRingVertices",
+                    ], "WP1.1a legacy classifier repair contract drift")
+        classifier_observations = [
+            classifier_repair["sentinel_initialization_observed"],
+            classifier_repair["rejection_precedes_publication_observed"],
+            classifier_repair["repair_confirmed"],
+        ]
+        classifier_observations_are_boolean = all(
+            type(value) is bool for value in classifier_observations)
+        require(classifier_observations_are_boolean,
+                "WP1.1a legacy classifier observation is not boolean")
+        if classifier_observations_are_boolean:
+            require(classifier_repair["repair_confirmed"] == (
+                        classifier_repair["sentinel_initialization_observed"] and
+                        classifier_repair[
+                            "rejection_precedes_publication_observed"]),
+                    "WP1.1a legacy classifier repair state is inconsistent")
         require(d["valence5_icosahedron"]["face_source_mapping_sha256"] ==
                 EXPECTED_VALENCE5_FACE_SOURCE_MAPPING_SHA256,
                 "valence5 exact face-source mapping drift")

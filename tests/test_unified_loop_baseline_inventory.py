@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 import importlib.util
 import math
+import re
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -273,6 +274,903 @@ class UnifiedLoopBaselineInventoryTest(unittest.TestCase):
         self.assert_mutation_rejected(
             lambda r: r["D_topology_guards"]["legacy_11_control_predicate"]
             .update({"admitted_corner_valences": [5, 6, 6]}))
+        self.assert_mutation_rejected(
+            lambda r: r["D_topology_guards"]["legacy_11_control_predicate"]
+            ["legacy_11_control_matrix_defect_assertion"]
+            .update({"defect_confirmed": False}))
+        self.assert_mutation_rejected(
+            lambda r: r["D_topology_guards"]["legacy_11_control_predicate"]
+            ["wp1_1a_classifier_repair_record"]
+            .update({"defect_confirmed": True}))
+        self.assert_mutation_rejected(
+            lambda r: r["D_topology_guards"]
+            ["legacy_11_control_predicate"]
+            ["wp1_1a_classifier_repair_record"]
+            .update({"required_active_source_contract_sha256": "0" * 64}))
+
+        current_repair = self.baseline["D_topology_guards"] \
+            ["legacy_11_control_predicate"] \
+            ["wp1_1a_classifier_repair_record"]
+        self.assertEqual(
+            (current_repair["sentinel_initialization_observed"],
+             current_repair["rejection_precedes_publication_observed"],
+             current_repair["repair_confirmed"]),
+            (False, False, False),
+        )
+        self.assertFalse(
+            INVENTORY.validate_inventory(self.baseline, check_adr=False))
+
+        original_text = INVENTORY._text
+        classifier_source = """
+LegacyOneRingClassification Mesh::classify_legacy_one_ring(
+    const Face &face) const
+{
+    int d4 = -1;
+    int d7 = -1;
+    int d8 = -1;
+    if (regular)
+    {
+        d4 = face.adjacentVertices[0];
+        d7 = face.adjacentVertices[1];
+        d8 = face.adjacentVertices[2];
+    }
+    else if (candidate)
+    {
+        d4 = face.adjacentVertices[0];
+        d7 = face.adjacentVertices[1];
+        d8 = face.adjacentVertices[2];
+    }
+    else
+    {
+        d4 = face.adjacentVertices[0];
+        d7 = face.adjacentVertices[1];
+        d8 = face.adjacentVertices[2];
+    }
+    result.orientedFaceVertices = {d4, d7, d8};
+    std::swap(d7, d8);
+    staged[3] = d4;
+    staged[6] = d7;
+    staged[7] = d8;
+    const char marker = 'R';
+    const char *rawReason =
+        R"reason(INVALID_CORNER_VERTEX_INDEX)reason";
+}
+"""
+        preflight_loop = """
+    for (const Face &face : faces)
+    {
+        if (is_legacy_one_ring_rejection(classification.reasonCode))
+        {
+            const std::string message =
+                "Legacy one-ring setup rejected face ";
+            const char *reasonCodeName = "INVALID_CORNER_VERTEX_INDEX";
+            throw std::runtime_error(message + reasonCodeName);
+        }
+    }
+"""
+        publication_loop = """
+    for (std::size_t faceIndex = 0;
+         faceIndex < faces.size(); ++faceIndex)
+    {
+        faces[faceIndex].adjacentVertices.swap(orientedFaceVertices);
+        faces[faceIndex].oneRingVertices.swap(assembledOneRing);
+    }
+"""
+        repaired_source = (
+            '#include "mesh/Mesh.hpp"\n\n'
+            'namespace repaired_fixture\n{\n}\n'
+            'const char *reviewed_ready_state()\n'
+            '{\n'
+            '    return "READY_REGULAR";\n'
+            '}\n' + classifier_source + """
+void Mesh::set_one_ring_vertices_sorted()
+{
+""" + preflight_loop + publication_loop + """
+}
+"""
+        )
+        _, repaired_contract_sha256, repaired_contract_is_unambiguous = (
+            INVENTORY._reviewed_active_source_contract(repaired_source))
+        self.assertTrue(repaired_contract_is_unambiguous)
+        self.assertEqual(
+            INVENTORY._reviewed_active_source_contract(
+                repaired_source.replace(
+                    "int d4 = -1;", "int   d4 = -1;", 1))[1],
+            repaired_contract_sha256,
+            "whitespace-only formatting changed the source contract",
+        )
+        self.assertNotEqual(
+            INVENTORY._reviewed_active_source_contract(
+                repaired_source.replace(
+                    "int d4 = -1;", "intd4 = -1;", 1))[1],
+            repaired_contract_sha256,
+            "distinct C++ tokenization collapsed to the same source contract",
+        )
+        for equivalent_directive_source in (
+                repaired_source.replace(
+                    '#include "mesh/Mesh.hpp"',
+                    '#include    "mesh/Mesh.hpp"', 1),
+                repaired_source.replace(
+                    '#include "mesh/Mesh.hpp"',
+                    '#include "mesh/Mesh.hpp" // trailing comment', 1),
+                repaired_source.replace(
+                    '#include "mesh/Mesh.hpp"',
+                    '#include \\\n    "mesh/Mesh.hpp"', 1)):
+            self.assertEqual(
+                INVENTORY._reviewed_active_source_contract(
+                    equivalent_directive_source)[1],
+                repaired_contract_sha256,
+                "semantically equivalent directive formatting changed digest",
+            )
+        literal_fixture = r'''
+auto ordinary = u8"slash\\quote\"";
+auto character = U'\x5a';
+auto raw = LR"tag(raw // /* " bytes)tag"_suffix;
+// u8"comment literal"
+/* R"(block comment literal)" */
+'''
+        _, _, literal_tokens, literal_fixture_is_complete, _ = (
+            INVENTORY._cpp_lexical_surfaces(literal_fixture))
+        self.assertTrue(literal_fixture_is_complete)
+        self.assertEqual(
+            [token for _, _, token in literal_tokens],
+            [r'u8"slash\\quote\""', r"U'\x5a'",
+             r'LR"tag(raw // /* " bytes)tag"_suffix'],
+        )
+
+        def collect_with_topology(source):
+            def source_text(path):
+                if path == "src/mesh/Mesh_setup_geometry.cpp":
+                    return source
+                return original_text(path)
+
+            with mock.patch.object(
+                    INVENTORY, "_text", side_effect=source_text), \
+                    mock.patch.object(
+                        INVENTORY, "_topology_invalidation_seam_errors",
+                        return_value=[]), \
+                    mock.patch.object(
+                        INVENTORY,
+                        "REVIEWED_MESH_SETUP_GEOMETRY_ACTIVE_SOURCE_SHA256",
+                        repaired_contract_sha256):
+                return INVENTORY.collect_inventory()
+
+        def validate_topology(report):
+            with mock.patch.object(
+                    INVENTORY,
+                    "REVIEWED_MESH_SETUP_GEOMETRY_ACTIVE_SOURCE_SHA256",
+                    repaired_contract_sha256):
+                return INVENTORY.validate_inventory(report, check_adr=False)
+
+        def observe_topology(source):
+            with mock.patch.object(
+                    INVENTORY,
+                    "REVIEWED_MESH_SETUP_GEOMETRY_ACTIVE_SOURCE_SHA256",
+                    repaired_contract_sha256):
+                return INVENTORY._legacy_classifier_repair_observations(source)
+
+        repaired_report = collect_with_topology(repaired_source)
+        repaired_record = repaired_report["D_topology_guards"] \
+            ["legacy_11_control_predicate"] \
+            ["wp1_1a_classifier_repair_record"]
+        self.assertEqual(
+            (repaired_record["sentinel_initialization_observed"],
+             repaired_record["rejection_precedes_publication_observed"],
+             repaired_record["repair_confirmed"]),
+            (True, True, True),
+        )
+        self.assertFalse(validate_topology(repaired_report))
+        self.assertEqual(
+            repaired_record[
+                "required_active_classifier_identifier_occurrences"],
+            {"d4": 6, "d7": 7, "d8": 7},
+        )
+        self.assertEqual(
+            repaired_record["required_active_source_contract_sha256"],
+            repaired_contract_sha256,
+        )
+        tampered_contract = copy.deepcopy(repaired_report)
+        tampered_contract["D_topology_guards"] \
+            ["legacy_11_control_predicate"] \
+            ["wp1_1a_classifier_repair_record"] \
+            ["required_active_source_contract_sha256"] = "0" * 64
+        self.assertTrue(validate_topology(tampered_contract))
+        include_drift_report = collect_with_topology(
+            repaired_source.replace(
+                '"mesh/Mesh.hpp"', '"mesh/Other.hpp"', 1))
+        include_drift_record = include_drift_report["D_topology_guards"] \
+            ["legacy_11_control_predicate"] \
+            ["wp1_1a_classifier_repair_record"]
+        self.assertEqual(
+            (include_drift_record["sentinel_initialization_observed"],
+             include_drift_record[
+                 "rejection_precedes_publication_observed"],
+             include_drift_record["repair_confirmed"]),
+            (False, False, False),
+        )
+        self.assertFalse(validate_topology(include_drift_report))
+        self.assert_mutation_rejected(
+            lambda r: r["D_topology_guards"]
+            ["legacy_11_control_predicate"]
+            ["wp1_1a_classifier_repair_record"]
+            ["required_active_classifier_identifier_occurrences"]
+            .update({"d4": 7}))
+
+        rejection_line = (
+            "        if (is_legacy_one_ring_rejection("
+            "classification.reasonCode))")
+        publication_mutations = [
+            "faces[0].{field}.clear();",
+            "faces[0].{field}.push_back(0);",
+            "faces[0].{field} = {{}};",
+            "faces[0].{field}[0] = 0;",
+        ]
+        for field in ("adjacentVertices", "oneRingVertices"):
+            for mutation in publication_mutations:
+                extra_write_source = repaired_source.replace(
+                    rejection_line,
+                    "        " + mutation.format(field=field) + "\n" +
+                    rejection_line,
+                    1)
+                extra_write_report = collect_with_topology(extra_write_source)
+                extra_write_record = extra_write_report["D_topology_guards"] \
+                    ["legacy_11_control_predicate"] \
+                    ["wp1_1a_classifier_repair_record"]
+                self.assertEqual(
+                    (extra_write_record["sentinel_initialization_observed"],
+                     extra_write_record[
+                         "rejection_precedes_publication_observed"],
+                     extra_write_record["repair_confirmed"]),
+                    (False, False, False),
+                    f"active preflight mutation escaped: {field} {mutation}",
+                )
+                self.assertFalse(validate_topology(extra_write_report))
+
+        masked_mutations = [
+            "#if 0\n"
+            "        faces[0].adjacentVertices.clear();\n"
+            "#endif\n",
+            "#if (0)\n"
+            "        faces[0].adjacentVertices.clear();\n"
+            "#endif\n",
+            "#if 0 /* reviewed inactive comment */\n"
+            "        faces[0].adjacentVertices.clear();\n"
+            "#endif\n",
+            "#if ( /* reviewed inactive comment */ 0 )\n"
+            "        faces[0].adjacentVertices.clear();\n"
+            "#endif\n",
+            "  #  if ( 0 )\n"
+            "        faces[0].adjacentVertices.clear();\n"
+            "  #  endif\n",
+            "#if \\\n"
+            "    0\n"
+            "        faces[0].adjacentVertices.clear();\n"
+            "#endif\n",
+            "#if 0\n"
+            "        const auto hidden = R\"tag(inactive)tag\";\n"
+            "#endif\n",
+            "%:if 0\n"
+            "        faces[0].adjacentVertices.clear();\n"
+            "%:endif\n",
+            "        // faces[0].oneRingVertices.clear(); "
+            "\"ignored literal\" 'x' R\"(ignored raw)\"\n",
+        ]
+        for mutation in masked_mutations:
+            masked_write_report = collect_with_topology(
+                repaired_source.replace(
+                    rejection_line, mutation + rejection_line, 1))
+            masked_write_record = masked_write_report["D_topology_guards"] \
+                ["legacy_11_control_predicate"] \
+                ["wp1_1a_classifier_repair_record"]
+            self.assertEqual(
+                (masked_write_record["sentinel_initialization_observed"],
+                 masked_write_record[
+                     "rejection_precedes_publication_observed"],
+                 masked_write_record["repair_confirmed"]),
+                (True, True, True),
+            )
+            self.assertFalse(validate_topology(masked_write_report))
+
+        duplicate_sentinel_report = collect_with_topology(
+            repaired_source.replace(
+                "int d4 = -1;", "int d4 = -1;\n    int d4 = -1;", 1))
+        duplicate_sentinel_record = duplicate_sentinel_report[
+            "D_topology_guards"]["legacy_11_control_predicate"][
+                "wp1_1a_classifier_repair_record"]
+        self.assertEqual(
+            (duplicate_sentinel_record["sentinel_initialization_observed"],
+             duplicate_sentinel_record[
+                 "rejection_precedes_publication_observed"],
+             duplicate_sentinel_record["repair_confirmed"]),
+            (False, False, False),
+        )
+        self.assertFalse(validate_topology(duplicate_sentinel_report))
+
+        for name in ("d4", "d7", "d8"):
+            nested_declaration_source = repaired_source.replace(
+                f"    int {name} = -1;",
+                f"    int {name} = -1;\n"
+                f"    if (nested) {{ int spare, {name}; }}",
+                1)
+            nested_declaration_report = collect_with_topology(
+                nested_declaration_source)
+            nested_declaration_record = nested_declaration_report[
+                "D_topology_guards"]["legacy_11_control_predicate"][
+                    "wp1_1a_classifier_repair_record"]
+            self.assertEqual(
+                (nested_declaration_record[
+                     "sentinel_initialization_observed"],
+                 nested_declaration_record[
+                     "rejection_precedes_publication_observed"],
+                 nested_declaration_record["repair_confirmed"]),
+                (False, False, False),
+                f"nested declaration escaped: {name}",
+            )
+            self.assertFalse(validate_topology(nested_declaration_report))
+
+            for declaration in (
+                    f"int {name}(0);",
+                    f"int {name}{{0}};",
+                    f"decltype(0) {name};",
+                    f"auto [{name}, spare] = pair;",
+                    f"using {name} = int;"):
+                extra_identifier_source = repaired_source.replace(
+                    f"    int {name} = -1;",
+                    f"    int {name} = -1;\n"
+                    f"    if (nested) {{ {declaration} }}",
+                    1)
+                self.assertEqual(
+                    observe_topology(extra_identifier_source),
+                    (False, False),
+                    f"active extra identifier escaped: {declaration}",
+                )
+
+            masked_identifier_sources = (
+                repaired_source.replace(
+                    f"    int {name} = -1;",
+                    f"    int {name} = -1;\n"
+                    f"    // int {name}(0);",
+                    1),
+                repaired_source.replace(
+                    f"    int {name} = -1;",
+                    f"    int {name} = -1;\n"
+                    f"#if 0\n    int {name}(0);\n#endif",
+                    1),
+            )
+            for masked_identifier_source in masked_identifier_sources:
+                self.assertEqual(
+                    observe_topology(masked_identifier_source),
+                    (True, True),
+                    f"masked identifier affected observation: {name}",
+                )
+
+        macro_alias_source = (
+            "#define ADJACENT_FIELD adjacentVertices\n"
+            "#define ONE_RING_FIELD oneRingVertices\n" +
+            repaired_source.replace(
+                rejection_line,
+                "        faces[0].ADJACENT_FIELD.clear();\n"
+                "        faces[0].ONE_RING_FIELD.clear();\n" +
+                rejection_line,
+                1))
+        macro_alias_report = collect_with_topology(macro_alias_source)
+        macro_alias_record = macro_alias_report["D_topology_guards"] \
+            ["legacy_11_control_predicate"] \
+            ["wp1_1a_classifier_repair_record"]
+        self.assertEqual(
+            (macro_alias_record["sentinel_initialization_observed"],
+             macro_alias_record[
+                 "rejection_precedes_publication_observed"],
+             macro_alias_record["repair_confirmed"]),
+            (False, False, False),
+        )
+        self.assertFalse(validate_topology(macro_alias_report))
+
+        for masked_macro_prefix in (
+                "// #define ADJACENT_FIELD adjacentVertices\n",
+                "#if 0\n#define ADJACENT_FIELD adjacentVertices\n#endif\n"):
+            self.assertEqual(
+                observe_topology(masked_macro_prefix + repaired_source),
+                (True, True),
+                "masked macro directive affected repair observation",
+            )
+
+        def assert_repair_state(source, expected, message):
+            report = collect_with_topology(source)
+            record = report["D_topology_guards"] \
+                ["legacy_11_control_predicate"] \
+                ["wp1_1a_classifier_repair_record"]
+            self.assertEqual(
+                (record["sentinel_initialization_observed"],
+                 record["rejection_precedes_publication_observed"],
+                 record["repair_confirmed"]),
+                expected,
+                message,
+            )
+            self.assertFalse(validate_topology(report))
+
+        for invalid_if_literal in (
+                '"b0d_invalid_pp_expression"',
+                "'x'",
+                'R"tag(b0d_invalid_pp_expression)tag"'):
+            masked_if_expression_source = (
+                f"#if 0 {invalid_if_literal}\n"
+                "int b0d_hidden = does_not_compile;\n"
+                "#endif\n" + repaired_source)
+            self.assertNotEqual(
+                INVENTORY._reviewed_active_source_contract(
+                    masked_if_expression_source)[1],
+                repaired_contract_sha256,
+                "literal-bearing #if expression escaped digest",
+            )
+            assert_repair_state(
+                masked_if_expression_source,
+                (False, False, False),
+                "literal-bearing #if expression escaped repair state",
+            )
+
+        for invalid_if_prefix_literal in (
+                '"prefix"',
+                "'x'",
+                'R"tag(prefix)tag"'):
+            fabricated_if_source = (
+                f"{invalid_if_prefix_literal} #if 0\n"
+                "int b0d_active_breakage = does_not_compile;\n"
+                "#endif\n" + repaired_source)
+            self.assertNotEqual(
+                INVENTORY._reviewed_active_source_contract(
+                    fabricated_if_source)[1],
+                repaired_contract_sha256,
+                "prefix literal fabricated an inactive directive in digest",
+            )
+            assert_repair_state(
+                fabricated_if_source,
+                (False, False, False),
+                "prefix literal fabricated an inactive directive",
+            )
+
+        literal_mutations = (
+            ('"Legacy one-ring setup rejected face "',
+             '"Legacy one-ring setup rejected edge "'),
+            ('"INVALID_CORNER_VERTEX_INDEX"',
+             '"INVALID_CORNER_VERTEX_ID"'),
+            ("'R'", "'S'"),
+            ('R"reason(INVALID_CORNER_VERTEX_INDEX)reason"',
+             'R"reason(INVALID_CORNER_VERTEX_ID)reason"'),
+        )
+        for old_literal, new_literal in literal_mutations:
+            literal_mutation_source = repaired_source.replace(
+                old_literal, new_literal, 1)
+            self.assertNotEqual(literal_mutation_source, repaired_source)
+            self.assertNotEqual(
+                INVENTORY._reviewed_active_source_contract(
+                    literal_mutation_source)[1],
+                repaired_contract_sha256,
+                f"active literal mutation escaped digest: {old_literal}",
+            )
+            assert_repair_state(
+                literal_mutation_source,
+                (False, False, False),
+                f"active literal mutation escaped repair state: {old_literal}",
+            )
+
+        literal_relocations = (
+            ('return "READY_REGULAR";',
+             '"READY_REGULAR" return ;',
+             "ordinary string"),
+            ("const char marker = 'R';",
+             "'R' const char marker = ;",
+             "character"),
+            ('const char *rawReason =\n'
+             '        R"reason(INVALID_CORNER_VERTEX_INDEX)reason";',
+             'R"reason(INVALID_CORNER_VERTEX_INDEX)reason" '
+             'const char *rawReason =\n'
+             '        ;',
+             "raw string"),
+        )
+        for reviewed_literal_statement, relocated_statement, label in (
+                literal_relocations):
+            relocated_source = repaired_source.replace(
+                reviewed_literal_statement, relocated_statement, 1)
+            self.assertNotEqual(relocated_source, repaired_source)
+            self.assertNotEqual(
+                INVENTORY._reviewed_active_source_contract(
+                    relocated_source)[1],
+                repaired_contract_sha256,
+                f"{label} relocation escaped literal placement digest",
+            )
+            assert_repair_state(
+                relocated_source,
+                (False, False, False),
+                f"{label} relocation escaped repair state",
+            )
+
+        for equivalent_literal_spacing_source in (
+                repaired_source.replace(
+                    'return "READY_REGULAR";',
+                    'return    "READY_REGULAR";', 1),
+                repaired_source.replace(
+                    'return "READY_REGULAR";',
+                    'return/* comment\n\nspacing */"READY_REGULAR";', 1)):
+            self.assertEqual(
+                INVENTORY._reviewed_active_source_contract(
+                    equivalent_literal_spacing_source)[1],
+                repaired_contract_sha256,
+                "equivalent literal spacing changed placement digest",
+            )
+            self.assertEqual(
+                observe_topology(equivalent_literal_spacing_source),
+                (True, True),
+                "equivalent literal spacing changed repair observations",
+            )
+
+        literal_attachment_fixture = (
+            'auto encoding = u8"ready";\n'
+            'auto raw = LR"tag(raw bytes)tag"_suffix;\n'
+            'auto adjacent = "left""right";\n')
+        attachment_contract_sha256 = (
+            INVENTORY._reviewed_active_source_contract(
+                literal_attachment_fixture)[1])
+        for attachment_mutation in (
+                literal_attachment_fixture.replace(
+                    'u8"ready"', 'u"ready"', 1),
+                literal_attachment_fixture.replace(
+                    'tag"_suffix', 'tag" _suffix', 1),
+                literal_attachment_fixture.replace(
+                    '"left""right"', '"left" "right"', 1)):
+            self.assertNotEqual(
+                INVENTORY._reviewed_active_source_contract(
+                    attachment_mutation)[1],
+                attachment_contract_sha256,
+                "literal prefix/suffix/adjacency mutation escaped digest",
+            )
+
+        joined_directive_source = repaired_source.replace(
+            '#include "mesh/Mesh.hpp"\n\nnamespace',
+            '#include "mesh/Mesh.hpp" namespace',
+            1)
+        self.assertNotEqual(joined_directive_source, repaired_source)
+        self.assertNotEqual(
+            INVENTORY._reviewed_active_source_contract(
+                joined_directive_source)[1],
+            repaired_contract_sha256,
+            "directive/code line-boundary mutation escaped digest",
+        )
+        assert_repair_state(
+            joined_directive_source,
+            (False, False, False),
+            "directive/code line-boundary mutation escaped repair state",
+        )
+
+        block_comment_join_source = repaired_source.replace(
+            '#include "mesh/Mesh.hpp"\n\nnamespace',
+            '#include "mesh/Mesh.hpp" /*\n*/ namespace',
+            1)
+        self.assertNotEqual(block_comment_join_source, repaired_source)
+        self.assertNotEqual(
+            INVENTORY._reviewed_active_source_contract(
+                block_comment_join_source)[1],
+            repaired_contract_sha256,
+            "multiline block comment preserved a directive boundary",
+        )
+        assert_repair_state(
+            block_comment_join_source,
+            (False, False, False),
+            "multiline block-comment join escaped repair state",
+        )
+
+        block_comment_join_variants = (
+            '#include "mesh/Mesh.hpp" /*\n\n\n*/ namespace',
+            '#include "mesh/Mesh.hpp" /*\\\n\n*/ namespace',
+        )
+        for joined_include in block_comment_join_variants:
+            joined_source = repaired_source.replace(
+                '#include "mesh/Mesh.hpp"\n\nnamespace',
+                joined_include,
+                1)
+            self.assertNotEqual(
+                INVENTORY._reviewed_active_source_contract(joined_source)[1],
+                repaired_contract_sha256,
+                "block-comment newline family escaped phase-3 digest",
+            )
+            self.assertEqual(
+                observe_topology(joined_source),
+                (False, False),
+                "block-comment newline family escaped observations",
+            )
+
+        safe_block_comment_sources = (
+            repaired_source.replace(
+                "int d4 = -1;",
+                "int/* first comment line\n\nthird comment line */d4 = -1;",
+                1),
+            "/* standalone comment\n\nwith multiple new-lines */\n" +
+            repaired_source,
+            repaired_source +
+            "\n/* trailing standalone\n\nblock comment */",
+            repaired_source.replace(
+                "int d4 = -1;",
+                "int/* multiline\nblock comment */ // real line boundary\n"
+                "d4 = -1;",
+                1),
+        )
+        for safe_block_comment_source in safe_block_comment_sources:
+            self.assertEqual(
+                INVENTORY._reviewed_active_source_contract(
+                    safe_block_comment_source)[1],
+                repaired_contract_sha256,
+                "safe multiline block comment changed phase-3 digest",
+            )
+            assert_repair_state(
+                safe_block_comment_source,
+                (True, True, True),
+                "safe multiline block comment changed repair state",
+            )
+
+        pragma_control = (
+            "int b0d_before_pragma = 0;\n#pragma b0d_probe\n" +
+            repaired_source)
+        pragma_join = (
+            "int b0d_before_pragma = 0; /*\n*/ #pragma b0d_probe\n" +
+            repaired_source)
+        self.assertNotEqual(
+            INVENTORY._reviewed_active_source_contract(pragma_join)[1],
+            INVENTORY._reviewed_active_source_contract(pragma_control)[1],
+            "ordinary-code/#pragma phase-3 join preserved digest",
+        )
+        self.assertEqual(
+            observe_topology(pragma_join),
+            (False, False),
+            "ordinary-code/#pragma phase-3 join escaped observations",
+        )
+
+        for horizontal_line_character in ("\v", "\f"):
+            horizontal_join_source = repaired_source.replace(
+                '#include "mesh/Mesh.hpp"\n\nnamespace',
+                '#include "mesh/Mesh.hpp"' +
+                horizontal_line_character + "namespace",
+                1)
+            self.assertNotEqual(
+                INVENTORY._reviewed_active_source_contract(
+                    horizontal_join_source)[1],
+                repaired_contract_sha256,
+                "VT/FF incorrectly split a directive logical line",
+            )
+            assert_repair_state(
+                horizontal_join_source,
+                (False, False, False),
+                "VT/FF directive-boundary mutation escaped repair state",
+            )
+
+        unicode_whitespace_source = repaired_source.replace(
+            "int d4 = -1;", "int\u00a0d4 = -1;", 1)
+        self.assertNotEqual(
+            INVENTORY._reviewed_active_source_contract(
+                unicode_whitespace_source)[1],
+            repaired_contract_sha256,
+            "Unicode whitespace collapsed with ASCII C++ whitespace",
+        )
+        assert_repair_state(
+            unicode_whitespace_source,
+            (False, False, False),
+            "Unicode whitespace mutation escaped repair state",
+        )
+
+        unicode_boundary_sources = (
+            "\u00a0" + repaired_source,
+            repaired_source + "\u00a0",
+        )
+        for unicode_boundary_source in unicode_boundary_sources:
+            self.assertNotEqual(
+                INVENTORY._reviewed_active_source_contract(
+                    unicode_boundary_source)[1],
+                repaired_contract_sha256,
+                "leading/trailing Unicode whitespace escaped digest",
+            )
+            assert_repair_state(
+                unicode_boundary_source,
+                (False, False, False),
+                "leading/trailing Unicode whitespace escaped repair state",
+            )
+
+        unicode_directive_sources = (
+            "#if\u00a00\nint hidden_by_nbsp = does_not_compile;\n"
+            "#endif\n" + repaired_source,
+            "#\u00a0if 0\nint hidden_by_nbsp = does_not_compile;\n"
+            "#endif\n" + repaired_source,
+        )
+        for unicode_directive_source in unicode_directive_sources:
+            self.assertNotEqual(
+                INVENTORY._reviewed_active_source_contract(
+                    unicode_directive_source)[1],
+                repaired_contract_sha256,
+                "Unicode directive whitespace escaped digest",
+            )
+            assert_repair_state(
+                unicode_directive_source,
+                (False, False, False),
+                "Unicode directive whitespace escaped repair state",
+            )
+
+        for newline in ("\r\n", "\r"):
+            equivalent_newlines_source = repaired_source.replace("\n", newline)
+            self.assertEqual(
+                INVENTORY._reviewed_active_source_contract(
+                    equivalent_newlines_source)[1],
+                repaired_contract_sha256,
+                "equivalent C++ new-line spelling changed digest",
+            )
+            assert_repair_state(
+                equivalent_newlines_source,
+                (True, True, True),
+                "equivalent C++ new-line spelling changed repair state",
+            )
+
+        publication_signature = (
+            "void Mesh::set_one_ring_vertices_sorted()\n{\n")
+        out_of_scope_helper_source = """
+void mutate_publication_fields_before_preflight(std::vector<Face> &faces)
+{
+    faces[0].adjacentVertices.clear();
+    faces[0].oneRingVertices.clear();
+}
+""" + repaired_source.replace(
+            publication_signature,
+            publication_signature +
+            "    mutate_publication_fields_before_preflight(faces);\n",
+            1)
+        assert_repair_state(
+            out_of_scope_helper_source,
+            (False, False, False),
+            "out-of-scope publication helper escaped the source contract",
+        )
+
+        count_preserving_source = repaired_source.replace(
+            "    staged[3] = d4;",
+            "    { int d4; staged[3] = 0; }",
+            1)
+        count_preserving_active = (
+            INVENTORY._reviewed_active_source_contract(
+                count_preserving_source)[0])
+        count_preserving_classifier = INVENTORY._unique_braced_scope_span(
+            count_preserving_active,
+            r"\bLegacyOneRingClassification\s+"
+            r"Mesh::classify_legacy_one_ring\s*"
+            r"\(\s*const\s+Face\s*&\s*face\s*\)\s*const\s*\{")
+        self.assertIsNotNone(count_preserving_classifier)
+        self.assertEqual(
+            len(re.findall(
+                r"\bd4\b", count_preserving_classifier[3])),
+            6,
+            "adversary did not preserve the reviewed d4 token count",
+        )
+        assert_repair_state(
+            count_preserving_source,
+            (False, False, False),
+            "count-preserving nested d4 declaration escaped the contract",
+        )
+
+        ambiguous_conditionals = (
+            "#if 1\nint conditionally_active_helper = 0;\n#endif\n",
+            "#if 0\nint inactive_helper = 0;\n"
+            "#else\nint potentially_active_helper = 0;\n#endif\n",
+            "#endif\n",
+        )
+        for conditional_prefix in ambiguous_conditionals:
+            conditional_source = conditional_prefix + repaired_source
+            self.assertFalse(
+                INVENTORY._reviewed_active_source_contract(
+                    conditional_source)[2],
+                "potentially active conditional was not ambiguous",
+            )
+            assert_repair_state(
+                conditional_source,
+                (False, False, False),
+                "potentially active conditional escaped the contract",
+            )
+
+        trigraph_source = (
+            "??=if 0\n"
+            "int b0d_trigraph_hidden_but_cpp17_active = does_not_compile;\n"
+            "??=endif\n" + repaired_source)
+        self.assertNotEqual(
+            INVENTORY._reviewed_active_source_contract(trigraph_source)[1],
+            repaired_contract_sha256,
+            "C++17-active trigraph spelling escaped the source digest",
+        )
+        assert_repair_state(
+            trigraph_source,
+            (False, False, False),
+            "C++17-active trigraph spelling escaped repair state",
+        )
+
+        misordered_source = classifier_source + """
+void Mesh::set_one_ring_vertices_sorted()
+{
+""" + publication_loop + preflight_loop + """
+}
+"""
+        misordered_report = collect_with_topology(misordered_source)
+        misordered_record = misordered_report["D_topology_guards"] \
+            ["legacy_11_control_predicate"] \
+            ["wp1_1a_classifier_repair_record"]
+        self.assertEqual(
+            (misordered_record["sentinel_initialization_observed"],
+             misordered_record["rejection_precedes_publication_observed"],
+             misordered_record["repair_confirmed"]),
+            (False, False, False),
+        )
+        self.assertFalse(validate_topology(misordered_report))
+
+        inactive_fake_report = collect_with_topology(
+            "#if 0\n" + repaired_source + "#endif\n" +
+            original_text("src/mesh/Mesh_setup_geometry.cpp"))
+        inactive_fake_record = inactive_fake_report["D_topology_guards"] \
+            ["legacy_11_control_predicate"] \
+            ["wp1_1a_classifier_repair_record"]
+        self.assertEqual(
+            (inactive_fake_record["sentinel_initialization_observed"],
+             inactive_fake_record[
+                 "rejection_precedes_publication_observed"],
+             inactive_fake_record["repair_confirmed"]),
+            (False, False, False),
+        )
+        self.assertFalse(validate_topology(inactive_fake_report))
+
+        detached_preflight = preflight_loop.replace(
+            "        {\n"
+            "            throw std::runtime_error(message);\n"
+            "        }",
+            "        {\n"
+            "        }\n"
+            "        throw std::runtime_error(message);", 1)
+        detached_throw_source = classifier_source + """
+void Mesh::set_one_ring_vertices_sorted()
+{
+""" + detached_preflight + publication_loop + """
+}
+"""
+        detached_throw_report = collect_with_topology(detached_throw_source)
+        detached_throw_record = detached_throw_report["D_topology_guards"] \
+            ["legacy_11_control_predicate"] \
+            ["wp1_1a_classifier_repair_record"]
+        self.assertEqual(
+            (detached_throw_record["sentinel_initialization_observed"],
+             detached_throw_record[
+                 "rejection_precedes_publication_observed"],
+             detached_throw_record["repair_confirmed"]),
+            (False, False, False),
+        )
+        self.assertFalse(validate_topology(detached_throw_report))
+
+        inconsistent_current = copy.deepcopy(self.baseline)
+        inconsistent_current["D_topology_guards"] \
+            ["legacy_11_control_predicate"] \
+            ["wp1_1a_classifier_repair_record"] \
+            ["repair_confirmed"] = True
+        self.assertTrue(INVENTORY.validate_inventory(
+            inconsistent_current, check_adr=False))
+        inconsistent_repaired = copy.deepcopy(repaired_report)
+        inconsistent_repaired["D_topology_guards"] \
+            ["legacy_11_control_predicate"] \
+            ["wp1_1a_classifier_repair_record"] \
+            ["repair_confirmed"] = False
+        self.assertTrue(validate_topology(inconsistent_repaired))
+        non_boolean = copy.deepcopy(self.baseline)
+        non_boolean["D_topology_guards"] \
+            ["legacy_11_control_predicate"] \
+            ["wp1_1a_classifier_repair_record"] \
+            ["sentinel_initialization_observed"] = "false"
+        self.assertTrue(INVENTORY.validate_inventory(
+            non_boolean, check_adr=False))
+
+        def collapse_legacy_11_control_split(report) -> None:
+            legacy = report["D_topology_guards"]["legacy_11_control_predicate"]
+            legacy.pop("legacy_11_control_matrix_defect_assertion")
+            legacy.pop("wp1_1a_classifier_repair_record")
+            legacy["defect_confirmed"] = True
+
+        self.assert_mutation_rejected(collapse_legacy_11_control_split)
 
     def test_E_scheme_boundary_and_version_policy(self) -> None:
         self.assert_mutation_rejected(

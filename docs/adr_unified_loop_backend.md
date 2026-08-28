@@ -119,12 +119,17 @@ Production characterization records 2,720 regular physical faces plus a
 band. D2 is therefore a closed-proof scope, while D2b determines whether and
 how the primary workload crosses the eventual generic production seam.
 
-The legacy 11-control setup predicate currently admits faces whose three
-corner valences are 5/5/5. The matrix construction describes one valence-5
-corner and two valence-6 corners (5/6/6). The predicate also declares `d4`,
-`d7`, and `d8` before branches intended to identify the extraordinary corner.
-This is a confirmed topology/implementation mismatch. D5 governs changing
-it; WP0.1 only records it.
+The legacy 11-control setup predicate admits faces whose three corner valences
+are 5/5/5. The matrix construction describes one valence-5 corner and two
+valence-6 corners (5/6/6); that retained matrix mismatch remains a confirmed
+defect witness owned by D5. The classifier repair is owned separately by
+WP1.1a. The inventory records whether the checked-out
+`src/mesh/Mesh_setup_geometry.cpp` has total sentinel initialization for `d4`,
+`d7`, and `d8` and whether rejection and its throw precede publication to
+`face.adjacentVertices` and `face.oneRingVertices`; it does not treat an
+unmerged branch object as current-tree state. The classifier repair record
+neither quarantines the accepted all-Valence-5 fixture nor changes the matrix;
+D5 still governs those decisions.
 
 ### OpenSubdiv provider policy
 
